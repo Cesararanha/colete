@@ -1,16 +1,17 @@
-# Colete — Roadmap executável (v2, pré-migration)
+# Colete — Roadmap executável (v2, implementação incremental)
 
-**25/08/2026.** O repositório ainda está na fase documental. O objetivo agora não é
-continuar redesenhando o produto: é transformar as decisões fechadas nos documentos
-`01`, `04` e `09`–`17` em migrations, testes e um beta PWA seguro.
+**31/08/2026.** O M0-A/M0-B já entregou localmente as migrations `0001`–`0003` e suas
+evidências em `19`/`20`. O objetivo agora não é continuar redesenhando o produto: é executar
+incrementalmente as decisões fechadas em `01`, `04` e `09`–`17`. O plano do M1-A abaixo ainda
+não é implementação concluída.
 
 ## 1. Estado da definição
 
-| Bloco | Artefato | Estado para iniciar migrations |
+| Bloco | Artefato | Estado atual |
 |---|---|---|
 | Requisitos e decisões | `01-requisitos.md` · `09-pivo-produto.md` | D1–D62; revisão adversarial incorporada; mudança material exige atualizar ambos |
 | Algoritmo | `04-algoritmo-sorteio.md` | v3 binária: PRNG/encoding/vetores, streaming exato e orçamento heurístico |
-| Schema/RLS | `10-schema-db.md` | desenho revisto: idempotência transacional, FKs compostas, sagas externas e retenção física; SQL ainda não criado |
+| Schema/RLS | `10-schema-db.md` | fundação `0001`–`0003` criada/testada; idempotência, RPCs e demais fatias seguem como plano incremental |
 | Telas e fluxos | `11-telas-v1.md` | 25 telas e F1–F6 alinhados |
 | Notificações | `12-notificacoes.md` | N1–N28, payloads, canais e semântica de entrega fechados |
 | Contratos | `13-contratos-funcoes.md` | entradas, erros, locks, JCS/HMAC, apelações, recorrência e sagas fechados |
@@ -30,9 +31,12 @@ RLS default-deny e sorteio versionado.
       `claim_cooldown_seconds = 300`, dispatcher `max_attempts = 6` com backoff de 60 s até
       3600 s, e a allowlist MIME de `13-contratos-funcoes.md` §2.1. São valores de calibragem
       iniciais, sujeitos a revisão no piloto.
-- [ ] **Antes da primeira migration:** criar primeiro commit de baseline, tag
-      `spec-pre-migration-v1` e proteção de `main`; clone limpo precisa reproduzir documentos
-      e checksums. Enquanto todos os arquivos estiverem untracked, migration permanece bloqueada.
+- [x] **Gate histórico anterior à primeira migration:** criar o commit de baseline e provar
+      que clone limpo reproduz documentos/checksums. Cumprido no M0-A; tag documental e
+      proteção de `main` continuam como preparação do primeiro PR remoto.
+- [ ] **Antes da primeira RPC mutável:** implementar e testar o gateway Edge exclusivo. O
+      cliente chama somente a Edge; `public`, `anon` e `authenticated` não recebem `EXECUTE`
+      na RPC interna, e a secret key permanece apenas no backend.
 - [ ] **Antes de convidar o beta:** escolher provedor SMTP transacional e validar domínio remetente (SPF/DKIM/DMARC).
       O SMTP padrão do ambiente de desenvolvimento não atende beta com usuários reais.
 - [ ] **Antes de convidar o beta:** registrar `VAPID` e estratégia mínima do service worker; nenhum cache de Pix,
@@ -83,9 +87,10 @@ incremental por marco, e não muda a ordem de locks nem relaxa os critérios de 
 | Baseline de segurança do M0-A | bootstrap anterior às fatias B2 | `0001_bootstrap_security.sql` |
 | B2 fatia 1 | extensões, helpers seguros, limites operacionais e perfis | `0002_identity_foundation.sql` |
 | B2 fatia 2 | aceite, denylist, pedidos, exports e base da saga | `0003_privacy_and_deletion.sql` |
-| M1-A, antecipação da fatia 7 | envelope de idempotência transacional, JCS/HMAC e trigger diferido | `0004_idempotency_foundation.sql` |
-| M1-A, antecipação da fatia 7 | `private.external_effects`, `private.job_runs` e `private.retention_runs` | `0005_operational_runs.sql` |
-| M1-A, antecipação da fatia 10 | camada genérica e RPCs `accept_policies`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
+| M1-A, antecipação da fatia 7 | envelope transacional, validador de outcomes, trigger diferido e suporte à canonicalização; sem helper HMAC produtivo sem chamador | `0004_idempotency_foundation.sql` |
+| M1-A, antecipação da fatia 7 | tabelas operacionais estritamente necessárias: `private.external_effects`, `private.job_runs` e `private.retention_runs` | `0005_operational_runs.sql` |
+| M1-A, antecipação da fatia 10 | catálogo de políticas, dispatcher interno e RPCs `accept_policies`, `complete_profile`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
+| M1-A, retenção antecipada da fatia 7 | expurgo de outcomes e tombstones nos prazos normativos | `0007_idempotency_retention.sql` |
 | M1-B, antecipação de identidade/privacidade da fatia 10 | export governado, saga de exclusão, bucket `data-exports` e download Edge | a numerar no plano detalhado do M1-B |
 | B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
 
@@ -94,6 +99,13 @@ Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separa
 fatia 10 permanecem os RPCs e jobs de grupos, rachas, lista, financeiro, times e comunicação,
 as reconciliações/retention que dependem desses domínios e as demais policies de Storage. O
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
+
+As linhas `0004`–`0007` são **plano futuro** deste marco: este commit não cria migration,
+RPC, catálogo, seed, Edge Function ou job. Somente `0001`–`0003` têm evidência operacional em
+`19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
+existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
+relaxamento permanente. Versões fictícias de políticas ficam em fixtures ou seed local; antes
+do beta, outra migration publica textos efetivos/digests, sem `m1-draft-1` canônico.
 
 Critério de saída de B2:
 
@@ -107,6 +119,8 @@ Critério de saída de B2:
   sessão e exclusão só segue com substituto/canal seguro;
 - todo RPC mutável cobre `executing_uncommitted→completed`, rollback em crash,
   `payload_expired`, espera concorrente, `IDEMPOTENCY_CONFLICT` e replay sem Pix/token;
+- toda mutação externa atravessa a Edge, sem ator/HMAC vindo do cliente, e nenhuma RPC mutável
+  concede `EXECUTE` a `public`, `anon` ou `authenticated`;
 - nenhum `executing_uncommitted` pode dar commit; efeito Auth/Storage usa saga/outbox e teste
   de crash em cada fronteira;
 - dump não permite enumerar payload, nota ou comprovante: HMAC de domínio/versão tem vetores;
@@ -117,6 +131,11 @@ Critério de saída de B2:
 ## 4. Estratégia de testes
 
 ### Banco e concorrência
+
+O harness de 25 conexões pertence à estratégia/suíte de concorrência, não a uma migration.
+Para o M1-A, a calibragem proposta é `idempotency_wait_timeout_ms=3000`, unidade
+`milliseconds`: timeout retorna `IDEMPOTENCY_WAIT_TIMEOUT`, sem efeito parcial, e o retry usa
+o mesmo `request_id`. O piloto valida o número antes de tratá-lo como calibragem estável.
 
 - N entradas e N claims concorrentes contra a última vaga;
 - `join_match` concorrendo com saída/remoção/suspensão/exclusão, nas duas ordens, sem
@@ -176,6 +195,14 @@ auditoria final, não a primeira vez que acessibilidade aparece.
 O beta entrega **PWA responsivo primeiro**. A arquitetura continua compatível com Expo
 nativo, mas iOS/Android, Apple Sign In e Expo Push não estão no caminho crítico inicial.
 
+### Fronteira da tela Perfil no M1-A
+
+No M1-A a tela oferece somente: criação/conclusão do perfil, edição dos próprios dados,
+leitura do provedor vinculado, troca de senha e logout seguro. Não renderiza controles de
+exportar dados, excluir conta ou vincular/desvincular Google. Esses controles entram apenas
+quando seus contratos estiverem implementados e testados; não há botão oculto/desabilitado
+prometendo trabalho futuro.
+
 | Marco | Conteúdo | Pronto quando |
 |---|---|---|
 | **M0 — fundação** | repo do app, Expo Web/PWA, TypeScript, CI, Supabase dev, harness de migrations + fatias B2 1–2, Sentry sanitizado, tokens AA | pipeline verde; fatia atual do banco recria do zero; PWA abre por teclado; redaction e backup de teste funcionam |
@@ -226,10 +253,8 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 ## 8. Próximo passo objetivo
 
-Criar a baseline Git e fechar os itens marcados para a primeira migration na seção 2; só
-então iniciar B2. Os gates de
-beta podem avançar em paralelo, mas precisam estar concluídos antes do primeiro convite.
-A primeira entrega concreta é a migration de identidade/governança acompanhada de testes
-RLS; a segunda é grupos/owner. Não começar
-pelas telas de lista: sem identidade interna, ledger e autorização, a corrida apenas
-solidifica dívidas técnicas mais caras.
+Implementar o gateway Edge exclusivo e `0004_idempotency_foundation.sql`, com testes de grant,
+vetores e concorrência, antes de expor a primeira mutação. Depois seguem `0005`, `0006` e
+`0007` na ordem desta página. Os gates de beta podem avançar em paralelo, mas precisam estar
+concluídos antes do primeiro convite. Não começar pelas telas de lista: sem identidade
+interna, idempotência e autorização, a corrida apenas solidifica dívidas técnicas mais caras.

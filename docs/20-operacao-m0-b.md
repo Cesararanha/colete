@@ -118,13 +118,18 @@ verdes:
    sessão revogada com `UNAUTHENTICATED`, e deixa passar sessão viva devolvendo o
    `profile_id` — o caminho positivo impede que a negação seja vacuamente verde.
 
-**Nota sobre o dono dos RPCs.** As funções da fatia de RPCs serão de `postgres`, e
-não de um papel dedicado: `auth.uid()` e `auth.jwt()` pertencem a
-`supabase_auth_admin`, no schema `auth`, cujo dono é `supabase_admin`; `postgres`
-não consegue conceder `usage` nesse schema a outro papel
-(`WARNING: no privileges were granted for "auth"`). Isso não reintroduz o defeito:
-depois da correção, a garantia não depende mais de `BYPASSRLS`, e a asserção 3
-prova isso com um papel que não o tem.
+**Nota histórica sobre o dono dos helpers.** Os helpers entregues pelo M0-B são de
+`postgres`. A observação empírica continua válida: `auth.uid()` e `auth.jwt()`
+pertencem a `supabase_auth_admin`, no schema `auth`, cujo dono é `supabase_admin`;
+`postgres` não consegue conceder `usage` nesse schema a outro papel
+(`WARNING: no privileges were granted for "auth"`). A asserção 3 continua provando
+o caminho da denylist com um papel sem `BYPASSRLS`.
+
+O texto anterior extrapolava essa evidência para os RPCs futuros. A decisão documental
+posterior do M1-A, em `13` §0.1 e `14` §5.3, usa gateway Edge exclusivo: a RPC interna
+recebe contexto das claims verificadas e não trata `auth.uid()` administrativo como prova
+do usuário final. Nenhuma RPC do M1-A foi implementada neste documento; a evidência do M0-B
+continua limitada às migrations `0002`/`0003` e aos helpers listados no início.
 
 ### `session_id`: verificado, não presumido
 

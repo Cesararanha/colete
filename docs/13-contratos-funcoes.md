@@ -1,12 +1,14 @@
-# Colete — Contratos das funções (v2, pré-migration)
+# Colete — Contratos das funções (v2, implementação incremental)
 
 **A API do app: entradas, saídas, autorização, erros e efeitos transacionais.**
-25/08/2026. Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
+31/08/2026. Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
 
 ## 0. Envelope e regras comuns
 
-Toda mutação aceita `request_id: uuid`, gerado uma vez por intenção do usuário e
-reutilizado em retries. Resposta:
+As assinaturas nomeadas neste documento são o **contrato externo**. Toda mutação vai do
+cliente para uma Edge Function exclusiva; o cliente nunca chama RPC mutável diretamente. Ele
+envia apenas `request_id: uuid`, gerado uma vez por intenção e reutilizado em retries, e os
+campos de negócio enumerados na assinatura. Resposta:
 
 ```ts
 type Result<T> =
@@ -22,10 +24,12 @@ type Result<T> =
    o commit/rollback. O estado intermediário nunca é commitado: trigger diferido exige
    `completed` no mesmo commit do efeito/outbox. Após commit, o concorrente lê em novo
    statement e reproduz o outcome; após rollback, outro se torna vencedor. Não existe lease
-   nem takeover de mutação. Espera excedida retorna `IDEMPOTENCY_WAIT_TIMEOUT`, retryable e
-   sem efeito. Depois de 30 dias o JSON é apagado e a linha vira `payload_expired`; retry
-   retorna `IDEMPOTENCY_EXPIRED`. A chave/HMAC ficam por 24 meses. Entrada diferente retorna
-   `IDEMPOTENCY_CONFLICT`.
+   nem takeover de mutação. A calibragem proposta para a espera é
+   `idempotency_wait_timeout_ms=3000`, unidade `milliseconds`; espera excedida retorna
+   `IDEMPOTENCY_WAIT_TIMEOUT`, retryable e sem efeito, e o retry conserva o mesmo
+   `request_id`. O valor será validado no piloto. Depois de 30 dias o JSON é apagado e a
+   linha vira `payload_expired`; retry retorna `IDEMPOTENCY_EXPIRED`. A chave/HMAC ficam por
+   24 meses. Entrada diferente retorna `IDEMPOTENCY_CONFLICT`.
 3. **Resultados normais não são erros.** Uma entrada que vai para a espera retorna
    sucesso com `status: 'waitlist'`.
 4. **Ordem de lock:** idempotência → perfis → grupos → memberships → recorrências → rachas → convites →
@@ -35,12 +39,16 @@ type Result<T> =
    da mudança; entrega por canal ocorre depois, pelo menos uma vez.
 6. **Tempo do servidor.** O cliente pode exibir contagens, mas toda validade usa
    `now()` do banco. Funções chamam `apply_due_transitions_locked` antes de decidir.
-7. **Identidade interna.** Entradas e saídas usam `profile_id`; o vínculo com
-   `auth.users` é detalhe de autenticação e pode ser removido na desidentificação.
+7. **Identidade interna.** Nas quatro mutações do M1-A, o cliente não envia `auth_user_id`,
+   `profile_id`, `session_id` nem ator. A Edge valida o JWT, extrai as claims e a RPC resolve o
+   perfil. Em contratos posteriores, um `profile_id` enumerado na assinatura pode ser o alvo
+   de uma ação, nunca a identidade do chamador. O vínculo com `auth.users` é detalhe de
+   autenticação e pode ser removido na desidentificação.
 
 Outcome idempotente guarda IDs e `logical_result` do efeito; não guarda estado/prazo/posição
 mutável de claim/sessão, capacidade restante ou estado financeiro atual. Também nunca guarda
-Pix, token/URL/path, nota, prova, fingerprint, input/score privado, motivo livre ou perfil.
+Pix, token/URL/path, nota, prova, fingerprint, input/score privado, motivo livre ou campos de
+perfil.
 A resposta combina `{ outcome, current }`: `outcome` vem do registro e `current` é projeção
 fresca autorizada. Pix por `get_payment_instructions`, upload/leitura de prova pelas Edge
 autenticadas, claim/lista por `get_my_match_state` e proposta por
@@ -48,6 +56,23 @@ autenticadas, claim/lista por `get_my_match_state` e proposta por
 é executado dentro da promessa transacional do banco.
 
 ### 0.1 Canonicalização idempotente v1
+
+Há dois contratos de transporte:
+
+- **externo, cliente → Edge:** `request_id` + entrada de negócio. Não existem
+  `input_hmac`, `hash_key_version` ou contexto de ator no body;
+- **interno, Edge → RPC:** entrada normalizada + `request_id` +
+  `actor_auth_user_id`/`actor_session_id` extraídos exclusivamente das claims verificadas +
+  `input_hmac` + `hash_key_version`. A chamada usa o cliente administrativo com secret key.
+
+`public`, `anon` e `authenticated` não recebem `EXECUTE` nas RPCs mutáveis. Após revogar os
+defaults, só o papel administrativo usado pelo caminho secreto recebe grant nominal. A Edge
+não possui endpoint administrativo genérico nem faz DML livre nas tabelas; chama apenas a RPC
+estreita da operação. No banco, esse chamador não é o usuário final: a RPC não pode alegar que
+o ator veio de `auth.uid()`. A confiança na origem de `actor_auth_user_id`/`actor_session_id`
+vem da Edge autenticada e do grant exclusivo, enquanto autorização de domínio, sessão
+revogada, locks, constraints, idempotência e efeitos atômicos continuam sendo revalidados no
+banco.
 
 Cada operação possui schema normalizador: rejeita chave desconhecida; preserva a diferença
 ausente×`null`; normaliza string em NFC, UUID minúsculo, timestamp UTC com seis casas,
@@ -65,12 +90,22 @@ de teste `00..1f`, operação `join_match`, JCS
 `{"list_kind":"field","match_id":"01890f7e-e948-7c53-b13a-4a36e4b7d21e"}` →
 `5974c4e8c2434e4d150f2f2199180b3228c869f80e72dabc0f25218132595ee4`.
 
+O HMAC detecta replay/divergência e protege o digest de entradas de baixa entropia; ele não
+autentica o ator nem concede autorização. A Edge calcula com a chave do cofre, que nunca entra
+no cliente, banco, tabela, configuração SQL ou log. A RPC valida formato e versão, compara o
+valor persistido em replay e revalida os campos de negócio. Não se cria
+`private.compute_idempotency_hash` em produção sem chamador produtivo; vetores SQL usam
+`extensions.hmac` diretamente ou helper exclusivo da suíte.
+
 Erros comuns: `UNAUTHENTICATED` · `FORBIDDEN` · `NOT_MEMBER` · `NOT_ORGANIZER` ·
 `OWNER_ONLY` · `NOT_FOUND` · `VALIDATION` · `IDEMPOTENCY_WAIT_TIMEOUT` · `IDEMPOTENCY_CONFLICT` ·
 `IDEMPOTENCY_EXPIRED` ·
 `CONCURRENT_CHANGE` · `PROFILE_SUSPENDED` · `GROUP_SUSPENDED` · `MATCH_CANCELED` · `MATCH_DONE`.
 
 ### 0.2 Testes normativos de idempotência
+
+Este é um plano da suíte, não conteúdo de migration. O harness abre 25 conexões para o caso
+simultâneo abaixo e mantém casos menores/maiores conforme a operação.
 
 1. 25 chamadas simultâneas com mesma chave/HMAC produzem um efeito e um `completed`; depois
    do commit, todas recebem o mesmo outcome seguro. Timeout de espera pode retornar somente
@@ -585,8 +620,27 @@ de e-mail nunca mescla perfis silenciosamente. Apple entra apenas com o app nati
 
 ### 5.2 `accept_policies(versions, request_id)`
 
-Grava versões de Termos/Política, data e base de evidência. Versão obrigatória nova
-bloqueia mutações até novo aceite; leitura e exportação continuam disponíveis.
+`versions` é um array não vazio de
+`{ document_type: 'terms'|'privacy', version: string }`, sem duplicatas e ordenado
+canonicamente por `document_type` e depois `version`. Esta é toda a entrada externa além de
+`request_id`; HMAC, versão de chave e contexto do ator pertencem somente à chamada interna.
+
+- **Quem:** perfil correspondente à sessão verificada, inclusive quando há aceite pendente.
+- **Validação:** cada par precisa existir em `private.policy_documents` e ser a única versão
+  `mandatory=true` atual do tipo. Versão desconhecida, superada ou não obrigatória retorna
+  `VALIDATION`. A operação falha fechada se o catálogo não tiver exatamente uma versão
+  obrigatória de `terms` e uma de `privacy`.
+- **Fonte:** derivada pelo servidor, nunca pelo payload. O primeiro aceite daquele tipo usa
+  `source='signup'`; aceites de novas versões do mesmo tipo usam `source='reauth'`.
+- **Saída:** `{ outcome: { accepted: [{document_type,version}], logical_result:
+  'policies_accepted' }, current: { accepted_current: [{document_type,version}], pending:
+  [{document_type,version}] } }`. O array do outcome conserva a ordem canônica; nem outcome
+  nem `current` carregam conteúdo integral dos documentos.
+- **Idempotência:** retry reproduz o outcome e relê `current`. Um aceite já existente é
+  sucesso sem nova linha/evidência; a unique por perfil/tipo/versão é a segunda barreira.
+- **Gate:** mutações comuns retornam `VALIDATION` enquanto houver versão obrigatória pendente.
+  Permanecem disponíveis `complete_profile`, `accept_policies`, logout/revogação, leitura
+  própria e canais de privacidade.
 
 ### 5.3 `request_data_export(request_id)` / `delete_account(request_id)`
 
@@ -643,7 +697,8 @@ Cobre logout seguro; perder todas as sessões de uma vez continua sendo efeito d
 - **Quem:** qualquer sessão autenticada cujo JWT traga `session_id`. Conta suspensa ou banida
   pode revogar a própria sessão: é operação de segurança do titular, não mutação de domínio,
   e cabe na mesma exceção de §5.4 que preserva leitura própria, exportação e recurso.
-- **Entrada canônica:** `{}`. O ator vem de `auth.uid()` e nunca do payload.
+- **Entrada canônica:** `{}`. O ator vem do contexto de claims verificadas pela Edge e nunca
+  do payload externo; no caminho administrativo, `auth.uid()` não representa o usuário final.
 - **Saída:** `{ outcome: { session_id, revoked_at, logical_result: 'session_revoked' },
   current: { session_active: false } }`. O `session_id` do outcome é o do próprio chamador,
   que já o carrega no token. O `expires_at` fica fora do outcome: prazo de sessão é estado
@@ -698,6 +753,42 @@ Edição dos próprios dados da tela 13. Não é evento de grupo: não gera noti
   o outcome gravado e `current` recalculado.
 - **Efeitos:** grava apenas as colunas presentes no patch, em uma única atualização da
   própria linha.
+
+### 5.7 `complete_profile(profile, request_id)`
+
+Cria o vínculo interno para uma sessão verificada que ainda não possui perfil. A entrada
+externa é `{ name, nickname?, position?, dominant_foot?, shirt_number? }` + `request_id`;
+nenhum ator, status ou ID é aceito. Somente a Edge exclusiva pode iniciar a RPC interna.
+
+- **Validação:** `name` é obrigatório. Trim, NFC, limites, enums, inteiros e semântica de
+  opcionais são exatamente os de `update_profile`; `photo_url` continua fora. O Auth ID é
+  extraído das claims verificadas pela Edge. `profiles.auth_user_id unique` permanece como
+  barreira independente contra dois perfis.
+- **Ator bootstrap:** antes de consultar se o perfil existe, deriva-se
+  `actor_key='bootstrap:' || digest_hex`, válido exclusivamente para
+  `operation='complete_profile'`, com hexadecimal minúsculo e:
+
+  ```text
+  digest = SHA-256(
+    UTF8("colete/bootstrap-actor/v1") || 0x00 || UUID_BYTES(auth_user_id)
+  )
+  ```
+
+  `UUID_BYTES` são os 16 bytes em ordem textual/RFC 4122: remove-se o hífen da forma canônica
+  minúscula e decodificam-se os 32 hexadecimais; não se hasheia o texto do UUID. Vetor comum:
+  `01890f7e-e948-7c53-b13a-4a36e4b7d21e` → bytes
+  `01890f7ee9487c53b13a4a36e4b7d21e` → digest
+  `21409156bb1cbd9d8cadf3814edcf230153e3378c09dc03ebf5ed8940c9c4d3a`.
+- **Transação:** `actor_id` pode ser nulo em `executing_uncommitted`. Depois de inserir o
+  perfil, a mesma transação liga o registro idempotente a `actor_id=profile_id` antes de
+  marcar `completed`; ele não permanece nulo.
+- **Saída:** `{ outcome: { profile_id, logical_result: 'profile_created' }, current: { name,
+  nickname, position, dominant_foot, shirt_number } }`, com `current` relido por projeção
+  autorizada.
+- **Idempotência:** o mesmo `request_id` encontra a chave bootstrap mesmo depois da criação e
+  reproduz o outcome. Outro `request_id` após a criação retorna `VALIDATION`; em qualquer
+  corrida, a unique de `auth_user_id` impede o segundo perfil.
+- **Erros:** `VALIDATION` · `UNAUTHENTICATED` · erros comuns de idempotência.
 
 ## 6. Preferências, dispositivos e entrega
 

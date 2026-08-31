@@ -137,10 +137,10 @@ não prevalecem sobre `01` e `09`–`17`.
 
 ## Status
 
-🧭 **Pré-migration bloqueada apenas pelos gates operacionais explícitos.** A revisão
-adversarial foi incorporada, mas nenhuma migration começa enquanto não houver baseline Git
-versionada, limites iniciais definidos e plano de backup de comprovantes/RPO aprovado conforme
-`16-roadmap.md`.
+🧭 **M0-A e M0-B concluídos localmente.** As migrations `0001`–`0003` entregam a fundação de
+segurança, identidade e privacidade descrita em `19`/`20`. O próximo passo planejado é o M1-A:
+gateway Edge exclusivo e migrations `0004`–`0007`; esse trabalho ainda não está implementado.
+Os gates de convite ao beta permanecem em `16-roadmap.md`.
 
 ---
 
