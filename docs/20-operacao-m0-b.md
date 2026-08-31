@@ -35,8 +35,9 @@ constraints, RLS, policies e helpers. Nenhuma RPC entra aqui.
 | `private.require_domain_authority()` | `10` §11 |
 | quatro policies de leitura própria | tabela de RLS de `10` §11 |
 
-`npm run db:test` executa 211 asserções pgTAP em três arquivos: 13 do M0-A, 93 da
-fatia 1 e 105 da fatia 2.
+Ao fim do M0-B, `npm run db:test` executava 211 asserções pgTAP em três arquivos:
+13 do M0-A, 93 da fatia 1 e 105 da fatia 2. O total do comando cresce a cada
+fatia; `21-operacao-m1-a.md` registra o número medido depois da `0004`.
 
 ## Decisões que precisam ficar registradas
 

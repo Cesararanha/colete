@@ -92,6 +92,8 @@ jobs:
         run: npm run db:reset
       - name: Run pgTAP security tests
         run: npm run db:test
+      - name: Run the transactional idempotency concurrency harness
+        run: npm run db:test:idempotency
       - name: Stop the disposable local stack
         if: always()
         run: npm run db:stop

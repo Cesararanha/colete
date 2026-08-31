@@ -34,6 +34,7 @@
     "db:start": "supabase db start",
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db --local",
+    "db:test:idempotency": "node scripts/test-idempotency-concurrency.mjs",
     "db:stop": "supabase stop --no-backup",
     "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets"
   },
@@ -64,6 +65,7 @@
     "cross-env": "10.1.0",
     "eslint": "9.39.5",
     "eslint-config-expo": "57.0.2",
+    "pg": "8.16.3",
     "prettier": "3.9.6",
     "secretlint": "13.0.5",
     "serve": "14.2.6",

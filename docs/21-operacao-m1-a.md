@@ -1,0 +1,221 @@
+# Operação e evidências do M1-A
+
+Status deste documento: operacional. Ele não altera requisitos de produto nem
+substitui as fontes normativas de `01`, `04` e `09`–`17`. Continua de
+`20-operacao-m0-b.md`.
+
+**O M1-A está em andamento.** Esta é a primeira fatia técnica do marco: a fundação
+transacional de idempotência e o endurecimento de privilégios do papel
+administrativo. Somente a migration `0004_idempotency_foundation.sql` foi
+executada. Nenhuma RPC, nenhuma Edge Function e nenhuma tela entram aqui.
+
+## O que esta fatia entregou
+
+### `0004_idempotency_foundation.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| unidade `milliseconds` em `private.app_limits` | `13` §0, regra 2 |
+| limite `idempotency_wait_timeout_ms = 3000` | `13` §0, regra 2 e `16` §4 |
+| `private.idempotency_records` | `10` §9 |
+| `private.validate_idempotency_outcome(operation, outcome)` | `10` §9.1 |
+| `private.acquire_idempotency(...)` | `13` §0, regra 2 |
+| `private.complete_idempotency(...)` | `13` §0, regra 2 |
+| trigger diferido `idempotency_records_must_conclude` | `13` §0, regra 2 |
+| revogação de privilégios de `service_role` em `public` e `private` | `10` §11 e `14` §5.3 |
+
+A migration estende `private.app_limits` com `alter table` em vez de reescrever a
+`0002`: a tabela é append-only e um banco já aplicado precisa seguir exatamente o
+mesmo caminho de uma instalação nova.
+
+### Medição real da suíte pgTAP
+
+`npm run db:test` executa **321 asserções pgTAP em quatro arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2 e **110 novas** em
+`supabase/tests/database/0004_idempotency_foundation.test.sql`. O total anterior
+era 211. Os números foram medidos nesta execução, não estimados.
+
+### Harness concorrente de 25 conexões
+
+`npm run db:test:idempotency` roda `scripts/test-idempotency-concurrency.mjs`. Ele
+abre 25 conexões PostgreSQL independentes — a suíte confere que os 25
+`pg_backend_pid()` são distintos e que todas estão em `READ COMMITTED` — e cobre os
+casos que `13` §0.2 exige:
+
+1. **Vencedor único.** 25 chamadas simultâneas com a mesma chave e o mesmo HMAC
+   produzem exatamente um efeito de negócio e um `completed`; as outras 24 recebem
+   o mesmo outcome seguro depois do commit.
+2. **Conflito de HMAC.** 24 concorrentes com payload divergente esperam a decisão
+   da unique enquanto o vencedor está em voo, nunca tocam o domínio e recebem
+   `IDEMPOTENCY_CONFLICT`.
+3. **Rollback do vencedor.** O rollback libera a chave e desfaz o efeito; um
+   segundo chamador vence e o efeito acontece exatamente uma vez.
+4. **Timeout de espera.** Com o vencedor em voo além dos 3000 ms, os concorrentes
+   recebem `IDEMPOTENCY_WAIT_TIMEOUT`, sem efeito parcial e sem takeover. O tempo
+   decorrido é verificado contra o limite.
+5. **Queda de conexão.** Perder a conexão do vencedor equivale a rollback: a chave
+   é liberada e o retry executa exatamente uma vez.
+
+O harness cria seu próprio schema descartável para registrar efeitos e o remove no
+`finally`, junto com os registros que criou. Depois de `db:reset`,
+`db:test` e `db:test:idempotency` o banco fica sem nenhum resíduo:
+`private.idempotency_records` e `public.profiles` voltam a zero linhas e nem o
+schema do harness nem as sondas test-only sobrevivem.
+
+## Decisões que precisam ficar registradas
+
+### A fronteira do `service_role` é feita de grants, não de policies
+
+`service_role` continua com `BYPASSRLS` — isso é atributo de papel da plataforma e
+esta migration não o remove. Justamente por isso RLS **não** é a fronteira
+aplicável a ele: qualquer policy que se escrevesse seria ignorada. O que a `0004`
+faz é remover o privilégio:
+
+- `revoke all on schema private` — sem `usage`, `service_role` nem enxerga os
+  objetos do schema de serviço;
+- `revoke all on all tables/sequences` e `revoke execute on all functions` em
+  `public` e `private`;
+- `alter default privileges for role postgres` nos dois schemas, para que tabelas,
+  sequences e funções **futuras** não restaurem o acesso.
+
+Estado medido após `db:reset`: zero linhas em `information_schema.role_table_grants`
+e em `information_schema.routine_privileges` para `service_role` nos schemas
+`public` e `private`; `has_schema_privilege('service_role','private','usage')` é
+falso; `rolbypassrls` continua verdadeiro.
+
+A suíte pgTAP prova o efeito trocando de papel com `set local role service_role` e
+exigindo `42501` em `SELECT`, `INSERT`, `UPDATE` e `DELETE` diretos, em
+`nextval()` de uma sequence de aplicação, na chamada dos helpers privados de
+idempotência e na tentativa de desabilitar o trigger diferido. Uma sonda
+test-only, criada e destruída dentro da própria transação da suíte, mostra o
+caminho autorizado: uma função `security definer` estreita só se torna chamável
+**depois** de um `grant execute` nominal, e esse grant continua não dando DML
+direto em tabela nenhuma.
+
+**Limite explícito desta garantia:** ela vale para o banco da aplicação — os
+schemas `public` e `private`. A secret key continua sendo credencial elevada para
+Auth, Storage e para a plataforma Supabase, e nada nesta fatia muda isso. O
+tratamento correto dela permanece o de `14` §5, tabela de chaves de API: só na
+Edge/worker, nunca em bundle, browser, app, URL ou log.
+
+### `complete_profile` é exclusivo do namespace `bootstrap:`
+
+Defeito encontrado na revisão desta fatia e corrigido antes do commit. O `check`
+normativo de `10` §9 fecha as três formas de `actor_key` de modo que `profile:` e
+`system:` só valem para `operation <> 'complete_profile'`. A versão anterior da
+migration permitia `complete_profile` sob qualquer um dos três namespaces, o que
+abriria um caminho para registrar a criação de perfil sem derivar a chave
+bootstrap de `13` §5.7. A constraint da tabela e os dois helpers passaram a
+recusar essa combinação, e três asserções novas provam a recusa: pela função e
+pela própria tabela.
+
+### A migration é uma transação explícita
+
+Segundo defeito corrigido: a `0004` não tinha `begin;`/`commit;`, ao contrário de
+`0001`–`0003`. Uma migration parcialmente aplicada é exatamente o estado que o
+critério "banco sobe do zero somente pelas migrations" de `16` §3 proíbe.
+
+### Versões de canonicalização entram como `integer`
+
+`canonical_version` e `hash_key_version` são armazenados como `smallint`, mas os
+parâmetros dos helpers são `integer`. Clientes PostgreSQL inferem literais
+numéricos como `integer`; expor `smallint` na assinatura obrigaria todo chamador a
+fazer cast explícito para encontrar a função. O armazenamento continua compacto e
+a conversão, com validação de faixa (`1..32767`), é interna.
+
+### Nenhuma chave HMAC existe no banco
+
+`request_hash` guarda o HMAC-SHA-256 canônico calculado pela Edge, em hexadecimal
+minúsculo, e a constraint exige exatamente esse formato. **A chave não está no
+banco**: não há coluna, tabela, `app_limits`, parâmetro de configuração nem função
+que a contenha, e a `0004` deliberadamente não cria
+`private.compute_idempotency_hash`. É o que `10` §9.1 e `13` §0.1 exigem — sem
+chamador produtivo, o helper produtivo não existe. Os helpers desta fatia validam
+formato e versão e comparam o valor persistido no replay; eles não calculam nem
+autenticam nada.
+
+O que a tabela pode guardar é fechado por `private.validate_idempotency_outcome`:
+somente as quatro formas de identidade de `10` §9.1, com chaves exatas, tipos
+exatos, enums fechados, lista de aceites ordenada por bytes e sem duplicata. Chave
+desconhecida é rejeitada, inclusive aninhada. Não há espaço para Pix, token,
+caminho, nota, prova, fingerprint ou campo de perfil.
+
+### O timeout de 3000 ms é calibragem de piloto
+
+`idempotency_wait_timeout_ms = 3000`, unidade `milliseconds`, entra com a mesma
+ressalva dos seis valores do M0-B: é calibragem inicial, a revisar com dados do
+piloto, exatamente como `13` §0 e `16` §4 registram. Ele é aplicado como
+`lock_timeout` local da espera pela unique — **não** é lease e não autoriza
+takeover. Espera excedida retorna `IDEMPOTENCY_WAIT_TIMEOUT`, retryable e sem
+efeito, e o retry conserva o mesmo `request_id`.
+
+### `pg@8.16.3` como devDependency
+
+O harness de 25 conexões precisa de conexões PostgreSQL de verdade, independentes
+e sob controle do teste: `supabase test db` roda tudo em uma sessão e uma
+transação, então não consegue observar espera concorrente, rollback do vencedor
+nem queda de conexão. `pg` entra em versão exata, apenas como `devDependency`,
+usado somente por `scripts/test-idempotency-concurrency.mjs`. Nenhum código de
+aplicação o importa e ele não vai para o bundle.
+
+## O que ficou de fora, e por quê
+
+- **`0005_operational_runs.sql`, `0006_identity_rpcs.sql` e
+  `0007_idempotency_retention.sql`** continuam sendo plano futuro do M1-A, como
+  descreve a tabela fatia→migration de `16` §3. Nenhum deles foi criado.
+- **Gateway Edge executável.** `14` §5.3 define o caminho administrativo
+  exclusivo; esta fatia não cria Edge Function, rota, rate limit produtivo nem
+  cliente administrativo.
+- **RPCs.** `complete_profile`, `update_profile`, `accept_policies` e
+  `revoke_current_session` não existem. Os helpers da `0004` são
+  `security invoker` de propósito: são blocos de composição de uma RPC
+  `security definer` futura, que precisará compartilhar a mesma transação com a
+  mutação de domínio e com `complete_idempotency`.
+- **Nenhuma mutação de produto foi exposta.** Não há caminho pelo qual um cliente
+  — `anon`, `authenticated` ou o papel administrativo — produza efeito de negócio
+  com o que esta migration entrega. Os helpers não têm grant para papel nenhum.
+- **`policy_documents`, textos legais e seeds fictícios.** São da fatia de
+  catálogo/RPC do M1-A.
+- **Expurgo dos 30 dias e dos 24 meses.** As colunas
+  `outcome_expires_at`/`record_expires_at` e o estado `payload_expired` já existem
+  e são testados, mas o job que executa a retenção é a `0007`.
+- **Auditoria tipada, outbox, `external_effects`, `transition_markers` e
+  `job_runs`.** Permanecem nas fatias indicadas por `16` §3.
+- **Exportação, exclusão, Storage e projeto Supabase remoto.** Fora do M1-A ou do
+  escopo desta fatia; nenhum serviço remoto foi acessado.
+
+## Comandos locais
+
+Pré-requisitos: Node/npm nas versões fixadas em `19-operacao-m0-a.md` e Docker
+Desktop em execução.
+
+```sh
+npm run db:start
+npm run db:reset
+npm run db:test
+npm run db:test:idempotency
+npm run verify:app
+npm run audit:high
+npm run db:stop
+```
+
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0004`, sem seed
+de domínio.
+
+## CI
+
+O job `Database security` do workflow `Colete validation` passou a rodar
+`npm run db:test:idempotency` depois de `db:test` e antes de `db:stop`. O harness
+descobre a URL do banco por `supabase status -o env`, ou por
+`COLETE_TEST_DATABASE_URL` quando ela existir; ele não recebe nenhuma credencial
+de projeto remoto.
+
+## Dívidas em aberto ao fim desta fatia
+
+1. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
+   M0-B, a revisar com dados do piloto.
+2. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
+   item 8) — dependem da Edge que calcula o HMAC, e por isso chegam com a fatia
+   do gateway.
+3. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
+   ainda abertos.

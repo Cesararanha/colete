@@ -100,9 +100,9 @@ fatia 10 permanecem os RPCs e jobs de grupos, rachas, lista, financeiro, times e
 as reconciliações/retention que dependem desses domínios e as demais policies de Storage. O
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
 
-As linhas `0004`–`0007` são **plano futuro** deste marco: este commit não cria migration,
-RPC, catálogo, seed, Edge Function ou job. Somente `0001`–`0003` têm evidência operacional em
-`19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
+A linha `0004` está **executada**: a migration existe, com evidência operacional em `21`. As
+linhas `0005`–`0007` continuam **plano futuro** deste marco, e nenhuma RPC, catálogo, seed,
+Edge Function ou job foi criado. `0001`–`0003` têm evidência operacional em `19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
 existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
 relaxamento permanente. Versões fictícias de políticas ficam em fixtures ou seed local; antes
 do beta, outra migration publica textos efetivos/digests, sem `m1-draft-1` canônico.
