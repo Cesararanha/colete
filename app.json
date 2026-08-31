@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Colete",
+    "slug": "colete",
+    "version": "0.0.1",
+    "orientation": "default",
+    "scheme": "colete",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": ["expo-router", "expo-document-picker"]
+  }
+}

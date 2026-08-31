@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Colete">
+  <rect width="512" height="512" rx="112" fill="#0A6335"/>
+  <path fill="#F4F8F5" d="M166 102h64l26 64 26-64h64l54 86-57 50v172H169V238l-57-50 54-86Zm44 46-26 42 35 31v135h74V221l35-31-26-42-46 112-46-112Z"/>
+  <circle cx="256" cy="309" r="25" fill="#79E5A9"/>
+</svg>
