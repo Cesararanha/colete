@@ -70,6 +70,31 @@ marcos; não é uma migration monolítica nem pré-requisito para começar toda 
    com RLS ligada e default-deny na migration que a cria;
 10. RPCs transacionais e jobs; por último, policies do Storage.
 
+### Reordenamento do M1 e mapa fatia→migration
+
+A regra 2 de `13` §0 exige que toda mutação conquiste uma chave idempotente transacional
+antes de qualquer efeito. Por isso o M1 antecipa as partes estritamente necessárias das
+fatias 7 e 10: esperar a ordem nominal impediria implementar com segurança os primeiros
+RPCs de identidade. A antecipação é permitida por esta seção, que define B2 como avanço
+incremental por marco, e não muda a ordem de locks nem relaxa os critérios de saída.
+
+| Entrega | Escopo da fatia | Migration |
+| --- | --- | --- |
+| Baseline de segurança do M0-A | bootstrap anterior às fatias B2 | `0001_bootstrap_security.sql` |
+| B2 fatia 1 | extensões, helpers seguros, limites operacionais e perfis | `0002_identity_foundation.sql` |
+| B2 fatia 2 | aceite, denylist, pedidos, exports e base da saga | `0003_privacy_and_deletion.sql` |
+| M1-A, antecipação da fatia 7 | envelope de idempotência transacional, JCS/HMAC e trigger diferido | `0004_idempotency_foundation.sql` |
+| M1-A, antecipação da fatia 7 | `private.external_effects`, `private.job_runs` e `private.retention_runs` | `0005_operational_runs.sql` |
+| M1-A, antecipação da fatia 10 | camada genérica e RPCs `accept_policies`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
+| M1-B, antecipação de identidade/privacidade da fatia 10 | export governado, saga de exclusão, bucket `data-exports` e download Edge | a numerar no plano detalhado do M1-B |
+| B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
+
+Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separado,
+`transition_markers` e os objetos de notificação que dependem das tabelas de domínio. Na
+fatia 10 permanecem os RPCs e jobs de grupos, rachas, lista, financeiro, times e comunicação,
+as reconciliações/retention que dependem desses domínios e as demais policies de Storage. O
+M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
+
 Critério de saída de B2:
 
 - banco sobe do zero somente pelas migrations;

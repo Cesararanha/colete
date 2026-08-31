@@ -115,6 +115,8 @@ jobs:
         run: npm ci
       - name: Scan the normative baseline
         run: npm run scan:docs
+      - name: Verify the Auth session lifetime
+        run: npm run verify:auth-config
       - name: Scan for committed secrets
         run: npm run scan:secrets
       - name: Reject high or critical dependency advisories

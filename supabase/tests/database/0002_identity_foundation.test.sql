@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(86);
+select plan(93);
 
 -- ---------------------------------------------------------------------------
 -- Extension and the idempotency golden vector
@@ -62,6 +62,12 @@ select is(
   (select limit_value from private.app_limits where limit_key = 'claim_cooldown_seconds'),
   300::bigint,
   'claim_cooldown_seconds is seeded at five minutes'
+);
+select is(
+  (select limit_value from private.app_limits
+   where limit_key = 'auth_session_max_lifetime_seconds'),
+  7776000::bigint,
+  'the Auth session maximum lifetime is seeded at ninety days'
 );
 select is(
   (select limit_value from private.app_limits
@@ -182,6 +188,38 @@ select throws_ok(
   '23514',
   null,
   'an unknown dominant foot is rejected'
+);
+select throws_ok(
+  $$insert into public.profiles (auth_user_id, name, position)
+    values ('00000000-0000-4000-8000-000000000003', 'Bad', 'sweeper')$$,
+  '23514',
+  null,
+  'an unknown position is rejected'
+);
+select lives_ok(
+  $$insert into public.profiles (auth_user_id, name, position)
+    values ('00000000-0000-4000-8000-000000000003', 'Flexible', 'goalkeeper')$$,
+  'goalkeeper is an accepted profile position'
+);
+select lives_ok(
+  $$update public.profiles set position = 'defender'
+    where auth_user_id = '00000000-0000-4000-8000-000000000003'$$,
+  'defender is an accepted profile position'
+);
+select lives_ok(
+  $$update public.profiles set position = 'midfielder'
+    where auth_user_id = '00000000-0000-4000-8000-000000000003'$$,
+  'midfielder is an accepted profile position'
+);
+select lives_ok(
+  $$update public.profiles set position = 'forward'
+    where auth_user_id = '00000000-0000-4000-8000-000000000003'$$,
+  'forward is an accepted profile position'
+);
+select lives_ok(
+  $$update public.profiles set position = null
+    where auth_user_id = '00000000-0000-4000-8000-000000000003'$$,
+  'a profile position may be null'
 );
 
 -- ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ constraints, RLS, policies e helpers. Nenhuma RPC entra aqui.
 | `private.require_domain_authority()` | `10` §11 |
 | quatro policies de leitura própria | tabela de RLS de `10` §11 |
 
-`npm run db:test` executa 204 asserções pgTAP em três arquivos: 13 do M0-A, 86 da
+`npm run db:test` executa 211 asserções pgTAP em três arquivos: 13 do M0-A, 93 da
 fatia 1 e 105 da fatia 2.
 
 ## Decisões que precisam ficar registradas
@@ -185,6 +185,7 @@ piloto**, não invariantes.
 | --- | --- | --- | --- |
 | `proof_max_bytes` | `10485760` | bytes | folga sobre screenshot de banco em celular moderno, sem virar vetor de abuso |
 | `claim_cooldown_seconds` | `300` | segundos | lista se move em minutos; castigo longo demais pune desistência legítima |
+| `auth_session_max_lifetime_seconds` | `7776000` | segundos | 90 dias, igual ao `timebox` do Auth; cobre toda a sessão revogável, não só um access token |
 | `notification_dispatch_max_attempts` | `6` | tentativas | `13` §6 exige limite antes de dead-letter |
 | `notification_dispatch_backoff_base_seconds` | `60` | segundos | ~1 h de janela com crescimento exponencial |
 | `notification_dispatch_backoff_cap_seconds` | `3600` | segundos | teto do backoff |
@@ -198,6 +199,24 @@ coisas distintas.
 
 A allowlist de MIME é literal de `13` §2.1: `image/jpeg`, `image/png`,
 `image/webp`, `application/pdf`.
+
+### Tempo máximo de sessão
+
+`supabase/config.toml` ativa `[auth.sessions]` com `timebox = "2160h"` (90 dias), e
+`private.app_limits.auth_session_max_lifetime_seconds` guarda o mesmo prazo como
+`7776000` segundos. Os dois valores formam uma única calibragem: mudam juntos e
+nunca isoladamente. Assim como os demais números de `private.app_limits`, 90 dias
+é valor inicial a revisar no piloto, não invariante de produto.
+
+O prazo precisa cobrir a sessão inteira. `jwt_expiry = 3600` limita apenas cada
+access token; com refresh-token rotation, a mesma sessão continua emitindo tokens
+com o mesmo `session_id`. Expirar a denylist junto com o access token permitiria
+que uma sessão revogada voltasse a cunhar credenciais válidas depois da limpeza.
+
+SQL não enxerga `config.toml`. Por isso `scripts/verify-auth-config.mjs` lê o
+`timebox`, converte-o para segundos, lê o seed da migration `0002` e falha se os
+valores divergirem ou um deles não estiver ativo. A guarda roda em
+`npm run verify:app` e no job `Repository guardrails` da CI.
 
 **Custo de mudar hoje:** uma migration. Isso é aceitável agora. Quando existir
 painel administrativo, mudar esses valores tem de virar update com auditoria e
@@ -245,6 +264,7 @@ Desktop em execução.
 npm run db:start
 npm run db:reset
 npm run db:test
+npm run verify:auth-config
 npm run verify:app
 npm run db:stop
 ```
@@ -255,8 +275,9 @@ npm run db:stop
 ## CI
 
 O workflow já tem o job `Database security`, que roda `db:start`, `db:reset` e
-`db:test`. As migrations e os testes novos entram nesse job sem alteração de
-configuração.
+`db:test`. As migrations e os testes novos entram nesse job sem alteração. O job
+`Repository guardrails` também roda `verify:auth-config`, porque só a guarda do
+repositório consegue comparar a configuração do Auth com o seed SQL.
 
 O workflow foi renomeado de `M0-A validation` para `Colete validation`, e o
 arquivo de `.github/workflows/m0-a.yml` para `.github/workflows/validation.yml`.
@@ -275,7 +296,7 @@ nomes dos checks, e nenhum carrega marco.
 
 1. **Teste em aparelho físico** — dispensado em 31/08/2026 conforme
    `19-operacao-m0-a.md`; continua em aberto e não bloqueia as fatias 3+.
-2. **Calibragem** dos cinco valores acima, a revisar com dados do piloto.
+2. **Calibragem** dos seis valores acima, a revisar com dados do piloto.
 3. **Validação jurídica** de papéis, bases legais e prazos — gate de `16` §2,
    ainda aberto e anterior ao convite do beta.
 

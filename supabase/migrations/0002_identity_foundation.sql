@@ -45,6 +45,9 @@ insert into private.app_limits (limit_key, limit_value, unit, notes) values
    'Minimum interval before the same profile may claim an open slot again after '
    'releasing or losing one. Not the claim reservation window, which is held in '
    'slot_claims.expires_at. Initial calibration, review during the pilot.'),
+  ('auth_session_max_lifetime_seconds', 7776000, 'seconds',
+   'Maximum Auth session lifetime. Initial calibration, review during the pilot. '
+   'Must change together with [auth.sessions].timebox in supabase/config.toml, never alone.'),
   ('notification_dispatch_max_attempts', 6, 'attempts',
    'Delivery attempts before a notification delivery moves to dead-letter and alerts.'),
   ('notification_dispatch_backoff_base_seconds', 60, 'seconds',
@@ -78,7 +81,8 @@ create table public.profiles (
   name              text not null,
   nickname          text,
   photo_url         text,
-  position          text,
+  position          text check (position in
+                     ('goalkeeper', 'defender', 'midfielder', 'forward')),
   dominant_foot     text check (dominant_foot in ('left', 'right', 'both')),
   shirt_number      int,
   account_status    text not null default 'active'

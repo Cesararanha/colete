@@ -634,6 +634,71 @@ bloqueia mutações até novo aceite; leitura e exportação continuam disponív
   pelo contrato 2.11. Erros: `PROFILE_SUSPENDED` · `GROUP_SUSPENDED` ·
   `FINANCIAL_SUBSTITUTE_REQUIRED`.
 
+### 5.5 `revoke_current_session(request_id)`
+
+Grava o `session_id` do JWT atual na denylist antes de o cliente encerrar a sessão no Auth.
+Cobre logout seguro; perder todas as sessões de uma vez continua sendo efeito de
+`delete_account` e de `set_profile_access`, via `deletion_pending` e suspensão.
+
+- **Quem:** qualquer sessão autenticada cujo JWT traga `session_id`. Conta suspensa ou banida
+  pode revogar a própria sessão: é operação de segurança do titular, não mutação de domínio,
+  e cabe na mesma exceção de §5.4 que preserva leitura própria, exportação e recurso.
+- **Entrada canônica:** `{}`. O ator vem de `auth.uid()` e nunca do payload.
+- **Saída:** `{ outcome: { session_id, revoked_at, logical_result: 'session_revoked' },
+  current: { session_active: false } }`. O `session_id` do outcome é o do próprio chamador,
+  que já o carrega no token. O `expires_at` fica fora do outcome: prazo de sessão é estado
+  mutável, proibido por §0.1.
+- **Erros:** `UNAUTHENTICATED` (sem sessão, ou JWT sem `session_id`) · `VALIDATION` · erros
+  comuns de idempotência.
+- **Idempotência:** retry com o mesmo `request_id` devolve o outcome gravado. `request_id`
+  novo sobre sessão já revogada também é sucesso: a inserção é `on conflict do nothing` e o
+  `expires_at` original é preservado, para que uma segunda chamada não encurte a negação.
+- **Efeitos:** insere em `private.revoked_auth_sessions` com
+  `expires_at = revoked_at + auth_session_max_lifetime_seconds`, lido de
+  `private.app_limits`. Nenhum efeito externo: encerrar a sessão no Auth é ação do cliente, e
+  falhar nela não desfaz a revogação — a partir do commit o token já não vale em nenhum
+  caminho privilegiado.
+- **Por que o tempo máximo de sessão e não a validade do access token:** `jwt_expiry`
+  (`3600s`) é a vida do access token. Com rotação de refresh token ligada, a sessão continua
+  cunhando access tokens novos com o mesmo `session_id`. Se a linha da denylist expirasse
+  junto com o token, o job de limpeza a removeria e a sessão revogada voltaria a valer —
+  falha silenciosa e temporizada. A negação precisa cobrir a vida máxima da sessão.
+
+### 5.6 `update_profile(patch, request_id)`
+
+Edição dos próprios dados da tela 13. Não é evento de grupo: não gera notificação nem trilha.
+
+- **Quem:** o próprio titular, conta `active`.
+- **Allowlist de campos graváveis:** `name`, `nickname`, `position`, `dominant_foot`,
+  `shirt_number`. Qualquer outra chave em `patch` retorna `VALIDATION`. O payload nunca
+  escolhe `id`, `auth_user_id`, `account_status`, `status_changed_at`, `deidentified_at` ou
+  `created_at`.
+- **Semântica do patch:** ausência não altera o campo; `null` explícito limpa campo opcional.
+  `name` não aceita `null`. É a distinção ausência×`null` de §0.1, e por isso ela precisa
+  sobreviver à canonicalização.
+- **Validação:** `name` em NFC, 2–80 caracteres após trim; `nickname` ≤ 30;
+  `dominant_foot` em `left|right|both`; `shirt_number` inteiro de 0 a 99; `position` em
+  `goalkeeper|defender|midfielder|forward`. Todos os opcionais aceitam `null`.
+- String vazia (ou só espaços, após trim) em campo de texto opcional retorna `VALIDATION`,
+  não vira `null` silenciosamente. `null` é a única forma de limpar campo opcional — duas
+  grafias para o mesmo estado é como nasce bug de comparação na projeção pública.
+- `position` é preferência exibida, não papel operacional. Aparece no cartão do time e, por
+  `01` §5.7, não entra no sorteio na v1 — balanceamento por posição é v2, restrição suave.
+  `position = 'goalkeeper'` não tem relação com a vaga de goleiro do racha, que é conceito de
+  match, tem contagem e preço próprios e é decidida por `list_kind`. Nenhuma função pode
+  derivar uma coisa da outra.
+- `photo_url` fica fora desta allowlist até existir o bucket `avatars`. Quando entrar, a
+  validação exige caminho do próprio perfil dentro de `avatars`, nunca URL arbitrária.
+- **Saída:** `{ outcome: { logical_result: 'profile_updated' }, current: { name, nickname,
+  position, dominant_foot, shirt_number } }`. O outcome não ecoa os campos gravados: eles
+  continuam mutáveis depois do commit e `current` é projeção fresca.
+- **Erros:** `VALIDATION` · `UNAUTHENTICATED` · `FORBIDDEN` · `PROFILE_SUSPENDED` · erros
+  comuns de idempotência.
+- **Idempotência:** patch vazio é sucesso sem efeito. Retry com o mesmo `request_id` devolve
+  o outcome gravado e `current` recalculado.
+- **Efeitos:** grava apenas as colunas presentes no patch, em uma única atualização da
+  própria linha.
+
 ## 6. Preferências, dispositivos e entrega
 
 - `set_notification_preference(event_type, external_enabled, request_id)`: por evento e

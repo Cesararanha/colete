@@ -37,7 +37,7 @@ create table profiles (
   name            text not null,
   nickname        text,
   photo_url       text,
-  position        text,
+  position        text check (position in ('goalkeeper','defender','midfielder','forward')),
   dominant_foot   text check (dominant_foot in ('left','right','both')),
   shirt_number    int,
   account_status  text not null default 'active'
@@ -130,6 +130,10 @@ create table data_exports (
 );
 ```
 
+`profiles.position` é preferência exibida no cartão do time. Não entra no sorteio na v1
+(`01` §5.7) e não tem relação com a vaga de goleiro do racha, que é
+`match_players.list_kind`.
+
 `delete_account(request_id)` inicia uma **saga**, porque banco, Auth e Storage não compartilham
 transação:
 
@@ -153,8 +157,8 @@ transação:
 
 `revoke_current_session` grava o `session_id` do JWT antes do logout do Auth. Todo helper
 privilegiado rejeita sessão presente em `revoked_auth_sessions`; o job apaga a negação depois
-do `exp` máximo. Isso cobre logout seguro, enquanto `deletion_pending` cobre todas as sessões
-da conta.
+do `expires_at` calculado pela vida máxima da sessão. Isso cobre logout seguro, enquanto
+`deletion_pending` cobre todas as sessões da conta.
 
 Download de export é one-shot no nível da **tentativa autorizada**: sob row lock e depois de
 reauth, a Edge faz compare-and-set `ready→downloaded`, grava `downloaded_at` e commita antes
@@ -1009,8 +1013,13 @@ aninhado e JSON fornecido pelo cliente.
 
 ## 9. Idempotência, notificações e operação temporal
 
+Conforme `14` §5.2, tabelas de serviço que nenhum papel cliente lê ficam em `private`, sem
+grants e sem RLS. Por isso os nomes abaixo são qualificados: a ausência de `usage` no schema
+e de grants protege essas tabelas sem introduzir uma checagem negativa que possa falhar
+aberta sob RLS.
+
 ```sql
-create table idempotency_records (
+create table private.idempotency_records (
   actor_key     text not null, -- construído pelo servidor: profile:<uuid> ou system:<job>
   actor_id      uuid references profiles,
   operation     text not null,
@@ -1041,7 +1050,7 @@ create table idempotency_records (
       or (actor_id is null and actor_key like 'system:%'))
 );
 
-create table external_effects (
+create table private.external_effects (
   id             uuid primary key default gen_random_uuid(),
   kind           text not null check (kind in
                  ('delete_auth_user','delete_storage_object','build_data_export',
@@ -1135,7 +1144,7 @@ create table transition_markers (
   primary key (match_id, marker_key)
 );
 
-create table job_runs (
+create table private.job_runs (
   id            bigint generated always as identity primary key,
   run_key       text unique not null, -- cron:<job>:<slot> ou request:<uuid>
   job_name      text not null,
@@ -1151,7 +1160,7 @@ create table job_runs (
   check ((triggered_by in ('organizer','admin')) = (requested_by is not null))
 );
 
-create table retention_runs (
+create table private.retention_runs (
   id            bigint generated always as identity primary key,
   policy        text not null,
   window_start  timestamptz not null,
@@ -1196,7 +1205,7 @@ visibilidade de escrita não commitada.
 O vencedor, ainda na mesma transação, adquire locks do domínio, produz efeito/outbox e chama
 `complete_idempotency`, que grava apenas outcome tipado. Crash antes do commit elimina chave,
 efeito e outbox juntos; crash depois do commit encontra `completed`. Efeitos externos nunca
-ficam dentro dessa promessa: a transação insere `external_effects.dedupe_key`, e worker com
+ficam dentro dessa promessa: a transação insere `private.external_effects.dedupe_key`, e worker com
 lease/reconciliação própria executa a saga. Após 30 dias, o job zera `outcome` e marca
 `payload_expired`; retry até 24 meses retorna `IDEMPOTENCY_EXPIRED`, sem reexecução.
 
@@ -1226,9 +1235,22 @@ Persiste-se `canonical_version=1` e `hash_key_version`. O cofre preserva chave a
 
 Outcomes autorizados: participação/claim `{match_player_id,payment_cycle_id?,claim_id?,
 logical_result}`; upload `{upload_session_id,constraints}`; financeiro `{payment_cycle_id,
-resolution_id?,refund_event_id?,logical_result}`; sorteio
-`{draw_id,algorithm_version,match_revision}`. `logical_result` descreve o efeito no instante
-(`joined`, `waitlisted`, `claim_created`, `resolution_created`), não o estado atual.
+resolution_id?,refund_event_id?,logical_result}`; sorteio `{draw_id,algorithm_version,
+match_revision}`; identidade `{logical_result}` para `update_profile`,
+`{accepted:[{document_type,version}],logical_result}` para `accept_policies` e
+`{session_id,revoked_at,logical_result}` para `revoke_current_session`. `logical_result`
+descreve o efeito no instante (`joined`, `waitlisted`, `claim_created`,
+`resolution_created`, `profile_updated`, `policies_accepted`, `session_revoked`), não o
+estado atual.
+
+As três formas de identidade obedecem à mesma regra do parágrafo acima: guardam fato
+imutável, nunca estado. `update_profile` não ecoa os campos gravados — nome, apelido,
+posição, perna e número continuam mutáveis depois do commit, e o cliente relê por projeção
+fresca. `accept_policies` guarda as versões aceitas, que são fato datado e imutável, com o
+array ordenado por `document_type` e depois `version` para que a canonicalização seja
+determinística. `revoke_current_session` guarda `session_id` e `revoked_at` e não guarda
+`expires_at`, porque prazo de sessão é precisamente o que este parágrafo proíbe.
+
 Prazo/status/posição de claim ou sessão, capacidade restante e estado financeiro mutável não
 são persistidos. Pix, token/URL/path de upload, nota, prova, fingerprint/HMAC, input/score,
 motivo livre e perfil são proibidos. Toda resposta combina outcome com projeção atual fresca:

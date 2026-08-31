@@ -29,12 +29,13 @@
     "scan:secrets": "secretlint \"**/*\" && node scripts/verify-secret-boundaries.mjs",
     "audit:high": "npm audit --audit-level=high",
     "verify:pwa": "node scripts/verify-pwa.mjs",
+    "verify:auth-config": "node scripts/verify-auth-config.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
     "db:start": "supabase db start",
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db --local",
     "db:stop": "supabase stop --no-backup",
-    "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run scan:docs && npm run scan:secrets"
+    "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.14",
