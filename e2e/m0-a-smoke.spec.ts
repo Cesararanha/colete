@@ -23,7 +23,12 @@ test('shell supports keyboard, synthetic return, upload and safe caching', async
   });
   expect(focusedOutline).not.toBe('none');
 
-  await page.getByRole('link', { name: 'Simular retorno de autenticação' }).click();
+  await page.getByTestId('theme-toggle').click();
+  const syntheticAuthLink = page.getByRole('link', {
+    name: 'Simular retorno de autenticação',
+  });
+  await expect(syntheticAuthLink).toHaveCSS('background-color', 'rgb(121, 229, 169)');
+  await syntheticAuthLink.click();
   await expect(page.getByTestId('synthetic-auth-result')).toContainText('synthetic-user-001');
 
   const fileChooserPromise = page.waitForEvent('filechooser');

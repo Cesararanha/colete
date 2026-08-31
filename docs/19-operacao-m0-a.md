@@ -132,8 +132,37 @@ Isso não comprova instalação nem safe areas em hardware real.
 Esta evidência valida o caminho de instalação no simulador, mas não substitui
 hardware real. Tema manual, orientação, texto ampliado, teclado físico,
 atualização controlada e inspeção remota continuam cobertos apenas por automação
-ou pendentes de evidência física. Android também permanece pendente; portanto, o
-gate móvel não está aprovado e o M0-B continua bloqueado.
+ou pendentes de evidência física.
+
+## Evidência parcial em emulador — Android concluída em 31/08/2026
+
+- Ambiente: Android Studio 2026.1 (`AI-261.26222.65.2613.15948027`), emulador
+  37.1.11, Pixel 7 ARM64 com Google Play, Android 17/API 37 e Chrome
+  145.0.7632.218. O AVD `M0_A_Pixel_7` foi criado com a imagem oficial e segue o
+  fluxo do [Device Manager](https://developer.android.com/studio/run/managing-avds).
+- Build sintético servido somente em `http://127.0.0.1:4173` por `adb reverse`,
+  sem túnel, publicação externa, dados reais ou alteração no GitHub.
+- O Chrome recebeu o manifesto, exibiu nome e ícone corretos e criou o atalho. A
+  instalação abriu em modo standalone, sem a barra do navegador; Home e Fundação
+  navegaram corretamente.
+- Retrato e paisagem foram inspecionados sem overflow horizontal. O tema escuro
+  revelou que o fundo do link de retorno sintético se perdia na composição
+  `Link asChild`; a composição foi corrigida e ganhou uma asserção Playwright de
+  regressão para a cor de fundo.
+- A escala de fonte 1,3 foi inspecionada no mesmo build pelo Chrome sem overflow.
+  Essa captura não comprova o modo standalone porque a mudança de escala
+  reorganizou o launcher antes da reabertura do atalho.
+- As configurações temporárias foram restauradas para fonte 1,0, rotação livre e
+  tela física 1080×2400. Autenticação, seleção de arquivo e política de cache
+  continuam comprovadas pelo smoke automatizado, não por interação manual no AVD.
+- Evidências: [modo standalone](evidence/m0-a/android-simulator-standalone.png),
+  [contraste escuro corrigido](evidence/m0-a/android-simulator-dark-contrast.png),
+  [layout em paisagem](evidence/m0-a/android-simulator-landscape.png) e
+  [texto em escala 1,3](evidence/m0-a/android-simulator-font-scale.png).
+
+As evidências de simulador e emulador não substituem o checklist em iPhone e
+Android físicos. O gate móvel ainda não está aprovado e o M0-B continua
+bloqueado.
 
 ## Checklist físico obrigatório — ainda não aprovado
 

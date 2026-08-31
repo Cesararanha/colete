@@ -1,7 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
@@ -56,25 +56,19 @@ export function SyntheticSmokePanel({ identity }: SyntheticSmokePanelProps) {
       </View>
       <View style={styles.actions}>
         <Link
+          accessibilityLabel={pt.smoke.authAction}
           href={{ pathname: '/smoke-auth-callback', params: { identity: SYNTHETIC_IDENTITY } }}
-          asChild
+          style={[
+            styles.authLink,
+            {
+              backgroundColor: colors.primary,
+              borderColor: colors.primary,
+            },
+          ]}
         >
-          <Pressable
-            accessibilityLabel={pt.smoke.authAction}
-            accessibilityRole="link"
-            style={({ pressed }) => [
-              styles.authLink,
-              {
-                backgroundColor: colors.primary,
-                borderColor: colors.primary,
-                opacity: pressed ? 0.78 : 1,
-              },
-            ]}
-          >
-            <Text style={[styles.authLinkText, { color: colors.onPrimary }]}>
-              {pt.smoke.authAction}
-            </Text>
-          </Pressable>
+          <Text style={[styles.authLinkText, { color: colors.onPrimary }]}>
+            {pt.smoke.authAction}
+          </Text>
         </Link>
         <AppButton
           label={pt.smoke.uploadAction}
@@ -113,11 +107,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
+    display: 'flex',
     justifyContent: 'center',
     minHeight: 48,
     minWidth: 48,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
+    textDecorationLine: 'none',
   },
   authLinkText: {
     fontSize: 16,
