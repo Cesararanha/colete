@@ -161,10 +161,19 @@ ou pendentes de evidência física.
   [texto em escala 1,3](evidence/m0-a/android-simulator-font-scale.png).
 
 As evidências de simulador e emulador não substituem o checklist em iPhone e
-Android físicos. O gate móvel ainda não está aprovado e o M0-B continua
-bloqueado.
+Android físicos. Mesmo assim, em 31/08/2026 César decidiu **dispensar o gate
+físico nesta etapa** e liberar o M0-B. O gate está encerrado por decisão, não
+por evidência: nenhum aparelho real foi testado. O risco correspondente
+(instalação, safe areas, teclado físico, escala de texto e atualização
+controlada em hardware) segue aberto e deve ser fechado antes do beta com o
+grupo.
 
-## Checklist físico obrigatório — ainda não aprovado
+## Checklist físico — dispensado em 31/08/2026, dívida em aberto
+
+Decisão de César em 31/08/2026: o M0-B não espera por este checklist. O
+procedimento abaixo permanece registrado como dívida técnica a executar antes do
+beta; enquanto não for executado, nenhuma afirmação sobre comportamento em
+hardware real pode ser feita a partir deste repositório.
 
 Use iPhone e Android na mesma rede da máquina. O endereço precisa ser HTTPS com
 certificado confiável nos dois dispositivos e com o host/IP da LAN no SAN; HTTP
@@ -201,5 +210,6 @@ criado pelo repositório.
      dentro de Cache Storage.
 6. Remova as duas instalações e encerre o servidor local.
 
-O gate do smoke móvel só pode ser marcado como aprovado depois que essa evidência
-física for anexada. Até lá, M0-B permanece bloqueado.
+Quando essa evidência física for anexada, o gate passa a ser aprovado por
+evidência e substitui a dispensa registrada acima. Até lá, o M0-B avança com a
+cobertura de hardware real em aberto.
