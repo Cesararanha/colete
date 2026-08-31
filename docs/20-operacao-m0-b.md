@@ -254,18 +254,29 @@ npm run db:stop
 
 ## CI
 
-O workflow `M0-A validation` já tem o job `Database security`, que roda
-`db:start`, `db:reset` e `db:test`. As migrations e os testes novos entram nesse
-job sem alteração de configuração. O nome do workflow foi mantido de propósito:
-renomeá-lo invalidaria os status checks obrigatórios já configurados em `main`.
-A renomeação é item de arrumação para quando os checks obrigatórios forem
-revisados.
+O workflow já tem o job `Database security`, que roda `db:start`, `db:reset` e
+`db:test`. As migrations e os testes novos entram nesse job sem alteração de
+configuração.
+
+O workflow foi renomeado de `M0-A validation` para `Colete validation`, e o
+arquivo de `.github/workflows/m0-a.yml` para `.github/workflows/validation.yml`.
+A dívida registrada antes — "renomear invalidaria os status checks obrigatórios" —
+estava errada: ela valeria se esses checks existissem. `git ls-remote` mostra que o
+remoto só tem `main`, no commit de baseline; nenhuma das branches locais tem
+upstream; os jobs nunca rodaram no GitHub e nenhum check obrigatório foi
+cadastrado. O custo da renomeação hoje é zero, e cresce assim que o primeiro PR
+subir.
+
+Os nomes dos jobs (`App quality`, `PWA export`, `Database security`,
+`Repository guardrails`, `PWA smoke`) ficaram como estavam: são eles que viram os
+nomes dos checks, e nenhum carrega marco.
 
 ## Dívidas em aberto ao fim do M0-B
 
 1. **Teste em aparelho físico** — dispensado em 31/08/2026 conforme
    `19-operacao-m0-a.md`; continua em aberto e não bloqueia as fatias 3+.
-2. **Nome do workflow de CI** desalinhado do marco atual.
-3. **Calibragem** dos cinco valores acima, a revisar com dados do piloto.
-4. **Validação jurídica** de papéis, bases legais e prazos — gate de `16` §2,
+2. **Calibragem** dos cinco valores acima, a revisar com dados do piloto.
+3. **Validação jurídica** de papéis, bases legais e prazos — gate de `16` §2,
    ainda aberto e anterior ao convite do beta.
+
+O nome do workflow de CI saiu desta lista: foi corrigido no próprio M0-B.

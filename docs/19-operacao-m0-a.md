@@ -80,16 +80,20 @@ por padrão em novas funções.
 
 ## CI e status checks
 
-O workflow `M0-A validation` roda em Pull Requests e por acionamento manual, com
-`contents: read`, credenciais do checkout não persistidas e sem secrets ou deploy.
-As actions são fixadas por SHA imutável. Após os jobs aparecerem no GitHub, estes
-são os nomes a cadastrar como checks obrigatórios:
+O workflow `Colete validation`, em `.github/workflows/validation.yml`, roda em
+Pull Requests e por acionamento manual, com `contents: read`, credenciais do
+checkout não persistidas e sem secrets ou deploy. As actions são fixadas por SHA
+imutável. O workflow nasceu como `M0-A validation` e foi renomeado no M0-B, antes
+de qualquer execução no GitHub e antes de existir check obrigatório cadastrado; o
+nome não carrega marco. Os nomes dos jobs não mudaram, porque são eles que viram
+os checks. Após os jobs aparecerem no GitHub, estes são os nomes a cadastrar como
+checks obrigatórios:
 
 | Check | Cobertura |
 | --- | --- |
 | `App quality` | lint, formato, TypeScript estrito e testes unitários |
 | `PWA export` | export estático e política conservadora do PWA |
-| `Database security` | banco do zero, migration 0001 e pgTAP |
+| `Database security` | banco do zero, todas as migrations e pgTAP |
 | `Repository guardrails` | integridade documental e varredura de segredos |
 | `PWA smoke` | Chromium móvel/largo, acessibilidade e fluxos sintéticos |
 
