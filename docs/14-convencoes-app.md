@@ -194,6 +194,32 @@ outbox, contagens/checksums de fotos/provas e ausência de órfãos/exports/prov
 então trocar tráfego. Restore trimestral registra RPO/RTO,
 resultado e correções; sem restore aprovado, o backup não conta como gate cumprido.
 
+### 5.2 Onde cada tabela mora
+
+Regra fechada, decidida depois de um defeito real no M0-B registrado em
+`20-operacao-m0-b.md`:
+
+- **Tabela que nenhum papel cliente lê fica em `private`, sem grants e sem RLS.**
+  Denylist de sessão, outbox, `job_runs`, `idempotency_records`, `external_effects`,
+  `transition_markers`, artefatos privados do sorteio, configuração operacional. A
+  proteção é a ausência de `usage` no schema e a ausência de grant.
+- **`public` + `enable`/`force row level security` + policy é só para tabela com
+  leitura direta autorizada** a `anon` ou `authenticated`. Se existe policy, existe
+  leitor legítimo; se não existe leitor, a tabela não pertence a `public`.
+
+O motivo não é organização, é corretude. `force row level security` aplica RLS
+**inclusive ao dono da tabela**. Uma tabela em `public` com `force` e zero policies
+parece máximo rigor e é o contrário: uma função `security definer` cujo dono não
+tenha `BYPASSRLS` lê zero linhas dela. Para uma tabela consultada como negação —
+denylist, lease, marker de idempotência — ler zero linhas significa "nada proibido",
+e a checagem falha aberta em vez de fechada.
+
+Depender de `BYPASSRLS` para corrigir isso é depender de um atributo de papel que
+nenhum teste cobre por padrão, porque a suíte pgTAP roda como `postgres`, que o tem.
+Toda asserção de isolamento precisa trocar de papel explicitamente, e toda tabela
+consultada como negação precisa de uma asserção feita a partir de um papel **sem**
+`BYPASSRLS`.
+
 ## 6. Hospedagem e administração
 
 1. **PWA no beta pessoal:** Vercel Hobby pode servir o export estático com domínio e
