@@ -55,8 +55,17 @@ comment on table public.privacy_requests is
 -- ---------------------------------------------------------------------------
 -- Covers a deliberate logout. Losing every session at once is covered instead by
 -- the deletion_pending account status, which no old JWT can talk past.
+--
+-- This table lives in private, and deliberately does NOT use row level security.
+-- No client role reads it, so its protection is the absence of any grant plus the
+-- absence of USAGE on the private schema. Putting it in public behind
+-- force row level security with zero policies would look stricter and be weaker:
+-- force applies to the table owner too, so a security definer function owned by a
+-- role without BYPASSRLS would read zero rows, the exists() below would be false,
+-- and a revoked session would be accepted as valid. A denylist has to be readable
+-- by the code that enforces it, or failing closed becomes failing open.
 
-create table public.revoked_auth_sessions (
+create table private.revoked_auth_sessions (
   session_id uuid primary key,
   profile_id uuid not null references public.profiles,
   revoked_at timestamptz not null default now(),
@@ -64,7 +73,7 @@ create table public.revoked_auth_sessions (
   check (expires_at > revoked_at)
 );
 
-comment on table public.revoked_auth_sessions is
+comment on table private.revoked_auth_sessions is
   'Denylist of GoTrue session_id claims. Rows are dropped after the maximum JWT '
   'expiry, so the table stays bounded.';
 
@@ -157,8 +166,6 @@ alter table public.policy_acceptances enable row level security;
 alter table public.policy_acceptances force row level security;
 alter table public.privacy_requests enable row level security;
 alter table public.privacy_requests force row level security;
-alter table public.revoked_auth_sessions enable row level security;
-alter table public.revoked_auth_sessions force row level security;
 alter table public.deletion_requests enable row level security;
 alter table public.deletion_requests force row level security;
 alter table public.data_exports enable row level security;
@@ -166,7 +173,7 @@ alter table public.data_exports force row level security;
 
 revoke all on table public.policy_acceptances from public, anon, authenticated;
 revoke all on table public.privacy_requests from public, anon, authenticated;
-revoke all on table public.revoked_auth_sessions from public, anon, authenticated;
+revoke all on table private.revoked_auth_sessions from public, anon, authenticated;
 revoke all on table public.deletion_requests from public, anon, authenticated;
 revoke all on table public.data_exports from public, anon, authenticated;
 
@@ -177,9 +184,9 @@ grant select on table public.privacy_requests to authenticated;
 grant select on table public.deletion_requests to authenticated;
 grant select on table public.data_exports to authenticated;
 
--- revoked_auth_sessions gets no grant at all. It is a service table; the
--- aggregate session state the titular is allowed to see arrives as a projection
--- with the RPC slice.
+-- private.revoked_auth_sessions gets no grant at all and is not in public. It is
+-- a service table; the aggregate session state the titular is allowed to see
+-- arrives as a projection with the RPC slice.
 
 create policy policy_acceptances_select_own
   on public.policy_acceptances
@@ -242,7 +249,7 @@ as $function$
     when private.current_session_id() is null then true
     else exists (
       select 1
-      from public.revoked_auth_sessions as revoked
+      from private.revoked_auth_sessions as revoked
       where revoked.session_id = private.current_session_id()
     )
   end;

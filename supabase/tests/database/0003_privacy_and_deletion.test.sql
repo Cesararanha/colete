@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(100);
+select plan(105);
 
 -- ---------------------------------------------------------------------------
 -- Fixture
@@ -31,12 +31,16 @@ insert into public.privacy_requests (id, profile_id, kind) values
 
 select has_table('public', 'policy_acceptances', 'policy_acceptances exists');
 select has_table('public', 'privacy_requests', 'privacy_requests exists');
-select has_table('public', 'revoked_auth_sessions', 'revoked_auth_sessions exists');
+select has_table('private', 'revoked_auth_sessions', 'revoked_auth_sessions exists');
+select hasnt_table(
+  'public', 'revoked_auth_sessions',
+  'the session denylist is not in public, so no client role can even name it'
+);
 select has_table('public', 'deletion_requests', 'deletion_requests exists');
 select has_table('public', 'data_exports', 'data_exports exists');
 
 select col_is_pk(
-  'public', 'revoked_auth_sessions', 'session_id', 'the revoked session id is the key'
+  'private', 'revoked_auth_sessions', 'session_id', 'the revoked session id is the key'
 );
 select col_is_unique(
   'public', 'deletion_requests', 'profile_id', 'a profile has at most one deletion saga'
@@ -69,7 +73,7 @@ select is(
   'deletion_requests.auth_user_id has no foreign key, so the saga outlives Auth'
 );
 select col_not_null(
-  'public', 'revoked_auth_sessions', 'expires_at', 'a revocation has to expire'
+  'private', 'revoked_auth_sessions', 'expires_at', 'a revocation has to expire'
 );
 select col_type_is(
   'public', 'deletion_requests', 'attempts', 'integer', 'the saga counts its attempts'
@@ -114,7 +118,7 @@ select throws_ok(
 -- ---------------------------------------------------------------------------
 
 select throws_ok(
-  $$insert into public.revoked_auth_sessions (session_id, profile_id, revoked_at, expires_at)
+  $$insert into private.revoked_auth_sessions (session_id, profile_id, revoked_at, expires_at)
     values ('99999999-0000-4000-8000-00000000000f',
             'aaaaaaaa-0000-4000-8000-00000000000a', now(), now() - interval '1 hour')$$,
   '23514',
@@ -122,12 +126,12 @@ select throws_ok(
   'a revocation cannot expire before it starts'
 );
 
-insert into public.revoked_auth_sessions (session_id, profile_id, expires_at)
+insert into private.revoked_auth_sessions (session_id, profile_id, expires_at)
 values ('dddddddd-0000-4000-8000-00000000000d',
         'aaaaaaaa-0000-4000-8000-00000000000a', now() + interval '1 hour');
 
 select throws_ok(
-  $$insert into public.revoked_auth_sessions (session_id, profile_id, expires_at)
+  $$insert into private.revoked_auth_sessions (session_id, profile_id, expires_at)
     values ('dddddddd-0000-4000-8000-00000000000d',
             'aaaaaaaa-0000-4000-8000-00000000000a', now() + interval '2 hours')$$,
   '23505',
@@ -412,15 +416,10 @@ select ok(
   (select relforcerowsecurity from pg_class where oid = 'public.privacy_requests'::regclass),
   'privacy_requests forces row level security'
 );
-select ok(
-  (select relrowsecurity from pg_class where oid = 'public.revoked_auth_sessions'::regclass),
-  'revoked_auth_sessions has row level security enabled'
-);
-select ok(
-  (select relforcerowsecurity from pg_class
-   where oid = 'public.revoked_auth_sessions'::regclass),
-  'revoked_auth_sessions forces row level security'
-);
+-- revoked_auth_sessions deliberately has no row level security. It is protected by
+-- living in private with no grants. Turning force row level security on with no
+-- policy would hide it from the very code that has to read it; see the BYPASSRLS
+-- assertions below.
 select ok(
   (select relrowsecurity from pg_class where oid = 'public.deletion_requests'::regclass),
   'deletion_requests has row level security enabled'
@@ -451,7 +450,7 @@ select ok(
   'anon cannot read privacy requests'
 );
 select ok(
-  not has_table_privilege('anon', 'public.revoked_auth_sessions', 'select'),
+  not has_table_privilege('anon', 'private.revoked_auth_sessions', 'select'),
   'anon cannot read the session denylist'
 );
 select ok(
@@ -472,7 +471,7 @@ select ok(
   'authenticated may read privacy requests, narrowed to its own rows by RLS'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.revoked_auth_sessions', 'select'),
+  not has_table_privilege('authenticated', 'private.revoked_auth_sessions', 'select'),
   'the session denylist is a service table with no client grant at all'
 );
 select ok(
@@ -509,15 +508,15 @@ select ok(
   'authenticated cannot delete privacy requests'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.revoked_auth_sessions', 'insert'),
+  not has_table_privilege('authenticated', 'private.revoked_auth_sessions', 'insert'),
   'authenticated cannot insert revocations'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.revoked_auth_sessions', 'update'),
+  not has_table_privilege('authenticated', 'private.revoked_auth_sessions', 'update'),
   'authenticated cannot update revocations'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.revoked_auth_sessions', 'delete'),
+  not has_table_privilege('authenticated', 'private.revoked_auth_sessions', 'delete'),
   'authenticated cannot delete revocations'
 );
 select ok(
@@ -548,7 +547,7 @@ select ok(
 select is(
   (select count(*) from pg_policies
    where schemaname = 'public'
-     and tablename in ('policy_acceptances', 'privacy_requests', 'revoked_auth_sessions',
+     and tablename in ('policy_acceptances', 'privacy_requests',
                        'deletion_requests', 'data_exports')
      and cmd in ('INSERT', 'UPDATE', 'DELETE')),
   0::bigint,
@@ -557,11 +556,11 @@ select is(
 select is(
   (select count(*) from pg_policies
    where schemaname = 'public'
-     and tablename in ('policy_acceptances', 'privacy_requests', 'revoked_auth_sessions',
+     and tablename in ('policy_acceptances', 'privacy_requests',
                        'deletion_requests', 'data_exports')
      and cmd = 'SELECT'),
   4::bigint,
-  'four own-row read policies, and none on the session denylist'
+  'exactly four own-row read policies, one per table the titular may read'
 );
 
 -- ---------------------------------------------------------------------------
@@ -598,13 +597,105 @@ select is(
   'only the caller own deletion saga is visible'
 );
 select throws_ok(
-  'select count(*) from public.revoked_auth_sessions',
+  'select count(*) from private.revoked_auth_sessions',
   '42501',
   null,
   'the session denylist is unreachable from a client role'
 );
 
 reset role;
+reset request.jwt.claims;
+
+-- ---------------------------------------------------------------------------
+-- Fail-closed through a security definer boundary
+-- ---------------------------------------------------------------------------
+-- The suite runs as postgres, which holds BYPASSRLS. That makes every RLS check
+-- above pass for reasons that would not hold inside a security definer function
+-- owned by a role without that attribute. The denylist is the one table where
+-- that difference is a vulnerability rather than an inconvenience: an unreadable
+-- denylist makes exists() false, and a revoked session is then accepted. These
+-- assertions pin both halves.
+
+select ok(
+  (select rolbypassrls from pg_roles where rolname = 'postgres'),
+  'postgres holds BYPASSRLS, which is why the assertions below need a second role'
+);
+
+create role colete_rpc_probe_role nologin;
+grant colete_rpc_probe_role to current_user;
+grant usage on schema private to colete_rpc_probe_role;
+-- Postgres requires a new function owner to hold CREATE on the schema holding it.
+grant create on schema private to colete_rpc_probe_role;
+grant select on private.revoked_auth_sessions to colete_rpc_probe_role;
+
+select ok(
+  not (select rolbypassrls from pg_roles where rolname = 'colete_rpc_probe_role'),
+  'the probe role has no BYPASSRLS, so it cannot pass these tests by accident'
+);
+
+-- Read the denylist from inside a security definer function owned by that role,
+-- which is exactly the shape a future RPC has.
+create function private.probe_denylist_read(target uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $probe$
+  select exists (
+    select 1 from private.revoked_auth_sessions as revoked
+    where revoked.session_id = target
+  );
+$probe$;
+
+alter function private.probe_denylist_read(uuid) owner to colete_rpc_probe_role;
+
+-- This is the regression assertion. With the denylist in public behind
+-- force row level security and no policy, this read returned nothing, exists()
+-- was false, and a revoked session was accepted as valid.
+select ok(
+  private.probe_denylist_read('dddddddd-0000-4000-8000-00000000000d'),
+  'a role without BYPASSRLS can still read the denylist that it has to enforce'
+);
+select ok(
+  not private.probe_denylist_read('eeeeeeee-0000-4000-8000-00000000000e'),
+  'and it is a real lookup, not a table that answers yes to everything'
+);
+
+-- The RPC slice will own its functions as postgres, because auth.uid() and
+-- auth.jwt() live in a schema owned by supabase_admin and postgres cannot grant
+-- USAGE on it to another role. This is that composition, end to end.
+create function private.probe_rpc_authority()
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $probe$
+  select private.require_domain_authority();
+$probe$;
+
+set local request.jwt.claims =
+  '{"sub":"00000000-0000-4000-8000-000000000001",
+    "session_id":"dddddddd-0000-4000-8000-00000000000d"}';
+
+select throws_ok(
+  'select private.probe_rpc_authority()',
+  '28000',
+  'UNAUTHENTICATED',
+  'a revoked session is denied through a security definer boundary'
+);
+
+set local request.jwt.claims =
+  '{"sub":"00000000-0000-4000-8000-000000000001",
+    "session_id":"eeeeeeee-0000-4000-8000-00000000000e"}';
+
+select is(
+  private.probe_rpc_authority(),
+  'aaaaaaaa-0000-4000-8000-00000000000a'::uuid,
+  'a live session still gets through, so the denial above is not vacuous'
+);
+
 reset request.jwt.claims;
 
 -- ---------------------------------------------------------------------------

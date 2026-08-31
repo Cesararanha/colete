@@ -28,32 +28,103 @@ constraints, RLS, policies e helpers. Nenhuma RPC entra aqui.
 | --- | --- |
 | `public.policy_acceptances` | `10` §2 e `13` §5.2 |
 | `public.privacy_requests` | `10` §2 e `13` §5.3 |
-| `public.revoked_auth_sessions` | `10` §2 |
+| `private.revoked_auth_sessions` | `10` §2 |
 | `public.deletion_requests` | `10` §2 e `13` §5.3 |
 | `public.data_exports` | `10` §2, `13` §5.3 e `17` §2 |
 | `private.is_session_revoked()` | `10` §2 |
 | `private.require_domain_authority()` | `10` §11 |
 | quatro policies de leitura própria | tabela de RLS de `10` §11 |
 
-`npm run db:test` executa 199 asserções pgTAP em três arquivos: 13 do M0-A, 86 da
-fatia 1 e 100 da fatia 2.
+`npm run db:test` executa 204 asserções pgTAP em três arquivos: 13 do M0-A, 86 da
+fatia 1 e 105 da fatia 2.
 
 ## Decisões que precisam ficar registradas
 
 ### RLS nasce ligada, não espera a fatia 9
 
-Toda tabela é criada com `enable row level security` e `force row level security`
-na mesma migration que a cria, com default-deny. A fatia 9 do roadmap foi
-reescrita para o que ela passa a ser de fato: varredura final de revogação e
-policies das tabelas das fatias 3–8. Sem isso não existiria janela alguma em que
-uma tabela existe sem proteção — e é justamente essa janela que o texto anterior
-deixava aberta.
+Toda tabela **de `public`** é criada com `enable row level security` e
+`force row level security` na mesma migration que a cria, com default-deny. A
+fatia 9 do roadmap foi reescrita para o que ela passa a ser de fato: varredura
+final de revogação e policies das tabelas das fatias 3–8. Sem isso existiria uma
+janela em que uma tabela existe sem proteção — e é justamente essa janela que o
+texto anterior deixava aberta.
+
+Tabela de serviço fica em `private` **sem RLS**, protegida pela ausência de grants
+e de `usage` no schema. O motivo está na seção do achado de fail-closed abaixo, e
+a regra geral foi escrita em `14-convencoes-app.md` §5.2.
 
 Nenhuma policy de `insert`, `update` ou `delete` foi criada em nenhuma tabela.
 `authenticated` recebe apenas `select`, e só nas tabelas cuja leitura própria a
-tabela de RLS de `10` §11 autoriza. `revoked_auth_sessions` não recebe grant
-nenhum: é tabela de serviço, e a projeção agregada que o titular pode ver chega
-com a fatia de RPCs.
+tabela de RLS de `10` §11 autoriza.
+
+### Achado de review: `force` sem policy transformava fail-closed em fail-open
+
+Corrigido antes de qualquer aplicação fora do banco local descartável. O registro
+do erro vale tanto quanto o conserto.
+
+**O defeito.** `revoked_auth_sessions` nasceu em `public` com
+`force row level security` e zero policies. `force` aplica RLS **inclusive ao dono
+da tabela**. `is_session_revoked()` é `security invoker`: composta dentro de um RPC
+`security definer`, ela executa como o dono da função. Se esse papel não tiver
+`BYPASSRLS`, o `select` devolve zero linhas, o `exists` devolve `false`, e **uma
+sessão revogada passa como válida** — o inverso exato do fail-closed que o
+comentário da função prometia.
+
+**Por que a suíte não pegava.** Os testes rodam como `postgres`, que no Supabase
+tem `BYPASSRLS`. As 199 asserções anteriores nunca exercitaram o caminho em que a
+função vai ser usada de verdade. Uma asserção que só passa por causa de um atributo
+de papel não é uma prova; é uma coincidência.
+
+**Demonstração empírica**, contra o banco local, antes do conserto: um papel sem
+`BYPASSRLS` **com `grant select` explícito na tabela** lia zero linhas.
+
+| Caminho | Vê a revogação? |
+| --- | --- |
+| `postgres` (`rolbypassrls = t`) | `t` |
+| papel dono de `security definer` sem `BYPASSRLS`, com `select` concedido | `f` |
+
+**Estado dos papéis no banco local** (`select rolname, rolbypassrls, rolsuper from pg_roles`),
+verificado em 31/08/2026:
+
+| `rolname` | `rolbypassrls` | `rolsuper` |
+| --- | --- | --- |
+| `anon` | `f` | `f` |
+| `authenticated` | `f` | `f` |
+| `postgres` | `t` | `f` |
+| `service_role` | `t` | `f` |
+
+**A correção.** `revoked_auth_sessions` foi movida para `private` e **não usa RLS**.
+A proteção passa a vir da ausência de grants e da ausência de `usage` no schema
+`private`, que não depende de atributo de papel nenhum. `public` + `force` + zero
+policy parecia mais estrito e era mais fraco: uma denylist precisa ser legível pelo
+código que a aplica, ou falhar fechado vira falhar aberto.
+
+Como `0003` ainda não tinha sido aplicada em lugar nenhum além do banco local
+descartável — confirmado por `git ls-remote`: o remoto só tem `main` no commit de
+baseline, e nenhuma das branches locais tem upstream — a migration foi editada no
+lugar, sem `0004`.
+
+**As asserções que faltavam.** Cinco novas, desenhadas para não serem vacuamente
+verdes:
+
+1. `postgres` tem `BYPASSRLS` — documenta por que o teste precisa de um segundo papel;
+2. o papel-sonda **não** tem `BYPASSRLS` — se alguém conceder, o teste falha em vez
+   de virar decorativo;
+3. uma função `security definer` **pertencente ao papel-sonda** lê a revogação —
+   é a asserção de regressão: no schema antigo ela devolvia `false`;
+4. a mesma função devolve `false` para um `session_id` não revogado — prova que é
+   consulta real, não tabela que responde sim a tudo;
+5. `require_domain_authority()` através de uma função `security definer` nega
+   sessão revogada com `UNAUTHENTICATED`, e deixa passar sessão viva devolvendo o
+   `profile_id` — o caminho positivo impede que a negação seja vacuamente verde.
+
+**Nota sobre o dono dos RPCs.** As funções da fatia de RPCs serão de `postgres`, e
+não de um papel dedicado: `auth.uid()` e `auth.jwt()` pertencem a
+`supabase_auth_admin`, no schema `auth`, cujo dono é `supabase_admin`; `postgres`
+não consegue conceder `usage` nesse schema a outro papel
+(`WARNING: no privileges were granted for "auth"`). Isso não reintroduz o defeito:
+depois da correção, a garantia não depende mais de `BYPASSRLS`, e a asserção 3
+prova isso com um papel que não o tem.
 
 ### `session_id`: verificado, não presumido
 
@@ -160,6 +231,8 @@ scanner, e a segunda exceção vem com dado pessoal dentro.
 - **Trigger de imutabilidade.** Fatia 8. Hoje a imutabilidade de ledger e
   auditoria é garantida pela ausência de grant e de policy de escrita, não por
   trigger.
+- **Projeção do estado de sessão.** `revoked_auth_sessions` não tem leitura
+  própria; o estado agregado que o titular pode ver é RPC da fatia 10.
 - **Storage.** Buckets e policies são a última fatia. `data_exports.storage_path`
   existe como coluna, mas nenhum bucket foi criado.
 
