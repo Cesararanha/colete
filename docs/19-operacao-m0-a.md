@@ -116,6 +116,25 @@ de URLs sensíveis do Cache Storage.
 
 Isso não comprova instalação nem safe areas em hardware real.
 
+## Evidência parcial em simulador — iOS concluída em 31/08/2026
+
+- Ambiente: Xcode 26.6 (`17F113`), CoreSimulator iOS 26.5 (`23F77`),
+  iPhone 17 Pro (`E0C0C697-30E8-48BC-88DA-769E7AE32D49`) e Safari.
+- Build sintético servido somente em `http://127.0.0.1:4173`, sem túnel,
+  publicação externa, dados reais ou alteração no GitHub.
+- Safari recebeu `200` para `/`, `manifest.webmanifest`, `icons/icon-192.png`
+  e `sw.js`; a instalação exibiu nome e ícone corretos.
+- O ícone da Tela de Início abriu o PWA em janela standalone, sem a barra do
+  Safari. Home e Fundação renderizaram sem overflow horizontal observado, e o
+  conteúdo respeitou a Dynamic Island e as barras do sistema.
+- Captura do modo standalone: [`evidence/m0-a/ios-simulator-standalone.png`](evidence/m0-a/ios-simulator-standalone.png).
+
+Esta evidência valida o caminho de instalação no simulador, mas não substitui
+hardware real. Tema manual, orientação, texto ampliado, teclado físico,
+atualização controlada e inspeção remota continuam cobertos apenas por automação
+ou pendentes de evidência física. Android também permanece pendente; portanto, o
+gate móvel não está aprovado e o M0-B continua bloqueado.
+
 ## Checklist físico obrigatório — ainda não aprovado
 
 Use iPhone e Android na mesma rede da máquina. O endereço precisa ser HTTPS com
