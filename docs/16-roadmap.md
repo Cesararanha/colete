@@ -25,8 +25,11 @@ RLS default-deny e sorteio versionado.
 
 ## 2. Gates de início e de convite ao beta
 
-- [ ] **Antes da migration que usa a regra:** definir limites iniciais de arquivo (MIME e bytes), cooldown de claim e limites de
-      retry do dispatcher em uma pequena tabela de configuração.
+- [x] **Antes da migration que usa a regra:** limites iniciais definidos em `private.app_limits`
+      e `private.allowed_proof_mime_types` na fatia 1 do B2: `proof_max_bytes = 10485760`,
+      `claim_cooldown_seconds = 300`, dispatcher `max_attempts = 6` com backoff de 60 s até
+      3600 s, e a allowlist MIME de `13-contratos-funcoes.md` §2.1. São valores de calibragem
+      iniciais, sujeitos a revisão no piloto.
 - [ ] **Antes da primeira migration:** criar primeiro commit de baseline, tag
       `spec-pre-migration-v1` e proteção de `main`; clone limpo precisa reproduzir documentos
       e checksums. Enquanto todos os arquivos estiverem untracked, migration permanece bloqueada.
@@ -62,7 +65,9 @@ marcos; não é uma migration monolítica nem pré-requisito para começar toda 
 7. auditoria tipada, idempotência transacional/JCS, external-effects, outbox N1–N28 com
    conteúdo separado, markers e job runs;
 8. constraints, índices e triggers de revisão/imutabilidade;
-9. revogação de privilégios, `enable/force RLS` e policies por papel;
+9. varredura final de revogação de privilégios e de policies por papel das tabelas das
+   fatias 3–8; `enable/force row level security` não espera esta fatia: cada tabela nasce
+   com RLS ligada e default-deny na migration que a cria;
 10. RPCs transacionais e jobs; por último, policies do Storage.
 
 Critério de saída de B2:
