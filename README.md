@@ -141,9 +141,9 @@ não prevalecem sobre `01` e `09`–`17`.
 entregam a fundação de segurança, identidade e privacidade descrita em `19`/`20`. A migration
 `0004` entrega a fundação transacional de idempotência e o endurecimento de privilégios do
 papel administrativo, a `0005` entrega as tabelas operacionais de sagas, jobs e retenção, e a
-`0006` entrega o catálogo de políticas e as quatro RPCs internas de identidade; as evidências
-das três estão em `21`. O gateway Edge exclusivo, o seed de políticas e a migration `0007`
-ainda não estão implementados. Os gates de convite ao beta
+`0006` entrega o catálogo de políticas e as quatro RPCs internas de identidade e a `0007`
+entrega o expurgo do livro de idempotência; as evidências das quatro estão em `21`. O gateway
+Edge exclusivo, o seed de políticas e o agendamento dos jobs ainda não estão implementados. Os gates de convite ao beta
 permanecem em `16-roadmap.md`.
 
 ---

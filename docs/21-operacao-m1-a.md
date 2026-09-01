@@ -4,13 +4,15 @@ Status deste documento: operacional. Ele não altera requisitos de produto nem
 substitui as fontes normativas de `01`, `04` e `09`–`17`. Continua de
 `20-operacao-m0-b.md`.
 
-**O M1-A está em andamento.** Três fatias técnicas foram executadas:
+**O M1-A está em andamento.** Quatro fatias técnicas foram executadas:
 `0004_idempotency_foundation.sql`, a fundação transacional de idempotência com o
 endurecimento de privilégios do papel administrativo;
 `0005_operational_runs.sql`, as tabelas operacionais das sagas, dos jobs e da
-retenção; e `0006_identity_rpcs.sql`, o catálogo de políticas, seu dispatcher
-interno, os guards do caminho administrativo e as quatro RPCs de identidade.
-Nenhuma Edge Function e nenhuma tela entram aqui.
+retenção; `0006_identity_rpcs.sql`, o catálogo de políticas, seu dispatcher
+interno, os guards do caminho administrativo e as quatro RPCs de identidade; e
+`0007_idempotency_retention.sql`, o expurgo do livro de idempotência nos prazos
+normativos. Com isso as quatro migrations planejadas do marco em `16` §3 estão
+entregues. Nenhuma Edge Function e nenhuma tela entram aqui.
 
 ## O que cada fatia entregou
 
@@ -68,14 +70,33 @@ entram nesta fatia. O catálogo nasce vazio: `16` §3 exige que versões fictíc
 fiquem em fixture ou seed local e que outra migration publique textos e digests
 efetivos antes do beta.
 
+### `0007_idempotency_retention.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| `private.purge_expired_idempotency_outcomes()` | `17` §4, item 4 e `13` §0, regra 2 |
+| índice `idempotency_records_outcome_expiry_idx` | caminho de acesso da fase de 30 dias |
+
+Dois prazos, uma política. Aos 30 dias o payload de replay é apagado e a linha
+vira `payload_expired`; a chave e o HMAC sobrevivem como tombstone até 24 meses,
+para que um retry tardio responda `IDEMPOTENCY_EXPIRED` em vez de executar uma
+segunda vez. Apagar o tombstone antes transformaria um replay em mutação nova —
+exatamente a falha que o livro existe para impedir. A função executa as duas fases
+nessa ordem, de modo que um livro não expurgado por mais de 24 meses seja
+resolvido numa única execução, e grava a evidência em `private.retention_runs`.
+
+Nenhum cron, scheduler ou wrapper de job entra nesta fatia: gravar
+`private.job_runs` por execução pertence à fatia de jobs.
+
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **499 asserções pgTAP em seis arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 111 da `0004`, 76 da `0005` e **101 novas** em
-`supabase/tests/database/0006_identity_rpcs.test.sql`. Os totais anteriores foram
-211 ao fim do M0-B, 321 ao fim da `0004` e 397 ao fim da `0005`. A `0004` subiu de
-110 para 111 porque uma asserção dela foi dividida em duas, pelo motivo registrado
-abaixo. Os números foram medidos nesta execução, não estimados nem copiados.
+`npm run db:test` executa **530 asserções pgTAP em sete arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 111 da `0004`, 76 da `0005`, 101 da `0006` e
+**31 novas** em `supabase/tests/database/0007_idempotency_retention.test.sql`. Os
+totais anteriores foram 211 ao fim do M0-B, 321 ao fim da `0004`, 397 ao fim da
+`0005` e 499 ao fim da `0006`. A `0004` subiu de 110 para 111 porque uma asserção
+dela foi dividida em duas, pelo motivo registrado abaixo. Os números foram
+medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -292,6 +313,20 @@ porque o catálogo não existia. A `0006` a adiciona — migration commitada é
 imutável, estado novo entra na próxima. A fixture da suíte da `0003` passou a
 publicar as versões que ela aceita; as regras de aceite testadas lá não mudaram.
 
+### O expurgo não aceita relógio de quem chama
+
+`purge_expired_idempotency_outcomes()` tem **zero parâmetros**, e a suíte afirma
+isso por asserção sobre `pg_proc.pronargs`. Um expurgo que aceitasse um instante
+"agora" seria um caminho para apagar payload antes do prazo. O tempo é o do
+servidor, como exige `13` §0, regra 6. Para testar o envelhecimento sem falsear o
+relógio, a fixture **backdata `created_at`**: as constraints da `0004` amarram
+`outcome_expires_at` e `record_expires_at` a `created_at`, então uma linha
+backdatada é exatamente uma linha que envelheceu.
+
+A evidência em `retention_runs` guarda política, janela, contagens e duração — e a
+suíte afirma que o texto da linha não contém nenhum identificador do que foi
+expurgado, porque isso recriaria o dado que o expurgo removeu.
+
 ### `pg@8.16.3` como devDependency
 
 O harness de 25 conexões precisa de conexões PostgreSQL de verdade, independentes
@@ -303,8 +338,9 @@ aplicação o importa e ele não vai para o bundle.
 
 ## O que ficou de fora, e por quê
 
-- **`0007_idempotency_retention.sql`** continua sendo plano futuro do M1-A, como
-  descreve a tabela fatia→migration de `16` §3.
+- **O agendamento do expurgo.** A `0007` cria a política; o cron que a executa
+  todo dia, o wrapper que grava `private.job_runs` por execução e o alarme de
+  atraso de 24 h de `17` §4, item 7, pertencem à fatia de jobs.
 - **A Edge Function do gateway.** `14` §5.3 define o caminho administrativo
   exclusivo. As RPCs internas existem; a Edge que valida o JWT, extrai as claims,
   aplica rate limit, canonicaliza a entrada por JCS e calcula o HMAC **não**.
@@ -356,7 +392,7 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0006`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0007`, sem seed
 de domínio e sem seed de política.
 
 ## CI
