@@ -71,7 +71,16 @@ marcos; não é uma migration monolítica nem pré-requisito para começar toda 
 8. constraints, índices e triggers de revisão/imutabilidade;
 9. varredura final de revogação de privilégios e de policies por papel das tabelas das
    fatias 3–8; `enable/force row level security` não espera esta fatia: cada tabela nasce
-   com RLS ligada e default-deny na migration que a cria;
+   com RLS ligada e default-deny na migration que a cria. Esta varredura também corrige
+   `private.app_limits` e `private.allowed_proof_mime_types`, criadas na `0002` com
+   `enable` + `force row level security` e zero policies, antes da regra de `14` §5.2.
+   Pelo mesmo raciocínio já escrito no comentário de `private.revoked_auth_sessions` na
+   `0003`, `force` aplica RLS **inclusive ao dono da tabela**: uma tabela privada com
+   `force` e zero policies só não retorna zero linhas hoje porque quem a lê tem
+   `BYPASSRLS`. A proteção efetiva dessas duas tabelas são os `revoke all` da `0002`, não
+   a RLS; depender de `BYPASSRLS` é depender de um atributo de papel que nenhum teste
+   cobre por padrão. Enquanto a varredura não chega, nenhuma função `security definer`
+   nova pode ler essas duas tabelas a partir de um papel sem `BYPASSRLS`;
 10. RPCs transacionais e jobs; por último, policies do Storage.
 
 ### Reordenamento do M1 e mapa fatia→migration
