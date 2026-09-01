@@ -1,6 +1,6 @@
-# Colete — Convenções do app e decisões de projeto (v2, pré-migration)
+# Colete — Convenções do app e decisões de projeto (v2, implementação incremental)
 
-25/08/2026. Última peça técnica de papel antes das migrations.
+31/08/2026. Convenções normativas para a implementação incremental.
 
 ## 1. Um repositório, três alvos
 
@@ -21,7 +21,7 @@ colete/
 │   └── theme/                # tokens: cores (claro/escuro, AA), tipografia, espaços
 ├── supabase/
 │   ├── migrations/           # SQL numerado — a única fonte do schema
-│   ├── functions/            # edge: draw; adaptadores de e-mail/push quando necessários
+│   ├── functions/            # gateway mutável, draw e adaptadores de e-mail/push
 │   └── tests/                # pgTAP / testes de integração (corrida por vaga)
 └── e2e/                      # fluxos críticos
 ```
@@ -48,13 +48,24 @@ não usa signed URL/token no cliente; Edge autenticada faz upload/stream com `pr
 
 ## 3. Camada de API — o contrato vira código
 
-- Componente **nunca** chama `supabase` direto. Tudo passa por `lib/api.ts`, que:
-  1. chama a RPC/função;
-  2. cria um `request_id` por intenção mutável, persiste enquanto houver retry e nunca
+- Componente **nunca** chama `supabase` direto. Tudo passa por `lib/api.ts`.
+- Leitura usa apenas projeção/RPC de leitura autorizada e continua sujeita a RLS. Toda
+  **mutação**, desde o M1-A, chama exclusivamente a Edge Function da operação; o cliente não
+  chama a RPC Postgres mutável.
+- `lib/api.ts`:
+  1. cria um `request_id` por intenção mutável, persiste enquanto houver retry e nunca
      reaproveita a chave em outro payload;
+  2. envia à Edge somente `request_id` e entrada de negócio; nas quatro mutações do M1-A não
+     aceita `input_hmac`, `hash_key_version`, `auth_user_id`, `profile_id`, `session_id` nem
+     ator. Um ID de perfil enumerado em contrato posterior pode identificar o alvo, nunca o
+     chamador;
   3. converte o envelope em `AppError { code, message, current? }`, com `ErrorCode`
      gerado/validado contra `13-contratos-funcoes.md`;
   4. loga no Sentry só o inesperado, depois da sanitização descrita abaixo.
+- A Edge valida o JWT, extrai identidade/sessão das claims verificadas, aplica rate limit,
+  normaliza/JCS, calcula o HMAC com chave do cofre e chama somente a RPC interna estreita pelo
+  cliente com secret key. Ela não expõe API administrativa genérica nem escreve livremente em
+  tabelas.
 - A UI decide o comportamento pelo `code`; a `message` do servidor é o texto fallback.
 - O objeto de comando nasce com `request_id` e o conserva em retry automático/manual da
   mesma intenção. Retry automático só ocorre em falha de transporte/5xx e nunca em erro de
@@ -93,8 +104,9 @@ não usa signed URL/token no cliente; Edge autenticada faz upload/stream com `pr
 | Item | Decisão |
 |---|---|
 | Supabase | 2 projetos inicialmente no Free: `colete-dev` e `colete-prod`, sujeitos a limites/pausa; migrations por CLI — nunca mudança manual no Studio em prod |
+| Chaves de API | cliente usa somente publishable key (`sb_publishable_...`) e JWT do usuário; secret key (`sb_secret_...`) fica somente na Edge/worker e nunca em bundle, browser, app, URL ou log. Código novo não embute chaves legacy |
 | Segredos | `.env` local + secrets do GitHub/EAS; nada no repositório |
-| HMAC | chaves versionadas e separadas para idempotência, convites, snapshot e fingerprint; idempotência v1 usa schema+JCS/RFC 8785 e vetor dourado; chave nunca fica no banco/log; versões antigas ficam no cofre só pela retenção dependente |
+| HMAC | chaves versionadas e separadas para idempotência, convites, snapshot e fingerprint; idempotência v1 usa schema+JCS/RFC 8785 e vetor dourado; a Edge calcula, a RPC só valida formato/versão e compara replay; chave nunca fica no cliente/banco/configuração SQL/log; versões antigas ficam no cofre só pela retenção dependente |
 | Auth e e-mail | e-mail/senha + Google no beta; [SMTP próprio](https://supabase.com/docs/guides/auth/auth-smtp) antes de convidar usuários; Apple só no app nativo |
 | Sentry | ligado no M0, com release por commit e `beforeSend` que remove token, e-mail, telefone, chave Pix, comprovante, payload de notificação e nota |
 | Jobs | `job_runs`, markers e alerta de atraso; ação protegida de reconciliação no painel. Cron/ping é redundância, não garantia de disponibilidade |
@@ -193,6 +205,55 @@ purges vencidos; remover qualquer prova fora da interseção; marcar prova ativa
 outbox, contagens/checksums de fotos/provas e ausência de órfãos/exports/provas vencidas. Só
 então trocar tráfego. Restore trimestral registra RPO/RTO,
 resultado e correções; sem restore aprovado, o backup não conta como gate cumprido.
+
+### 5.2 Onde cada tabela mora
+
+Regra fechada, decidida depois de um defeito real no M0-B registrado em
+`20-operacao-m0-b.md`:
+
+- **Tabela que nenhum papel cliente lê fica em `private`, sem grants e sem RLS.**
+  Denylist de sessão, outbox, `job_runs`, `idempotency_records`, `external_effects`,
+  `transition_markers`, artefatos privados do sorteio, configuração operacional. A
+  proteção é a ausência de `usage` no schema e a ausência de grant.
+- **`public` + `enable`/`force row level security` + policy é só para tabela com
+  leitura direta autorizada** a `anon` ou `authenticated`. Se existe policy, existe
+  leitor legítimo; se não existe leitor, a tabela não pertence a `public`.
+
+O motivo não é organização, é corretude. `force row level security` aplica RLS
+**inclusive ao dono da tabela**. Uma tabela em `public` com `force` e zero policies
+parece máximo rigor e é o contrário: uma função `security definer` cujo dono não
+tenha `BYPASSRLS` lê zero linhas dela. Para uma tabela consultada como negação —
+denylist, lease, marker de idempotência — ler zero linhas significa "nada proibido",
+e a checagem falha aberta em vez de fechada.
+
+Depender de `BYPASSRLS` para corrigir isso é depender de um atributo de papel que
+nenhum teste cobre por padrão, porque a suíte pgTAP roda como `postgres`, que o tem.
+Toda asserção de isolamento precisa trocar de papel explicitamente, e toda tabela
+consultada como negação precisa de uma asserção feita a partir de um papel **sem**
+`BYPASSRLS`.
+
+### 5.3 Gateway exclusivo do M1-A
+
+Fontes oficiais Supabase verificadas em **31/08/2026**:
+
+- [Securing Edge Functions](https://supabase.com/docs/guides/functions/auth): a Edge valida a
+  credencial do usuário e disponibiliza claims verificadas; o cliente administrativo é um
+  caminho distinto e privilegiado;
+- [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security):
+  grants e policies são controles separados, e o papel administrativo ignora RLS;
+- [Database Functions](https://supabase.com/docs/guides/database/functions): funções recebem
+  `EXECUTE` por padrão, portanto as migrations revogam `public`, `anon` e `authenticated` e
+  concedem nominalmente apenas o necessário;
+- [Understanding API keys](https://supabase.com/docs/guides/getting-started/api-keys):
+  publishable keys são próprias para componentes públicos; secret keys são exclusivas de
+  backend, têm acesso elevado e não podem ser expostas.
+
+A secret key autentica o componente, não o usuário final. Por isso a RPC interna não usa
+`auth.uid()` como prova do ator: recebe da Edge `actor_auth_user_id`/`actor_session_id`
+extraídos das claims e resolve/revalida o domínio no banco. A migration revoga execução dos
+papéis cliente e limita DML direto do papel administrativo nas tabelas do M1-A; a Edge recebe
+somente os endpoints/RPCs nomeados. `security definer`, quando necessário, fixa `search_path`
+e qualifica cada objeto.
 
 ## 6. Hospedagem e administração
 

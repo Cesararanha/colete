@@ -1,4 +1,4 @@
-# Colete — Schema do banco de dados (v2, pré-migration)
+# Colete — Schema do banco de dados (v2, implementação incremental)
 
 **PostgreSQL / Supabase.** Deriva de `01-requisitos.md`, `09-pivo-produto.md` e
 `04-algoritmo-sorteio.md` v3. Nomes de código em inglês, timestamps em `timestamptz` UTC e
@@ -25,8 +25,13 @@ garantia: cada regra abaixo vira constraint, trigger, policy, função ou teste 
 6. `profiles.id` é identidade interna; apagar Auth não apaga o histórico.
 7. Dados públicos nunca contêm nota privada, comprovante, fingerprint, chave Pix completa ou PII de
    operação.
-8. `actor_id` e papel Admin são derivados de `auth.uid()`/claim gerenciada pelo servidor;
-   payload do cliente nunca escolhe quem está agindo nem concede papel.
+8. O payload externo do M1-A nunca envia `actor_id`, `auth_user_id`, `profile_id`,
+   `session_id` ou papel Admin. Em contratos posteriores, um `profile_id` expressamente
+   listado pode identificar o **alvo** de uma ação administrativa, nunca o ator. Em mutação, a
+   Edge valida o JWT e entrega contexto de ator à RPC interna por um caminho administrativo
+   exclusivo. Como esse caminho não executa sob o JWT do usuário, o banco não atribui a origem
+   do ator a `auth.uid()`; ele confia na Edge autenticada e no grant estreito da função, mas
+   ainda resolve o perfil e revalida toda autorização de domínio.
 
 ## 2. Identidade, aceite e privacidade
 
@@ -37,7 +42,7 @@ create table profiles (
   name            text not null,
   nickname        text,
   photo_url       text,
-  position        text,
+  position        text check (position in ('goalkeeper','defender','midfielder','forward')),
   dominant_foot   text check (dominant_foot in ('left','right','both')),
   shirt_number    int,
   account_status  text not null default 'active'
@@ -52,6 +57,17 @@ create table profiles (
       or (account_status = 'deleted' and auth_user_id is null and deidentified_at is not null))
 );
 
+create table private.policy_documents (
+  document_type text not null check (document_type in ('terms','privacy')),
+  version        text not null,
+  content_sha256 bytea not null check (octet_length(content_sha256) = 32),
+  published_at   timestamptz not null,
+  mandatory      boolean not null default false,
+  primary key (document_type, version)
+);
+create unique index one_mandatory_policy_per_type
+  on private.policy_documents(document_type) where mandatory;
+
 create table policy_acceptances (
   id             bigint generated always as identity primary key,
   profile_id     uuid not null references profiles,
@@ -59,7 +75,9 @@ create table policy_acceptances (
   version        text not null,
   accepted_at    timestamptz not null default now(),
   source         text not null check (source in ('signup','reauth')),
-  unique (profile_id, document_type, version)
+  unique (profile_id, document_type, version),
+  foreign key (document_type, version)
+    references private.policy_documents(document_type, version)
 );
 
 create table privacy_requests (
@@ -130,6 +148,24 @@ create table data_exports (
 );
 ```
 
+`profiles.position` é preferência exibida no cartão do time. Não entra no sorteio na v1
+(`01` §5.7) e não tem relação com a vaga de goleiro do racha, que é
+`match_players.list_kind`.
+
+`private.policy_documents` é catálogo técnico, sem texto integral. `content_sha256` guarda
+exatamente os 32 bytes do SHA-256 do arquivo publicado. `(document_type, version)` e o digest
+são imutáveis; uma troca de versão obrigatória desmarca a anterior e marca a nova na mesma
+transação. A aplicação falha fechada se não encontrar **exatamente uma** versão obrigatória de
+`terms` e uma de `privacy`. `source` do aceite é derivado no servidor: `signup` no primeiro
+aceite daquele tipo e `reauth` nos seguintes. Versão desconhecida, superada ou não obrigatória
+é `VALIDATION`.
+
+Versões fictícias existem somente em fixture pgTAP ou seed explicitamente local e nunca são
+apresentadas como Termos/Política reais; não há seed canônico `m1-draft-1`. Antes do beta, uma
+migration publica as versões efetivas e seus digests, e o build passa a verificar que os
+arquivos empacotados produzem os mesmos valores. O catálogo e essa verificação não substituem
+o gate jurídico de texto, papéis, bases e prazos.
+
 `delete_account(request_id)` inicia uma **saga**, porque banco, Auth e Storage não compartilham
 transação:
 
@@ -153,8 +189,8 @@ transação:
 
 `revoke_current_session` grava o `session_id` do JWT antes do logout do Auth. Todo helper
 privilegiado rejeita sessão presente em `revoked_auth_sessions`; o job apaga a negação depois
-do `exp` máximo. Isso cobre logout seguro, enquanto `deletion_pending` cobre todas as sessões
-da conta.
+do `expires_at` calculado pela vida máxima da sessão. Isso cobre logout seguro, enquanto
+`deletion_pending` cobre todas as sessões da conta.
 
 Download de export é one-shot no nível da **tentativa autorizada**: sob row lock e depois de
 reauth, a Edge faz compare-and-set `ready→downloaded`, grava `downloaded_at` e commita antes
@@ -1009,9 +1045,14 @@ aninhado e JSON fornecido pelo cliente.
 
 ## 9. Idempotência, notificações e operação temporal
 
+Conforme `14` §5.2, tabelas de serviço que nenhum papel cliente lê ficam em `private`, sem
+grants e sem RLS. Por isso os nomes abaixo são qualificados: a ausência de `usage` no schema
+e de grants protege essas tabelas sem introduzir uma checagem negativa que possa falhar
+aberta sob RLS.
+
 ```sql
-create table idempotency_records (
-  actor_key     text not null, -- construído pelo servidor: profile:<uuid> ou system:<job>
+create table private.idempotency_records (
+  actor_key     text not null, -- servidor: profile:<uuid>, bootstrap:<sha256> ou system:<job>
   actor_id      uuid references profiles,
   operation     text not null,
   request_id    uuid not null,
@@ -1037,11 +1078,16 @@ create table idempotency_records (
       or (state = 'payload_expired' and outcome is null and completed_at is not null
           and payload_expired_at is not null)),
   check (outcome_expires_at < record_expires_at),
-  check ((actor_id is not null and actor_key = ('profile:' || actor_id::text))
-      or (actor_id is null and actor_key like 'system:%'))
+  check ((operation <> 'complete_profile'
+          and actor_id is not null and actor_key = ('profile:' || actor_id::text))
+      or (operation = 'complete_profile'
+          and actor_key ~ '^bootstrap:[0-9a-f]{64}$'
+          and (state = 'executing_uncommitted' or actor_id is not null))
+      or (operation <> 'complete_profile'
+          and actor_id is null and actor_key like 'system:%'))
 );
 
-create table external_effects (
+create table private.external_effects (
   id             uuid primary key default gen_random_uuid(),
   kind           text not null check (kind in
                  ('delete_auth_user','delete_storage_object','build_data_export',
@@ -1135,7 +1181,7 @@ create table transition_markers (
   primary key (match_id, marker_key)
 );
 
-create table job_runs (
+create table private.job_runs (
   id            bigint generated always as identity primary key,
   run_key       text unique not null, -- cron:<job>:<slot> ou request:<uuid>
   job_name      text not null,
@@ -1151,7 +1197,7 @@ create table job_runs (
   check ((triggered_by in ('organizer','admin')) = (requested_by is not null))
 );
 
-create table retention_runs (
+create table private.retention_runs (
   id            bigint generated always as identity primary key,
   policy        text not null,
   window_start  timestamptz not null,
@@ -1179,6 +1225,10 @@ create table legal_holds (
 );
 ```
 
+`private.job_runs.match_id` nasce nullable e sem FK no M1-A, porque `public.matches` ainda não
+existe. A migration que criar `matches` adiciona e testa a FK; a ausência inicial é uma ordem
+explícita de implantação, não um relaxamento permanente de integridade.
+
 Aquisição idempotente ocorre na **mesma transação `READ COMMITTED`** da mutação. A função faz
 `insert ... on conflict do nothing returning 1` com estado `executing_uncommitted`. A unique
 faz o insert concorrente aguardar commit/rollback do vencedor. Se o vencedor commitou, o
@@ -1196,11 +1246,25 @@ visibilidade de escrita não commitada.
 O vencedor, ainda na mesma transação, adquire locks do domínio, produz efeito/outbox e chama
 `complete_idempotency`, que grava apenas outcome tipado. Crash antes do commit elimina chave,
 efeito e outbox juntos; crash depois do commit encontra `completed`. Efeitos externos nunca
-ficam dentro dessa promessa: a transação insere `external_effects.dedupe_key`, e worker com
+ficam dentro dessa promessa: a transação insere `private.external_effects.dedupe_key`, e worker com
 lease/reconciliação própria executa a saga. Após 30 dias, o job zera `outcome` e marca
 `payload_expired`; retry até 24 meses retorna `IDEMPOTENCY_EXPIRED`, sem reexecução.
 
 ### 9.1 Canonicalização idempotente v1
+
+O transporte possui duas fronteiras distintas. Na chamada externa, o cliente envia somente
+`request_id` e entrada de negócio à Edge; nunca envia `input_hmac`, `hash_key_version` ou
+contexto de ator. A Edge valida o JWT, extrai `auth_user_id`/`session_id` das claims
+verificadas, aplica rate limit, normaliza a entrada e calcula JCS/HMAC com a chave do cofre. Na
+chamada interna, ela acrescenta à RPC estreita o contexto verificado, `input_hmac` e
+`hash_key_version`.
+
+O HMAC detecta replay com entrada divergente e impede que um dump permita testar por força
+bruta digests de entradas de baixa entropia; ele **não autentica nem autoriza** o ator. A RPC
+valida formato/versão, compara o HMAC persistido no replay e revalida todos os campos e regras
+de negócio no banco. A chave nunca entra no cliente, banco, tabela, configuração SQL ou log.
+Não existe helper produtivo `private.compute_idempotency_hash`: vetores SQL chamam
+`extensions.hmac` diretamente ou usam helper criado e removido pela própria suíte.
 
 Antes do HMAC, cada operação transforma a entrada validada em objeto normativo: campos
 desconhecidos são rejeitados; ausência é diferente de `null`; strings de negócio são NFC;
@@ -1224,14 +1288,49 @@ Persiste-se `canonical_version=1` e `hash_key_version`. O cofre preserva chave a
 `{"list_kind":"field","match_id":"01890f7e-e948-7c53-b13a-4a36e4b7d21e"}` produz
 `5974c4e8c2434e4d150f2f2199180b3228c869f80e72dabc0f25218132595ee4`.
 
+Antes de consultar se já existe perfil, `complete_profile` deriva a chave
+`bootstrap:<digest hexadecimal minúsculo>`, válida somente para essa operação, em que:
+
+```text
+digest = SHA-256(
+  UTF8("colete/bootstrap-actor/v1") || 0x00 || UUID_BYTES(auth_user_id)
+)
+```
+
+`UUID_BYTES` são os 16 bytes do UUID em ordem textual/RFC 4122 (network order): remover os
+hífens da forma canônica minúscula e decodificar os 32 dígitos hexadecimais, sem UTF-8 do
+texto. Vetor comum: `auth_user_id=01890f7e-e948-7c53-b13a-4a36e4b7d21e` usa bytes
+`01890f7ee9487c53b13a4a36e4b7d21e` e produz
+`21409156bb1cbd9d8cadf3814edcf230153e3378c09dc03ebf5ed8940c9c4d3a`.
+
+O Auth ID vem das claims verificadas pela Edge. Durante `executing_uncommitted`, `actor_id`
+pode ser nulo; depois do insert de `profiles`, a mesma transação liga
+`actor_id=profiles.id` antes de marcar `completed`. Assim o replay ainda encontra a chave
+bootstrap depois da criação, sem deixar ator permanentemente nulo.
+
 Outcomes autorizados: participação/claim `{match_player_id,payment_cycle_id?,claim_id?,
 logical_result}`; upload `{upload_session_id,constraints}`; financeiro `{payment_cycle_id,
-resolution_id?,refund_event_id?,logical_result}`; sorteio
-`{draw_id,algorithm_version,match_revision}`. `logical_result` descreve o efeito no instante
-(`joined`, `waitlisted`, `claim_created`, `resolution_created`), não o estado atual.
+resolution_id?,refund_event_id?,logical_result}`; sorteio `{draw_id,algorithm_version,
+match_revision}`; identidade `{logical_result}` para `update_profile`,
+`{profile_id,logical_result:'profile_created'}` para `complete_profile`,
+`{accepted:[{document_type,version}],logical_result}` para `accept_policies` e
+`{session_id,revoked_at,logical_result}` para `revoke_current_session`. `logical_result`
+descreve o efeito no instante (`joined`, `waitlisted`, `claim_created`,
+`resolution_created`, `profile_created`, `profile_updated`, `policies_accepted`,
+`session_revoked`), não o estado atual.
+
+As quatro formas de identidade obedecem à mesma regra do parágrafo acima: guardam fato
+imutável, nunca estado. `complete_profile` guarda somente o ID criado; `update_profile` não
+ecoa os campos gravados — nome, apelido,
+posição, perna e número continuam mutáveis depois do commit, e o cliente relê por projeção
+fresca. `accept_policies` guarda as versões aceitas, que são fato datado e imutável, com o
+array ordenado por `document_type` e depois `version` para que a canonicalização seja
+determinística. `revoke_current_session` guarda `session_id` e `revoked_at` e não guarda
+`expires_at`, porque prazo de sessão é precisamente o que este parágrafo proíbe.
+
 Prazo/status/posição de claim ou sessão, capacidade restante e estado financeiro mutável não
 são persistidos. Pix, token/URL/path de upload, nota, prova, fingerprint/HMAC, input/score,
-motivo livre e perfil são proibidos. Toda resposta combina outcome com projeção atual fresca:
+motivo livre e campos de perfil são proibidos. Toda resposta combina outcome com projeção atual fresca:
 `get_my_match_state`, `get_upload_session_state` e projeções financeiras. Pix só via
 `get_payment_instructions`; upload/leitura só pelos endpoints Edge autenticados para sessão/
 caso utilizável;
@@ -1410,10 +1509,21 @@ Views usam `security_invoker` + grants por coluna quando possível. Onde a proje
 de privilégio elevado, usa-se função com retorno tipado, allowlist de colunas e teste
 negativo; nunca view `security_definer` aberta.
 
-Toda função `security definer` resolve `auth.uid()` para `profiles.id`, rejeita `session_id`
-revogado e `account_status in ('deletion_pending','deleted')`, fixa `search_path`,
-qualifica objetos, valida membership dentro da transação e ignora qualquer `actor_id` do
-payload. O Admin vem de allowlist/claim não editável pelo usuário, nunca de coluna do perfil.
+Toda RPC mutável recebe `revoke execute` de `public`, `anon` e `authenticated`; somente o papel
+administrativo usado pela Edge com secret key recebe o grant nominal da função interna. O
+cliente administrativo só pode chamar essa allowlist de RPCs: não existe API administrativa
+genérica nem escrita livre da Edge em tabelas de domínio. Como secret keys conferem acesso
+elevado e ignoram RLS, essa restrição também é testada nos grants e na camada Edge; RLS não é
+tratada como defesa aplicável ao chamador administrativo.
+
+A Edge valida o JWT e passa `actor_auth_user_id`/`actor_session_id` obtidos das claims, nunca
+do body. A RPC interna fixa `search_path`, qualifica objetos, rejeita sessão revogada e
+`account_status in ('deletion_pending','deleted')`, resolve `profiles.id` pelo Auth ID e valida
+membership/autorização dentro da transação. Nesse caminho, `auth.uid()` identifica o cliente
+administrativo ou é nulo — não prova o usuário final. A confiança na origem do contexto vem da
+Edge autenticada e do grant exclusivo; as constraints, denylist, locks e regras de domínio
+continuam no banco. Projeções diretas autorizadas pelo JWT podem continuar usando `auth.uid()`
+em RLS. O Admin de produto vem de allowlist/claim verificada, nunca de coluna editável do perfil.
 Antes de mutar, o helper comum rejeita conta `suspended|banned`, salvo canal próprio de
 privacidade/contestação e resolução de caso já transferido. Suspensão urgente transfere ou
 abre `financial_cases` antes de revogar sessões. Grupo suspenso usa allowlist mínima: saída,
@@ -1425,6 +1535,7 @@ financeiro da seção 2.
 | Recurso | Leitura | Escrita |
 |---|---|---|
 | `profiles` | próprio; demais só por `public_profiles` | próprio via RPC allowlist |
+| `policy_documents` | serviço; cliente recebe somente projeção de versão obrigatória | migration/dispatcher interno; sem texto integral |
 | `policy_acceptances`, `privacy_requests`, `data_exports`, `deletion_requests` | próprio por projeção mínima; export só por stream autenticado | RPC própria/sistema; tabelas de saga somente worker |
 | `revoked_auth_sessions` | serviço; próprio vê apenas estado agregado da sessão | RPC de revogação/sistema |
 | `groups`, `group_members` | membros ativos; pendente vê só o pedido | RPC de dono/organizador conforme ação |
