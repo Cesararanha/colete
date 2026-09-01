@@ -605,9 +605,21 @@ select is(
   (select count(*)
    from information_schema.routine_privileges
    where grantee = 'service_role'
-     and specific_schema in ('public', 'private')),
+     and specific_schema = 'private'),
   0::bigint,
-  'service_role cannot execute application functions'
+  'service_role cannot execute any private helper'
+);
+-- docs/10-schema-db.md section 11 allows exactly one exception to the blanket
+-- revocation: a nominal grant on the narrow RPCs the Edge is allowed to call.
+-- Naming them here is deliberate, so a future migration that widens the
+-- administrative surface has to change this assertion on purpose.
+select is(
+  (select coalesce(string_agg(distinct routine_name, ', ' order by routine_name), 'none')
+   from information_schema.routine_privileges
+   where grantee = 'service_role'
+     and specific_schema = 'public'),
+  'accept_policies, complete_profile, revoke_current_session, update_profile',
+  'service_role executes only the nominal gateway allowlist, and nothing else'
 );
 select ok(
   not has_table_privilege('anon', 'private.idempotency_records', 'select'),

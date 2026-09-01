@@ -4,11 +4,13 @@ Status deste documento: operacional. Ele não altera requisitos de produto nem
 substitui as fontes normativas de `01`, `04` e `09`–`17`. Continua de
 `20-operacao-m0-b.md`.
 
-**O M1-A está em andamento.** Duas fatias técnicas foram executadas:
+**O M1-A está em andamento.** Três fatias técnicas foram executadas:
 `0004_idempotency_foundation.sql`, a fundação transacional de idempotência com o
-endurecimento de privilégios do papel administrativo, e
+endurecimento de privilégios do papel administrativo;
 `0005_operational_runs.sql`, as tabelas operacionais das sagas, dos jobs e da
-retenção. Nenhuma RPC, nenhuma Edge Function e nenhuma tela entram aqui.
+retenção; e `0006_identity_rpcs.sql`, o catálogo de políticas, seu dispatcher
+interno, os guards do caminho administrativo e as quatro RPCs de identidade.
+Nenhuma Edge Function e nenhuma tela entram aqui.
 
 ## O que cada fatia entregou
 
@@ -43,13 +45,37 @@ mesmo caminho de uma instalação nova.
 Nenhum worker, job, cron ou RPC entra nesta fatia. Ela cria estado e o validador
 que fecha a única coluna JSON que introduz.
 
+### `0006_identity_rpcs.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| `private.policy_documents` | `10` §2 e `17` §2 |
+| FK composta de `public.policy_acceptances` para o catálogo | `10` §2 |
+| `private.publish_policy_document(...)` | `10` §11 e `17` §2 |
+| `private.is_actor_session_revoked(session_id)` | `10` §11 e `14` §5.3 |
+| `private.require_actor_context(...)` | `10` §11 e `13` §0, regra 7 |
+| `private.require_internal_transport(...)` | `13` §0.1 |
+| `private.validate_profile_patch(...)` | `13` §5.6 |
+| `private.profile_projection(...)` e `private.policy_state(...)` | `13` §5.2 e §5.6 |
+| `private.require_policies_accepted(...)` | `13` §5.2 |
+| `public.complete_profile(...)` | `13` §5.7 |
+| `public.update_profile(...)` | `13` §5.6 |
+| `public.accept_policies(...)` | `13` §5.2 |
+| `public.revoke_current_session(...)` | `13` §5.5 |
+
+Nenhuma Edge Function, nenhum rate limit produtivo e **nenhum seed de política**
+entram nesta fatia. O catálogo nasce vazio: `16` §3 exige que versões fictícias
+fiquem em fixture ou seed local e que outra migration publique textos e digests
+efetivos antes do beta.
+
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **397 asserções pgTAP em cinco arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 110 da `0004` e **76 novas** em
-`supabase/tests/database/0005_operational_runs.test.sql`. Os totais anteriores
-foram 211 ao fim do M0-B e 321 ao fim da `0004`. Os números foram medidos nesta
-execução, não estimados nem copiados.
+`npm run db:test` executa **499 asserções pgTAP em seis arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 111 da `0004`, 76 da `0005` e **101 novas** em
+`supabase/tests/database/0006_identity_rpcs.test.sql`. Os totais anteriores foram
+211 ao fim do M0-B, 321 ao fim da `0004` e 397 ao fim da `0005`. A `0004` subiu de
+110 para 111 porque uma asserção dela foi dividida em duas, pelo motivo registrado
+abaixo. Os números foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -192,6 +218,80 @@ quanto para `1e400` — e o cursor é string opaca de no máximo 200 caracteres.
 Chave desconhecida é rejeitada, o que é o ponto: `summary` nunca carrega lista de
 identificadores pessoais.
 
+### O caminho administrativo não pode reutilizar o guard do M0-B
+
+`private.require_domain_authority()`, da `0003`, resolve o ator por `auth.uid()`.
+Ele é correto para uma projeção que roda sob o JWT do usuário e **errado** aqui:
+neste caminho `auth.uid()` é o cliente administrativo, ou nulo. Por isso a `0006`
+traz `private.require_actor_context(auth_user_id, session_id, ...)`, que recebe o
+contexto que a Edge extraiu das claims verificadas e revalida tudo no banco —
+sessão na denylist, `deletion_pending`/`deleted`, `suspended`/`banned`. A confiança
+na origem do contexto vem da Edge autenticada e do grant exclusivo; a autorização
+continua no banco.
+
+`private.is_actor_session_revoked(null)` devolve **verdadeiro**. Um contexto sem
+identificador de sessão é um contexto cuja revogação não pode ser verificada, e
+isso é negação — a mesma regra fail-closed que `is_session_revoked()` já aplicava.
+
+### Duas exceções deliberadas ao guard, e por quê
+
+`revoke_current_session` aceita uma sessão **já revogada**. `13` §5.5 é explícito:
+um `request_id` novo sobre sessão já revogada também é sucesso, e a inserção
+`on conflict do nothing` preserva o `expires_at` original para que a segunda
+chamada não encurte a negação. Ela também aceita conta `suspended`/`banned`,
+porque é ação de segurança do titular, não mutação de domínio. Um `session_id`
+nulo continua sendo `UNAUTHENTICATED` nos dois casos.
+
+`update_profile` consulta a idempotência **antes** do portão de políticas. A ordem
+importa: uma versão obrigatória publicada depois do commit original não pode
+transformar uma mutação já commitada em erro no retry. O replay reproduz o outcome
+gravado; uma mutação nova espera o novo aceite. As duas metades estão fixadas por
+asserção.
+
+### O portão de políticas não fecha sobre catálogo vazio
+
+`13` §5.2 aplica a regra fail-closed a `accept_policies`: ela falha se o catálogo
+não tiver exatamente uma versão obrigatória de `terms` e uma de `privacy`. O portão
+das mutações comuns está escrito em outros termos — "enquanto houver versão
+obrigatória pendente" —, então com catálogo vazio nada está pendente e
+`update_profile` passa. A implementação segue o texto literal. É o comportamento
+necessário hoje, porque o catálogo só recebe conteúdo na migration pré-beta; se a
+intenção normativa for fechar também esse portão, é decisão de `13`, não desta
+fatia.
+
+### A chave bootstrap é derivada no próprio banco
+
+`complete_profile` deriva `bootstrap:<sha256>` antes de perguntar se o perfil
+existe, conforme `13` §5.7. Isso é possível porque o digest de bootstrap é
+SHA-256 **sem chave** — diferente do HMAC de idempotência, que continua sendo
+calculado pela Edge com a chave do cofre. Nada nesta fatia precisa dessa chave, e
+ela continua fora do banco. A suíte fixa a derivação contra o vetor publicado:
+`01890f7e-e948-7c53-b13a-4a36e4b7d21e` produz
+`21409156bb1cbd9d8cadf3814edcf230153e3378c09dc03ebf5ed8940c9c4d3a`.
+
+### O grant nominal é a única exceção à revogação da `0004`
+
+`10` §11 e `13` §0.1 exigem exatamente isto: `public`, `anon` e `authenticated`
+não recebem `EXECUTE` em RPC mutável, e só o papel administrativo do caminho
+secreto recebe grant nominal. A `0006` concede `EXECUTE` a `service_role` nas
+quatro RPCs e em mais nada. Como consequência, a asserção da `0004` que exigia
+zero privilégios de rotina virou duas: zero em `private`, e em `public` exatamente
+a allowlist nominal, nomeada. Uma migration futura que amplie a superfície
+administrativa precisa alterar essa asserção de propósito — é o mesmo princípio do
+censo de colunas JSON.
+
+Os testes continuam provando, com `set local role service_role`, que o grant
+nominal **não** devolve DML direto: `update` em `profiles`, `insert` em
+`policy_acceptances` e `select` no catálogo continuam retornando `42501`.
+
+### A FK composta que faltava desde a `0003`
+
+`10` §2 declara `policy_acceptances` com FK composta para
+`private.policy_documents(document_type, version)`. A `0003` não pôde criá-la
+porque o catálogo não existia. A `0006` a adiciona — migration commitada é
+imutável, estado novo entra na próxima. A fixture da suíte da `0003` passou a
+publicar as versões que ela aceita; as regras de aceite testadas lá não mudaram.
+
 ### `pg@8.16.3` como devDependency
 
 O harness de 25 conexões precisa de conexões PostgreSQL de verdade, independentes
@@ -203,9 +303,17 @@ aplicação o importa e ele não vai para o bundle.
 
 ## O que ficou de fora, e por quê
 
-- **`0006_identity_rpcs.sql` e `0007_idempotency_retention.sql`** continuam sendo
-  plano futuro do M1-A, como descreve a tabela fatia→migration de `16` §3.
-  Nenhum dos dois foi criado.
+- **`0007_idempotency_retention.sql`** continua sendo plano futuro do M1-A, como
+  descreve a tabela fatia→migration de `16` §3.
+- **A Edge Function do gateway.** `14` §5.3 define o caminho administrativo
+  exclusivo. As RPCs internas existem; a Edge que valida o JWT, extrai as claims,
+  aplica rate limit, canonicaliza a entrada por JCS e calcula o HMAC **não**.
+  Enquanto ela não existir, nenhum cliente alcança essas RPCs: `anon` e
+  `authenticated` não têm `EXECUTE`.
+- **Seed de políticas.** O catálogo nasce vazio e a migration que publica textos
+  e digests efetivos é pré-beta, conforme `16` §3.
+- **`request_data_export`, `delete_account` e as operações administrativas de
+  `13` §5.3 e §5.4.** Pertencem ao M1-B e às fatias administrativas.
 - **Workers, cron e jobs.** A `0005` cria as tabelas que `reconcile_due_matches`,
   `process_external_effects`, `apply_retention` e os demais jobs de `13` §7 vão
   usar. Nenhum desses jobs existe, nem o agendamento deles.
@@ -248,8 +356,8 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0005`, sem seed
-de domínio.
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0006`, sem seed
+de domínio e sem seed de política.
 
 ## CI
 
@@ -269,10 +377,19 @@ de projeto remoto.
    registrada em `16` §3.
 2. **`private.job_runs.match_id` sem foreign key** até a migration que criar
    `public.matches`.
-3. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
+3. **As RPCs `security definer` dependem de `BYPASSRLS` do dono.** Elas escrevem
+   em `public.profiles`, que tem `force row level security` e nenhuma policy de
+   escrita. Funcionam porque o dono, `postgres`, tem `rolbypassrls`. `14` §5.2
+   avisa que depender desse atributo é depender de algo que nenhum teste cobre por
+   padrão — então a suíte passou a cobrir: há asserção explícita de que o dono das
+   RPCs tem `BYPASSRLS`. Aqui a perda do atributo falharia **fechada** (escrita
+   negada), não aberta, mas quebraria a funcionalidade em silêncio. Vale decidir,
+   fora desta fatia, se a fronteira de escrita de `profiles` deve continuar
+   apoiada nesse atributo.
+4. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
    M0-B, a revisar com dados do piloto.
-4. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
+5. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
    item 8) — dependem da Edge que calcula o HMAC, e por isso chegam com a fatia
    do gateway.
-5. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
+6. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
    ainda abertos.
