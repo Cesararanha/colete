@@ -140,8 +140,9 @@ não prevalecem sobre `01` e `09`–`17`.
 🧭 **M0-A e M0-B concluídos localmente; M1-A em andamento.** As migrations `0001`–`0003`
 entregam a fundação de segurança, identidade e privacidade descrita em `19`/`20`. A migration
 `0004` entrega a fundação transacional de idempotência e o endurecimento de privilégios do
-papel administrativo, com evidências em `21`. O gateway Edge exclusivo, as RPCs de identidade
-e as migrations `0005`–`0007` ainda não estão implementados. Os gates de convite ao beta
+papel administrativo, e a `0005` entrega as tabelas operacionais de sagas, jobs e retenção;
+as evidências das duas estão em `21`. O gateway Edge exclusivo, as RPCs de identidade e as
+migrations `0006`–`0007` ainda não estão implementados. Os gates de convite ao beta
 permanecem em `16-roadmap.md`.
 
 ---
