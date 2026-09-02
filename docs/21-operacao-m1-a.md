@@ -398,7 +398,16 @@ de domínio e sem seed de política.
 ## CI
 
 O job `Database security` do workflow `Colete validation` passou a rodar
-`npm run db:test:idempotency` depois de `db:test` e antes de `db:stop`. O harness
+`npm run db:test:idempotency` depois de `db:test` e antes de `db:stop`.
+
+Os gatilhos não são uniformes, e isso é deliberado: minutos de Actions em
+repositório privado são limitados. Todos os jobs rodam em `pull_request`, que é
+onde a mudança é revisada. Só `Repository guardrails` roda também em push para
+`main` e num agendamento semanal, porque é o único job cujo resultado muda sem
+que o código mude — ele varre advisories de dependência recém-publicados e drift
+da baseline normativa. `.github/dependabot.yml` cobre o outro lado do mesmo
+problema: o workflow fixa cada action por SHA, e nada no repositório avisa quando
+um pin envelhece. O harness
 descobre a URL do banco por `supabase status -o env`, ou por
 `COLETE_TEST_DATABASE_URL` quando ela existir; ele não recebe nenhuma credencial
 de projeto remoto.
