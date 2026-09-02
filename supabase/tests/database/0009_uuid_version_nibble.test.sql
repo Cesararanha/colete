@@ -132,6 +132,23 @@ select throws_ok(
       '{"logical_result":"profile_created","profile_id":"not-a-uuid"}'::jsonb)$$,
   '22023', 'VALIDATION', 'a malformed profile_id is still rejected'
 );
+-- Truncated and unhyphenated are the two shapes a mis-edited length quantifier
+-- would let through, and this migration edited exactly that part of the regex.
+-- Asserting them only on actor_key would leave the edit unproven here.
+select throws_ok(
+  $$select private.validate_idempotency_outcome(
+      'complete_profile',
+      '{"logical_result":"profile_created",
+        "profile_id":"01890f7e-e948-7c53-b13a-4a36e4b7d21"}'::jsonb)$$,
+  '22023', 'VALIDATION', 'a truncated profile_id is still rejected'
+);
+select throws_ok(
+  $$select private.validate_idempotency_outcome(
+      'complete_profile',
+      '{"logical_result":"profile_created",
+        "profile_id":"01890f7ee9487c53b13a4a36e4b7d21e"}'::jsonb)$$,
+  '22023', 'VALIDATION', 'an unhyphenated profile_id is still rejected'
+);
 
 -- The same value through the real bootstrap path, not only the validator.
 select is(
@@ -175,6 +192,30 @@ select throws_ok(
         "session_id":"0192A5C1-4F2B-7D8E-9ABC-1A2B3C4D5E6F",
         "revoked_at":"2026-09-02T12:34:56.123456Z"}'::jsonb)$$,
   '22023', 'VALIDATION', 'an uppercase session_id is still rejected'
+);
+select throws_ok(
+  $$select private.validate_idempotency_outcome(
+      'revoke_current_session',
+      '{"logical_result":"session_revoked",
+        "session_id":"0192a5c1-4f2b-7d8e-9abc-1a2b3c4d5e6",
+        "revoked_at":"2026-09-02T12:34:56.123456Z"}'::jsonb)$$,
+  '22023', 'VALIDATION', 'a truncated session_id is still rejected'
+);
+select throws_ok(
+  $$select private.validate_idempotency_outcome(
+      'revoke_current_session',
+      '{"logical_result":"session_revoked",
+        "session_id":"0192a5c14f2b7d8e9abc1a2b3c4d5e6f",
+        "revoked_at":"2026-09-02T12:34:56.123456Z"}'::jsonb)$$,
+  '22023', 'VALIDATION', 'an unhyphenated session_id is still rejected'
+);
+select throws_ok(
+  $$select private.validate_idempotency_outcome(
+      'revoke_current_session',
+      '{"logical_result":"session_revoked",
+        "session_id":"not-a-uuid",
+        "revoked_at":"2026-09-02T12:34:56.123456Z"}'::jsonb)$$,
+  '22023', 'VALIDATION', 'a malformed session_id is still rejected'
 );
 
 -- End to end, through the RPC. This is the call that failed before 0009: no

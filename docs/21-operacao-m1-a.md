@@ -124,14 +124,16 @@ porque CHECK não se altera no lugar, e a expressão nova é estritamente mais
 permissiva, então nenhuma linha commitada pode reprová-la. As três funções são
 byte a byte as da `0004`, exceto o regex — verificado por comparação mecânica
 antes do commit. A exigência de **canônico minúsculo continua**, e continua
-testada: maiúsculo, truncado e sem hífen seguem rejeitados, e o namespace fechado
-não foi alargado.
+testada: maiúsculo, truncado e sem hífen seguem rejeitados **nos três caminhos** —
+`actor_key`, `profile_id` e `session_id` —, e o namespace fechado não foi alargado.
+Truncado e sem hífen são justamente as formas que um quantificador de comprimento
+mal editado deixaria passar, e é esse trecho do regex que a `0009` edita.
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **601 asserções pgTAP em nove arquivos**: 13 do M0-A,
+`npm run db:test` executa **606 asserções pgTAP em nove arquivos**: 13 do M0-A,
 94 da fatia 1, 105 da fatia 2, **113 da `0004`**, 80 da `0005`, 113 da `0006`, 34
-da `0007`, 23 da `0008` e **26 novas** em
+da `0007`, 23 da `0008` e **31 novas** em
 `supabase/tests/database/0009_uuid_version_nibble.test.sql`. Os totais anteriores
 foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da `0005`, 508 ao fim
 da `0006`, 542 ao fim da `0007`, 566 ao fim da `0008` e 574 ao fim do portão de
