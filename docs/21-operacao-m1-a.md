@@ -88,15 +88,29 @@ resolvido numa única execução, e grava a evidência em `private.retention_run
 Nenhum cron, scheduler ou wrapper de job entra nesta fatia: gravar
 `private.job_runs` por execução pertence à fatia de jobs.
 
+### `0008_settle_rls_debt.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| `no force` + `disable row level security` em `private.app_limits` | `14` §5.2 e `16` §3, fatia 9 |
+| `no force` + `disable row level security` em `private.allowed_proof_mime_types` | `14` §5.2 e `16` §3, fatia 9 |
+
+Não é fatia do M1-A: é a dívida do M0-B, saldada aqui com a numeração `0008`
+autorizada para isso. Nenhuma outra tabela é tocada, e a suíte fixa isso com um
+`set_eq` — a RLS continua cobrindo exatamente as cinco tabelas de `public` que têm
+leitor autorizado, e nenhuma de `private`.
+
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **542 asserções pgTAP em sete arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, 105 da `0006` e
-**34 novas** em `supabase/tests/database/0007_idempotency_retention.test.sql`. Os
-totais anteriores foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da
-`0005` e 508 ao fim da `0006`. A `0004` subiu de 110 para 112 porque a asserção de
-privilégio de rotina dela foi dividida em três, pelo motivo registrado abaixo. Os
-números foram medidos nesta execução, não estimados nem copiados.
+`npm run db:test` executa **566 asserções pgTAP em oito arquivos**: 13 do M0-A,
+94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, 105 da `0006`, 34 da
+`0007` e **23 novas** em
+`supabase/tests/database/0008_settle_rls_debt.test.sql`. Os totais anteriores
+foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da `0005`, 508 ao fim
+da `0006` e 542 ao fim da `0007`. A `0004` subiu de 110 para 112 porque a asserção
+de privilégio de rotina dela foi dividida em três; a fatia 1 subiu de 93 para 94
+porque a `0008` acrescentou lá a metade positiva do modelo de proteção. Os números
+foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -392,7 +406,7 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0007`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0008`, sem seed
 de domínio e sem seed de política.
 
 ## CI
@@ -415,12 +429,14 @@ de projeto remoto.
 
 ## Dívidas em aberto ao fim desta fatia
 
-1. **`private.app_limits` e `private.allowed_proof_mime_types` com `force row
-   level security` e zero policies.** Nasceram na `0002`, antes da regra de `14`
-   §5.2. Hoje só não falham fechado porque quem as lê tem `BYPASSRLS`; a proteção
-   efetiva delas são os `revoke all` da própria `0002`. Migration commitada é
-   imutável, então a correção pertence à varredura da fatia 9, onde a dívida está
-   registrada em `16` §3.
+1. ~~`private.app_limits` e `private.allowed_proof_mime_types` com `force row
+   level security` e zero policies.~~ **Saldada pela `0008`.** As duas nasceram na
+   `0002`, antes da regra de `14` §5.2. A `0008` remove `force` e desliga RLS de
+   forma append-only, e a suíte prova camada por camada o que realmente protege
+   essas tabelas: sem `usage` no schema, o schema nega; com `usage` e sem grant,
+   o privilégio de tabela nega; com os dois, a leitura funciona. Antes da `0008`
+   esse último passo devolvia **zero linhas** em vez das sete reais — para uma
+   tabela lida como configuração, um limite silenciosamente ausente.
 2. **`private.job_runs.match_id` sem foreign key** até a migration que criar
    `public.matches`.
 3. **As RPCs `security definer` dependem de `BYPASSRLS` do dono.** Elas escrevem
