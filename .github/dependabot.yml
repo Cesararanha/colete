@@ -24,6 +24,21 @@ updates:
   # Monthly and grouped on purpose. The application pins exact versions, so an
   # ungrouped npm feed would open a pull request per package and each one would
   # spend the same Actions minutes the workflow is trying to save.
+  #
+  # Every production dependency of this project is part of the set that Expo SDK
+  # 57 pins, and that set is compatible as a whole or not at all. Dependabot
+  # moves one member at a time, and this CI cannot catch the result: it builds
+  # for web and runs a browser smoke test, never a native build. The first
+  # attempt proved the point without even reaching that gap — bumping
+  # react-native 0.86.3 to 0.87.1 alone dropped the ./rn-get-polyfills export
+  # that the SDK 57 toolchain still requires, and bundling failed outright.
+  #
+  # So the Expo-managed packages leave this feed. They are updated by
+  # `expo install --check`, which resolves the versions the installed SDK
+  # expects, or by an SDK upgrade that moves the whole set together. A
+  # production dependency that is NOT Expo-managed is deliberately still
+  # reported: it would fall outside every glob below and open its own pull
+  # request, which is the signal we want.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -37,11 +52,15 @@ updates:
       prefix-development: 'chore'
     labels:
       - dependencies
+    ignore:
+      - dependency-name: expo
+      - dependency-name: expo-*
+      - dependency-name: react
+      - dependency-name: react-dom
+      - dependency-name: react-native
+      - dependency-name: react-native-*
+      - dependency-name: '@expo/*'
     groups:
-      production-dependencies:
-        dependency-type: production
-        patterns:
-          - '*'
       development-dependencies:
         dependency-type: development
         patterns:
