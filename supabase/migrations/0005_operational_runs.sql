@@ -79,8 +79,12 @@ create table private.job_runs (
   summary       jsonb not null default
                 '{"scanned":0,"changed":0,"skipped":0,"failed":0,"stale":0,"duration_ms":0}'::jsonb,
   check ((triggered_by in ('organizer', 'admin')) = (requested_by is not null)),
+  -- The request half accepts any canonical lowercase UUID. Pinning the version
+  -- and variant nibbles would reject a request_id the contract allows: docs/13
+  -- section 0 lets the client generate it, and the UUID both normative
+  -- documents use as their worked example is a v7.
   check (run_key ~ '^cron:[a-z][a-z0-9_]{0,62}:[0-9A-Za-z:_.+-]{1,64}$'
-      or run_key ~ '^request:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
+      or run_key ~ '^request:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
   check ((status = 'running') = (finished_at is null)),
   check (error_code is null or status = 'failed'),
   check (finished_at is null or finished_at >= started_at)

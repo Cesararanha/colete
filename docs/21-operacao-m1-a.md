@@ -90,13 +90,13 @@ Nenhum cron, scheduler ou wrapper de job entra nesta fatia: gravar
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **530 asserções pgTAP em sete arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 111 da `0004`, 76 da `0005`, 101 da `0006` e
+`npm run db:test` executa **539 asserções pgTAP em sete arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, 105 da `0006` e
 **31 novas** em `supabase/tests/database/0007_idempotency_retention.test.sql`. Os
-totais anteriores foram 211 ao fim do M0-B, 321 ao fim da `0004`, 397 ao fim da
-`0005` e 499 ao fim da `0006`. A `0004` subiu de 110 para 111 porque uma asserção
-dela foi dividida em duas, pelo motivo registrado abaixo. Os números foram
-medidos nesta execução, não estimados nem copiados.
+totais anteriores foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da
+`0005` e 508 ao fim da `0006`. A `0004` subiu de 110 para 112 porque a asserção de
+privilégio de rotina dela foi dividida em três, pelo motivo registrado abaixo. Os
+números foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 

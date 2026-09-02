@@ -69,6 +69,14 @@ select is(
   1::bigint,
   'an acceptance points at a real catalogue version'
 );
+select is(
+  (select c.confdeltype::text || c.confupdtype::text
+   from pg_constraint as c
+   where c.conname = 'policy_acceptances_document_fkey'
+     and c.conrelid = 'public.policy_acceptances'::regclass),
+  'rr'::text,
+  'evidence of an acceptance never cascades away with the catalogue row'
+);
 
 select throws_ok(
   $$insert into private.policy_documents
@@ -753,6 +761,38 @@ select throws_ok(
       '01890f7e-e948-7c53-b13a-4a36e4b7d21e', null,
       '60000000-0000-4000-8000-000000000405', repeat('e', 64), 1, 1)$$,
   '28000', 'UNAUTHENTICATED', 'a token without session_id cannot revoke anything'
+);
+
+-- ---------------------------------------------------------------------------
+-- The nominal grant end to end
+-- ---------------------------------------------------------------------------
+-- Everything above runs as the suite role, which owns the functions. That
+-- proves the bodies, not the boundary: has_function_privilege only says the
+-- grant exists. This calls a gateway RPC as the role the Edge actually uses,
+-- so the grant is proven to be usable, and proven not to have widened into
+-- direct DML on the way.
+
+set local role service_role;
+select is(
+  public.revoke_current_session(
+    '01890f7e-e948-7c53-b13a-4a36e4b7d21e', '55555555-0000-4000-8000-000000000041',
+    '60000000-0000-4000-8000-000000000501', repeat('7', 64), 1, 1)
+    -> 'outcome' ->> 'logical_result',
+  'session_revoked',
+  'the administrative role can actually execute a gateway RPC, not just hold the grant'
+);
+select throws_ok(
+  $$select * from private.revoked_auth_sessions$$,
+  '42501', null,
+  'executing the RPC did not give the administrative role sight of what it wrote'
+);
+reset role;
+
+select is(
+  (select count(*) from private.revoked_auth_sessions as revoked
+   where revoked.session_id = '55555555-0000-4000-8000-000000000041'),
+  1::bigint,
+  'the row the administrative call created is really there'
 );
 
 -- ---------------------------------------------------------------------------

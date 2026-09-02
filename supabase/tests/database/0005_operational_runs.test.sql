@@ -285,6 +285,23 @@ select throws_ok(
 select throws_ok(
   $$insert into private.job_runs
       (run_key, job_name, triggered_by, scheduled_for, status)
+    values ('request:01890F7E-E948-7C53-B13A-4A36E4B7D21E', 'reconcile_match',
+            'system', now(), 'running')$$,
+  '23514', null, 'a request run key uses the canonical lowercase form'
+);
+-- docs/13-contratos-funcoes.md section 0 lets the client generate request_id,
+-- and the UUID both normative documents use as their worked example is a v7.
+-- Pinning the version nibble here would reject a request the contract allows.
+select lives_ok(
+  $$insert into private.job_runs
+      (run_key, job_name, triggered_by, scheduled_for, status)
+    values ('request:01890f7e-e948-7c53-b13a-4a36e4b7d21e', 'reconcile_match',
+            'system', now(), 'running')$$,
+  'a request run key accepts the UUID version the normative examples use'
+);
+select throws_ok(
+  $$insert into private.job_runs
+      (run_key, job_name, triggered_by, scheduled_for, status)
     values ('cron:health_check_jobs:1', 'health_check_jobs', 'organizer', now(), 'running')$$,
   '23514', null, 'an organizer-triggered run has to name who requested it'
 );
@@ -335,6 +352,14 @@ select ok(
    where p.oid = 'private.validate_job_summary(jsonb)'::regprocedure)
     @> array['search_path=""'],
   'the summary validator pins an empty search_path'
+);
+select has_index(
+  'private', 'external_effects', 'external_effects_due_idx',
+  'the worker has an access path for the effects that are due'
+);
+select has_index(
+  'private', 'job_runs', 'job_runs_job_name_started_at_idx',
+  'job health has an access path per job over time'
 );
 select has_trigger(
   'private', 'job_runs', 'job_runs_validate_summary',
@@ -465,7 +490,11 @@ select set_eq(
        and t.relnamespace = c.table_schema::regnamespace
      where c.table_schema in ('public', 'private')
        and c.data_type in ('json', 'jsonb')
-       and t.relkind = 'r'$$,
+       -- Ordinary and partitioned tables: the relkinds that store a writable
+       -- column and therefore need a registered validator. A view or a
+       -- materialised view is derived, and is covered by the validator of the
+       -- base column it reads.
+       and t.relkind in ('r', 'p')$$,
   $$select * from (values
       ('private.idempotency_records.outcome'::text),
       ('private.job_runs.summary')) as classified(name)$$,
