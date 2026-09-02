@@ -69,6 +69,11 @@ begin
   -- docs/17-mapa-dados-lgpd.md section 4, item 7: the evidence records the
   -- policy, the window, counts and duration. It never names what it purged,
   -- because that would recreate the data the purge removed.
+  --
+  -- The counters count operations, not rows. A row that is due for both phases
+  -- is scanned twice and purged twice, because the run really did erase a
+  -- payload and then drop a tombstone. Reading these as a row count would
+  -- understate what the policy did.
   insert into private.retention_runs
     (policy, window_start, window_end, scanned, purged, failed, started_at, finished_at)
   values (

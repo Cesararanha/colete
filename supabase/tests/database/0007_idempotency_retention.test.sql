@@ -277,6 +277,48 @@ select private.complete_idempotency(
    || '"revoked_at":"2026-08-31T12:34:56.123456Z"}')::jsonb
 );
 
+-- ---------------------------------------------------------------------------
+-- One row due for both deadlines at once
+-- ---------------------------------------------------------------------------
+-- This is the ordering the migration exists to guarantee: a ledger left
+-- unpurged for longer than 24 months holds rows that need the payload erased
+-- and the tombstone dropped, and one execution has to resolve both. Nothing
+-- above exercised it, because every fixture row was due for exactly one phase.
+
+insert into private.idempotency_records
+  (actor_key, actor_id, operation, request_id, request_hash, hash_key_version,
+   state, outcome_code, outcome, created_at, updated_at, completed_at,
+   outcome_expires_at, record_expires_at, payload_expired_at)
+values
+  ('profile:dddddddd-0000-4000-8000-0000000003dd',
+   'dddddddd-0000-4000-8000-0000000003dd', 'update_profile',
+   '70000000-0000-4000-8000-000000000006', repeat('f', 64), 1,
+   'completed', 'profile_updated', '{"logical_result":"profile_updated"}',
+   now() - interval '25 months', now() - interval '25 months',
+   now() - interval '25 months',
+   now() - interval '25 months' + interval '30 days',
+   now() - interval '25 months' + interval '24 months', null);
+
+select is(
+  private.purge_expired_idempotency_outcomes(),
+  '{"payload_expired":1,"tombstones_deleted":1}'::jsonb,
+  'a row past both deadlines is expired and then dropped by the same execution'
+);
+select is(
+  (select count(*) from private.idempotency_records
+   where request_id = '70000000-0000-4000-8000-000000000006'),
+  0::bigint,
+  'nothing of it survives the run that found it'
+);
+-- The counters count operations, not rows: this single row really did have a
+-- payload erased and a tombstone dropped. Pinning it here keeps the evidence
+-- from being read as a row count.
+select is(
+  (select scanned || '/' || purged from private.retention_runs order by id desc limit 1),
+  '2/2',
+  'the evidence counts both operations the run performed on that one row'
+);
+
 select * from finish();
 
 rollback;

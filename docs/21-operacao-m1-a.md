@@ -90,9 +90,9 @@ Nenhum cron, scheduler ou wrapper de job entra nesta fatia: gravar
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **539 asserções pgTAP em sete arquivos**: 13 do M0-A,
+`npm run db:test` executa **542 asserções pgTAP em sete arquivos**: 13 do M0-A,
 93 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, 105 da `0006` e
-**31 novas** em `supabase/tests/database/0007_idempotency_retention.test.sql`. Os
+**34 novas** em `supabase/tests/database/0007_idempotency_retention.test.sql`. Os
 totais anteriores foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da
 `0005` e 508 ao fim da `0006`. A `0004` subiu de 110 para 112 porque a asserção de
 privilégio de rotina dela foi dividida em três, pelo motivo registrado abaixo. Os
