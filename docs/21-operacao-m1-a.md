@@ -4,12 +4,13 @@ Status deste documento: operacional. Ele não altera requisitos de produto nem
 substitui as fontes normativas de `01`, `04` e `09`–`17`. Continua de
 `20-operacao-m0-b.md`.
 
-**O M1-A está em andamento.** Esta é a primeira fatia técnica do marco: a fundação
-transacional de idempotência e o endurecimento de privilégios do papel
-administrativo. Somente a migration `0004_idempotency_foundation.sql` foi
-executada. Nenhuma RPC, nenhuma Edge Function e nenhuma tela entram aqui.
+**O M1-A está em andamento.** Duas fatias técnicas foram executadas:
+`0004_idempotency_foundation.sql`, a fundação transacional de idempotência com o
+endurecimento de privilégios do papel administrativo, e
+`0005_operational_runs.sql`, as tabelas operacionais das sagas, dos jobs e da
+retenção. Nenhuma RPC, nenhuma Edge Function e nenhuma tela entram aqui.
 
-## O que esta fatia entregou
+## O que cada fatia entregou
 
 ### `0004_idempotency_foundation.sql`
 
@@ -28,12 +29,27 @@ A migration estende `private.app_limits` com `alter table` em vez de reescrever 
 `0002`: a tabela é append-only e um banco já aplicado precisa seguir exatamente o
 mesmo caminho de uma instalação nova.
 
+### `0005_operational_runs.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| `private.external_effects` | `10` §9 e `13` §7 |
+| `private.job_runs` | `10` §9 e `13` §7.1 |
+| `private.retention_runs` | `10` §12 e `17` §4, item 7 |
+| `private.validate_job_summary(summary)` | `17` §3 |
+| trigger `job_runs_validate_summary` | `17` §3 |
+| censo pgTAP das colunas JSON | `17` §3 |
+
+Nenhum worker, job, cron ou RPC entra nesta fatia. Ela cria estado e o validador
+que fecha a única coluna JSON que introduz.
+
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **321 asserções pgTAP em quatro arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2 e **110 novas** em
-`supabase/tests/database/0004_idempotency_foundation.test.sql`. O total anterior
-era 211. Os números foram medidos nesta execução, não estimados.
+`npm run db:test` executa **401 asserções pgTAP em cinco arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 110 da `0004` e **80 novas** em
+`supabase/tests/database/0005_operational_runs.test.sql`. Os totais anteriores
+foram 211 ao fim do M0-B e 321 ao fim da `0004`. Os números foram medidos nesta
+execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -149,6 +165,33 @@ piloto, exatamente como `13` §0 e `16` §4 registram. Ele é aplicado como
 takeover. Espera excedida retorna `IDEMPOTENCY_WAIT_TIMEOUT`, retryable e sem
 efeito, e o retry conserva o mesmo `request_id`.
 
+### `job_runs.match_id` nasce sem foreign key
+
+`public.matches` ainda não existe, então a coluna nasce nullable e **sem FK**. É a
+ordem de implantação que `10` §9 declara explicitamente, não relaxamento
+permanente: a migration que criar `matches` adiciona e testa a constraint. A
+suíte fixa isso por asserção — conta zero foreign keys sobre `match_id`, confirma
+o tipo `uuid` e confirma que a coluna é nullable —, para que a dívida seja
+visível em vez de silenciosa.
+
+### O censo de colunas JSON entra com a segunda coluna JSON
+
+`17` §3 exige que uma migration inclua o teste que varre
+`information_schema.columns` atrás de toda coluna `json|jsonb` dos schemas da
+aplicação e exige correspondência 1:1 com o mapa e com um validador registrado.
+Enquanto existia uma única coluna JSON, o censo não distinguia nada. Com
+`job_runs.summary` ele passa a valer: hoje o conjunto autorizado é exatamente
+`private.idempotency_records.outcome` e `private.job_runs.summary`, cada uma com
+seu validador. **Uma coluna JSON nova em qualquer schema da aplicação quebra o
+CI** até ser classificada em `17` §3 e ganhar validador.
+
+`validate_job_summary` fecha a forma: os seis contadores são obrigatórios,
+`cursor` é a única chave opcional, contadores são inteiros não negativos
+verificados no texto do literal — `jsonb_typeof` diz `number` tanto para `1.5`
+quanto para `1e400` — e o cursor é string opaca de no máximo 200 caracteres.
+Chave desconhecida é rejeitada, o que é o ponto: `summary` nunca carrega lista de
+identificadores pessoais.
+
 ### `pg@8.16.3` como devDependency
 
 O harness de 25 conexões precisa de conexões PostgreSQL de verdade, independentes
@@ -160,9 +203,15 @@ aplicação o importa e ele não vai para o bundle.
 
 ## O que ficou de fora, e por quê
 
-- **`0005_operational_runs.sql`, `0006_identity_rpcs.sql` e
-  `0007_idempotency_retention.sql`** continuam sendo plano futuro do M1-A, como
-  descreve a tabela fatia→migration de `16` §3. Nenhum deles foi criado.
+- **`0006_identity_rpcs.sql` e `0007_idempotency_retention.sql`** continuam sendo
+  plano futuro do M1-A, como descreve a tabela fatia→migration de `16` §3.
+  Nenhum dos dois foi criado.
+- **Workers, cron e jobs.** A `0005` cria as tabelas que `reconcile_due_matches`,
+  `process_external_effects`, `apply_retention` e os demais jobs de `13` §7 vão
+  usar. Nenhum desses jobs existe, nem o agendamento deles.
+- **`legal_holds`.** Aparece no mesmo bloco SQL de `10` §9, mas a linha
+  fatia→migration da `0005` nomeia apenas as três tabelas privadas. Fica para a
+  fatia que a nomear.
 - **Gateway Edge executável.** `14` §5.3 define o caminho administrativo
   exclusivo; esta fatia não cria Edge Function, rota, rate limit produtivo nem
   cliente administrativo.
@@ -199,7 +248,7 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0004`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0005`, sem seed
 de domínio.
 
 ## CI
@@ -212,10 +261,18 @@ de projeto remoto.
 
 ## Dívidas em aberto ao fim desta fatia
 
-1. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
+1. **`private.app_limits` e `private.allowed_proof_mime_types` com `force row
+   level security` e zero policies.** Nasceram na `0002`, antes da regra de `14`
+   §5.2. Hoje só não falham fechado porque quem as lê tem `BYPASSRLS`; a proteção
+   efetiva delas são os `revoke all` da própria `0002`. Migration commitada é
+   imutável, então a correção pertence à varredura da fatia 9, onde a dívida está
+   registrada em `16` §3.
+2. **`private.job_runs.match_id` sem foreign key** até a migration que criar
+   `public.matches`.
+3. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
    M0-B, a revisar com dados do piloto.
-2. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
+4. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
    item 8) — dependem da Edge que calcula o HMAC, e por isso chegam com a fatia
    do gateway.
-3. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
+5. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
    ainda abertos.
