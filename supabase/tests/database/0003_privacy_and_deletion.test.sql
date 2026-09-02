@@ -83,6 +83,15 @@ select col_type_is(
 -- Acceptance
 -- ---------------------------------------------------------------------------
 
+-- Migration 0006 added the composite foreign key that docs/10-schema-db.md
+-- section 2 carries, so an acceptance now needs a catalogued version. The
+-- fixture publishes two versions; the acceptance rules under test are unchanged.
+insert into private.policy_documents
+  (document_type, version, content_sha256, published_at, mandatory)
+values
+  ('terms', '2026-08-01', extensions.digest('terms-2026-08-01', 'sha256'), now(), false),
+  ('terms', '2026-09-01', extensions.digest('terms-2026-09-01', 'sha256'), now(), true);
+
 insert into public.policy_acceptances (profile_id, document_type, version, source)
 values ('aaaaaaaa-0000-4000-8000-00000000000a', 'terms', '2026-08-01', 'signup');
 
