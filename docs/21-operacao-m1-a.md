@@ -70,10 +70,10 @@ efetivos antes do beta.
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **499 asserções pgTAP em seis arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 111 da `0004`, 76 da `0005` e **101 novas** em
+`npm run db:test` executa **503 asserções pgTAP em seis arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 111 da `0004`, 80 da `0005` e **101 novas** em
 `supabase/tests/database/0006_identity_rpcs.test.sql`. Os totais anteriores foram
-211 ao fim do M0-B, 321 ao fim da `0004` e 397 ao fim da `0005`. A `0004` subiu de
+211 ao fim do M0-B, 321 ao fim da `0004` e 401 ao fim da `0005`. A `0004` subiu de
 110 para 111 porque uma asserção dela foi dividida em duas, pelo motivo registrado
 abaixo. Os números foram medidos nesta execução, não estimados nem copiados.
 
