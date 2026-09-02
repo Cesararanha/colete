@@ -821,8 +821,29 @@ select throws_ok(
   '22023', 'VALIDATION',
   'and acceptance stays closed while only one type is mandatory'
 );
+-- The other half of why this state is forbidden, and the half that makes it
+-- dangerous rather than merely broken: the gate measures pending mandatory
+-- versions, so with privacy demoted nothing is pending and an ordinary mutation
+-- goes through for an actor who never accepted a privacy version. Acceptance
+-- refuses and mutation proceeds, from the same catalogue, at the same instant.
+select is(
+  public.update_profile(
+    '01890f7e-e948-7c53-b13a-4a36e4b7d21e', '55555555-0000-4000-8000-000000000001',
+    '60000000-0000-4000-8000-000000000452', repeat('9', 64), 1, 1,
+    '{"nickname":"Meia"}'::jsonb) -> 'outcome' ->> 'logical_result',
+  'profile_updated',
+  'while acceptance is closed, an ordinary mutation still passes: the half-published hazard'
+);
+
 update private.policy_documents set mandatory = true
 where document_type = 'privacy' and version = '2026-12-01';
+select ok(
+  (select count(*) = 0
+       or (count(*) filter (where document_type = 'terms') = 1
+       and count(*) filter (where document_type = 'privacy') = 1)
+   from private.policy_documents where mandatory),
+  'restoring the demoted version returns the catalogue to a coherent state'
+);
 
 -- ---------------------------------------------------------------------------
 -- The nominal grant end to end

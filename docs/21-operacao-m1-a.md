@@ -102,14 +102,14 @@ leitor autorizado, e nenhuma de `private`.
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **572 asserções pgTAP em oito arquivos**: 13 do M0-A,
-94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, **111 da `0006`**, 34
+`npm run db:test` executa **574 asserções pgTAP em oito arquivos**: 13 do M0-A,
+94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, **113 da `0006`**, 34
 da `0007` e 23 da `0008`. Os totais anteriores foram 211 ao fim do M0-B, 321 ao
 fim da `0004`, 401 ao fim da `0005`, 508 ao fim da `0006`, 542 ao fim da `0007` e
 566 ao fim da `0008`. A `0004` subiu de 110 para 112 porque a asserção de
 privilégio de rotina dela foi dividida em três; a fatia 1 subiu de 93 para 94 com
-a `0008`; a `0006` subiu de 105 para 111 com a invariante de coerência do
-catálogo. Os números foram medidos nesta execução, não estimados nem copiados.
+a `0008`; a `0006` subiu de 105 para 113 com a invariante de coerência do
+catálogo e com as duas metades do perigo que ela proíbe. Os números foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
