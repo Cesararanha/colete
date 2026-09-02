@@ -190,6 +190,28 @@ select throws_ok(
       '20000000-0000-4000-8000-000000000001', repeat('a', 64), 1, 1)$$,
   '22023', 'VALIDATION', 'profile actor keys use a canonical lowercase UUID'
 );
+-- Canonical lowercase is the whole rule, and nothing in this file used to say
+-- so: until migration 0009 the check here also pinned the UUID version nibble
+-- to 1 through 5, and no assertion covered that, which is how it survived. The
+-- version a UUID carries is not an invariant of any contract in this project,
+-- so the assertion above is paired with its complement rather than left to
+-- imply a narrower rule than the one enforced.
+insert into auth.users (id) values ('00000000-0000-4000-8000-000000000004');
+insert into public.profiles (id, auth_user_id, name) values
+  ('aaaaaaaa-0000-7000-8000-00000000000a',
+   '00000000-0000-4000-8000-000000000004', 'Vera');
+select is(
+  (select acquired from private.acquire_idempotency(
+    'profile:aaaaaaaa-0000-7000-8000-00000000000a', 'update_profile',
+    '20000000-0000-4000-8000-00000000000c', repeat('a', 64), 1, 1)),
+  true,
+  'and a lowercase key is accepted whatever version nibble its UUID carries'
+);
+select private.complete_idempotency(
+  'profile:aaaaaaaa-0000-7000-8000-00000000000a', 'update_profile',
+  '20000000-0000-4000-8000-00000000000c', repeat('a', 64), 1, 1,
+  '{"logical_result":"profile_updated"}'::jsonb
+);
 select throws_ok(
   $$select * from private.acquire_idempotency(
       'system:bad-name', 'update_profile',

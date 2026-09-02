@@ -100,16 +100,45 @@ autorizada para isso. Nenhuma outra tabela é tocada, e a suíte fixa isso com u
 `set_eq` — a RLS continua cobrindo exatamente as cinco tabelas de `public` que têm
 leitor autorizado, e nenhuma de `private`.
 
+### `0009_uuid_version_nibble.sql`
+
+| Objeto | Origem |
+| --- | --- |
+| `idempotency_records_actor_key_namespace_check` recriado | `10` §9 |
+| `private.validate_idempotency_outcome` substituída | `10` §9.1 |
+| `private.acquire_idempotency` substituída | `13` §0, regra 2 |
+| `private.complete_idempotency` substituída | `13` §0, regra 2 |
+
+A `0004` exigia que o nibble de **versão** de todo UUID validado fosse 1 a 5. O
+nibble de **variante** é invariante de RFC 4122; o de versão não é invariante de
+nada que este projeto declare. Nenhum documento normativo diz qual versão de UUID
+o GoTrue emite, e o UUID que `10` §9.1 e `13` §5.7 usam como próprio vetor de
+trabalho — `01890f7e-e948-7c53-b13a-4a36e4b7d21e` — é **v7**, rejeitado por
+aqueles checks. É a mesma família do defeito de `run_key` corrigido na `0005`.
+
+O sintoma mais concreto: uma sessão cujo `session_id` fosse v7 **não conseguia se
+revogar** — `revoke_current_session` falhava com `VALIDATION` ao gravar o outcome.
+
+A `0009` é append-only: a `0004` não é reescrita. O CHECK é derrubado e recriado
+porque CHECK não se altera no lugar, e a expressão nova é estritamente mais
+permissiva, então nenhuma linha commitada pode reprová-la. As três funções são
+byte a byte as da `0004`, exceto o regex — verificado por comparação mecânica
+antes do commit. A exigência de **canônico minúsculo continua**, e continua
+testada: maiúsculo, truncado e sem hífen seguem rejeitados, e o namespace fechado
+não foi alargado.
+
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **574 asserções pgTAP em oito arquivos**: 13 do M0-A,
-94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, **113 da `0006`**, 34
-da `0007` e 23 da `0008`. Os totais anteriores foram 211 ao fim do M0-B, 321 ao
-fim da `0004`, 401 ao fim da `0005`, 508 ao fim da `0006`, 542 ao fim da `0007` e
-566 ao fim da `0008`. A `0004` subiu de 110 para 112 porque a asserção de
-privilégio de rotina dela foi dividida em três; a fatia 1 subiu de 93 para 94 com
-a `0008`; a `0006` subiu de 105 para 113 com a invariante de coerência do
-catálogo e com as duas metades do perigo que ela proíbe. Os números foram medidos nesta execução, não estimados nem copiados.
+`npm run db:test` executa **601 asserções pgTAP em nove arquivos**: 13 do M0-A,
+94 da fatia 1, 105 da fatia 2, **113 da `0004`**, 80 da `0005`, 113 da `0006`, 34
+da `0007`, 23 da `0008` e **26 novas** em
+`supabase/tests/database/0009_uuid_version_nibble.test.sql`. Os totais anteriores
+foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da `0005`, 508 ao fim
+da `0006`, 542 ao fim da `0007`, 566 ao fim da `0008` e 574 ao fim do portão de
+catálogo. A `0004` subiu de 110 para 113: 112 pela divisão da asserção de
+privilégio de rotina em três, e 113 porque a `0009` acrescentou lá a metade que
+faltava — nada naquele arquivo fixava o nibble de versão, e é por isso que o
+defeito sobreviveu. Os números foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -410,7 +439,7 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0008`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0009`, sem seed
 de domínio e sem seed de política.
 
 ## CI
