@@ -1,14 +1,27 @@
 name: Colete validation
 
+# Actions minutes on a private repository are limited, so the triggers are not
+# uniform. Every job runs on a pull request, because that is where the change
+# is reviewed. Only Repository guardrails also runs on a push to main and on a
+# weekly schedule: it is the only job whose result can change while the code
+# does not, since it scans for newly published dependency advisories and for
+# drift in the normative baseline.
 on:
   pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# github.ref is refs/heads/main for a push to main and for a scheduled run
+# alike, so without the event name the two new triggers would share one group
+# and cancel each other. Keyed by event, a merge and the weekly scan coexist.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,6 +32,8 @@ env:
 jobs:
   app-quality:
     name: App quality
+    # Pull requests only: this job's result cannot change unless the code does.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -49,6 +64,8 @@ jobs:
 
   pwa-export:
     name: PWA export
+    # Pull requests only: this job's result cannot change unless the code does.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -71,6 +88,8 @@ jobs:
 
   database-security:
     name: Database security
+    # Pull requests only: this job's result cannot change unless the code does.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -100,6 +119,7 @@ jobs:
 
   repository-guardrails:
     name: Repository guardrails
+    # No `if`: this is the job that also runs on push to main and on schedule.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -126,6 +146,8 @@ jobs:
 
   pwa-smoke:
     name: PWA smoke
+    # Pull requests only: this job's result cannot change unless the code does.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -1,0 +1,48 @@
+# The workflow pins every action by commit SHA, which is the right thing for
+# supply-chain integrity and the wrong thing for noticing that a pin has gone
+# stale: nothing in the repository tells us when a pinned SHA is years old or
+# has a published advisory. Dependabot is what closes that gap.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'ci'
+    labels:
+      - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  # Monthly and grouped on purpose. The application pins exact versions, so an
+  # ungrouped npm feed would open a pull request per package and each one would
+  # spend the same Actions minutes the workflow is trying to save.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+      time: '06:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    versioning-strategy: increase
+    commit-message:
+      prefix: 'chore'
+      prefix-development: 'chore'
+    labels:
+      - dependencies
+    groups:
+      production-dependencies:
+        dependency-type: production
+        patterns:
+          - '*'
+      development-dependencies:
+        dependency-type: development
+        patterns:
+          - '*'
