@@ -621,6 +621,17 @@ select is(
   'accept_policies, complete_profile, revoke_current_session, update_profile',
   'service_role executes only the nominal gateway allowlist, and nothing else'
 );
+-- string_agg(distinct ...) collapses overloads, so a second signature of an
+-- allowlisted name could be granted without changing the line above. The count
+-- is what makes the allowlist exact.
+select is(
+  (select count(*)
+   from information_schema.routine_privileges
+   where grantee = 'service_role'
+     and specific_schema = 'public'),
+  4::bigint,
+  'the allowlist is exactly four routines, so no overload can hide inside a name'
+);
 select ok(
   not has_table_privilege('anon', 'private.idempotency_records', 'select'),
   'anon cannot read idempotency records'
