@@ -45,8 +45,8 @@ que fecha a única coluna JSON que introduz.
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **397 asserções pgTAP em cinco arquivos**: 13 do M0-A,
-93 da fatia 1, 105 da fatia 2, 110 da `0004` e **76 novas** em
+`npm run db:test` executa **401 asserções pgTAP em cinco arquivos**: 13 do M0-A,
+93 da fatia 1, 105 da fatia 2, 110 da `0004` e **80 novas** em
 `supabase/tests/database/0005_operational_runs.test.sql`. Os totais anteriores
 foram 211 ao fim do M0-B e 321 ao fim da `0004`. Os números foram medidos nesta
 execução, não estimados nem copiados.
