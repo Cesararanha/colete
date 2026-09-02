@@ -385,6 +385,64 @@ nem queda de conexão. `pg` entra em versão exata, apenas como `devDependency`,
 usado somente por `scripts/test-idempotency-concurrency.mjs`. Nenhum código de
 aplicação o importa e ele não vai para o bundle.
 
+## Decisões fechadas: não reabrir
+
+As três abaixo já foram levantadas, avaliadas e decididas. Estão aqui porque a
+ausência de registro fez com que fossem reabertas — a primeira, em três sessões
+consecutivas. Reabrir qualquer uma exige argumento novo, não a mesma observação.
+
+### O nibble de variante `[89ab]` continua fixado, de propósito
+
+A `0009` relaxou o nibble de **versão** em cinco lugares porque ele não é
+invariante de nada que este projeto declare: nenhum documento diz qual versão de
+UUID o GoTrue emite, e o vetor de trabalho de `10` §9.1 e `13` §5.7 é um v7. O
+nibble de **variante** é caso diferente e continua exigindo `[89ab]` nos mesmos
+cinco lugares.
+
+O motivo é que ele **não varia entre geradores reais**. A variante RFC 4122 é
+`10xx` binário para todo UUID produzido por v1, v4, v6 ou v7 — `gen_random_uuid()`
+do PostgreSQL, o GoTrue e qualquer biblioteca conforme caem todos nela. Relaxá-la
+trocaria uma checagem que não custa nada por checagem nenhuma: não destravaria
+entrada legítima alguma, e deixaria passar as formas degeneradas — o UUID nulo,
+por exemplo, cuja variante é `0`.
+
+A assimetria é deliberada, e é a diferença entre uma forma **estreita demais para
+o contrato** e uma forma **exatamente do tamanho dele**.
+
+### `content_sha256` não é conferido contra arquivo, e não pode ser hoje
+
+`17` §2 exige que o build futuro confira arquivo × digest do catálogo de
+políticas. Nada faz isso hoje, e isso não é uma lacuna que esta fatia possa
+fechar: o catálogo **nasce vazio**, por decisão registrada em `13` §5.2, e a suíte
+da `0006` afirma que nenhuma migration semeia versão. Não existe par arquivo ×
+digest para conferir enquanto não existir arquivo.
+
+A verificação pertence à **migration pré-beta** que publica textos e digests
+efetivos — é lá que o par passa a existir, e é lá que a conferência tem o que
+comparar. O gate de convite ao beta de `16` §2 já aponta para esse momento, e a
+invariante de coerência do catálogo, afirmada nas duas pontas pela suíte da
+`0006`, garante que o estado intermediário perigoso — um tipo obrigatório e o
+outro não — não passe despercebido até lá.
+
+### O conjunto gerenciado pelo Expo sai do feed do Dependabot
+
+`.github/dependabot.yml` ignora `expo`, `expo-*`, `react`, `react-dom`,
+`react-native`, `react-native-*`, `@expo/*` e `eslint-config-expo`. Os dezesseis
+pacotes de produção mais esse config são versionados pelo Expo SDK 57, que fixa um
+conjunto compatível **inteiro ou não é**; a CI deste repositório faz build web e
+smoke em navegador, nunca build nativo, e por isso não consegue reprovar um membro
+movido sozinho.
+
+Não é teoria: subir `react-native` 0.86.3 → 0.87.1 isolado derrubou o export
+`./rn-get-polyfills` que a toolchain do SDK 57 ainda requer, e o bundling falhou.
+
+O caminho de atualização é `expo install --check`, que resolve as versões que o
+SDK instalado espera, ou um upgrade de SDK movendo o conjunto junto. Dois limites
+acompanham a mesma configuração e **têm condição de saída**, registrada no
+arquivo: `@types/node` não passa do major do runtime enquanto Node estiver preso
+em 24, e `typescript` não sobe de major enquanto a toolchain do Expo não suportar
+TS 7.
+
 ## O que ficou de fora, e por quê
 
 - **O agendamento do expurgo.** A `0007` cria a política; o cron que a executa
