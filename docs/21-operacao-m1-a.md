@@ -102,15 +102,14 @@ leitor autorizado, e nenhuma de `private`.
 
 ### Medição real da suíte pgTAP
 
-`npm run db:test` executa **566 asserções pgTAP em oito arquivos**: 13 do M0-A,
-94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, 105 da `0006`, 34 da
-`0007` e **23 novas** em
-`supabase/tests/database/0008_settle_rls_debt.test.sql`. Os totais anteriores
-foram 211 ao fim do M0-B, 321 ao fim da `0004`, 401 ao fim da `0005`, 508 ao fim
-da `0006` e 542 ao fim da `0007`. A `0004` subiu de 110 para 112 porque a asserção
-de privilégio de rotina dela foi dividida em três; a fatia 1 subiu de 93 para 94
-porque a `0008` acrescentou lá a metade positiva do modelo de proteção. Os números
-foram medidos nesta execução, não estimados nem copiados.
+`npm run db:test` executa **574 asserções pgTAP em oito arquivos**: 13 do M0-A,
+94 da fatia 1, 105 da fatia 2, 112 da `0004`, 80 da `0005`, **113 da `0006`**, 34
+da `0007` e 23 da `0008`. Os totais anteriores foram 211 ao fim do M0-B, 321 ao
+fim da `0004`, 401 ao fim da `0005`, 508 ao fim da `0006`, 542 ao fim da `0007` e
+566 ao fim da `0008`. A `0004` subiu de 110 para 112 porque a asserção de
+privilégio de rotina dela foi dividida em três; a fatia 1 subiu de 93 para 94 com
+a `0008`; a `0006` subiu de 105 para 113 com a invariante de coerência do
+catálogo e com as duas metades do perigo que ela proíbe. Os números foram medidos nesta execução, não estimados nem copiados.
 
 ### Harness concorrente de 25 conexões
 
@@ -289,10 +288,15 @@ asserção.
 não tiver exatamente uma versão obrigatória de `terms` e uma de `privacy`. O portão
 das mutações comuns está escrito em outros termos — "enquanto houver versão
 obrigatória pendente" —, então com catálogo vazio nada está pendente e
-`update_profile` passa. A implementação segue o texto literal. É o comportamento
-necessário hoje, porque o catálogo só recebe conteúdo na migration pré-beta; se a
-intenção normativa for fechar também esse portão, é decisão de `13`, não desta
-fatia.
+`update_profile` passa. A implementação segue o texto literal.
+
+Isso deixou de ser leitura da implementação e virou **decisão registrada** em `13`
+§5.2: fechar o portão antes da migration pré-beta deixaria o app inutilizável, sem
+existir aceite possível que o destravasse. A assimetria é segura porque as duas
+metades erram para lados opostos. O estado proibido é o **catálogo pela metade**, e
+`16` §2 transforma o catálogo povoado em gate de convite ao beta. A suíte da `0006`
+afirma a invariante nas duas pontas — vazio como entregue e completo — e recusa o
+parcial.
 
 ### A chave bootstrap é derivada no próprio banco
 

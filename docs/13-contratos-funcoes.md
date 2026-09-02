@@ -641,6 +641,22 @@ canonicamente por `document_type` e depois `version`. Esta é toda a entrada ext
 - **Gate:** mutações comuns retornam `VALIDATION` enquanto houver versão obrigatória pendente.
   Permanecem disponíveis `complete_profile`, `accept_policies`, logout/revogação, leitura
   própria e canais de privacidade.
+- **Catálogo vazio, decisão explícita:** o fail-closed acima vale para `accept_policies`, que
+  exige exatamente uma versão obrigatória de `terms` e uma de `privacy`. O gate das mutações
+  comuns é escrito em outros termos — *enquanto houver versão obrigatória pendente* — e
+  portanto **não fecha sobre catálogo vazio**: sem nenhuma versão obrigatória, nada está
+  pendente e a mutação passa. Isso é deliberado. O catálogo nasce vazio e só recebe conteúdo
+  na migration pré-beta que publica textos e digests efetivos; fechar o gate antes disso
+  deixaria o app inutilizável, sem existir aceite possível que o destravasse. A assimetria é
+  segura porque as duas metades erram para lados opostos: `accept_policies` nunca registra
+  aceite de um catálogo que não sabe descrever, e as mutações comuns nunca ficam bloqueadas
+  por uma obrigação que ninguém publicou.
+- **O que é proibido é o catálogo pela metade.** Com `terms` obrigatório e `privacy` não,
+  `accept_policies` falha fechado enquanto as mutações comuns passam após o aceite de um único
+  tipo — a única combinação em que o gate mede algo diferente do que o aceite exige. O
+  catálogo é coerente em exatamente dois estados: vazio, ou com uma versão obrigatória de cada
+  tipo. A suíte pgTAP afirma essa invariante, e `16-roadmap.md` §2 transforma o estado povoado
+  em gate de convite ao beta.
 
 ### 5.3 `request_data_export(request_id)` / `delete_account(request_id)`
 
