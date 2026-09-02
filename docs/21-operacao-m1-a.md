@@ -407,8 +407,9 @@ onde a mudança é revisada. Só `Repository guardrails` roda também em push pa
 que o código mude — ele varre advisories de dependência recém-publicados e drift
 da baseline normativa. `.github/dependabot.yml` cobre o outro lado do mesmo
 problema: o workflow fixa cada action por SHA, e nada no repositório avisa quando
-um pin envelhece. O harness
-descobre a URL do banco por `supabase status -o env`, ou por
+um pin envelhece.
+
+O harness descobre a URL do banco por `supabase status -o env`, ou por
 `COLETE_TEST_DATABASE_URL` quando ela existir; ele não recebe nenhuma credencial
 de projeto remoto.
 
