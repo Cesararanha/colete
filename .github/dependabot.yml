@@ -24,6 +24,21 @@ updates:
   # Monthly and grouped on purpose. The application pins exact versions, so an
   # ungrouped npm feed would open a pull request per package and each one would
   # spend the same Actions minutes the workflow is trying to save.
+  #
+  # Every production dependency of this project is part of the set that Expo SDK
+  # 57 pins, and that set is compatible as a whole or not at all. Dependabot
+  # moves one member at a time, and this CI cannot catch the result: it builds
+  # for web and runs a browser smoke test, never a native build. The first
+  # attempt proved the point without even reaching that gap — bumping
+  # react-native 0.86.3 to 0.87.1 alone dropped the ./rn-get-polyfills export
+  # that the SDK 57 toolchain still requires, and bundling failed outright.
+  #
+  # So the Expo-managed packages leave this feed. They are updated by
+  # `expo install --check`, which resolves the versions the installed SDK
+  # expects, or by an SDK upgrade that moves the whole set together. A
+  # production dependency that is NOT Expo-managed is deliberately still
+  # reported: it would fall outside every glob below and open its own pull
+  # request, which is the signal we want.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -37,11 +52,40 @@ updates:
       prefix-development: 'chore'
     labels:
       - dependencies
+    ignore:
+      # The Expo-managed set. Verified against expo/bundledNativeModules.json
+      # rather than inferred from the names: that file is what
+      # `expo install --check` reads.
+      - dependency-name: expo
+      - dependency-name: expo-*
+      - dependency-name: react
+      - dependency-name: react-dom
+      - dependency-name: react-native
+      - dependency-name: react-native-*
+      - dependency-name: '@expo/*'
+      # A devDependency, and still part of the same set: the SDK pins it at
+      # ~57.0.2 in bundledNativeModules.json. It escaped the globs above only
+      # because its name starts with eslint-, not with expo-.
+      - dependency-name: eslint-config-expo
+      # @types/node describes the runtime, so it follows the runtime's major and
+      # nothing further. This repository pins Node 24.20.0 in .node-version and
+      # >=24.13.0 <25 in engines. Types from a major that does not run here would
+      # describe APIs absent at execution, and the typecheck would pass anyway:
+      # the failure surfaces in production, not in CI. 24.x updates still flow.
+      - dependency-name: '@types/node'
+        versions:
+          - '>=25'
+      # TypeScript majors, until the Expo toolchain follows. Proved rather than
+      # assumed: pull request #11 moved typescript 6.0.3 to 7.0.2 and the lint
+      # job died loading ts-api-utils, which arrives through
+      # @typescript-eslint/typescript-estree under eslint-config-expo and still
+      # declares typescript ">=4.8.4 <6.1.0". Not a permanent block — this entry
+      # comes out when that toolchain supports TS 7. Minors and patches on 6.x
+      # are unaffected.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     groups:
-      production-dependencies:
-        dependency-type: production
-        patterns:
-          - '*'
       development-dependencies:
         dependency-type: development
         patterns:
