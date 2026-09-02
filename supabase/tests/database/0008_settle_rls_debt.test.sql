@@ -143,10 +143,17 @@ reset role;
 
 grant select on table private.app_limits to anon;
 set local role anon;
-select is(
-  (select count(*)::int from private.app_limits),
-  7,
+select isnt_empty(
+  $$select 1 from private.app_limits$$,
   'with both privileges the rows are readable, so grants were the whole barrier'
+);
+-- The value, not just a row count: the harm this migration removes is a limit
+-- that reads as absent instead of as itself. Under force RLS with no policy the
+-- query below returned null.
+select is(
+  (select limit_value from private.app_limits where limit_key = 'proof_max_bytes'),
+  10485760::bigint,
+  'and a granted reader sees the real value of a limit, not a null'
 );
 reset role;
 

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(93);
+select plan(94);
 
 -- ---------------------------------------------------------------------------
 -- Extension and the idempotency golden vector
@@ -400,6 +400,20 @@ select ok(
   not (select relforcerowsecurity from pg_class
        where oid = 'private.allowed_proof_mime_types'::regclass),
   'allowed_proof_mime_types does not force RLS on a server-side reader'
+);
+-- The four assertions above state an absence, and absence of RLS is the default
+-- of any table nobody configured. They are a regression guard, not a proof. This
+-- is the positive half in this file: what protects these two tables is that no
+-- client role holds any privilege on them, for any privilege type, not just the
+-- select checked further up. The 0008 suite isolates each barrier in turn.
+select is(
+  (select count(*)
+   from information_schema.role_table_grants
+   where table_schema = 'private'
+     and table_name in ('app_limits', 'allowed_proof_mime_types')
+     and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')),
+  0::bigint,
+  'no client or administrative role holds any privilege on either service table'
 );
 
 select is(
