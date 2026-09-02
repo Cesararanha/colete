@@ -70,17 +70,14 @@ marcos; não é uma migration monolítica nem pré-requisito para começar toda 
    conteúdo separado, markers e job runs;
 8. constraints, índices e triggers de revisão/imutabilidade;
 9. varredura final de revogação de privilégios e de policies por papel das tabelas das
-   fatias 3–8; `enable/force row level security` não espera esta fatia: cada tabela nasce
-   com RLS ligada e default-deny na migration que a cria. Esta varredura também corrige
+   fatias 3–8; `enable/force row level security` não espera esta fatia: **toda tabela de
+   `public`** nasce com RLS ligada e default-deny na migration que a cria, e tabela de
+   serviço em `private` nasce sem RLS, conforme `14` §5.2. A dívida de
    `private.app_limits` e `private.allowed_proof_mime_types`, criadas na `0002` com
-   `enable` + `force row level security` e zero policies, antes da regra de `14` §5.2.
-   Pelo mesmo raciocínio já escrito no comentário de `private.revoked_auth_sessions` na
-   `0003`, `force` aplica RLS **inclusive ao dono da tabela**: uma tabela privada com
-   `force` e zero policies só não retorna zero linhas hoje porque quem a lê tem
-   `BYPASSRLS`. A proteção efetiva dessas duas tabelas são os `revoke all` da `0002`, não
-   a RLS; depender de `BYPASSRLS` é depender de um atributo de papel que nenhum teste
-   cobre por padrão. Enquanto a varredura não chega, nenhuma função `security definer`
-   nova pode ler essas duas tabelas a partir de um papel sem `BYPASSRLS`;
+   `enable` + `force row level security` e zero policies antes daquela regra existir, foi
+   **saldada pela `0008`** e sai desta varredura; a suíte da `0008` prova, camada por
+   camada, que a proteção efetiva dessas tabelas são os `revoke all` da `0002` mais a
+   ausência de `usage` no schema `private`;
 10. RPCs transacionais e jobs; por último, policies do Storage.
 
 ### Reordenamento do M1 e mapa fatia→migration

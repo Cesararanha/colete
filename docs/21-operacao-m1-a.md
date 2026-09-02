@@ -392,7 +392,7 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0007`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0008`, sem seed
 de domínio e sem seed de política.
 
 ## CI
@@ -405,12 +405,14 @@ de projeto remoto.
 
 ## Dívidas em aberto ao fim desta fatia
 
-1. **`private.app_limits` e `private.allowed_proof_mime_types` com `force row
-   level security` e zero policies.** Nasceram na `0002`, antes da regra de `14`
-   §5.2. Hoje só não falham fechado porque quem as lê tem `BYPASSRLS`; a proteção
-   efetiva delas são os `revoke all` da própria `0002`. Migration commitada é
-   imutável, então a correção pertence à varredura da fatia 9, onde a dívida está
-   registrada em `16` §3.
+1. ~~`private.app_limits` e `private.allowed_proof_mime_types` com `force row
+   level security` e zero policies.~~ **Saldada pela `0008`.** As duas nasceram na
+   `0002`, antes da regra de `14` §5.2. A `0008` remove `force` e desliga RLS de
+   forma append-only, e a suíte prova camada por camada o que realmente protege
+   essas tabelas: sem `usage` no schema, o schema nega; com `usage` e sem grant,
+   o privilégio de tabela nega; com os dois, a leitura funciona. Antes da `0008`
+   esse último passo devolvia **zero linhas** em vez das sete reais — para uma
+   tabela lida como configuração, um limite silenciosamente ausente.
 2. **`private.job_runs.match_id` sem foreign key** até a migration que criar
    `public.matches`.
 3. **As RPCs `security definer` dependem de `BYPASSRLS` do dono.** Elas escrevem
