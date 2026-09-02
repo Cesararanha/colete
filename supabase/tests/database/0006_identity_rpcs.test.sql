@@ -5,6 +5,29 @@ create extension if not exists pgtap with schema extensions;
 select no_plan();
 
 -- ---------------------------------------------------------------------------
+-- Catalogue coherence, as shipped
+-- ---------------------------------------------------------------------------
+-- docs/13-contratos-funcoes.md section 5.2 and docs/16-roadmap.md section 2.
+-- The catalogue is coherent in exactly two states: empty, which is how it
+-- ships, or holding one mandatory version of each type, which is the beta gate.
+-- Half published is the forbidden state: with terms mandatory and privacy not,
+-- accept_policies fails closed while an ordinary mutation passes on a single
+-- acceptance, and the gate stops measuring what the acceptance requires.
+
+select ok(
+  (select count(*) = 0
+       or (count(*) filter (where document_type = 'terms') = 1
+       and count(*) filter (where document_type = 'privacy') = 1)
+   from private.policy_documents where mandatory),
+  'the catalogue ships coherent, and it ships empty'
+);
+select is(
+  (select count(*) from private.policy_documents),
+  0::bigint,
+  'no migration seeds a policy version; the pre-beta migration publishes them'
+);
+
+-- ---------------------------------------------------------------------------
 -- Fixture
 -- ---------------------------------------------------------------------------
 -- The Auth ID below is the published vector of docs/13-contratos-funcoes.md
@@ -762,6 +785,44 @@ select throws_ok(
       '60000000-0000-4000-8000-000000000405', repeat('e', 64), 1, 1)$$,
   '28000', 'UNAUTHENTICATED', 'a token without session_id cannot revoke anything'
 );
+
+-- ---------------------------------------------------------------------------
+-- Catalogue coherence, populated and half-published
+-- ---------------------------------------------------------------------------
+-- The same invariant at the other end. It has to reject the half-published
+-- state, or asserting it on an empty catalogue would prove nothing.
+
+select ok(
+  (select count(*) = 0
+       or (count(*) filter (where document_type = 'terms') = 1
+       and count(*) filter (where document_type = 'privacy') = 1)
+   from private.policy_documents where mandatory),
+  'a fully published catalogue satisfies the beta gate invariant'
+);
+select is(
+  (select count(*) from private.policy_documents where mandatory),
+  2::bigint,
+  'and it is published as exactly one mandatory version per type'
+);
+
+update private.policy_documents set mandatory = false where document_type = 'privacy';
+select ok(
+  not (select count(*) = 0
+           or (count(*) filter (where document_type = 'terms') = 1
+           and count(*) filter (where document_type = 'privacy') = 1)
+       from private.policy_documents where mandatory),
+  'a half-published catalogue fails the invariant, which is what makes it a test'
+);
+select throws_ok(
+  $$select public.accept_policies(
+      '01890f7e-e948-7c53-b13a-4a36e4b7d21e', '55555555-0000-4000-8000-000000000001',
+      '60000000-0000-4000-8000-000000000451', repeat('8', 64), 1, 1,
+      '[{"document_type":"terms","version":"2026-10-01"}]'::jsonb)$$,
+  '22023', 'VALIDATION',
+  'and acceptance stays closed while only one type is mandatory'
+);
+update private.policy_documents set mandatory = true
+where document_type = 'privacy' and version = '2026-12-01';
 
 -- ---------------------------------------------------------------------------
 -- The nominal grant end to end

@@ -53,6 +53,15 @@ RLS default-deny e sorteio versionado.
       implementar o export diário por allowlist e provar em restore que vencido/órfão não volta.
 - [ ] **Antes de convidar o beta:** confirmar que o beta é pessoal/não comercial enquanto usar Vercel Hobby; cobrança
       ou uso por terceiros exige revisão de plano/provedor.
+- [ ] **Antes de convidar o beta:** publicar o catálogo de políticas com **pelo menos uma
+      versão obrigatória de `terms` e uma de `privacy`** em `private.policy_documents`, com
+      `content_sha256` correspondente ao arquivo publicado. Enquanto o catálogo está vazio, o
+      gate de `13-contratos-funcoes.md` §5.2 deixa as mutações comuns passarem — decisão
+      explícita, registrada lá, porque fechá-lo antes da migration pré-beta deixaria o app
+      inutilizável. Convidar usuários com catálogo vazio significaria operar sem aceite
+      exigível. O estado **pela metade** — um tipo obrigatório e o outro não — é o único
+      incoerente e está proibido por asserção pgTAP na suíte da `0006`, que verifica as duas
+      pontas: o catálogo vazio como entregue e o catálogo completo, recusando o parcial.
 
 ## 3. B2 — migrations SQL executáveis
 
