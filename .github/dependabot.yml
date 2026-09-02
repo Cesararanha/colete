@@ -67,6 +67,14 @@ updates:
       # ~57.0.2 in bundledNativeModules.json. It escaped the globs above only
       # because its name starts with eslint-, not with expo-.
       - dependency-name: eslint-config-expo
+      # @types/node describes the runtime, so it follows the runtime's major and
+      # nothing further. This repository pins Node 24.20.0 in .node-version and
+      # >=24.13.0 <25 in engines. Types from a major that does not run here would
+      # describe APIs absent at execution, and the typecheck would pass anyway:
+      # the failure surfaces in production, not in CI. 24.x updates still flow.
+      - dependency-name: '@types/node'
+        versions:
+          - '>=25'
     groups:
       development-dependencies:
         dependency-type: development
