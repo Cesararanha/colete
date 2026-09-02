@@ -75,6 +75,16 @@ updates:
       - dependency-name: '@types/node'
         versions:
           - '>=25'
+      # TypeScript majors, until the Expo toolchain follows. Proved rather than
+      # assumed: pull request #11 moved typescript 6.0.3 to 7.0.2 and the lint
+      # job died loading ts-api-utils, which arrives through
+      # @typescript-eslint/typescript-estree under eslint-config-expo and still
+      # declares typescript ">=4.8.4 <6.1.0". Not a permanent block — this entry
+      # comes out when that toolchain supports TS 7. Minors and patches on 6.x
+      # are unaffected.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     groups:
       development-dependencies:
         dependency-type: development
