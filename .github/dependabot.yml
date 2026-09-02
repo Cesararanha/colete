@@ -53,6 +53,9 @@ updates:
     labels:
       - dependencies
     ignore:
+      # The Expo-managed set. Verified against expo/bundledNativeModules.json
+      # rather than inferred from the names: that file is what
+      # `expo install --check` reads.
       - dependency-name: expo
       - dependency-name: expo-*
       - dependency-name: react
@@ -60,6 +63,10 @@ updates:
       - dependency-name: react-native
       - dependency-name: react-native-*
       - dependency-name: '@expo/*'
+      # A devDependency, and still part of the same set: the SDK pins it at
+      # ~57.0.2 in bundledNativeModules.json. It escaped the globs above only
+      # because its name starts with eslint-, not with expo-.
+      - dependency-name: eslint-config-expo
     groups:
       development-dependencies:
         dependency-type: development
