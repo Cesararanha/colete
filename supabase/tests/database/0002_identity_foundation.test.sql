@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(93);
+select plan(94);
 
 -- ---------------------------------------------------------------------------
 -- Extension and the idempotency golden vector
@@ -377,23 +377,43 @@ select ok(
   (select relforcerowsecurity from pg_class where oid = 'public.profiles'::regclass),
   'profiles forces row level security on its owner too'
 );
+-- These two tables were created here with enable + force row level security and
+-- zero policies, before the M0-B finding produced the rule in
+-- docs/14-convencoes-app.md section 5.2. Migration 0008 settles that debt, so
+-- what this file pins is the corrected protection model: a private service
+-- table is protected by schema and table privilege, never by RLS. The privilege
+-- side is asserted below and, layer by layer, in the 0008 suite.
 select ok(
-  (select relrowsecurity from pg_class where oid = 'private.app_limits'::regclass),
-  'app_limits has row level security enabled'
+  not (select relrowsecurity from pg_class where oid = 'private.app_limits'::regclass),
+  'app_limits is a private service table, so RLS is not its barrier'
 );
 select ok(
-  (select relforcerowsecurity from pg_class where oid = 'private.app_limits'::regclass),
-  'app_limits forces row level security on its owner too'
+  not (select relforcerowsecurity from pg_class where oid = 'private.app_limits'::regclass),
+  'app_limits does not force RLS on a server-side reader that lacks BYPASSRLS'
 );
 select ok(
-  (select relrowsecurity from pg_class
-   where oid = 'private.allowed_proof_mime_types'::regclass),
-  'allowed_proof_mime_types has row level security enabled'
+  not (select relrowsecurity from pg_class
+       where oid = 'private.allowed_proof_mime_types'::regclass),
+  'allowed_proof_mime_types is a private service table, so RLS is not its barrier'
 );
 select ok(
-  (select relforcerowsecurity from pg_class
-   where oid = 'private.allowed_proof_mime_types'::regclass),
-  'allowed_proof_mime_types forces row level security on its owner too'
+  not (select relforcerowsecurity from pg_class
+       where oid = 'private.allowed_proof_mime_types'::regclass),
+  'allowed_proof_mime_types does not force RLS on a server-side reader'
+);
+-- The four assertions above state an absence, and absence of RLS is the default
+-- of any table nobody configured. They are a regression guard, not a proof. This
+-- is the positive half in this file: what protects these two tables is that no
+-- client role holds any privilege on them, for any privilege type, not just the
+-- select checked further up. The 0008 suite isolates each barrier in turn.
+select is(
+  (select count(*)
+   from information_schema.role_table_grants
+   where table_schema = 'private'
+     and table_name in ('app_limits', 'allowed_proof_mime_types')
+     and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')),
+  0::bigint,
+  'no client or administrative role holds any privilege on either service table'
 );
 
 select is(
