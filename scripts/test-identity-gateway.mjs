@@ -120,7 +120,72 @@ async function main() {
     assert.equal(typeof created.body.data.outcome.profile_id, 'string');
     assert.equal(created.body.data.current.name, 'Ana Lucia');
     const profileId = created.body.data.outcome.profile_id;
-    console.log('ok - complete_profile creates the profile and returns outcome plus current');
+    const committedIdempotency = await db.query(
+      `select state, actor_id
+         from private.idempotency_records
+        where operation = 'complete_profile'
+          and request_id = $1`,
+      [createId],
+    );
+    assert.equal(committedIdempotency.rowCount, 1, 'the idempotency row did not commit');
+    assert.deepEqual(committedIdempotency.rows[0], {
+      state: 'completed',
+      actor_id: profileId,
+    });
+    const conclusionBoundary = await db.query(`
+      select
+        routine.prosecdef,
+        pg_get_userbyid(routine.proowner) as owner,
+        routine.proconfig,
+        has_schema_privilege('service_role', 'private', 'usage') as service_private_usage,
+        has_table_privilege(
+          'service_role',
+          'private.idempotency_records',
+          'select'
+        ) as service_idempotency_select,
+        has_table_privilege(
+          'service_role',
+          'private.idempotency_records',
+          'insert,update,delete'
+        ) as service_idempotency_write,
+        has_function_privilege(
+          'service_role',
+          'private.enforce_idempotency_conclusion()',
+          'execute'
+        ) as service_trigger_execute
+      from pg_proc as routine
+      where routine.oid = 'private.enforce_idempotency_conclusion()'::regprocedure
+    `);
+    assert.equal(conclusionBoundary.rowCount, 1);
+    assert.equal(conclusionBoundary.rows[0].prosecdef, true, 'the trigger is not SECURITY DEFINER');
+    assert.equal(conclusionBoundary.rows[0].owner, 'postgres');
+    assert.ok(
+      conclusionBoundary.rows[0].proconfig.includes('search_path=""'),
+      'the SECURITY DEFINER trigger does not fix an empty search_path',
+    );
+    assert.equal(
+      conclusionBoundary.rows[0].service_private_usage,
+      false,
+      'service_role unexpectedly gained USAGE on private',
+    );
+    assert.equal(
+      conclusionBoundary.rows[0].service_idempotency_select,
+      false,
+      'service_role unexpectedly gained SELECT on the idempotency ledger',
+    );
+    assert.equal(
+      conclusionBoundary.rows[0].service_idempotency_write,
+      false,
+      'service_role unexpectedly gained direct writes on the idempotency ledger',
+    );
+    assert.equal(
+      conclusionBoundary.rows[0].service_trigger_execute,
+      false,
+      'service_role unexpectedly gained EXECUTE on the trigger function',
+    );
+    console.log(
+      'ok - complete_profile commits under service_role through a postgres-owned, fixed-path trigger without widening privileges',
+    );
 
     // 2. Replay of the same request_id reproduces the outcome, once.
     const replayed = await call(env, 'complete_profile', createBody, token);

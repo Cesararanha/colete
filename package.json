@@ -31,7 +31,7 @@
     "verify:pwa": "node scripts/verify-pwa.mjs",
     "verify:auth-config": "node scripts/verify-auth-config.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
-    "db:start": "supabase db start",
+    "db:start": "node scripts/start-local-supabase.mjs",
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db --local",
     "db:test:idempotency": "node scripts/test-idempotency-concurrency.mjs",

@@ -113,6 +113,8 @@ jobs:
         run: npm run db:test
       - name: Run the transactional idempotency concurrency harness
         run: npm run db:test:idempotency
+      - name: Run the identity gateway commit harness
+        run: npm run db:test:gateway
       - name: Stop the disposable local stack
         if: always()
         run: npm run db:stop
