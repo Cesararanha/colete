@@ -129,7 +129,115 @@ testada: maiúsculo, truncado e sem hífen seguem rejeitados **nos três caminho
 Truncado e sem hífen são justamente as formas que um quantificador de comprimento
 mal editado deixaria passar, e é esse trecho do regex que a `0009` edita.
 
+### Fatia A — o gateway Edge de identidade
+
+Primeira linha de código produtivo do projeto. `supabase/functions/identity/` é o
+gateway exclusivo por onde passam as quatro mutações de identidade — o consumidor
+que faltava às RPCs da `0006`.
+
+| Objeto | Origem |
+| --- | --- |
+| `supabase/functions/identity/index.ts` | `13` §0 e `14` §5.3 |
+| `_shared/jcs.ts` — canonicalização RFC 8785 | `13` §0.1 |
+| `_shared/hmac.ts` — HMAC versionado por chave | `13` §0.1 e `10` §9.1 |
+| `_shared/bootstrap.ts` — ator bootstrap | `13` §5.7 |
+| `_shared/operations.ts` — um normalizador por operação | `13` §0.1, §5.2, §5.6, §5.7 |
+| `_shared/errors.ts` — catálogo estável e envelope `Result` | `13` §0 e §8 |
+| `_shared/gateway.ts` — o caminho, com dependências injetadas | `13` §0.1 |
+| `[functions.identity]` em `config.toml` | `14` §5.3 |
+
+**Nenhum deploy foi feito.** Nada nesta fatia toca o projeto remoto.
+
+#### Os dois vetores dourados, reproduzidos
+
+| Vetor | Valor obtido |
+| --- | --- |
+| HMAC — chave de teste `00..1f`, `join_match` | `5974c4e8c2434e4d150f2f2199180b3228c869f80e72dabc0f25218132595ee4` |
+| Ator bootstrap — `01890f7e-e948-7c53-b13a-4a36e4b7d21e` | `21409156bb1cbd9d8cadf3814edcf230153e3378c09dc03ebf5ed8940c9c4d3a` |
+
+Ambos batem com `13` §0.1 e §5.7 na primeira execução. São a prova de que a
+implementação TypeScript concorda com o que o banco espera, e é por isso que eles
+são testados sem rede: o vetor é um fato sobre bytes, não sobre integração.
+
+#### Duas camadas de teste, e por quê
+
+**Camada 1, sem rede** (`supabase/functions/_shared/*.test.ts`, no `npm test`).
+Canonicalização, HMAC, ator bootstrap e os normalizadores. Roda no Vitest, junto
+com o resto da suíte de unidade, porque os módulos puros não importam nada do
+Deno — a única dependência do runtime está no `index.ts`. Cobre também ordem de
+chaves, unicode e escapes, ausência × `null` produzindo canônicos diferentes, o
+array de `accept_policies` reordenado produzindo o mesmo HMAC, e float/`NaN`
+recusados.
+
+**Camada 2, ponta a ponta** (`scripts/test-identity-gateway.mjs`, `npm run
+db:test:gateway`). A função servida pela stack local, chamada por HTTP com um JWT
+real do GoTrue: o usuário é criado pela API administrativa local e o token vem do
+`grant_type=password`, o que garante um `session_id` verdadeiro nas claims — o
+`session_id` é o que a revogação precisa e é o que um token forjado à mão não
+teria.
+
+A escolha mais simples e confiável para CI acabou sendo **não subir um segundo
+processo**: `supabase start` já serve `supabase/functions/`, então a camada 2 não
+precisa de `supabase functions serve`, nem de supervisionar e derrubar um daemon.
+Também não há import de terceiros na função — verificar um token e chamar uma RPC
+são duas requisições HTTP, e puxar um cliente para fazê-las acrescentaria um
+download em tempo de bundle a cada cold start e a cada execução de CI.
+
+Uma observação operacional para quem for iterar: o edge runtime local **não
+recarrega a quente** os módulos já importados, apesar de `policy = "per_worker"`.
+Editar `_shared/` exige `supabase stop && supabase start`; reiniciar só o
+container não basta.
+
+#### Bloqueio encontrado: as RPCs da `0006` não commitam pelo papel administrativo
+
+A camada 2 **não passa** contra o estado atual do banco, e o motivo não está no
+gateway. O trigger diferido `idempotency_records_must_conclude` da `0004` executa
+`private.enforce_idempotency_conclusion()`, que é `SECURITY INVOKER`. Um trigger
+diferido roda **no commit, sob o papel do chamador** — e o chamador do caminho
+administrativo é `service_role`, de quem a `0004` removeu deliberadamente o
+`usage` no schema `private`. Resultado:
+
+```
+call   as service_role : OK
+COMMIT as service_role : 42501 permission denied for schema private
+call   as postgres     : OK
+COMMIT as postgres     : OK
+```
+
+A chamada passa; o **commit** falha. Nenhuma das quatro mutações de identidade
+consegue commitar pelo único chamador para o qual foi projetada.
+
+Por que 606 asserções pgTAP não pegaram isso: a suíte roda como `postgres` e
+**sempre faz rollback**. A asserção "the administrative role can actually execute
+a gateway RPC" da `0006` troca de papel, chama a RPC e devolve o papel — mas a
+transação nunca commita, então o trigger diferido nunca dispara sob
+`service_role`. O gateway é a primeira coisa neste projeto que **commita** como
+`service_role`, e encontrou o defeito na primeira chamada real.
+
+O isolamento é exato. Com
+`alter function private.enforce_idempotency_conclusion() security definer`
+aplicado localmente — **sonda, não commitada** — as nove verificações da camada 2
+passam, incluindo as oito exigidas. Revertido para `security invoker`, a falha
+volta imediatamente. Uma instrução separa verde de vermelho.
+
+A correção pertence a uma migration nova, fora do escopo desta fatia, e a decisão
+é de quem autoriza numeração. Conceder `usage` em `private` a `service_role`
+resolveria o sintoma e desfaria a fronteira que a `0004` construiu; tornar a
+função `security definer` — ela já pertence a `postgres` — restaura a invariante
+sem alargar nada. A segunda é a correção; a primeira não.
+
+Enquanto isso: `npm run db:test:gateway` existe e é executável, mas **não foi
+ligado à CI**. Ligar um passo que não pode passar deixaria todo PR futuro
+vermelho por um motivo alheio a ele. O passo entra junto com a migration que
+saldar o bloqueio.
+
 ### Medição real da suíte pgTAP
+
+A Fatia A não acrescenta migration nem asserção pgTAP: o total continua em 606.
+O que ela acrescenta é a camada 1 do gateway, no `npm test`, que vai de **8
+testes de unidade em 2 arquivos para 37 em 6** — 29 novos, entre eles os dois
+vetores dourados. A camada 2 tem nove verificações e está bloqueada, pelo motivo
+registrado acima.
 
 `npm run db:test` executa **606 asserções pgTAP em nove arquivos**: 13 do M0-A,
 94 da fatia 1, 105 da fatia 2, **113 da `0004`**, 80 da `0005`, 113 da `0006`, 34
@@ -457,6 +565,10 @@ TS 7.
   e digests efetivos é pré-beta, conforme `16` §3.
 - **`request_data_export`, `delete_account` e as operações administrativas de
   `13` §5.3 e §5.4.** Pertencem ao M1-B e às fatias administrativas.
+- **Telas, `lib/api.ts`, rate limit produtivo, seed de políticas,
+  `link_google_identity`, export, exclusão, Storage e deploy.** Nada disso entra
+  na Fatia A. O gateway existe para provar que a fronteira externa→interna
+  funciona contra o banco real, e nada além disso.
 - **Workers, cron e jobs.** A `0005` cria as tabelas que `reconcile_due_matches`,
   `process_external_effects`, `apply_retention` e os demais jobs de `13` §7 vão
   usar. Nenhum desses jobs existe, nem o agendamento deles.
@@ -484,6 +596,32 @@ TS 7.
 - **Exportação, exclusão, Storage e projeto Supabase remoto.** Fora do M1-A ou do
   escopo desta fatia; nenhum serviço remoto foi acessado.
 
+## Inventário de configuração
+
+Exigido por `14` §5.3. Preenchido **somente com o que é observável sem acessar o
+projeto remoto**; nesta fatia nenhum serviço remoto foi acessado, e o que depende
+dele fica marcado como pendente em vez de inventado.
+
+| Item | Valor | Fonte |
+| --- | --- | --- |
+| Projeto linkado | `prdzunponemldfvtcxkr`, organização `yfyabyaoladrpwmevxjx` | `supabase/.temp/`, estado local do CLI |
+| Região | **pendente** | só legível no painel ou pela API do projeto remoto |
+| Extensions | `pgcrypto`, `uuid-ossp`, `pg_stat_statements` em `extensions`; `supabase_vault` em `vault`; `plpgsql` | banco local recriado pelas migrations |
+| Schemas expostos pela Data API | `public`, `graphql_public` | `config.toml` `[api].schemas` |
+| Auth — provedores | e-mail/senha habilitado; Google **não** habilitado localmente | `config.toml` `[auth]` |
+| Auth — `site_url` | `http://127.0.0.1:8081` | `config.toml`, valor local |
+| Auth — redirects adicionais | `http://127.0.0.1:4173`, `http://localhost:8081` | `config.toml`, valores locais |
+| Auth — `jwt_expiry` | `3600` s | `config.toml` |
+| Auth — vida máxima de sessão | `7776000` s, espelhada em `private.app_limits` | `verify:auth-config` |
+| Edge Functions | uma: `identity`, `verify_jwt = false` | `config.toml` `[functions.identity]` |
+| Secrets — **nomes**, nunca valores | `IDEMPOTENCY_HMAC_KEY_V1`; e as injetadas pela plataforma `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`/`SUPABASE_ANON_KEY`, `SUPABASE_SECRET_KEY`/`SUPABASE_SERVICE_ROLE_KEY` | `config.toml` e `index.ts` |
+| Auth/redirects **do projeto remoto** | **pendente** | divergem dos locais e só são legíveis no remoto |
+| Secrets efetivamente publicados no remoto | **pendente** | `supabase secrets list` exige acessar o projeto |
+| Cron, buckets, publications | nenhum nesta fatia | — |
+
+Os valores de Auth acima são os **locais**, declarados em `config.toml`. Os do
+projeto remoto podem divergir e não foram lidos.
+
 ## Comandos locais
 
 Pré-requisitos: Node/npm nas versões fixadas em `19-operacao-m0-a.md` e Docker
@@ -494,6 +632,7 @@ npm run db:start
 npm run db:reset
 npm run db:test
 npm run db:test:idempotency
+npm run db:test:gateway
 npm run verify:app
 npm run audit:high
 npm run db:stop
@@ -522,7 +661,18 @@ de projeto remoto.
 
 ## Dívidas em aberto ao fim desta fatia
 
-1. ~~`private.app_limits` e `private.allowed_proof_mime_types` com `force row
+1. **Bloqueante: `private.enforce_idempotency_conclusion()` é `SECURITY INVOKER`.**
+   O trigger diferido dispara no commit sob o papel do chamador, e `service_role`
+   não tem `usage` em `private`, então nenhuma das quatro mutações de identidade
+   commita pelo caminho administrativo. Diagnóstico e isolamento na seção da
+   Fatia A. Exige migration nova; a correção é tornar a função `security definer`,
+   não conceder `usage`.
+2. **Rate limit produtivo.** `14` §5.2 o atribui à Edge e `16` o mantém como item
+   futuro próprio. A Fatia A **não** o implementa e deliberadamente **não deixa
+   placeholder**: um limitador que não limita é pior que a sua ausência, porque
+   parece cobertura. Entra como fatia própria, com o armazenamento de contadores
+   decidido junto.
+3. ~~`private.app_limits` e `private.allowed_proof_mime_types` com `force row
    level security` e zero policies.~~ **Saldada pela `0008`.** As duas nasceram na
    `0002`, antes da regra de `14` §5.2. A `0008` remove `force` e desliga RLS de
    forma append-only, e a suíte prova camada por camada o que realmente protege
@@ -530,9 +680,9 @@ de projeto remoto.
    o privilégio de tabela nega; com os dois, a leitura funciona. Antes da `0008`
    esse último passo devolvia **zero linhas** em vez das sete reais — para uma
    tabela lida como configuração, um limite silenciosamente ausente.
-2. **`private.job_runs.match_id` sem foreign key** até a migration que criar
+4. **`private.job_runs.match_id` sem foreign key** até a migration que criar
    `public.matches`.
-3. **As RPCs `security definer` dependem de `BYPASSRLS` do dono.** Elas escrevem
+5. **As RPCs `security definer` dependem de `BYPASSRLS` do dono.** Elas escrevem
    em `public.profiles`, que tem `force row level security` e nenhuma policy de
    escrita. Funcionam porque o dono, `postgres`, tem `rolbypassrls`. `14` §5.2
    avisa que depender desse atributo é depender de algo que nenhum teste cobre por
@@ -541,10 +691,11 @@ de projeto remoto.
    negada), não aberta, mas quebraria a funcionalidade em silêncio. Vale decidir,
    fora desta fatia, se a fronteira de escrita de `profiles` deve continuar
    apoiada nesse atributo.
-4. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
+6. **Calibragem** de `idempotency_wait_timeout_ms`, junto dos seis valores do
    M0-B, a revisar com dados do piloto.
-5. **Vetores dourados de canonicalização** JCS/HMAC nos três runtimes (`13` §0.2,
-   item 8) — dependem da Edge que calcula o HMAC, e por isso chegam com a fatia
-   do gateway.
-6. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
+7. **Vetores dourados de canonicalização em três runtimes** (`13` §0.2, item 8).
+   Dois dos três agora existem: o SQL, pelas suítes `0004`/`0009`, e o TypeScript,
+   pela camada 1 da Fatia A, que reproduz os dois vetores publicados. Falta o
+   runtime de job, que chega com a fatia de jobs.
+8. **Teste em aparelho físico** e **validação jurídica**, ambos herdados do M0-B e
    ainda abertos.

@@ -383,8 +383,27 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# The HMAC key of docs/13-contratos-funcoes.md section 0.1 reaches the local
+# runtime the same way it reaches production: as a named secret resolved from
+# the environment, never a literal in this file. Locally and in CI the value is
+# the published test key of that same section; the production key lives only in
+# the vault and is never read by anything in this repository.
+[edge_runtime.secrets]
+IDEMPOTENCY_HMAC_KEY_V1 = "env(IDEMPOTENCY_HMAC_KEY_V1)"
+
+# The exclusive identity gateway of docs/14-convencoes-app.md section 5.3.
+#
+# verify_jwt is false because this function does the verification itself, and
+# has to. The platform check would answer a missing or invalid token with its
+# own 401 body, and docs/13 section 0 fixes the shape of every answer this
+# gateway gives, including the refusals. The function also needs the session_id
+# claim, which only reading the verified token yields. Turning the platform
+# check off here removes a duplicate, not a control: an unverified token never
+# reaches an RPC, because the RPC grant belongs to the secret key alone.
+[functions.identity]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/identity/index.ts"
 
 [analytics]
 enabled = true
