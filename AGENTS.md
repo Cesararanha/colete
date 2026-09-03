@@ -48,6 +48,9 @@ uma conversa anterior.
 - **`service_role` não faz DML direto.** A `0004` revogou tudo em `public` e
   `private` e ajustou `alter default privileges`. Migrations novas não repetem
   a revogação — elas **provam** que as tabelas novas nascem sem privilégio.
+- **Asserção que nunca commita não prova trigger diferido.** Constraint
+  `DEFERRABLE` e qualquer garantia que dispare no commit precisam de teste que
+  commite de verdade sob o papel relevante.
 - **Nenhum segredo no repositório.** Nenhuma chave HMAC no banco. Nenhuma PII,
   token, URL, path, Pix, nota ou motivo livre em coluna operacional, mensagem
   de erro ou log.

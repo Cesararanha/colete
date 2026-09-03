@@ -12,7 +12,9 @@ retenção; `0006_identity_rpcs.sql`, o catálogo de políticas, seu dispatcher
 interno, os guards do caminho administrativo e as quatro RPCs de identidade; e
 `0007_idempotency_retention.sql`, o expurgo do livro de idempotência nos prazos
 normativos. Com isso as quatro migrations planejadas do marco em `16` §3 estão
-entregues. Nenhuma Edge Function e nenhuma tela entram aqui.
+entregues. A `0010_idempotency_conclusion_context.sql` corrige o contexto de
+execução do trigger diferido encontrado pela primeira integração real do
+gateway. Nenhuma tela entra aqui.
 
 ## O que cada fatia entregou
 
@@ -129,6 +131,26 @@ testada: maiúsculo, truncado e sem hífen seguem rejeitados **nos três caminho
 Truncado e sem hífen são justamente as formas que um quantificador de comprimento
 mal editado deixaria passar, e é esse trecho do regex que a `0009` edita.
 
+### `0010_idempotency_conclusion_context.sql`
+
+| Objeto | Correção |
+| --- | --- |
+| `private.enforce_idempotency_conclusion()` | passa de `SECURITY INVOKER` para `SECURITY DEFINER` |
+
+O trigger é diferido e executa no commit sob o papel que chamou a RPC. Esse papel
+é `service_role`, que deliberadamente não tem `usage` em `private`; por isso a
+função precisa executar como seu dono `postgres`. A função já tinha
+`search_path = ''` e referências qualificadas, não recebe entrada do cliente e
+continua sem `EXECUTE` concedido. A `0010` não concede `usage`, `select` ou DML a
+`service_role` e não reabre a fronteira da `0004`.
+
+A regressão vive em `scripts/test-identity-gateway.mjs`, não em pgTAP. O harness
+entra pela Edge, chama a RPC via PostgREST com a secret key **local** e observa a
+transação depois que ela commitou de fato como `service_role`. Ele exige a linha
+de idempotência em `completed`, confirma dono `postgres` e `search_path` vazio, e
+confirma que `service_role` continua sem `usage` em `private` e sem DML direto no
+livro. pgTAP sempre faz rollback e não pode provar essa classe de garantia.
+
 ### Fatia A — o gateway Edge de identidade
 
 Primeira linha de código produtivo do projeto. `supabase/functions/identity/` é o
@@ -188,11 +210,11 @@ recarrega a quente** os módulos já importados, apesar de `policy = "per_worker
 Editar `_shared/` exige `supabase stop && supabase start`; reiniciar só o
 container não basta.
 
-#### Bloqueio encontrado: as RPCs da `0006` não commitam pelo papel administrativo
+#### Bloqueio encontrado e saldado pela `0010`
 
-A camada 2 **não passa** contra o estado atual do banco, e o motivo não está no
-gateway. O trigger diferido `idempotency_records_must_conclude` da `0004` executa
-`private.enforce_idempotency_conclusion()`, que é `SECURITY INVOKER`. Um trigger
+A camada 2 inicialmente não passava, e o motivo não estava no gateway. O trigger
+diferido `idempotency_records_must_conclude` da `0004` executava
+`private.enforce_idempotency_conclusion()`, que era `SECURITY INVOKER`. Um trigger
 diferido roda **no commit, sob o papel do chamador** — e o chamador do caminho
 administrativo é `service_role`, de quem a `0004` removeu deliberadamente o
 `usage` no schema `private`. Resultado:
@@ -214,30 +236,30 @@ transação nunca commita, então o trigger diferido nunca dispara sob
 `service_role`. O gateway é a primeira coisa neste projeto que **commita** como
 `service_role`, e encontrou o defeito na primeira chamada real.
 
-O isolamento é exato. Com
+O isolamento foi exato. Com
 `alter function private.enforce_idempotency_conclusion() security definer`
-aplicado localmente — **sonda, não commitada** — as nove verificações da camada 2
-passam, incluindo as oito exigidas. Revertido para `security invoker`, a falha
-volta imediatamente. Uma instrução separa verde de vermelho.
+aplicado primeiro como sonda local, as nove verificações da camada 2 passaram;
+revertido para `security invoker`, a falha voltou imediatamente. A `0010` torna
+essa instrução estado reproduzível por migration.
 
-A correção pertence a uma migration nova, fora do escopo desta fatia, e a decisão
-é de quem autoriza numeração. Conceder `usage` em `private` a `service_role`
-resolveria o sintoma e desfaria a fronteira que a `0004` construiu; tornar a
-função `security definer` — ela já pertence a `postgres` — restaura a invariante
-sem alargar nada. A segunda é a correção; a primeira não.
+A prova commitada confirma que conceder `usage` em `private` a `service_role`
+resolveria o sintoma errado e desfaria a fronteira que a `0004` construiu. A
+função `security definer`, já pertencente a `postgres`, restaura a invariante sem
+alargar nada.
 
-Enquanto isso: `npm run db:test:gateway` existe e é executável, mas **não foi
-ligado à CI**. Ligar um passo que não pode passar deixaria todo PR futuro
-vermelho por um motivo alheio a ele. O passo entra junto com a migration que
-saldar o bloqueio.
+`npm run db:test:gateway` agora passa e roda na CI depois do harness concorrente.
+Para isso `npm run db:start` sobe a stack completa com `supabase start`, incluindo
+Auth, PostgREST e Edge, e fornece à stack local/CI a chave **pública de teste**
+`00..1f` do vetor normativo. Nenhuma chave remota é lida ou copiada.
 
 ### Medição real da suíte pgTAP
 
-A Fatia A não acrescenta migration nem asserção pgTAP: o total continua em 606.
+A `0010` não acrescenta asserção pgTAP: o total continua em 606, porque a prova
+que importa precisa commitar de verdade.
 O que ela acrescenta é a camada 1 do gateway, no `npm test`, que vai de **8
 testes de unidade em 2 arquivos para 37 em 6** — 29 novos, entre eles os dois
-vetores dourados. A camada 2 tem nove verificações e está bloqueada, pelo motivo
-registrado acima.
+vetores dourados. A camada 2 tem nove verificações e todas passaram nesta
+execução, incluindo o commit real sob `service_role`.
 
 `npm run db:test` executa **606 asserções pgTAP em nove arquivos**: 13 do M0-A,
 94 da fatia 1, 105 da fatia 2, **113 da `0004`**, 80 da `0005`, 113 da `0006`, 34
@@ -598,14 +620,15 @@ TS 7.
 
 ## Inventário de configuração
 
-Exigido por `14` §5.3. Preenchido **somente com o que é observável sem acessar o
-projeto remoto**; nesta fatia nenhum serviço remoto foi acessado, e o que depende
-dele fica marcado como pendente em vez de inventado.
+Exigido por `14` §5.3. A região e os nomes de secrets foram observados por duas
+consultas somente-leitura ao projeto remoto; nenhum valor ou digest foi
+registrado. O que não é exposto por essas consultas continua marcado como
+pendente em vez de inventado.
 
 | Item | Valor | Fonte |
 | --- | --- | --- |
 | Projeto linkado | `prdzunponemldfvtcxkr`, organização `yfyabyaoladrpwmevxjx` | `supabase/.temp/`, estado local do CLI |
-| Região | **pendente** | só legível no painel ou pela API do projeto remoto |
+| Região | `sa-east-1` | `npx supabase projects list`, consulta somente-leitura em 02/09/2026 |
 | Extensions | `pgcrypto`, `uuid-ossp`, `pg_stat_statements` em `extensions`; `supabase_vault` em `vault`; `plpgsql` | banco local recriado pelas migrations |
 | Schemas expostos pela Data API | `public`, `graphql_public` | `config.toml` `[api].schemas` |
 | Auth — provedores | e-mail/senha habilitado; Google **não** habilitado localmente | `config.toml` `[auth]` |
@@ -616,7 +639,7 @@ dele fica marcado como pendente em vez de inventado.
 | Edge Functions | uma: `identity`, `verify_jwt = false` | `config.toml` `[functions.identity]` |
 | Secrets — **nomes**, nunca valores | `IDEMPOTENCY_HMAC_KEY_V1`; e as injetadas pela plataforma `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`/`SUPABASE_ANON_KEY`, `SUPABASE_SECRET_KEY`/`SUPABASE_SERVICE_ROLE_KEY` | `config.toml` e `index.ts` |
 | Auth/redirects **do projeto remoto** | **pendente** | divergem dos locais e só são legíveis no remoto |
-| Secrets efetivamente publicados no remoto | **pendente** | `supabase secrets list` exige acessar o projeto |
+| Secrets efetivamente publicados no remoto — **nomes apenas** | `IDEMPOTENCY_HMAC_KEY_V1` | `npx supabase secrets list`, consulta somente-leitura em 02/09/2026; valores e digests não registrados |
 | Cron, buckets, publications | nenhum nesta fatia | — |
 
 Os valores de Auth acima são os **locais**, declarados em `config.toml`. Os do
@@ -638,13 +661,16 @@ npm run audit:high
 npm run db:stop
 ```
 
-`npm run db:reset` recria o banco somente pelas migrations `0001`–`0009`, sem seed
+`npm run db:reset` recria o banco somente pelas migrations `0001`–`0010`, sem seed
 de domínio e sem seed de política.
 
 ## CI
 
 O job `Database security` do workflow `Colete validation` passou a rodar
-`npm run db:test:idempotency` depois de `db:test` e antes de `db:stop`.
+`npm run db:test:idempotency` depois de `db:test`, seguido de
+`npm run db:test:gateway`, e só então `db:stop`. O primeiro harness prova
+concorrência com 25 conexões; o segundo prova a fronteira HTTP e o commit real
+como `service_role`.
 
 Os gatilhos não são uniformes, e isso é deliberado: minutos de Actions em
 repositório privado são limitados. Todos os jobs rodam em `pull_request`, que é
@@ -661,12 +687,10 @@ de projeto remoto.
 
 ## Dívidas em aberto ao fim desta fatia
 
-1. **Bloqueante: `private.enforce_idempotency_conclusion()` é `SECURITY INVOKER`.**
-   O trigger diferido dispara no commit sob o papel do chamador, e `service_role`
-   não tem `usage` em `private`, então nenhuma das quatro mutações de identidade
-   commita pelo caminho administrativo. Diagnóstico e isolamento na seção da
-   Fatia A. Exige migration nova; a correção é tornar a função `security definer`,
-   não conceder `usage`.
+1. ~~**Bloqueante: `private.enforce_idempotency_conclusion()` era `SECURITY
+   INVOKER`.**~~ **Saldada pela `0010`.** O trigger agora é `SECURITY DEFINER`
+   de `postgres`, com `search_path` vazio; o harness HTTP commitou como
+   `service_role` e confirmou que nenhum privilégio em `private` foi concedido.
 2. **Rate limit produtivo.** `14` §5.2 o atribui à Edge e `16` o mantém como item
    futuro próprio. A Fatia A **não** o implementa e deliberadamente **não deixa
    placeholder**: um limitador que não limita é pior que a sua ausência, porque
