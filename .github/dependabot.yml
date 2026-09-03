@@ -85,6 +85,15 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
+      # ESLint majors, until the Expo toolchain follows. Pull request #14 moved
+      # eslint 9.39.5 to 10.9.1, where context.getFilename() was removed;
+      # eslint-plugin-react still calls it under eslint-config-expo, so lint
+      # fails before checking the repository. This entry comes out when the
+      # Expo toolchain supports that ESLint major. Minors and patches on 9.x
+      # are unaffected.
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
     groups:
       development-dependencies:
         dependency-type: development
