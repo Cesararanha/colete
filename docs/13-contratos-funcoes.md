@@ -17,6 +17,10 @@ type Result<T> =
                current?: unknown }; request_id: string };
 ```
 
+`INTERNAL` não é erro de negócio. É o fallback 5xx para uma falha inesperada que não pode
+ser mapeada com segurança para outro código do catálogo, nunca inclui `fields` e é tratada
+pelo cliente como falha de transporte.
+
 1. **O cliente não decide regra de negócio.** Tabelas críticas têm escrita revogada; as
    funções validam autorização, fase e invariantes sob lock.
 2. **Idempotência transacional.** Em `READ COMMITTED`, a função insere
@@ -876,7 +880,7 @@ EXPORT_ALREADY_PENDING · EXPORT_EXPIRED ·
 FINANCIAL_CASE_NOT_ASSIGNED · FINANCIAL_CASE_NOT_FOUND · FINANCIAL_CASE_OPEN ·
 FINANCIAL_SUBSTITUTE_REQUIRED · FORBIDDEN · GROUP_ARCHIVED · GROUP_FULL · GROUP_LIMIT ·
 GROUP_SUSPENDED · IDEMPOTENCY_CONFLICT · IDEMPOTENCY_EXPIRED ·
-IDEMPOTENCY_WAIT_TIMEOUT · INVITE_EXPIRED · INVITE_REVOKED · INVITE_USED · IS_OWNER ·
+IDEMPOTENCY_WAIT_TIMEOUT · INTERNAL · INVITE_EXPIRED · INVITE_REVOKED · INVITE_USED · IS_OWNER ·
 LIST_CLOSED · LIST_EMPTY · MATCH_CANCELED · MATCH_DONE · MATCH_NOT_CANCELED ·
 MATCH_NOT_OPEN · MATCH_STARTED · MEMBERSHIP_ALREADY_DECIDED · MONTHLY_DISABLED ·
 MONTHLY_ONLY · NOT_ACTIVE_MEMBER · NOT_FOUND · NOT_MEMBER · NOT_ORGANIZER · NOT_STARTER ·

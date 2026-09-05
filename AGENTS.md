@@ -33,8 +33,8 @@ uma conversa anterior.
 - **Uma fatia por vez.** O escopo de cada fatia está em `docs/16-roadmap.md` §3.
   Se concluir a fatia atual exigir decidir algo de outra fatia, **pare e
   reporte o bloqueio** em vez de ampliar o escopo.
-- **Nunca faça push direto em `main`** e nunca faça merge por conta própria.
-  Todo trabalho entra por Pull Request.
+- **Nunca faça push direto em `main`.** Todo trabalho entra por Pull Request.
+  Sobre quando você pode mergear, veja §4.11.
 - **Tabelas privadas de serviço nascem sem RLS**, por decisão registrada em
   `docs/14-convencoes-app.md` §5.2: a proteção vem de privilégios de schema, não
   de policies, porque `service_role` tem `BYPASSRLS`. Os testes afirmam isso
@@ -90,7 +90,17 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
 8. Um único commit, mensagem no imperativo, sem escopo além da fatia.
 9. `git push -u origin <branch>` e abra um **Pull Request draft**.
 10. Espere os cinco jobs da CI e reporte o status de cada um.
-11. **Pare.** O merge é decisão humana.
+11. **Política de merge.**
+    - Você pode mergear um Pull Request produzido por outra sessão depois de revisá-lo
+      criticamente contra os documentos normativos e confirmar que os cinco jobs da CI
+      estão verdes. Pull Requests do Dependabot contam como trabalho de outra parte.
+    - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
+      para revisão independente.
+    - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18` ou
+      depende de uma decisão que você não pôde tomar deve parar para decisão humana.
+    - A separação é deliberada: quem escreve já concluiu que o trabalho está certo, e todos
+      os defeitos encontrados neste projeto foram descobertos por uma sessão diferente da
+      que escreveu o código.
 
 ## 5. Validação obrigatória antes de qualquer commit de fatia
 

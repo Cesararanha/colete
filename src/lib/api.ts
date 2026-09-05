@@ -206,6 +206,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         });
         const responseBody: unknown = await response.json().catch(() => undefined);
         const businessError = appErrorFromEnvelope(responseBody, requestId);
+        if (businessError?.code === 'INTERNAL') throw new TransportError();
         if (businessError !== undefined) throw businessError;
         if (!response.ok) {
           if (response.status >= 500) throw new TransportError();

@@ -174,6 +174,33 @@ describe('lib/api identity mutations', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it('treats INTERNAL as a transport failure and retries automatically', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: { code: 'INTERNAL', message: 'fallback' },
+            request_id: REQUEST_ID,
+          }),
+          { status: 500 },
+        ),
+      )
+      .mockResolvedValueOnce(success({ data: { ok: true }, request_id: REQUEST_ID }));
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      sleep: async () => undefined,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await expect(client.updateProfile({ nickname: 'Ana' }).execute()).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('marks IDEMPOTENCY_WAIT_TIMEOUT retryable and reuses the request_id consciously', async () => {
     const bodies: string[] = [];
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

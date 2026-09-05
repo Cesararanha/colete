@@ -14,7 +14,8 @@ interno, os guards do caminho administrativo e as quatro RPCs de identidade; e
 normativos. Com isso as quatro migrations planejadas do marco em `16` §3 estão
 entregues. A `0010_idempotency_conclusion_context.sql` corrige o contexto de
 execução do trigger diferido encontrado pela primeira integração real do
-gateway. Nenhuma tela entra aqui.
+gateway. As telas de autenticação e a camada de API estão registradas na Fatia B1
+abaixo.
 
 ## O que cada fatia entregou
 
@@ -35,6 +36,12 @@ A migration estende `private.app_limits` com `alter table` em vez de reescrever 
 `0002`: a tabela é append-only e um banco já aplicado precisa seguir exatamente o
 mesmo caminho de uma instalação nova.
 
+Não entraram na `0004` a Edge Function, a rota, o rate limit produtivo, o cliente
+administrativo, as quatro RPCs de identidade, o catálogo e os textos de políticas,
+o expurgo dos prazos de 30 dias e 24 meses, nem auditoria tipada, outbox,
+`external_effects`, `transition_markers` ou `job_runs`. Naquele ponto os helpers
+privados ainda não expunham mutação de produto a papel algum.
+
 ### `0005_operational_runs.sql`
 
 | Objeto | Origem |
@@ -46,8 +53,10 @@ mesmo caminho de uma instalação nova.
 | trigger `job_runs_validate_summary` | `17` §3 |
 | censo pgTAP das colunas JSON | `17` §3 |
 
-Nenhum worker, job, cron ou RPC entra nesta fatia. Ela cria estado e o validador
-que fecha a única coluna JSON que introduz.
+Não entraram na `0005` worker, job, cron ou RPC; a migration criou estado e o
+validador que fecha a única coluna JSON que introduziu. `private.legal_holds`
+também não entrou: embora aparecesse no mesmo bloco de `10` §9, a linha
+fatia→migration nomeava somente as três tabelas privadas entregues.
 
 ### `0006_identity_rpcs.sql`
 
@@ -67,10 +76,9 @@ que fecha a única coluna JSON que introduz.
 | `public.accept_policies(...)` | `13` §5.2 |
 | `public.revoke_current_session(...)` | `13` §5.5 |
 
-Nenhuma Edge Function, nenhum rate limit produtivo e **nenhum seed de política**
-entram nesta fatia. O catálogo nasce vazio: `16` §3 exige que versões fictícias
-fiquem em fixture ou seed local e que outra migration publique textos e digests
-efetivos antes do beta.
+Não entraram na `0006` Edge Function, rate limit produtivo nem **seed de política**.
+O catálogo nasceu vazio: `16` §3 exige que versões fictícias fiquem em fixture ou
+seed local e que outra migration publique textos e digests efetivos antes do beta.
 
 ### `0007_idempotency_retention.sql`
 
@@ -87,8 +95,8 @@ exatamente a falha que o livro existe para impedir. A função executa as duas f
 nessa ordem, de modo que um livro não expurgado por mais de 24 meses seja
 resolvido numa única execução, e grava a evidência em `private.retention_runs`.
 
-Nenhum cron, scheduler ou wrapper de job entra nesta fatia: gravar
-`private.job_runs` por execução pertence à fatia de jobs.
+Não entraram na `0007` cron, scheduler nem wrapper de job: gravar
+`private.job_runs` por execução ficou para a fatia de jobs.
 
 ### `0008_settle_rls_debt.sql`
 
@@ -168,7 +176,10 @@ que faltava às RPCs da `0006`.
 | `_shared/gateway.ts` — o caminho, com dependências injetadas | `13` §0.1 |
 | `[functions.identity]` em `config.toml` | `14` §5.3 |
 
-**Nenhum deploy foi feito.** Nada nesta fatia toca o projeto remoto.
+A Fatia A não fez deploy nem tocou o projeto remoto. Também não entraram nela as
+telas, `lib/api.ts`, o rate limit produtivo, o seed de políticas,
+`link_google_identity`, exportação, exclusão ou Storage. Seu escopo foi provar a
+fronteira externa→interna contra o banco real.
 
 #### Os dois vetores dourados, reproduzidos
 
@@ -258,8 +269,8 @@ A primeira interface real do produto consome o gateway de identidade sem abrir
 uma rota alternativa para as RPCs mutáveis. A fatia entrega as quatro rotas de
 autenticação (`entrar`, `criar-conta`, `verificar-codigo` e
 `esqueci-senha`), o gate de sessão/perfil, o cliente Supabase e a camada
-`src/lib/api.ts`. Tela 13, grupos, rachas, notificações, Google OAuth, Storage,
-rate limit, exportação e exclusão continuam ausentes.
+`src/lib/api.ts`. Não entraram na Fatia B1 a Tela 13, grupos, rachas,
+notificações, Google OAuth, Storage, rate limit, exportação ou exclusão.
 
 O cliente usa somente `EXPO_PUBLIC_SUPABASE_URL` e
 `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. O exemplo versionado contém apenas um
@@ -276,10 +287,10 @@ saída real de `supabase gen types typescript --local`, e
   é uma nova intenção;
 - `input_hmac`, versões internas, ator, `auth_user_id`, `profile_id` e
   `session_id` são recusados recursivamente antes do transporte;
-- envelopes de erro só viram `AppError` se o código pertencer aos 111 valores
-  gerados de `13` §8; a UI decide pelo código e conserva a mensagem como fallback;
-- erro de negócio nunca recebe retry automático. Falha de transporte ou resposta
-  5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
+- envelopes de erro só são reconhecidos se o código pertencer aos 112 valores gerados de
+  `13` §8; erros de negócio viram `AppError`, enquanto `INTERNAL` vira `TransportError`;
+- erro de negócio nunca recebe retry automático. Falha de transporte, inclusive `INTERNAL`,
+  ou resposta 5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
   `IDEMPOTENCY_WAIT_TIMEOUT` é erro de negócio retryable e o botão consciente usa
   a mesma intenção, portanto o mesmo `request_id`.
 
@@ -676,50 +687,19 @@ arquivo: `@types/node` não passa do major do runtime enquanto Node estiver pres
 em 24, e `typescript` não sobe de major enquanto a toolchain do Expo não suportar
 TS 7.
 
-## O que ficou de fora, e por quê
+## O que ainda não existe hoje
 
-- **O agendamento do expurgo.** A `0007` cria a política; o cron que a executa
-  todo dia, o wrapper que grava `private.job_runs` por execução e o alarme de
-  atraso de 24 h de `17` §4, item 7, pertencem à fatia de jobs.
-- **A Edge Function do gateway.** `14` §5.3 define o caminho administrativo
-  exclusivo. As RPCs internas existem; a Edge que valida o JWT, extrai as claims,
-  aplica rate limit, canonicaliza a entrada por JCS e calcula o HMAC **não**.
-  Enquanto ela não existir, nenhum cliente alcança essas RPCs: `anon` e
-  `authenticated` não têm `EXECUTE`.
-- **Seed de políticas.** O catálogo nasce vazio e a migration que publica textos
-  e digests efetivos é pré-beta, conforme `16` §3.
-- **`request_data_export`, `delete_account` e as operações administrativas de
-  `13` §5.3 e §5.4.** Pertencem ao M1-B e às fatias administrativas.
-- **Telas, `lib/api.ts`, rate limit produtivo, seed de políticas,
-  `link_google_identity`, export, exclusão, Storage e deploy.** Nada disso entra
-  na Fatia A. O gateway existe para provar que a fronteira externa→interna
-  funciona contra o banco real, e nada além disso.
-- **Workers, cron e jobs.** A `0005` cria as tabelas que `reconcile_due_matches`,
-  `process_external_effects`, `apply_retention` e os demais jobs de `13` §7 vão
-  usar. Nenhum desses jobs existe, nem o agendamento deles.
-- **`legal_holds`.** Aparece no mesmo bloco SQL de `10` §9, mas a linha
-  fatia→migration da `0005` nomeia apenas as três tabelas privadas. Fica para a
-  fatia que a nomear.
-- **Gateway Edge executável.** `14` §5.3 define o caminho administrativo
-  exclusivo; esta fatia não cria Edge Function, rota, rate limit produtivo nem
-  cliente administrativo.
-- **RPCs.** `complete_profile`, `update_profile`, `accept_policies` e
-  `revoke_current_session` não existem. Os helpers da `0004` são
-  `security invoker` de propósito: são blocos de composição de uma RPC
-  `security definer` futura, que precisará compartilhar a mesma transação com a
-  mutação de domínio e com `complete_idempotency`.
-- **Nenhuma mutação de produto foi exposta.** Não há caminho pelo qual um cliente
-  — `anon`, `authenticated` ou o papel administrativo — produza efeito de negócio
-  com o que esta migration entrega. Os helpers não têm grant para papel nenhum.
-- **`policy_documents`, textos legais e seeds fictícios.** São da fatia de
-  catálogo/RPC do M1-A.
-- **Expurgo dos 30 dias e dos 24 meses.** As colunas
-  `outcome_expires_at`/`record_expires_at` e o estado `payload_expired` já existem
-  e são testados, mas o job que executa a retenção é a `0007`.
-- **Auditoria tipada, outbox, `external_effects`, `transition_markers` e
-  `job_runs`.** Permanecem nas fatias indicadas por `16` §3.
-- **Exportação, exclusão, Storage e projeto Supabase remoto.** Fora do M1-A ou do
-  escopo desta fatia; nenhum serviço remoto foi acessado.
+- rate limit produtivo no gateway de identidade;
+- textos e digests legais efetivos, seed do catálogo e interface de aceite;
+- Google OAuth, incluindo provedor, redirects e fluxo de interface;
+- `request_data_export`, `delete_account`, `link_google_identity`, saga de
+  exclusão, exportação governada e bucket `data-exports`;
+- workers, cron e agendamentos de `reconcile_due_matches`,
+  `process_external_effects`, `apply_retention` e dos demais jobs de `13` §7,
+  incluindo o alarme de atraso da retenção;
+- `private.legal_holds`, auditoria tipada, outbox N1–N28,
+  `transition_markers` e os objetos de notificação que dependem do domínio;
+- telas posteriores à autenticação para grupos, rachas e notificações.
 
 ## Inventário de configuração
 
