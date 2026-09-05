@@ -1,6 +1,7 @@
 export const pt = {
   app: {
     name: 'Colete',
+    pageTitle: (title: string) => `${title} · Colete`,
     skipToContent: 'Ir para o conteúdo principal',
   },
   navigation: {
@@ -139,6 +140,8 @@ export const pt = {
       destination: (email: string) => `Código enviado para ${email}.`,
       action: 'Verificar e continuar',
       resend: 'Reenviar código',
+      resendCountdown: (seconds: number) =>
+        `Reenvio disponível em ${seconds} ${seconds === 1 ? 'segundo' : 'segundos'}.`,
       resendAt: (time: string) => `Você poderá reenviar às ${time}.`,
       resent: 'Um novo código foi enviado. Use apenas o mais recente.',
       missingTitle: 'Nenhum código está pendente',

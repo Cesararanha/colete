@@ -31,7 +31,7 @@ export function VerifyCodeScreen() {
   const resendAvailableAt = useAuthFlowStore((state) => state.resendAvailableAt);
   const setResendAvailableAt = useAuthFlowStore((state) => state.setResendAvailableAt);
   const clearPendingSignup = useAuthFlowStore((state) => state.clearPendingSignup);
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const [needsCompletion, setNeedsCompletion] = useState(false);
   const [completionError, setCompletionError] = useState<unknown>(null);
   const completionIntent = useRef<MutationIntent<unknown> | null>(null);
@@ -150,6 +150,7 @@ export function VerifyCodeScreen() {
   }
 
   const canResend = resendAvailableAt === null || now >= resendAvailableAt;
+  const resendSeconds = Math.max(0, Math.ceil(((resendAvailableAt ?? now) - now) / 1_000));
   const resendTime = new Date(resendAvailableAt ?? now).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -216,9 +217,18 @@ export function VerifyCodeScreen() {
               variant="secondary"
             />
           ) : (
-            <Text style={[styles.status, { color: colors.textMuted }]}>
-              {pt.auth.otp.resendAt(resendTime)}
-            </Text>
+            <View style={styles.resendStatus}>
+              <Text
+                accessibilityLiveRegion="none"
+                style={[styles.status, { color: colors.textMuted }]}
+                testID="resend-countdown"
+              >
+                {pt.auth.otp.resendCountdown(resendSeconds)}
+              </Text>
+              <Text style={[styles.status, { color: colors.textMuted }]}>
+                {pt.auth.otp.resendAt(resendTime)}
+              </Text>
+            </View>
           )}
         </View>
       </AppCard>
@@ -229,5 +239,6 @@ export function VerifyCodeScreen() {
 const styles = StyleSheet.create({
   destination: { fontSize: 15, fontWeight: '700', lineHeight: 22 },
   form: { gap: spacing.md },
+  resendStatus: { gap: spacing.xs },
   status: { fontSize: 14, lineHeight: 20 },
 });

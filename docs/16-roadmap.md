@@ -220,6 +220,15 @@ exportar dados, excluir conta ou vincular/desvincular Google. Esses controles en
 quando seus contratos estiverem implementados e testados; não há botão oculto/desabilitado
 prometendo trabalho futuro.
 
+### Fronteira das telas de autenticação no M1-A
+
+No M1-A as quatro telas entregam e-mail/senha, confirmação por OTP, recuperação de senha e
+conclusão do perfil. O bloco de aceite de Termos e Política entra junto da migration pré-beta
+que publica os textos e digests reais; antes disso não existe versão canônica que a interface
+possa apresentar ou aceitar. O Google entra na fatia operacional que configura e verifica o
+provedor e os redirects no projeto remoto, nos três alvos. Até cada contrato estar disponível
+e testado, a interface não renderiza botão oculto ou desabilitado prometendo trabalho futuro.
+
 | Marco | Conteúdo | Pronto quando |
 |---|---|---|
 | **M0 — fundação** | repo do app, Expo Web/PWA, TypeScript, CI, Supabase dev, harness de migrations + fatias B2 1–2, Sentry sanitizado, tokens AA | pipeline verde; fatia atual do banco recria do zero; PWA abre por teclado; redaction e backup de teste funcionam |

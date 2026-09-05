@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from 'react';
+import Head from 'expo-router/head';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,50 +23,59 @@ export function AuthShell({ children, description, eyebrow, title }: AuthShellPr
   const themeLabel = mode === 'dark' ? pt.theme.useLight : pt.theme.useDark;
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, wide ? styles.scrollContentWide : undefined]}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={[styles.header, wide ? styles.headerWide : undefined]}>
-          <Text style={[styles.brand, { color: colors.text }]}>{pt.app.name}</Text>
-          <AppButton
-            label={themeLabel}
-            onPress={toggleMode}
-            pressed={mode === 'dark'}
-            variant="secondary"
-          />
-        </View>
-        <View style={[styles.frame, wide ? styles.frameWide : undefined]}>
-          {wide ? (
-            <View
-              style={[
-                styles.aside,
-                { backgroundColor: colors.surfaceStrong, borderColor: colors.border },
-              ]}
-              testID="auth-wide-aside"
-            >
-              <Text style={[styles.asideTitle, { color: colors.text }]}>
-                {pt.auth.shell.asideTitle}
-              </Text>
-              <Text style={[styles.body, { color: colors.textMuted }]}>
-                {pt.auth.shell.asideBody}
-              </Text>
-            </View>
-          ) : null}
-          <View role="main" style={styles.main} testID="auth-main">
-            <View style={styles.intro}>
-              <Text style={[styles.eyebrow, { color: colors.primary }]}>{eyebrow}</Text>
-              <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
-                {title}
-              </Text>
-              <Text style={[styles.body, { color: colors.textMuted }]}>{description}</Text>
-            </View>
-            {children}
+    <>
+      <Head>
+        <title>{pt.app.pageTitle(title)}</title>
+      </Head>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            wide ? styles.scrollContentWide : undefined,
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View role="banner" style={[styles.header, wide ? styles.headerWide : undefined]}>
+            <Text style={[styles.brand, { color: colors.text }]}>{pt.app.name}</Text>
+            <AppButton
+              label={themeLabel}
+              onPress={toggleMode}
+              pressed={mode === 'dark'}
+              variant="secondary"
+            />
           </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          <View style={[styles.frame, wide ? styles.frameWide : undefined]}>
+            {wide ? (
+              <View
+                role="complementary"
+                style={[
+                  styles.aside,
+                  { backgroundColor: colors.surfaceStrong, borderColor: colors.border },
+                ]}
+                testID="auth-wide-aside"
+              >
+                <Text style={[styles.asideTitle, { color: colors.text }]}>
+                  {pt.auth.shell.asideTitle}
+                </Text>
+                <Text style={[styles.body, { color: colors.textMuted }]}>
+                  {pt.auth.shell.asideBody}
+                </Text>
+              </View>
+            ) : null}
+            <View role="main" style={styles.main} testID="auth-main">
+              <View style={styles.intro}>
+                <Text style={[styles.eyebrow, { color: colors.primary }]}>{eyebrow}</Text>
+                <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
+                  {title}
+                </Text>
+                <Text style={[styles.body, { color: colors.textMuted }]}>{description}</Text>
+              </View>
+              {children}
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 

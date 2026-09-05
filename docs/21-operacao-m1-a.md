@@ -271,7 +271,9 @@ saída real de `supabase gen types typescript --local`, e
 `lib/api.ts` fixa quatro invariantes na fronteira cliente→Edge:
 
 - cada chamada de construção cria um `request_id` e devolve uma intenção que o
-  conserva em `execute`/`retry`; uma nova construção é uma nova intenção;
+  conserva em `execute`/`retry`; o body é serializado uma única vez na construção,
+  portanto nem uma referência mutada pelo chamador altera a intenção; uma nova construção
+  é uma nova intenção;
 - `input_hmac`, versões internas, ator, `auth_user_id`, `profile_id` e
   `session_id` são recusados recursivamente antes do transporte;
 - envelopes de erro só viram `AppError` se o código pertencer aos 111 valores
@@ -289,11 +291,14 @@ Zustand guarda nome/e-mail pendentes somente em memória entre cadastro e OTP �
 sem persistência e sem PII em query string. Não há atualização otimista.
 
 Os componentes compartilhados fornecem esqueleto para carregamento, erro de rede
-com retry honesto e vazio com explicação/ação. Campos e erros têm nome acessível,
-`aria-describedby`, `aria-invalid` e live region; controles têm alvo mínimo de
-44 px; foco global continua visível; o layout reflui em 390 px e ganha coluna
-contextual acima de 768 px. Axe roda sobre as quatro rotas nos temas e viewports
-do harness existente, além dos testes de teclado, overflow e alvos.
+com retry honesto e, onde há dados consultados, vazio com explicação/ação. Campos e
+erros têm nome acessível, `aria-describedby`, `aria-invalid` e live region; controles
+têm alvo mínimo de 44 px; foco global continua visível; o layout reflui em 390 px e
+ganha coluna contextual acima de 768 px. O harness roda axe nas quatro rotas, nos dois
+temas e nos dois viewports; mede botões, links e campos, exercita anúncio e revalidação
+em cadastro e recuperação, e afirma separadamente que erro, força da senha e tema têm
+texto ou semântica além da cor. Essa automação não substitui a passada manual com leitor
+de tela prevista em `15` §3.
 
 #### Prova ponta a ponta
 
@@ -306,11 +311,23 @@ do harness existente, além dos testes de teclado, overflow e alvos.
    `complete_profile` pela Edge;
 4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
    idempotência `completed`;
-5. exige zero aceites fictícios e remove idempotência, perfil e usuário no
-   `finally`, confirmando zero usuário residual.
+5. abre uma segunda sessão real, encerra a primeira com escopo local e prova que a
+   segunda continua válida; também intercepta transporte nas etapas OTP e nova senha da
+   recuperação e exige retry explícito;
+6. exige zero aceites fictícios e remove, no `finally`, e-mail do Mailpit,
+   idempotência, revogação, perfil, usuário e as entradas de auditoria do Auth
+   correlacionadas exclusivamente ao usuário sintético; ao fim confirma zero resíduo
+   em todas essas tabelas, além de identidades, sessões e refresh tokens.
 
-Na execução local final, o comando de build autenticado levou 13,7 s e os cinco
-testes efetivos do Playwright, nos dois viewports, levaram 3,8 s; o sexto caso é
+`auth.audit_log_entries` é schema gerenciado e código produtivo nunca escreve nele. O
+GoTrue local preserva suas entradas mesmo após apagar o usuário, então o harness — como
+`postgres`, somente na stack descartável — remove apenas as entradas cujo `actor_id` ou
+`actor_username` corresponde ao usuário sintético único. Isso evita reset global que
+apagaria evidência de outra execução concorrente e mantém a limpeza impossível de alcançar
+em produção pelo cliente.
+
+Na execução local final após o review, o comando de build autenticado levou 8,8 s e os
+sete testes efetivos do Playwright, nos dois viewports, levaram 6,6 s; o oitavo caso é
 ignorado no desktop para não criar uma segunda conta. No primeiro runner do
 GitHub da fatia, instalar o Chromium levou 34 s, exportar o build autenticado
 levou 65 s e executar o navegador levou 26 s: **2 min 05 s incrementais**. O job
@@ -319,21 +336,20 @@ mesmo job da stack descartável; compartilhar um artefato do job PWA export não
 serviria, porque aquele build deliberadamente não recebe a configuração pública
 da stack local.
 
-#### As duas colisões, sem decisão de produto
+#### Fronteiras autorizadas das telas de autenticação
 
-**Aceite LGPD.** A tela 2 pede aceite obrigatório e links; o catálogo entregue
-está vazio, `accept_policies` falha fechado e nenhum texto legal existe. B1 não
-inventa versão, texto, link ou aceite: o cadastro e `complete_profile` funcionam,
-e o teste exige zero linha em `policy_acceptances`. Proposta para decisão humana:
-a migration pré-beta publica os dois textos/digests reais; no mesmo trabalho, a
-tela passa a buscar o catálogo, renderizar links verdadeiros e chamar
-`accept_policies`. Até essa decisão, a interface não afirma ter recolhido aceite.
+**Aceite LGPD.** O catálogo entregue está vazio, `accept_policies` falha fechado e
+nenhum texto legal existe. A fronteira agora registrada em `16` §5 coloca o bloco de
+aceite junto da migration pré-beta que publica os dois textos/digests reais; no mesmo
+trabalho, a tela busca o catálogo, renderiza links verdadeiros e chama
+`accept_policies`. Até lá, a interface não afirma ter recolhido aceite e o teste exige
+zero linha em `policy_acceptances`.
 
-**Google OAuth.** Provedor e redirects remotos continuam pendentes e esta fatia
-não toca o remoto. Nenhum botão inerte ou oculto foi criado. Proposta para decisão
-humana: uma fatia operacional configura e verifica o provedor/redirects nos três
-alvos; somente depois o botão entra com E2E real e fallback obrigatório para
-completar nome ausente.
+**Google OAuth.** Provedor e redirects remotos continuam pendentes e esta fatia não
+toca o remoto. A fronteira de `16` §5 coloca o Google na fatia operacional que configura
+e verifica provedor/redirects nos três alvos; somente depois o botão entra com E2E real e
+fallback obrigatório para completar nome ausente. Nenhum botão inerte, oculto ou
+desabilitado promete esse trabalho futuro.
 
 ### Medição real da suíte pgTAP
 

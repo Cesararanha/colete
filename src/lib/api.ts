@@ -56,6 +56,13 @@ export class TransportError extends Error {
   }
 }
 
+class NonRetryableResponseError extends Error {
+  constructor() {
+    super('O serviço recusou a chamada sem devolver um erro reconhecido.');
+    this.name = 'NonRetryableResponseError';
+  }
+}
+
 type FetchLike = typeof fetch;
 type Sleep = (milliseconds: number) => Promise<void>;
 type UuidFactory = () => string;
@@ -176,11 +183,8 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   async function callGateway<T>(
     operation: IdentityOperation,
     requestId: string,
-    businessInput: Readonly<Record<string, unknown>>,
+    serializedBody: string,
   ): Promise<T> {
-    refuseInternalFields(businessInput);
-    const body = { request_id: requestId, ...businessInput };
-
     for (let attempt = 0; ; attempt += 1) {
       try {
         const sessionResult = await supabase().auth.getSession();
@@ -198,15 +202,18 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
             Authorization: `Bearer ${accessToken}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify(body),
+          body: serializedBody,
         });
         const responseBody: unknown = await response.json().catch(() => undefined);
         const businessError = appErrorFromEnvelope(responseBody, requestId);
         if (businessError !== undefined) throw businessError;
-        if (!response.ok) throw new TransportError();
+        if (!response.ok) {
+          if (response.status >= 500) throw new TransportError();
+          throw new NonRetryableResponseError();
+        }
         return successFromEnvelope<T>(responseBody, requestId).data;
       } catch (error) {
-        if (error instanceof AppError) throw error;
+        if (error instanceof AppError || error instanceof NonRetryableResponseError) throw error;
         const transport = error instanceof TransportError ? error : new TransportError();
         if (attempt >= maxAutomaticRetries) throw transport;
         await sleep(150 * 2 ** attempt);
@@ -220,7 +227,8 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   ): MutationIntent<T> {
     refuseInternalFields(businessInput);
     const requestId = uuid();
-    const execute = () => callGateway<T>(operation, requestId, businessInput);
+    const serializedBody = JSON.stringify({ request_id: requestId, ...businessInput });
+    const execute = () => callGateway<T>(operation, requestId, serializedBody);
     return { operation, requestId, execute, retry: execute };
   }
 
@@ -298,7 +306,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     },
 
     async signOutLocally() {
-      const result = await supabase().auth.signOut();
+      const result = await supabase().auth.signOut({ scope: 'local' });
       if (result.error !== null) authFailure(result.error, 'UNAUTHENTICATED');
     },
   };

@@ -148,6 +148,16 @@ export function ForgotPasswordScreen() {
                 (invalid) => focusFirstInvalid(invalid, otpForm.setFocus),
               )}
             />
+            {verify.error instanceof TransportError ? (
+              <AppButton
+                label={pt.common.retry}
+                onPress={otpForm.handleSubmit(
+                  (values) => verify.mutate(values),
+                  (invalid) => focusFirstInvalid(invalid, otpForm.setFocus),
+                )}
+                variant="secondary"
+              />
+            ) : null}
           </View>
         ) : null}
 
@@ -205,6 +215,16 @@ export function ForgotPasswordScreen() {
                 (invalid) => focusFirstInvalid(invalid, passwordForm.setFocus),
               )}
             />
+            {update.error instanceof TransportError ? (
+              <AppButton
+                label={pt.common.retry}
+                onPress={passwordForm.handleSubmit(
+                  (values) => update.mutate(values),
+                  (invalid) => focusFirstInvalid(invalid, passwordForm.setFocus),
+                )}
+                variant="secondary"
+              />
+            ) : null}
           </View>
         ) : null}
 

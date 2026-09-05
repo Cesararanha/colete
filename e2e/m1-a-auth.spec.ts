@@ -1,5 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+} from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
@@ -94,34 +100,36 @@ async function assertAccessible(page: Page) {
   );
   expect(overflow).toBe(false);
 
-  const targets = page.getByRole('button');
+  const targets = page.locator(
+    'a:visible, button:visible, input:visible, [role="button"]:visible, [role="link"]:visible',
+  );
+  expect(await targets.count()).toBeGreaterThan(0);
   for (let index = 0; index < (await targets.count()); index += 1) {
     const box = await targets.nth(index).boundingBox();
-    if (box !== null) {
-      expect(box.height).toBeGreaterThanOrEqual(44);
-      expect(box.width).toBeGreaterThanOrEqual(44);
-    }
+    expect(box).not.toBeNull();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.width).toBeGreaterThanOrEqual(44);
   }
 
   const results = await new AxeBuilder({ page }).analyze();
-  expect(
-    results.violations.filter((violation) =>
-      ['critical', 'serious'].includes(violation.impact ?? ''),
-    ),
-  ).toEqual([]);
+  expect(results.violations).toEqual([]);
 }
 
 test.describe('M1-A authentication', () => {
   test('creates a real account, reads OTP from local e-mail and completes the profile', async ({
+    browser,
     page,
     request,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chromium');
+    test.setTimeout(60_000);
     const env = localEnvironment();
     const db = new Client({ connectionString: env.dbUrl });
     await db.connect();
+    let secondContext: BrowserContext | undefined;
 
     try {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/criar-conta');
       await page.getByLabel('Nome').fill(account.name);
       await page.getByLabel('E-mail').fill(account.email.toUpperCase());
@@ -130,6 +138,10 @@ test.describe('M1-A authentication', () => {
       await page.getByRole('button', { name: 'Enviar código' }).click();
 
       await expect(page).toHaveURL(/\/verificar-codigo$/u);
+      await expect(page.getByTestId('resend-countdown')).toContainText(
+        /Reenvio disponível em \d+ segundos?\./u,
+      );
+      await expect(page.getByText(/Você poderá reenviar às \d{2}:\d{2}\./u)).toBeVisible();
       const otp = await readLatestOtp(request, env.mailUrl, account.email);
       await page.getByLabel('Código de 6 dígitos').fill(otp);
       await page.getByRole('button', { name: 'Verificar e continuar' }).click();
@@ -163,13 +175,60 @@ test.describe('M1-A authentication', () => {
       expect(evidence.rows).toEqual([
         { acceptance_count: 0, idempotency_state: 'completed', profile_count: 1 },
       ]);
+
+      secondContext = await browser.newContext();
+      const secondPage = await secondContext.newPage();
+      await secondPage.goto('http://127.0.0.1:4173/entrar');
+      await secondPage.getByLabel('E-mail').fill(account.email);
+      await secondPage.getByLabel('Senha', { exact: true }).fill(account.password);
+      await secondPage.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await expect(
+        secondPage.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
+      ).toBeVisible();
+
+      await page.getByRole('button', { name: 'Sair com segurança' }).click();
+      await expect(page).toHaveURL(/\/entrar$/u);
+      await secondPage.reload();
+      await expect(
+        secondPage.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
+      ).toBeVisible();
+
+      await page.goto('/esqueci-senha');
+      await page.getByLabel('E-mail').fill(account.email);
+      await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+      const recoveryOtp = await readLatestOtp(request, env.mailUrl, account.email);
+      await page.getByLabel('Código de 6 dígitos').fill(recoveryOtp);
+      await page.route('**/auth/v1/verify**', (route) => route.abort('connectionfailed'));
+      await page.getByRole('button', { name: 'Verificar código' }).click();
+      await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
+      await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+      await page.unroute('**/auth/v1/verify**');
+      await page.getByRole('button', { name: 'Tentar de novo' }).click();
+      await expect(
+        page.getByText('Código confirmado. Agora escolha uma nova senha.'),
+      ).toBeVisible();
+
+      await page.getByLabel('Senha', { exact: true }).fill(account.password);
+      await page.getByLabel('Confirmar senha').fill(account.password);
+      await page.route('**/auth/v1/user**', (route) => route.abort('connectionfailed'));
+      await page.getByRole('button', { name: 'Salvar nova senha' }).click();
+      await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
+      await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+      await page.unroute('**/auth/v1/user**');
     } finally {
+      await secondContext?.close();
       await deleteMessagesForRecipient(request, env.mailUrl, account.email);
-      const user = await db.query<{ id: string }>(
-        'select id from auth.users where lower(email) = lower($1)',
+      const user = await db.query<{ id: string; profile_id: string | null }>(
+        `select auth_user.id,
+                (select profile.id
+                   from public.profiles as profile
+                  where profile.auth_user_id = auth_user.id) as profile_id
+           from auth.users as auth_user
+          where lower(auth_user.email) = lower($1)`,
         [account.email],
       );
       const userId = user.rows[0]?.id;
+      const profileId = user.rows[0]?.profile_id;
       if (userId !== undefined) {
         await db.query(
           `delete from private.idempotency_records
@@ -184,11 +243,52 @@ test.describe('M1-A authentication', () => {
         await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
         await db.query('delete from auth.users where id = $1', [userId]);
       }
-      const residual = await db.query<{ count: number }>(
-        'select count(*)::int as count from auth.users where lower(email) = lower($1)',
-        [account.email],
+      await db.query(
+        `delete from auth.audit_log_entries
+          where payload->>'actor_id' = $1
+             or lower(payload->>'actor_username') = lower($2)`,
+        [userId ?? '', account.email],
       );
-      expect(residual.rows[0]?.count).toBe(0);
+      const residual = await db.query<{
+        audit_logs: number;
+        identities: number;
+        idempotency_records: number;
+        profiles: number;
+        refresh_tokens: number;
+        revoked_sessions: number;
+        sessions: number;
+        users: number;
+      }>(
+        `select
+           (select count(*)::int from auth.users where lower(email) = lower($1)) as users,
+           (select count(*)::int from auth.identities where user_id = $2::uuid) as identities,
+           (select count(*)::int from auth.sessions where user_id = $2::uuid) as sessions,
+           (select count(*)::int from auth.refresh_tokens where user_id = $2::text) as refresh_tokens,
+           (select count(*)::int from public.profiles where auth_user_id = $2::uuid) as profiles,
+           (select count(*)::int from private.revoked_auth_sessions
+             where profile_id = $3::uuid)
+             as revoked_sessions,
+           (select count(*)::int from private.idempotency_records
+             where actor_id = $3::uuid)
+             as idempotency_records,
+           (select count(*)::int from auth.audit_log_entries
+             where payload->>'actor_id' = $2::text
+                or lower(payload->>'actor_username') = lower($1)) as audit_logs`,
+        [account.email, userId ?? null, profileId ?? null],
+      );
+      expect(residual.rows).toEqual([
+        {
+          audit_logs: 0,
+          identities: 0,
+          idempotency_records: 0,
+          profiles: 0,
+          refresh_tokens: 0,
+          revoked_sessions: 0,
+          sessions: 0,
+          users: 0,
+        },
+      ]);
+      expect(await messagesForRecipient(request, env.mailUrl, account.email)).toEqual([]);
       await db.end();
     }
   });
@@ -196,11 +296,25 @@ test.describe('M1-A authentication', () => {
   test('all four screens reflow, expose focus, validation and automated accessibility', async ({
     page,
   }, testInfo) => {
-    for (const route of ['/entrar', '/criar-conta', '/verificar-codigo', '/esqueci-senha']) {
-      await page.goto(route);
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+    const routes = [
+      { path: '/entrar', title: 'Entrar · Colete' },
+      { path: '/criar-conta', title: 'Criar conta · Colete' },
+      { path: '/verificar-codigo', title: 'Verificar código · Colete' },
+      { path: '/esqueci-senha', title: 'Esqueci minha senha · Colete' },
+    ];
+    for (const route of routes) {
+      await page.goto(route.path);
+      await expect(page).toHaveTitle(route.title);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
       await expect(page.getByTestId('auth-wide-aside')).toHaveCount(
         testInfo.project.name === 'wide-chromium' ? 1 : 0,
+      );
+      await assertAccessible(page);
+      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
+      await expect(page.getByRole('button', { name: 'Usar tema claro' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
       );
       await assertAccessible(page);
     }
@@ -214,6 +328,19 @@ test.describe('M1-A authentication', () => {
     await page.getByLabel('Nome').fill('Ana');
     await expect(page.getByText('Digite pelo menos 2 caracteres para o nome.')).toHaveCount(0);
 
+    await page.goto('/esqueci-senha');
+    await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+    const recoveryEmail = page.getByLabel('E-mail');
+    const recoveryAlert = page.getByRole('alert');
+    await expect(recoveryEmail).toBeFocused();
+    await expect(recoveryEmail).toHaveAttribute('aria-invalid', 'true');
+    await expect(recoveryAlert).toHaveAttribute('aria-live', 'assertive');
+    await expect(recoveryAlert).toContainText('Preencha este campo');
+    await recoveryEmail.fill('incompleto');
+    await expect(recoveryAlert).toContainText('Digite um e-mail completo');
+    await recoveryEmail.fill('pessoa@colete.test');
+    await expect(recoveryAlert).toHaveCount(0);
+
     await page.keyboard.press('Tab');
     const outline = await page.evaluate(() =>
       document.activeElement === null
@@ -221,9 +348,28 @@ test.describe('M1-A authentication', () => {
         : getComputedStyle(document.activeElement).outlineStyle,
     );
     expect(outline).not.toBe('none');
+  });
 
-    await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-    await assertAccessible(page);
+  test('validation and selected states never rely on color alone', async ({ page }) => {
+    await page.goto('/criar-conta');
+    await page.getByLabel('Senha', { exact: true }).fill('curta');
+    await expect(page.getByText(/Força da senha: Ainda curta/u)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Enviar código' }).click();
+    const name = page.getByLabel('Nome');
+    const alert = page.getByRole('alert').first();
+    const alertId = await alert.getAttribute('id');
+    expect(alertId).not.toBeNull();
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+    await expect(name).toHaveAttribute('aria-describedby', alertId ?? 'missing-alert-id');
+    await expect(alert).not.toBeEmpty();
+
+    const theme = page.getByRole('button', { name: 'Usar tema escuro' });
+    await theme.click();
+    await expect(page.getByRole('button', { name: 'Usar tema claro' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   test('a network failure is honest and offers a retry', async ({ page }) => {

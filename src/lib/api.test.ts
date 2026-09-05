@@ -68,6 +68,32 @@ describe('lib/api identity mutations', () => {
     ]);
   });
 
+  it('serializes an intent once before mutable input can change', async () => {
+    const bodies: string[] = [];
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return success({ data: { ok: true }, request_id: REQUEST_ID });
+    });
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+    const patch: { nickname: string } = { nickname: 'Ana' };
+    const intent = client.updateProfile(patch);
+
+    patch.nickname = 'Bia';
+    await intent.execute();
+    patch.nickname = 'Clara';
+    await intent.retry();
+
+    expect(bodies).toEqual([
+      JSON.stringify({ request_id: REQUEST_ID, patch: { nickname: 'Ana' } }),
+      JSON.stringify({ request_id: REQUEST_ID, patch: { nickname: 'Ana' } }),
+    ]);
+  });
+
   it('automatically retries transport failure with the same request_id', async () => {
     const bodies: string[] = [];
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -113,6 +139,41 @@ describe('lib/api identity mutations', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('never automatically retries a malformed 4xx response', async () => {
+    const fetcher = vi.fn(async () => new Response('not-json', { status: 422 }));
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      sleep: async () => undefined,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await expect(client.updateProfile({ nickname: 'Ana' }).execute()).rejects.toMatchObject({
+      name: 'NonRetryableResponseError',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('automatically retries a malformed 5xx response', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not-json', { status: 503 }))
+      .mockResolvedValueOnce(success({ data: { ok: true }, request_id: REQUEST_ID }));
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      sleep: async () => undefined,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await expect(client.updateProfile({ nickname: 'Ana' }).execute()).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('marks IDEMPOTENCY_WAIT_TIMEOUT retryable and reuses the request_id consciously', async () => {
     const bodies: string[] = [];
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -144,5 +205,18 @@ describe('lib/api identity mutations', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     await expect(intent.retry()).resolves.toEqual({ ok: true });
     expect(bodies[0]).toBe(bodies[1]);
+  });
+});
+
+describe('lib/api authentication boundaries', () => {
+  it('signs out only the current session', async () => {
+    const signOut = vi.fn(async () => ({ error: null }));
+    const client = createApiClient({
+      supabase: { auth: { signOut } } as unknown as ColeteSupabaseClient,
+    });
+
+    await client.signOutLocally();
+
+    expect(signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' });
   });
 });
