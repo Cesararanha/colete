@@ -276,10 +276,10 @@ saída real de `supabase gen types typescript --local`, e
   é uma nova intenção;
 - `input_hmac`, versões internas, ator, `auth_user_id`, `profile_id` e
   `session_id` são recusados recursivamente antes do transporte;
-- envelopes de erro só viram `AppError` se o código pertencer aos 111 valores
-  gerados de `13` §8; a UI decide pelo código e conserva a mensagem como fallback;
-- erro de negócio nunca recebe retry automático. Falha de transporte ou resposta
-  5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
+- envelopes de erro só são reconhecidos se o código pertencer aos 112 valores gerados de
+  `13` §8; erros de negócio viram `AppError`, enquanto `INTERNAL` vira `TransportError`;
+- erro de negócio nunca recebe retry automático. Falha de transporte, inclusive `INTERNAL`,
+  ou resposta 5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
   `IDEMPOTENCY_WAIT_TIMEOUT` é erro de negócio retryable e o botão consciente usa
   a mesma intenção, portanto o mesmo `request_id`.
 
