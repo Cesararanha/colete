@@ -252,6 +252,89 @@ Para isso `npm run db:start` sobe a stack completa com `supabase start`, incluin
 Auth, PostgREST e Edge, e fornece à stack local/CI a chave **pública de teste**
 `00..1f` do vetor normativo. Nenhuma chave remota é lida ou copiada.
 
+### Fatia B1 — autenticação e camada de API
+
+A primeira interface real do produto consome o gateway de identidade sem abrir
+uma rota alternativa para as RPCs mutáveis. A fatia entrega as quatro rotas de
+autenticação (`entrar`, `criar-conta`, `verificar-codigo` e
+`esqueci-senha`), o gate de sessão/perfil, o cliente Supabase e a camada
+`src/lib/api.ts`. Tela 13, grupos, rachas, notificações, Google OAuth, Storage,
+rate limit, exportação e exclusão continuam ausentes.
+
+O cliente usa somente `EXPO_PUBLIC_SUPABASE_URL` e
+`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. O exemplo versionado contém apenas um
+valor local e um valor inequivocamente falso; a secret key não entra em variável
+`EXPO_PUBLIC`, bundle, URL nem log da aplicação. `src/lib/database.types.ts` é
+saída real de `supabase gen types typescript --local`, e
+`npm run generate:db-types` regenera o arquivo a partir da stack descartável.
+
+`lib/api.ts` fixa quatro invariantes na fronteira cliente→Edge:
+
+- cada chamada de construção cria um `request_id` e devolve uma intenção que o
+  conserva em `execute`/`retry`; uma nova construção é uma nova intenção;
+- `input_hmac`, versões internas, ator, `auth_user_id`, `profile_id` e
+  `session_id` são recusados recursivamente antes do transporte;
+- envelopes de erro só viram `AppError` se o código pertencer aos 111 valores
+  gerados de `13` §8; a UI decide pelo código e conserva a mensagem como fallback;
+- erro de negócio nunca recebe retry automático. Falha de transporte ou resposta
+  5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
+  `IDEMPOTENCY_WAIT_TIMEOUT` é erro de negócio retryable e o botão consciente usa
+  a mesma intenção, portanto o mesmo `request_id`.
+
+TanStack Query guarda exclusivamente sessão/perfil e coordena invalidação após a
+mutação. `react-hook-form` e Zod compartilham os schemas usados por tela e
+payload; a validação começa no blur, passa a responder à digitação depois do
+primeiro erro e o submit sempre focável envia o foco ao primeiro campo inválido.
+Zustand guarda nome/e-mail pendentes somente em memória entre cadastro e OTP —
+sem persistência e sem PII em query string. Não há atualização otimista.
+
+Os componentes compartilhados fornecem esqueleto para carregamento, erro de rede
+com retry honesto e vazio com explicação/ação. Campos e erros têm nome acessível,
+`aria-describedby`, `aria-invalid` e live region; controles têm alvo mínimo de
+44 px; foco global continua visível; o layout reflui em 390 px e ganha coluna
+contextual acima de 768 px. Axe roda sobre as quatro rotas nos temas e viewports
+do harness existente, além dos testes de teclado, overflow e alvos.
+
+#### Prova ponta a ponta
+
+`npm run test:auth:web` estende o Playwright existente. Contra a stack local ele:
+
+1. cria a conta pela tela, com e-mail único;
+2. consulta a API do Mailpit/Inbucket em `127.0.0.1:54324` e extrai o OTP de seis
+   dígitos do template local que usa `{{ .Token }}`;
+3. digita o código pela interface, obtém uma sessão GoTrue real e chama
+   `complete_profile` pela Edge;
+4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
+   idempotência `completed`;
+5. exige zero aceites fictícios e remove idempotência, perfil e usuário no
+   `finally`, confirmando zero usuário residual.
+
+Na execução local final, o comando de build autenticado levou 13,7 s e os cinco
+testes efetivos do Playwright, nos dois viewports, levaram 3,8 s; o sexto caso é
+ignorado no desktop para não criar uma segunda conta. No primeiro runner do
+GitHub da fatia, instalar o Chromium levou 34 s, exportar o build autenticado
+levou 65 s e executar o navegador levou 26 s: **2 min 05 s incrementais**. O job
+`Database security` completo fechou em 6 min 00 s. O isolamento foi mantido no
+mesmo job da stack descartável; compartilhar um artefato do job PWA export não
+serviria, porque aquele build deliberadamente não recebe a configuração pública
+da stack local.
+
+#### As duas colisões, sem decisão de produto
+
+**Aceite LGPD.** A tela 2 pede aceite obrigatório e links; o catálogo entregue
+está vazio, `accept_policies` falha fechado e nenhum texto legal existe. B1 não
+inventa versão, texto, link ou aceite: o cadastro e `complete_profile` funcionam,
+e o teste exige zero linha em `policy_acceptances`. Proposta para decisão humana:
+a migration pré-beta publica os dois textos/digests reais; no mesmo trabalho, a
+tela passa a buscar o catálogo, renderizar links verdadeiros e chamar
+`accept_policies`. Até essa decisão, a interface não afirma ter recolhido aceite.
+
+**Google OAuth.** Provedor e redirects remotos continuam pendentes e esta fatia
+não toca o remoto. Nenhum botão inerte ou oculto foi criado. Proposta para decisão
+humana: uma fatia operacional configura e verifica o provedor/redirects nos três
+alvos; somente depois o botão entra com E2E real e fallback obrigatório para
+completar nome ausente.
+
 ### Medição real da suíte pgTAP
 
 A `0010` não acrescenta asserção pgTAP: o total continua em 606, porque a prova

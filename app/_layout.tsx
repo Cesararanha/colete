@@ -1,9 +1,11 @@
 import { Stack } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { pt } from '@/lib/i18n/pt';
+import { queryClient } from '@/lib/query-client';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 function ThemedRoutes() {
@@ -22,10 +24,12 @@ function ThemedRoutes() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <ThemedRoutes />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <ThemedRoutes />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }

@@ -11,6 +11,7 @@ export type ThemeColors = {
   border: string;
   focus: string;
   positive: string;
+  critical: string;
 };
 
 export const colors: Record<ThemeMode, ThemeColors> = {
@@ -25,6 +26,7 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     border: '#718478',
     focus: '#A33D00',
     positive: '#075C31',
+    critical: '#8F1515',
   },
   dark: {
     background: '#07150D',
@@ -37,6 +39,7 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     border: '#849A8B',
     focus: '#FFB37D',
     positive: '#90EEB7',
+    critical: '#FFB4AB',
   },
 };
 

@@ -12,6 +12,7 @@ describe('theme contrast', () => {
       expect(contrastRatio(palette.textMuted, palette.surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(palette.textMuted, palette.surfaceStrong)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(palette.positive, palette.surfaceStrong)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(palette.critical, palette.surface)).toBeGreaterThanOrEqual(4.5);
     });
 
     it(`${mode} keeps primary controls at WCAG AA contrast`, () => {
