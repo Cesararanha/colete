@@ -252,6 +252,109 @@ Para isso `npm run db:start` sobe a stack completa com `supabase start`, incluin
 Auth, PostgREST e Edge, e fornece à stack local/CI a chave **pública de teste**
 `00..1f` do vetor normativo. Nenhuma chave remota é lida ou copiada.
 
+### Fatia B1 — autenticação e camada de API
+
+A primeira interface real do produto consome o gateway de identidade sem abrir
+uma rota alternativa para as RPCs mutáveis. A fatia entrega as quatro rotas de
+autenticação (`entrar`, `criar-conta`, `verificar-codigo` e
+`esqueci-senha`), o gate de sessão/perfil, o cliente Supabase e a camada
+`src/lib/api.ts`. Tela 13, grupos, rachas, notificações, Google OAuth, Storage,
+rate limit, exportação e exclusão continuam ausentes.
+
+O cliente usa somente `EXPO_PUBLIC_SUPABASE_URL` e
+`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. O exemplo versionado contém apenas um
+valor local e um valor inequivocamente falso; a secret key não entra em variável
+`EXPO_PUBLIC`, bundle, URL nem log da aplicação. `src/lib/database.types.ts` é
+saída real de `supabase gen types typescript --local`, e
+`npm run generate:db-types` regenera o arquivo a partir da stack descartável.
+
+`lib/api.ts` fixa quatro invariantes na fronteira cliente→Edge:
+
+- cada chamada de construção cria um `request_id` e devolve uma intenção que o
+  conserva em `execute`/`retry`; o body é serializado uma única vez na construção,
+  portanto nem uma referência mutada pelo chamador altera a intenção; uma nova construção
+  é uma nova intenção;
+- `input_hmac`, versões internas, ator, `auth_user_id`, `profile_id` e
+  `session_id` são recusados recursivamente antes do transporte;
+- envelopes de erro só viram `AppError` se o código pertencer aos 111 valores
+  gerados de `13` §8; a UI decide pelo código e conserva a mensagem como fallback;
+- erro de negócio nunca recebe retry automático. Falha de transporte ou resposta
+  5xx sem envelope normativo recebe até duas novas tentativas com o mesmo body.
+  `IDEMPOTENCY_WAIT_TIMEOUT` é erro de negócio retryable e o botão consciente usa
+  a mesma intenção, portanto o mesmo `request_id`.
+
+TanStack Query guarda exclusivamente sessão/perfil e coordena invalidação após a
+mutação. `react-hook-form` e Zod compartilham os schemas usados por tela e
+payload; o nome passa por um único schema com trim, NFC e limite de 2–80 tanto no
+cadastro quanto em `complete_profile`. A validação começa no blur, passa a responder
+à digitação depois do primeiro erro e o submit sempre focável envia o foco ao
+primeiro campo inválido.
+Zustand guarda nome/e-mail pendentes somente em memória entre cadastro e OTP —
+sem persistência e sem PII em query string. Não há atualização otimista.
+
+Os componentes compartilhados fornecem esqueleto para carregamento, erro de rede
+com retry honesto e, onde há dados consultados, vazio com explicação/ação. Campos e
+erros têm nome acessível, `aria-describedby` apontando para ID estável gerado sem
+texto de interface, `aria-invalid` e live region; controles
+têm alvo mínimo de 44 px; foco global continua visível; o layout reflui em 390 px e
+ganha coluna contextual acima de 768 px. O harness roda axe nas quatro rotas, nos dois
+temas e nos dois viewports; mede botões, links e campos, exercita anúncio e revalidação
+em cadastro e recuperação, e afirma separadamente que erro, força da senha e tema têm
+texto ou semântica além da cor. Essa automação não substitui a passada manual com leitor
+de tela prevista em `15` §3.
+
+#### Prova ponta a ponta
+
+`npm run test:auth:web` estende o Playwright existente. Contra a stack local ele:
+
+1. cria a conta pela tela, com e-mail único;
+2. consulta a API do Mailpit/Inbucket em `127.0.0.1:54324` e extrai o OTP de seis
+   dígitos do template local que usa `{{ .Token }}`;
+3. digita o código pela interface, obtém uma sessão GoTrue real e chama
+   `complete_profile` pela Edge;
+4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
+   idempotência `completed`;
+5. abre uma segunda sessão real, identifica no PostgreSQL a sessão e seu refresh token,
+   encerra a primeira com escopo local, exige que a segunda linha sobreviva e força a
+   rotação do refresh token da segunda sessão; também intercepta transporte no OTP de
+   cadastro, no OTP de recuperação e na nova senha, exigindo retry explícito;
+6. exige zero aceites fictícios e remove, no `finally`, e-mail do Mailpit,
+   idempotência, revogação, perfil, usuário e as entradas de auditoria do Auth
+   correlacionadas exclusivamente ao usuário sintético; ao fim confirma zero resíduo
+   em todas essas tabelas, além de identidades, sessões e refresh tokens.
+
+`auth.audit_log_entries` é schema gerenciado e código produtivo nunca escreve nele. O
+GoTrue local preserva suas entradas mesmo após apagar o usuário, então o harness — como
+`postgres`, somente na stack descartável — remove apenas as entradas cujo `actor_id` ou
+`actor_username` corresponde ao usuário sintético único. Isso evita reset global que
+apagaria evidência de outra execução concorrente e mantém a limpeza impossível de alcançar
+em produção pelo cliente.
+
+Na execução local final após o segundo review, o comando de build autenticado levou 8,9 s e os
+sete testes efetivos do Playwright, nos dois viewports, levaram 6,1 s; o oitavo caso é
+ignorado no desktop para não criar uma segunda conta. No primeiro runner do
+GitHub da fatia, instalar o Chromium levou 34 s, exportar o build autenticado
+levou 65 s e executar o navegador levou 26 s: **2 min 05 s incrementais**. O job
+`Database security` completo fechou em 6 min 00 s. O isolamento foi mantido no
+mesmo job da stack descartável; compartilhar um artefato do job PWA export não
+serviria, porque aquele build deliberadamente não recebe a configuração pública
+da stack local.
+
+#### Fronteiras autorizadas das telas de autenticação
+
+**Aceite LGPD.** O catálogo entregue está vazio, `accept_policies` falha fechado e
+nenhum texto legal existe. A fronteira agora registrada em `16` §5 coloca o bloco de
+aceite junto da migration pré-beta que publica os dois textos/digests reais; no mesmo
+trabalho, a tela busca o catálogo, renderiza links verdadeiros e chama
+`accept_policies`. Até lá, a interface não afirma ter recolhido aceite e o teste exige
+zero linha em `policy_acceptances`.
+
+**Google OAuth.** Provedor e redirects remotos continuam pendentes e esta fatia não
+toca o remoto. A fronteira de `16` §5 coloca o Google na fatia operacional que configura
+e verifica provedor/redirects nos três alvos; somente depois o botão entra com E2E real e
+fallback obrigatório para completar nome ausente. Nenhum botão inerte, oculto ou
+desabilitado promete esse trabalho futuro.
+
 ### Medição real da suíte pgTAP
 
 A `0010` não acrescenta asserção pgTAP: o total continua em 606, porque a prova

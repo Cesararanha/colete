@@ -91,7 +91,7 @@ jobs:
     # Pull requests only: this job's result cannot change unless the code does.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out source without retaining credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,6 +115,12 @@ jobs:
         run: npm run db:test:idempotency
       - name: Run the identity gateway commit harness
         run: npm run db:test:gateway
+      - name: Install the pinned Chromium runtime
+        run: npx playwright install --with-deps chromium
+      - name: Export the authentication test build
+        run: npm run build:web:auth-e2e
+      - name: Run the real authentication browser flow
+        run: npm run test:auth:web
       - name: Stop the disposable local stack
         if: always()
         run: npm run db:stop

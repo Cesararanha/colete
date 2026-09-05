@@ -1,5 +1,5 @@
 import { Link, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
@@ -14,22 +14,20 @@ export function AppNavLink({ active = false, href, label }: AppNavLinkProps) {
   const { colors } = useTheme();
 
   return (
-    <Link href={href} asChild>
-      <Pressable
-        accessibilityLabel={label}
-        accessibilityRole="link"
-        accessibilityState={{ selected: active }}
-        style={({ pressed }) => [
-          styles.link,
-          {
-            backgroundColor: active ? colors.surfaceStrong : 'transparent',
-            borderColor: active ? colors.border : 'transparent',
-            opacity: pressed ? 0.72 : 1,
-          },
-        ]}
-      >
-        <Text style={[styles.text, { color: colors.text }]}>{label}</Text>
-      </Pressable>
+    <Link
+      accessibilityLabel={label}
+      accessibilityRole="link"
+      accessibilityState={{ selected: active }}
+      href={href}
+      style={[
+        styles.link,
+        {
+          backgroundColor: active ? colors.surfaceStrong : 'transparent',
+          borderColor: active ? colors.border : 'transparent',
+        },
+      ]}
+    >
+      <Text style={[styles.text, { color: colors.text }]}>{label}</Text>
     </Link>
   );
 }

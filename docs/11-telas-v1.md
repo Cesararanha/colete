@@ -10,9 +10,12 @@ no histórico do projeto). Fonte das regras: `01-requisitos.md` · `10-schema-db
 
 ## 0. Regras globais (valem para toda tela — não se repetem abaixo)
 
-**Estados obrigatórios:** toda tela tem *carregando* (esqueleto, nunca spinner em tela
-cheia), *erro de rede* (mensagem honesta + botão tentar de novo — nunca confirmação
-otimista em ação de corrida), e *vazio* (com explicação e ação, nunca tela em branco).
+**Estados assíncronos obrigatórios:** toda tela tem *carregando* (esqueleto, nunca spinner
+em tela cheia) e *erro de rede* (mensagem honesta + botão tentar de novo — nunca confirmação
+otimista em ação de corrida). O estado *vazio* é obrigatório nas telas que exibem dados,
+quando a consulta válida não devolve conteúdo: vem com explicação e ação, nunca tela em
+branco. Tela de formulário não fabrica um vazio artificial; seu estado inicial é o próprio
+formulário.
 
 **Acessibilidade (critério de aceite, não etapa):** rótulo em todo campo e ícone · foco
 visível · erro anunciado por leitor de tela · toque mínimo 44×44 · contraste ≥ 4.5:1 nos
