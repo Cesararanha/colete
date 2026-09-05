@@ -51,6 +51,11 @@ uma conversa anterior.
 - **Asserção que nunca commita não prova trigger diferido.** Constraint
   `DEFERRABLE` e qualquer garantia que dispare no commit precisam de teste que
   commite de verdade sob o papel relevante.
+- **Asserção que também passaria com o comportamento errado não prova nada.**
+  Antes de aceitar um teste, faça a contraprova mental ou executável: ele precisa
+  falhar com a implementação defeituosa. Dois casos reais deste projeto são o
+  trigger diferido escondido pelo rollback automático do pgTAP e o escopo global
+  do logout escondido pela vida ainda válida do access token em outra sessão.
 - **Nenhum segredo no repositório.** Nenhuma chave HMAC no banco. Nenhuma PII,
   token, URL, path, Pix, nota ou motivo livre em coluna operacional, mensagem
   de erro ou log.

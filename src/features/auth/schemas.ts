@@ -11,6 +11,11 @@ export const emailSchema = z
 
 export const passwordSchema = z.string().min(8, 'password_length');
 
+export const profileNameSchema = z
+  .string()
+  .transform((value) => value.trim().normalize('NFC'))
+  .pipe(z.string().min(2, 'name_length').max(80, 'name_max'));
+
 export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, requiredMessage),
@@ -18,7 +23,7 @@ export const loginSchema = z.object({
 
 export const signUpSchema = z
   .object({
-    name: z.string().trim().min(2, 'name_length'),
+    name: profileNameSchema,
     email: emailSchema,
     password: passwordSchema,
     confirmPassword: z.string().min(1, requiredMessage),
@@ -50,7 +55,7 @@ export const newPasswordSchema = z
   });
 
 export const profileSchema = z.object({
-  name: z.string().trim().min(2, 'name_length').max(80, 'name_max'),
+  name: profileNameSchema,
   nickname: z.string().trim().min(1, 'optional_blank').max(30, 'nickname_max').optional(),
   position: z.enum(['goalkeeper', 'defender', 'midfielder', 'forward']).optional(),
   dominant_foot: z.enum(['left', 'right', 'both']).optional(),

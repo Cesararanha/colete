@@ -285,14 +285,17 @@ saída real de `supabase gen types typescript --local`, e
 
 TanStack Query guarda exclusivamente sessão/perfil e coordena invalidação após a
 mutação. `react-hook-form` e Zod compartilham os schemas usados por tela e
-payload; a validação começa no blur, passa a responder à digitação depois do
-primeiro erro e o submit sempre focável envia o foco ao primeiro campo inválido.
+payload; o nome passa por um único schema com trim, NFC e limite de 2–80 tanto no
+cadastro quanto em `complete_profile`. A validação começa no blur, passa a responder
+à digitação depois do primeiro erro e o submit sempre focável envia o foco ao
+primeiro campo inválido.
 Zustand guarda nome/e-mail pendentes somente em memória entre cadastro e OTP —
 sem persistência e sem PII em query string. Não há atualização otimista.
 
 Os componentes compartilhados fornecem esqueleto para carregamento, erro de rede
 com retry honesto e, onde há dados consultados, vazio com explicação/ação. Campos e
-erros têm nome acessível, `aria-describedby`, `aria-invalid` e live region; controles
+erros têm nome acessível, `aria-describedby` apontando para ID estável gerado sem
+texto de interface, `aria-invalid` e live region; controles
 têm alvo mínimo de 44 px; foco global continua visível; o layout reflui em 390 px e
 ganha coluna contextual acima de 768 px. O harness roda axe nas quatro rotas, nos dois
 temas e nos dois viewports; mede botões, links e campos, exercita anúncio e revalidação
@@ -311,9 +314,10 @@ de tela prevista em `15` §3.
    `complete_profile` pela Edge;
 4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
    idempotência `completed`;
-5. abre uma segunda sessão real, encerra a primeira com escopo local e prova que a
-   segunda continua válida; também intercepta transporte nas etapas OTP e nova senha da
-   recuperação e exige retry explícito;
+5. abre uma segunda sessão real, identifica no PostgreSQL a sessão e seu refresh token,
+   encerra a primeira com escopo local, exige que a segunda linha sobreviva e força a
+   rotação do refresh token da segunda sessão; também intercepta transporte no OTP de
+   cadastro, no OTP de recuperação e na nova senha, exigindo retry explícito;
 6. exige zero aceites fictícios e remove, no `finally`, e-mail do Mailpit,
    idempotência, revogação, perfil, usuário e as entradas de auditoria do Auth
    correlacionadas exclusivamente ao usuário sintético; ao fim confirma zero resíduo
@@ -326,8 +330,8 @@ GoTrue local preserva suas entradas mesmo após apagar o usuário, então o harn
 apagaria evidência de outra execução concorrente e mantém a limpeza impossível de alcançar
 em produção pelo cliente.
 
-Na execução local final após o review, o comando de build autenticado levou 8,8 s e os
-sete testes efetivos do Playwright, nos dois viewports, levaram 6,6 s; o oitavo caso é
+Na execução local final após o segundo review, o comando de build autenticado levou 8,9 s e os
+sete testes efetivos do Playwright, nos dois viewports, levaram 6,1 s; o oitavo caso é
 ignorado no desktop para não criar uma segunda conta. No primeiro runner do
 GitHub da fatia, instalar o Chromium levou 34 s, exportar o build autenticado
 levou 65 s e executar o navegador levou 26 s: **2 min 05 s incrementais**. O job

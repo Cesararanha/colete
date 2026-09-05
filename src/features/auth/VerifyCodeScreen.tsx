@@ -206,6 +206,9 @@ export function VerifyCodeScreen() {
             label={verification.isPending ? pt.common.sending : pt.auth.otp.action}
             onPress={submit}
           />
+          {verification.error instanceof TransportError ? (
+            <AppButton label={pt.common.retry} onPress={submit} variant="secondary" />
+          ) : null}
           {completionError instanceof TransportError ||
           (completionError instanceof AppError && completionError.retryable) ? (
             <AppButton label={pt.common.retry} onPress={retryCompletion} variant="secondary" />

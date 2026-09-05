@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react';
+import { forwardRef, useId, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
@@ -18,7 +18,8 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
 ) {
   const { colors } = useTheme();
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const describedBy = `${testID ?? label}-description`;
+  const fieldId = useId().replace(/[^A-Za-z0-9_-]/gu, '');
+  const describedBy = `app-field-${fieldId}-description`;
 
   return (
     <View style={styles.group}>

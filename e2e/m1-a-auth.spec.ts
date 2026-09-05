@@ -22,6 +22,7 @@ const supabaseBinary = path.join(
 const runSuffix = `${Date.now()}-${process.pid}`;
 const account = {
   email: `auth-e2e-${runSuffix}@colete.test`,
+  inputName: 'Ana Acessi\u0301vel',
   name: 'Ana Acessível',
   password: 'Frase-segura-2026',
 };
@@ -38,7 +39,12 @@ function localEnvironment() {
     if (value === undefined) throw new Error(`supabase status did not expose ${name}`);
     return value;
   };
-  return { dbUrl: read('DB_URL'), mailUrl: read('MAILPIT_URL') };
+  return {
+    apiUrl: read('API_URL'),
+    dbUrl: read('DB_URL'),
+    mailUrl: read('MAILPIT_URL'),
+    publishableKey: read('PUBLISHABLE_KEY'),
+  };
 }
 
 type MailpitSummary = { ID: string; To?: { Address?: string }[] };
@@ -115,6 +121,42 @@ async function assertAccessible(page: Page) {
   expect(results.violations).toEqual([]);
 }
 
+async function refreshStoredSession(page: Page, apiUrl: string, publishableKey: string) {
+  return page.evaluate(
+    async ({ authUrl, key }) => {
+      const findRefreshToken = (value: unknown): string | null => {
+        if (typeof value !== 'object' || value === null) return null;
+        const record = value as Record<string, unknown>;
+        if (typeof record.refresh_token === 'string') return record.refresh_token;
+        for (const nested of Object.values(record)) {
+          const token = findRefreshToken(nested);
+          if (token !== null) return token;
+        }
+        return null;
+      };
+      let refreshToken: string | null = null;
+      for (let index = 0; index < localStorage.length && refreshToken === null; index += 1) {
+        const raw = localStorage.getItem(localStorage.key(index) ?? '');
+        if (raw === null) continue;
+        try {
+          refreshToken = findRefreshToken(JSON.parse(raw) as unknown);
+        } catch {
+          // Ignore unrelated non-JSON browser state.
+        }
+      }
+      if (refreshToken === null) throw new Error('The second session has no stored refresh token.');
+
+      const response = await fetch(`${authUrl}/auth/v1/token?grant_type=refresh_token`, {
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        headers: { apikey: key, 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      return { ok: response.ok, status: response.status };
+    },
+    { authUrl: apiUrl, key: publishableKey },
+  );
+}
+
 test.describe('M1-A authentication', () => {
   test('creates a real account, reads OTP from local e-mail and completes the profile', async ({
     browser,
@@ -131,7 +173,7 @@ test.describe('M1-A authentication', () => {
     try {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/criar-conta');
-      await page.getByLabel('Nome').fill(account.name);
+      await page.getByLabel('Nome').fill(account.inputName);
       await page.getByLabel('E-mail').fill(account.email.toUpperCase());
       await page.getByLabel('Senha', { exact: true }).fill(account.password);
       await page.getByLabel('Confirmar senha').fill(account.password);
@@ -144,7 +186,12 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByText(/Você poderá reenviar às \d{2}:\d{2}\./u)).toBeVisible();
       const otp = await readLatestOtp(request, env.mailUrl, account.email);
       await page.getByLabel('Código de 6 dígitos').fill(otp);
+      await page.route('**/auth/v1/verify**', (route) => route.abort('connectionfailed'));
       await page.getByRole('button', { name: 'Verificar e continuar' }).click();
+      await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
+      await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+      await page.unroute('**/auth/v1/verify**');
+      await page.getByRole('button', { name: 'Tentar de novo' }).click();
 
       await expect(
         page.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
@@ -154,11 +201,15 @@ test.describe('M1-A authentication', () => {
 
       const evidence = await db.query<{
         acceptance_count: number;
+        auth_name: string;
         idempotency_state: string;
         profile_count: number;
+        profile_name: string;
       }>(
         `select
+           users.raw_user_meta_data->>'name' as auth_name,
            (select count(*)::int from public.profiles where auth_user_id = users.id) as profile_count,
+           (select name from public.profiles where auth_user_id = users.id) as profile_name,
            (select count(*)::int
               from public.policy_acceptances as acceptance
               join public.profiles as profile on profile.id = acceptance.profile_id
@@ -173,8 +224,24 @@ test.describe('M1-A authentication', () => {
         [account.email],
       );
       expect(evidence.rows).toEqual([
-        { acceptance_count: 0, idempotency_state: 'completed', profile_count: 1 },
+        {
+          acceptance_count: 0,
+          auth_name: account.name,
+          idempotency_state: 'completed',
+          profile_count: 1,
+          profile_name: account.name,
+        },
       ]);
+
+      const initialSessions = await db.query<{ id: string }>(
+        `select session.id
+           from auth.sessions as session
+           join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(initialSessions.rows).toHaveLength(1);
+      const initialSessionIds = new Set(initialSessions.rows.map((session) => session.id));
 
       secondContext = await browser.newContext();
       const secondPage = await secondContext.newPage();
@@ -186,18 +253,93 @@ test.describe('M1-A authentication', () => {
         secondPage.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
       ).toBeVisible();
 
+      const sessionsBeforeLogout = await db.query<{
+        active_refresh_token_id: string;
+        active_refresh_tokens: number;
+        id: string;
+      }>(
+        `select session.id,
+                (select token.id::text
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked
+                  order by token.id desc
+                  limit 1) as active_refresh_token_id,
+                (select count(*)::int
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked) as active_refresh_tokens
+           from auth.sessions as session
+           join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(sessionsBeforeLogout.rows).toHaveLength(2);
+      const secondSessions = sessionsBeforeLogout.rows.filter(
+        (session) => !initialSessionIds.has(session.id),
+      );
+      expect(secondSessions).toHaveLength(1);
+      const secondSession = secondSessions[0];
+      expect(secondSession).toBeDefined();
+      expect(secondSession?.active_refresh_tokens).toBeGreaterThan(0);
+
       await page.getByRole('button', { name: 'Sair com segurança' }).click();
       await expect(page).toHaveURL(/\/entrar$/u);
-      await secondPage.reload();
+      const sessionsAfterLogout = await db.query<{
+        active_refresh_tokens: number;
+        id: string;
+      }>(
+        `select session.id,
+                (select count(*)::int
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked) as active_refresh_tokens
+           from auth.sessions as session
+           join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(sessionsAfterLogout.rows).toEqual([
+        { active_refresh_tokens: 1, id: secondSession?.id },
+      ]);
+
       await expect(
-        secondPage.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
-      ).toBeVisible();
+        refreshStoredSession(secondPage, env.apiUrl, env.publishableKey),
+      ).resolves.toEqual({ ok: true, status: 200 });
+      const refreshedSecondSession = await db.query<{
+        active_refresh_token_id: string;
+        active_refresh_tokens: number;
+      }>(
+        `select (select token.id::text
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked
+                  order by token.id desc
+                  limit 1) as active_refresh_token_id,
+                (select count(*)::int
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked) as active_refresh_tokens
+           from auth.sessions as session
+          where session.id = $1`,
+        [secondSession?.id],
+      );
+      expect(refreshedSecondSession.rows).toHaveLength(1);
+      expect(refreshedSecondSession.rows[0]?.active_refresh_tokens).toBe(1);
+      expect(refreshedSecondSession.rows[0]?.active_refresh_token_id).not.toBe(
+        secondSession?.active_refresh_token_id,
+      );
 
       await page.goto('/esqueci-senha');
       await page.getByLabel('E-mail').fill(account.email);
       await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
       const recoveryOtp = await readLatestOtp(request, env.mailUrl, account.email);
-      await page.getByLabel('Código de 6 dígitos').fill(recoveryOtp);
+      const recoveryCode = page.getByLabel('Código de 6 dígitos');
+      await page.getByRole('button', { name: 'Verificar código' }).click();
+      const recoveryDescriptionId = await recoveryCode.getAttribute('aria-describedby');
+      expect(recoveryDescriptionId).toMatch(/^app-field-[A-Za-z0-9_-]+-description$/u);
+      await expect(page.locator(`[id="${recoveryDescriptionId ?? ''}"]`)).toHaveCount(1);
+      await recoveryCode.fill(recoveryOtp);
       await page.route('**/auth/v1/verify**', (route) => route.abort('connectionfailed'));
       await page.getByRole('button', { name: 'Verificar código' }).click();
       await expect(page.getByRole('alert')).toContainText('Confira sua conexão');

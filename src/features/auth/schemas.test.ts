@@ -28,12 +28,20 @@ describe('authentication schemas', () => {
     ).toBe(false);
     expect(
       signUpSchema.parse({
-        name: '  Ana  ',
+        name: '  Jose\u0301  ',
         email: 'ANA@EXAMPLE.TEST',
         password: 'uma-senha-segura',
         confirmPassword: 'uma-senha-segura',
       }),
-    ).toMatchObject({ name: 'Ana', email: 'ana@example.test' });
+    ).toMatchObject({ name: 'Jos\u00e9', email: 'ana@example.test' });
+    expect(
+      signUpSchema.safeParse({
+        name: 'A'.repeat(81),
+        email: 'ana@example.test',
+        password: '12345678',
+        confirmPassword: '12345678',
+      }).success,
+    ).toBe(false);
   });
 
   it('requires password confirmation to match', () => {
@@ -54,5 +62,6 @@ describe('authentication schemas', () => {
     expect(profileSchema.safeParse({ name: 'A' }).success).toBe(false);
     expect(profileSchema.safeParse({ name: 'Ana', shirt_number: 100 }).success).toBe(false);
     expect(profileSchema.safeParse({ name: 'Ana', nickname: '' }).success).toBe(false);
+    expect(profileSchema.parse({ name: '  Jose\u0301  ' }).name).toBe('Jos\u00e9');
   });
 });
