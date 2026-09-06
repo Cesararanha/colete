@@ -42,9 +42,10 @@ uma conversa anterior.
   migration em que ela foi escrita, depois do achado de fail-open do M0-B.
   `private.app_limits` e `private.allowed_proof_mime_types` nasceram antes disso,
   na `0002`, com `enable` + `force row level security` e zero policies. Elas são
-  **dívida registrada na fatia 9** de `docs/16-roadmap.md` §3, não um
-  contraexemplo da regra: migration commitada é imutável e a correção pertence à
-  varredura final.
+  o caso histórico que motivou a dívida registrada na fatia 9 de
+  `docs/16-roadmap.md` §3, não um contraexemplo da regra: migration commitada é
+  imutável, e a `0008` saldou a dívida de forma append-only, removendo `force` e
+  desligando RLS nas duas tabelas.
 - **`service_role` não faz DML direto.** A `0004` revogou tudo em `public` e
   `private` e ajustou `alter default privileges`. Migrations novas não repetem
   a revogação — elas **provam** que as tabelas novas nascem sem privilégio.

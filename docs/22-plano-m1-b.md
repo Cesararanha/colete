@@ -33,8 +33,12 @@ O M1-B começa em `main` depois da `0010`, não num schema hipotético:
 
 Há duas dívidas que o M1-B precisa fechar ao tocar essas tabelas. Primeiro, a
 leitura direta de `data_exports` e `deletion_requests` expõe mais colunas do que
-a projeção mínima prometida em `10` §11; as migrations abaixo revogam essa
-leitura direta e a substituem por projeções tipadas próprias. Segundo,
+a projeção mínima prometida em `10` §11. Como elas deixam de ter leitor direto,
+a `0012` move `deletion_requests` e a `0013` move `data_exports` para `private`,
+sem RLS nem grants, remove respectivamente as policies
+`deletion_requests_select_own` e `data_exports_select_own` e publica apenas
+funções tipadas de projeção própria. Mantê-las em `public` com policies sem
+leitor contrariaria `14` §5.2 e produziria uma prova vacuamente verde. Segundo,
 `external_effects` tem campos de lease, mas não tem token de fencing nem
 constraints que impeçam um worker vencido de concluir a tentativa de outro.
 
@@ -42,22 +46,24 @@ constraints que impeçam um worker vencido de concluir a tentativa de outro.
 
 | Ordem | Fatia | Migration | Entrega que precisa ser provável | O que destrava |
 | --- | --- | --- | --- | --- |
-| 1 | Fundação do primeiro worker | `0011_worker_foundation.sql` | fencing de lease, backoff, reconciliação, lifecycle de `job_runs`, wrappers dos jobs de identidade já existentes e Edge Function agendada; duas instâncias concorrentes produzem um único efeito lógico e um worker com lease vencido não consegue concluir | um consumidor real para `external_effects`, cron observável e o runtime de job que falta ao terceiro vetor dourado |
+| 1 | Fundação do primeiro worker | `0011_worker_foundation.sql` | aquisição, fencing de lease, backoff, lifecycle de `job_runs`, wrappers dos jobs de identidade já existentes e Edge Function agendada; duas instâncias não adquirem a mesma linha elegível e um worker com lease vencido não consegue concluir | a fundação executável de `external_effects`, cron observável e o runtime de job que falta ao terceiro vetor dourado; nenhum kind é adquirido até uma fatia publicar seu handler |
 | 2 | Saga de exclusão | `0012_account_deletion.sql` | `delete_account`, projeção mínima do pedido, cancelamento/prioridade de exports, handlers de Storage/Auth e `finalize_deletion`; crashes em cada fronteira convergem sem restaurar autoridade | o controle **Excluir conta** da tela 13 e a prova de que `deletion_pending` bloqueia domínio antes de Auth/Storage terminarem |
 | 3 | Exportação e entrega one-shot | `0013_data_export_delivery.sql` | `request_data_export`, ZIP v1, expiração/purge, bucket privado, endpoint autenticado e CAS `ready→downloaded`; concorrência dá um único vencedor e queda pós-CAS consome o arquivo | o controle **Baixar meus dados** e o encerramento técnico do M1-B |
 | 4 | Controles da tela 13 | —, sem migration | estados reais da exportação e exclusão, dupla confirmação, reautenticação e testes de navegador/acessibilidade; nenhum placeholder | entrega visível do marco, somente depois de os contratos anteriores estarem verdes |
 
-O corte é deliberado. A `0011` resolve primeiro a dívida mais antiga: estado de
-efeito externo sem executor. A `0012` usa esse executor numa saga que não exige
-um bucket novo. A `0013` cria produtor, artefato, consumidor, expurgo e download
-do export na mesma fatia; suas instruções finais de Storage são também as
-últimas policies de Storage do marco, como exige `16` §3. A fatia de interface
-não recebe migration artificial porque não cria estado.
+O corte é deliberado. A `0011` entrega a fundação executável de aquisição,
+fencing, retry e observabilidade, mas seu loop de efeitos permanece ocioso
+porque ainda não existe handler publicado. A `0012` publica os primeiros
+handlers e seus produtores na mesma fatia, numa saga que não exige um bucket
+novo. A `0013` cria produtor, handler, artefato, expurgo e download do export na
+mesma fatia; suas instruções finais de Storage são também as últimas policies de
+Storage do marco, como exige `16` §3. A fatia de interface não recebe migration
+artificial porque não cria estado.
 
-Nenhuma fatia deixa estado sem consumidor por mais de uma fatia. A única
-antecipação é a fundação genérica da `0011`, consumida já pela `0012`; kinds de
-domínios futuros, como `purge_proof_object`, não são adquiridos pelo worker antes
-de a migration daquele domínio publicar seu handler.
+A `0011` não adquire nenhum kind: a fundação genérica é consumida já pela
+`0012`, e cada produtor nasce na mesma fatia do primeiro handler capaz de
+reconciliá-lo. Kinds de domínios futuros, como `purge_proof_object`, também não
+são adquiridos antes de a migration daquele domínio publicar seu handler.
 
 ## 3. Fatia 1 — `0011_worker_foundation.sql`
 
@@ -140,7 +146,9 @@ isolate morto. `job_runs.summary` mantém apenas os contadores já autorizados e
 ### 3.3 Lease, fencing e backoff
 
 A `0011` acrescenta `lease_token uuid` a `external_effects`, fecha a coerência
-dos estados e semeia estas calibragens iniciais em `private.app_limits`:
+dos estados e amplia de forma append-only o check de `app_limits.unit` com a
+unidade `effects`, além de semear estas calibragens iniciais em
+`private.app_limits`:
 
 | Limite | Valor inicial |
 | --- | --- |
@@ -149,7 +157,7 @@ dos estados e semeia estas calibragens iniciais em `private.app_limits`:
 | tentativas máximas | 8 |
 | base de backoff | 60 s |
 | teto de backoff | 3.600 s |
-| máximo adquirido por invocação | 10 efeitos, um por vez |
+| máximo adquirido por invocação | 10 `effects`, um por vez |
 
 São calibragens de piloto, não requisitos imutáveis. O lease excede o deadline
 suave em 60 segundos; ele não tenta superar o limite duro da plataforma.
@@ -159,16 +167,22 @@ Aquisição ocorre numa RPC curta, em `READ COMMITTED`:
 1. reclassifica `leased` com `lease_until <= now()` como
    `failed_retryable/LEASE_EXPIRED`;
 2. escolhe o primeiro `pending` ou `failed_retryable` vencido por
-   `next_attempt_at, created_at, id`, usando `for update skip locked` e filtrando
-   apenas kinds para os quais o runtime já publicou handler;
+   `next_attempt_at asc nulls first, created_at, id`, usando `for update skip
+   locked` e filtrando apenas kinds para os quais o runtime já publicou handler;
+   o `nulls first` é explícito porque efeito novo nasce com `next_attempt_at`
+   nulo e deve preceder retry em backoff;
 3. grava `leased`, incrementa `attempts`, cria `lease_token` novo e fixa
    `lease_until=now()+180s`, tudo no mesmo statement;
 4. devolve somente `id`, `kind`, `resource_type`, `resource_id`, `dedupe_key`,
    `attempts`, `lease_token` e `lease_until`. Path, token, e-mail e payload nunca
    entram na fila nem no resumo do job.
 
-Toda conclusão volta por RPC e exige `(id, lease_token)` sob row lock. Token
-antigo recebe `CONCURRENT_CHANGE` e não altera estado. Sucesso marca
+Toda conclusão volta por RPC e, sob row lock, exige simultaneamente `(id,
+lease_token)`, `status='leased'` e `lease_until > clock_timestamp()`. A
+expiração do próprio lease é a barreira escolhida: ela rejeita o worker lento
+mesmo antes de outra aquisição rotacionar o token e conserva o token vencido para
+reclassificação e diagnóstico. Token antigo, status diferente ou lease vencido
+recebe `CONCURRENT_CHANGE` e não altera estado. Sucesso marca
 `succeeded/completed_at`; erro permanente marca `dead`; erro temporário marca
 `failed_retryable` e calcula `next_attempt_at` com tempo do servidor. O atraso
 bruto é `min(3600, 60 * 2^(attempts-1))`; equal jitter escolhe de 50% a 100%
@@ -179,7 +193,9 @@ Sentry depois da sanitização.
 
 ### 3.4 Reconciliação
 
-Cada handler consulta o estado externo **antes** de repetir:
+A `0011` fixa as primitivas e o contrato abaixo; os handlers que o cumprem são
+publicados na `0012` e na `0013`, não antecipados na fundação. Cada handler
+consulta o estado externo **antes** de repetir:
 
 - delete de Storage: objeto ausente é sucesso; objeto presente é apagado, e só
   uma consulta posterior confirmando ausência permite zerar path/digest;
@@ -201,8 +217,10 @@ reconciliação. Crash depois do commit não repete porque o status terminal e a
 ### 3.5 Provas de saída
 
 A fatia só termina quando testes com conexões independentes provarem: dois
-workers não adquirem o mesmo efeito; fencing rejeita conclusão velha; lease
-expirado converge; backoff/teto/oitava tentativa são exatos; falha de provedor
+workers não adquirem o mesmo efeito; conclusão depois de `lease_until` é
+rejeitada mesmo sem nova aquisição; fencing rejeita token velho; lease expirado
+converge; trabalho novo com `next_attempt_at` nulo precede retry vencido;
+backoff/teto/oitava tentativa são exatos; falha de provedor
 não vaza mensagem; `service_role` segue sem `usage`/DML em `private`; cada run
 fecha `job_runs`; run abandonado não vira sucesso; os vetores dourados de
 canonicalização batem também no runtime do job. O harness externo usa fakes de
@@ -235,10 +253,12 @@ foto, posição, pé e camisa, marca `deleted/deidentified_at`, redige Auth ID e
 erro da saga e conclui. A linha identificável da saga é redigida/expurgada depois
 de conclusão + 90 dias; `retention_runs` guarda só contagens.
 
-A leitura direta de `deletion_requests` é revogada. A projeção própria expõe
-somente `id`, `status`, `requested_at`, `completed_at` e um indicador booleano de
-falha operacional; nunca Auth ID, tentativa, próximo retry ou código interno. O
-shell `deletion_pending` pode consultar apenas essa projeção/canal de privacidade,
+A `0012` revoga a leitura direta de `deletion_requests`, remove a policy
+`deletion_requests_select_own`, desliga `force`/RLS e move a tabela para
+`private`, atualizando suas dependências com nomes qualificados. A projeção própria tipada expõe somente
+`id`, `status`, `requested_at`, `completed_at` e um indicador booleano de falha
+operacional; nunca Auth ID, tentativa, próximo retry ou código interno. O shell
+`deletion_pending` pode consultar apenas essa projeção/canal de privacidade,
 mesmo com a sessão colocada na denylist; nenhuma outra leitura ou RPC de domínio
 recebe essa exceção. Quando Auth desaparecer, a UI conserva apenas o protocolo e
 deixa de afirmar um status que já não consegue verificar.
@@ -247,7 +267,11 @@ As provas mínimas incluem idempotência/conflito/rollback; bloqueio atômico se
 substituto; JWT antigo sem acesso de domínio logo após o commit; prioridade do
 purge sobre build; Storage 404 e Auth not-found como sucesso reconciliado; crash
 em cada fronteira; finalize recusado enquanto Auth/objeto existir; e dump sem
-Auth ID, path, token ou PII em idempotência, efeitos, jobs e erros.
+Auth ID, path, token ou PII em idempotência, efeitos, jobs e erros. Um papel-sonda
+sem `BYPASSRLS`, com contexto de titular, precisa consultar a projeção com sucesso
+e falhar ao tentar `select` direto em `private.deletion_requests`; outra identidade
+não vê a linha. Assim a ausência de acesso direto não passa por falta total de um
+leitor funcional.
 
 ## 5. Fatia 3 — `0013_data_export_delivery.sql`
 
@@ -257,8 +281,9 @@ Auth ID, path, token ou PII em idempotência, efeitos, jobs e erros.
 somente `export_id` e `logical_result='data_export_requested'`; `queued` é a
 projeção fresca inicial, não estado congelado no livro. Sob idempotência e lock
 do perfil, a RPC cria `privacy_requests(kind='access')`,
-`data_exports(queued)` e `build_data_export:<export_id>` no mesmo commit. Um
-índice parcial garante no máximo um export ativo por perfil; pedido novo durante
+`data_exports(queued)` e `build_data_export:<export_id>` no mesmo commit; o efeito
+novo conserva `next_attempt_at` nulo e é servido pelo `nulls first` da aquisição.
+Um índice parcial garante no máximo um export ativo por perfil; pedido novo durante
 `queued|building|ready|downloaded com path|cleanup_pending` retorna
 `EXPORT_ALREADY_PENDING`.
 
@@ -320,10 +345,11 @@ sem cache.
 ### 5.3 `GET /data-exports/:id/content`
 
 A rota valida assinatura/audience do JWT, `auth_user_id`, `session_id`, denylist
-e titularidade. Reautenticação é provada pelo timestamp de método em `amr`, não
-por `iat`: refresh de token não é nova autenticação. Ausência de método elegível
-ou idade acima da janela aprovada retorna `RECENT_REAUTH_REQUIRED` antes de tocar
-o export.
+e titularidade. Como decisão nova deste plano, e não regra herdada dos documentos
+anteriores, reautenticação é provada pelo timestamp de método em `amr`, nunca por
+`iat`: refresh de token não é nova autenticação. A janela aprovada é de 300
+segundos. Ausência de método elegível ou idade acima dessa janela retorna
+`RECENT_REAUTH_REQUIRED` antes de tocar o export.
 
 Depois, uma RPC interna nominal executa uma transação curta:
 
@@ -350,6 +376,17 @@ tentativa foi consumida e oferece **Gerar novo export** depois do purge. Essa
 assimetria é intencional; tentar inferir pelo socket se a pessoa recebeu todos os
 bytes produziria dois downloads possíveis.
 
+Antes de criar a projeção tipada, a `0013` revoga a leitura direta de
+`data_exports`, remove a policy `data_exports_select_own`, desliga `force`/RLS e
+move a tabela para `private`, atualizando dependências e referências
+qualificadas. A projeção não expõe path nem digest.
+
+Há uma divergência normativa que esta fatia documental não resolve: `16` §4
+exige que logout remova o artefato e impeça segundo download, enquanto `13` §5.5
+define `revoke_current_session` sem efeito externo. A `0013` fica bloqueada nesse
+ponto até decisão humana reconciliar os dois contratos; o plano não acrescenta
+efeito ao logout por conta própria.
+
 ### 5.4 Provas de saída
 
 Além de pgTAP de grants, constraints, projeções e policies, o harness abre
@@ -359,12 +396,20 @@ nem redirect, queda pós-CAS, purge após abort, reconciliação sem callback,
 Storage inacessível diretamente e ausência de path/digest no cliente. Fixtures
 do ZIP verificam byte a byte a ordem, o manifesto, todos os SHA-256 e a
 allowlist negativa. Contraprovas injetam campo proibido e signed URL e precisam
-falhar.
+falhar. Um papel-sonda sem `BYPASSRLS`, com contexto de titular, precisa ler a
+projeção com sucesso, falhar no `select` direto em `private.data_exports` e não
+ver linha de outro titular; a prova não pode rodar apenas como `postgres`.
 
 ## 6. Fatia 4 — controles da tela 13
 
 Os controles entram juntos, somente depois das três migrations e dos endpoints.
 Não existe botão escondido ou desabilitado antes disso.
+
+Os estados abaixo estendem explicitamente o contrato de apresentação de `11`
+§3, tela 13. `downloaded|cleanup_pending` não pode ser mostrado como `expirado`,
+porque a tentativa única foi consumida, e `failed` não pode ser escondido como
+`preparando`; distinguir ambos é necessário para a tela não prometer uma ação
+incorreta sobre estados que o schema já representa.
 
 ### Baixar meus dados
 
@@ -420,27 +465,31 @@ retry automático.
   testes locais; cada ação externa exige autorização própria;
 - app nativo, Apple Sign In e push: estão fora do caminho crítico do beta PWA.
 
-## 8. Perguntas reservadas à decisão humana
+## 8. Decisões e gates humanos
 
-Estas perguntas não têm resposta nos contratos lidos e **não podem ser
-preenchidas pela implementação**:
+Duas decisões antes abertas estão fechadas para a implementação:
 
-1. Qual é a janela exata de reautenticação recente para exportar? O mecanismo
-   está fechado (`amr`, nunca `iat`), mas o número de segundos precisa de decisão
-   humana antes da `0013`.
-2. A validação jurídica aprova os papéis controlador/operador, bases legais,
+- a janela de reautenticação recente para exportar é **300 segundos**. Este plano
+  escolhe `amr`, nunca `iat`, como decisão nova do M1-B, porque refresh de token
+  não comprova nova autenticação;
+- a operação aceita formalmente **RPO de 24 horas e RTO de 24 horas**. Continuam
+  pendentes os passos técnicos do gate de `16` §2: implementar o export diário
+  por allowlist e aprovar o primeiro restore isolado.
+
+Permanecem abertas somente estas perguntas, que **não podem ser preenchidas pela
+implementação**:
+
+1. A validação jurídica aprova os papéis controlador/operador, bases legais,
    prazos candidatos — inclusive aceite/pedido por cinco anos — e a allowlist de
    campos do `colete-export-v1`? Sem aprovação, o sistema pode ser testado, mas
    não convidar o beta.
-3. Quem é o responsável operacional e qual é o canal real de suporte/alerta para
+2. Quem é o responsável operacional e qual é o canal real de suporte/alerta para
    `dead`, `RUN_ABANDONED`, exclusão atrasada e pedido bloqueado? Sentry é o
    transporte técnico, não uma definição de plantão nem um canal ao titular.
-4. A operação aceita formalmente RPO/RTO de 24 horas e o risco residual do
-   runbook de backup/restore? O M1-B mantém `data-exports` fora do backup, mas não
-   pode aprovar esse gate em nome da operação.
 
-Nenhuma dessas respostas muda a numeração. Se uma decisão exigir contrariar
-`13`, `14` ou `17`, isso é divergência normativa e o trabalho para antes de
+Nenhuma dessas respostas muda a numeração. A divergência logout × purge
+registrada em §5.3 também exige reconciliação humana antes da `0013`. Se uma
+decisão exigir contrariar `13`, `14`, `16` ou `17`, o trabalho para antes de
 qualquer migration.
 
 ## 9. Manifesto de especificação

@@ -34,9 +34,9 @@ RLS default-deny e sorteio versionado.
 - [x] **Gate histórico anterior à primeira migration:** criar o commit de baseline e provar
       que clone limpo reproduz documentos/checksums. Cumprido no M0-A; tag documental e
       proteção de `main` continuam como preparação do primeiro PR remoto.
-- [ ] **Antes da primeira RPC mutável:** implementar e testar o gateway Edge exclusivo. O
-      cliente chama somente a Edge; `public`, `anon` e `authenticated` não recebem `EXECUTE`
-      na RPC interna, e a secret key permanece apenas no backend.
+- [x] **Antes da primeira RPC mutável:** gateway Edge exclusivo implementado e testado na
+      Fatia A do M1-A. O cliente chama somente a Edge; `public`, `anon` e `authenticated` não
+      recebem `EXECUTE` na RPC interna, e a secret key permanece apenas no backend.
 - [ ] **Antes de convidar o beta:** escolher provedor SMTP transacional e validar domínio remetente (SPF/DKIM/DMARC).
       O SMTP padrão do ambiente de desenvolvimento não atende beta com usuários reais.
 - [ ] **Antes de convidar o beta:** registrar `VAPID` e estratégia mínima do service worker; nenhum cache de Pix,
@@ -49,8 +49,9 @@ RLS default-deny e sorteio versionado.
       `14-convencoes-app.md`, separando banco, migrations, configuração e Storage.
 - [ ] **Antes de guardar dado real:** escolher destino externo/chave, executar e aprovar o
       primeiro restore isolado com manifesto de exclusões.
-- [ ] **Antes de convidar o beta:** aprovar formalmente RPO/RTO de comprovante em 24 h,
-      implementar o export diário por allowlist e provar em restore que vencido/órfão não volta.
+- [ ] **Antes de convidar o beta:** RPO/RTO de comprovante em 24 h formalmente aceitos;
+      ainda falta implementar o export diário por allowlist e provar em restore que
+      vencido/órfão não volta.
 - [ ] **Antes de convidar o beta:** confirmar que o beta é pessoal/não comercial enquanto usar Vercel Hobby; cobrança
       ou uso por terceiros exige revisão de plano/provedor.
 - [ ] **Antes de convidar o beta:** publicar o catálogo de políticas com **pelo menos uma
@@ -116,8 +117,8 @@ as reconciliações/retention que dependem desses domínios e as demais policies
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
 
 As quatro linhas `0004`–`0007` estão **executadas**: as migrations existem, com evidência
-operacional em `21`. As RPCs internas de identidade, o catálogo e o expurgo do livro de
-idempotência já existem; a Edge Function do gateway, o rate limit produtivo, o seed de
+operacional em `21`. As RPCs internas de identidade, o catálogo, o expurgo do livro de
+idempotência e a Edge Function do gateway já existem; o rate limit produtivo, o seed de
 políticas e o agendamento dos jobs continuam sem implementação. `0001`–`0003` têm evidência
 operacional em `19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
 existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
