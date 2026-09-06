@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+import { profileNameSchema, profileSchema } from '../../lib/profile-schema';
+
+export { profileNameSchema, profileSchema } from '../../lib/profile-schema';
+
 const requiredMessage = 'required';
 
 export const emailSchema = z
@@ -10,11 +14,6 @@ export const emailSchema = z
   .transform((value) => value.toLocaleLowerCase('pt-BR'));
 
 export const passwordSchema = z.string().min(8, 'password_length');
-
-export const profileNameSchema = z
-  .string()
-  .transform((value) => value.trim().normalize('NFC'))
-  .pipe(z.string().min(2, 'name_length').max(80, 'name_max'));
 
 export const loginSchema = z.object({
   email: emailSchema,
@@ -53,14 +52,6 @@ export const newPasswordSchema = z
       context.addIssue({ code: 'custom', message: 'password_match', path: ['confirmPassword'] });
     }
   });
-
-export const profileSchema = z.object({
-  name: profileNameSchema,
-  nickname: z.string().trim().min(1, 'optional_blank').max(30, 'nickname_max').optional(),
-  position: z.enum(['goalkeeper', 'defender', 'midfielder', 'forward']).optional(),
-  dominant_foot: z.enum(['left', 'right', 'both']).optional(),
-  shirt_number: z.number().int().min(0).max(99).optional(),
-});
 
 export type LoginValues = z.input<typeof loginSchema>;
 export type SignUpValues = z.input<typeof signUpSchema>;

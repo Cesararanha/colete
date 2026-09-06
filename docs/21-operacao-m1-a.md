@@ -321,9 +321,10 @@ de tela prevista em `15` §3.
 1. cria a conta pela tela, com e-mail único;
 2. consulta a API do Mailpit/Inbucket em `127.0.0.1:54324` e extrai o OTP de seis
    dígitos do template local que usa `{{ .Token }}`;
-3. digita o código pela interface, obtém uma sessão GoTrue real e chama
-   `complete_profile` pela Edge;
-4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
+3. digita o código pela interface, obtém uma sessão GoTrue real e chega à rota
+   `/perfil`, onde o gate autenticado reconhece que a conta ainda não tem perfil;
+4. recarrega a página antes da conclusão, exige novamente o formulário, chama
+   `complete_profile` pela Edge e prova no PostgreSQL uma única linha de perfil e a
    idempotência `completed`;
 5. abre uma segunda sessão real, identifica no PostgreSQL a sessão e seu refresh token,
    encerra a primeira com escopo local, exige que a segunda linha sobreviva e força a
@@ -365,6 +366,194 @@ toca o remoto. A fronteira de `16` §5 coloca o Google na fatia operacional que 
 e verifica provedor/redirects nos três alvos; somente depois o botão entra com E2E real e
 fallback obrigatório para completar nome ausente. Nenhum botão inerte, oculto ou
 desabilitado promete esse trabalho futuro.
+
+### Fatia B2 — a tela 13, Perfil
+
+A Fatia B2 entrega a tela 13 dentro da fronteira que `16` §5 já registrava: criação e
+conclusão do perfil, edição dos próprios dados, leitura do provedor vinculado, troca de
+senha e logout seguro.
+Nenhum controle de exportar dados, excluir conta ou vincular/desvincular provedor
+existe na árvore — nem oculto, nem desabilitado.
+
+A rota é `app/perfil.tsx`; `app/index.tsx` redireciona para ela fora do modo smoke.
+`AuthenticatedShell` dá à área autenticada o cabeçalho com marca e alternância de tema,
+`banner`/`main`, um `h1` real e título próprio de rota (`Perfil · Colete`).
+
+**Leitura.** `api.getOwnProfile()` faz leitura própria sujeita a RLS —
+`from('profiles').select('id,name,nickname,position,dominant_foot,shirt_number')`
+sem filtro no cliente, servida pela policy `profiles_select_own` da `0002`. Não foi
+criada nenhuma RPC de leitura: a policy já é o filtro, e duplicá-la em função seria
+uma segunda fronteira para manter em sincronia.
+
+**Escrita.** As duas mutações da tela — `update_profile` e `revoke_current_session` —
+passam por `lib/api.ts` e pela Edge, com a intenção que conserva o `request_id`
+entre `execute` e `retry`. A tela não chama RPC mutável nem `supabase` direto.
+Os campos editáveis são exatamente a allowlist de `13` §5.6: `name`, `nickname`,
+`position`, `dominant_foot`, `shirt_number`. `photo_url` fica fora enquanto não
+existir o bucket `avatars`.
+
+**Schema único.** `src/lib/profile-schema.ts` passou a ser a única definição dos
+cinco campos; `features/auth/schemas.ts` reexporta `profileNameSchema` e
+`profileSchema` em vez de redeclará-los, de modo que cadastro, conclusão de perfil e
+edição compartilham o mesmo trim/NFC e os mesmos limites. `profilePatchSchema` é a
+versão `partial().strict()` do mesmo objeto — é ela que distingue ausência de `null`.
+
+#### Defeito bloqueante encontrado na revisão independente
+
+O primeiro commit da fatia tratava a conclusão do perfil como estado efêmero do fluxo
+de autenticação. `VerifyCodeScreen` mantinha o formulário e chamava
+`complete_profile` depois do OTP; `LoginScreen` mantinha uma segunda orquestração para
+o mesmo formulário. Ao recarregar, fechar a aba ou entrar mais tarde, nenhum desses
+estados locais sobrevivia. `AuthGateScreen` recebia então uma sessão verificada sem
+linha em `profiles` e apresentava o vazio genérico com **Tentar de novo**: o retry
+repetia uma leitura que continuaria vazia, sem oferecer a ação pendente.
+
+A correção moveu a decisão para a fronteira autenticada. `ProfileCompletionScreen`
+usa o `ProfileCompletionForm` e o schema compartilhado já existentes;
+`AuthGateScreen` o renderiza sempre que há sessão verificada sem perfil. Cadastro por
+OTP e entrada por senha agora apenas estabelecem a sessão e navegam para `/perfil`.
+O contrato de `complete_profile` continua exatamente o de `13` §5.7: os cinco campos
+externos permitidos mais `request_id`, sem ator, status ou identificador fornecido
+pelo cliente.
+
+O E2E faz duas provas que falhariam com o comportamento anterior. No cadastro, ele
+recarrega `/perfil` depois do OTP e antes do submit, conclui pelo formulário recuperado
+e exige a linha no banco. Em caso separado, cria um usuário Auth verificado sem perfil,
+entra por senha, exige o mesmo formulário — nunca o vazio genérico —, conclui e prova a
+linha no PostgreSQL. A contraprova executável restaurou temporariamente o vazio no
+gate: o segundo caso ficou vermelho ao não encontrar o título **Complete seu perfil**;
+reaplicar a correção tornou a suíte verde.
+
+#### A semântica de patch, provada no fio
+
+`13` §5.6 exige três comportamentos distintos, e os três são verificados pelo que
+efetivamente vai no corpo da requisição, não pelo que a tela mostra:
+
+| Caso | Prova unitária (`src/lib/api.test.ts`) | Prova ponta a ponta |
+|---|---|---|
+| campo intocado não muda | o body serializado contém só a chave enviada | o `postDataJSON()` de `update_profile` é exatamente `{ nickname, position }` e o banco mostra os demais campos inalterados |
+| `null` explícito limpa | o body preserva `nickname: null`, sem virar ausência | o body é `{ nickname: null }` e a linha passa a ter `nickname` nulo com `position` intacta |
+| vazio ou só espaços é `VALIDATION` | a construção da intenção lança antes de qualquer `fetch` | nenhum corpo novo sai do navegador, o foco vai ao campo e o erro é anunciado |
+
+O que sustenta o primeiro caso é `changedProfilePatch`, que monta o patch a partir
+dos campos sujos do formulário. A contraprova executável foi feita: removendo o
+recorte por `dirtyFields`, a asserção ponta a ponta falha com três chaves a mais no
+corpo. A contraprova do terceiro caso também foi feita: fazendo o texto opcional em
+branco virar `null` silenciosamente, falham o teste do schema compartilhado, o teste
+do fio em `api.test.ts` e a asserção ponta a ponta — três camadas, o que é o esperado
+para uma regra que `13` §5.6 justifica como prevenção de bug de comparação.
+
+#### O comportamento real da troca de senha
+
+A troca usa `supabase.auth.updateUser({ password })`. O efeito sobre as **outras**
+sessões foi medido, não presumido, contra o GoTrue local:
+
+- a sessão que troca a senha **sobrevive**;
+- todas as outras sessões do mesmo usuário **desaparecem de `auth.sessions`**, e o
+  `POST /auth/v1/token?grant_type=refresh_token` da outra sessão passa a responder
+  **HTTP 400**.
+
+O harness afirma as duas coisas: que o conjunto de `auth.sessions` depois da troca é
+exatamente o capturado antes do segundo login, e que o refresh da outra sessão falha.
+Depois disso ele entra de novo com a senha nova, provando que a credencial trocada é
+a que vale.
+
+O que a medição também mostra, e que precisa ficar escrito: a troca de senha **não
+escreve nada em `private.revoked_auth_sessions`**. Isso é afirmado indiretamente pela
+asserção do logout, que exige que a denylist contenha exatamente uma linha — a da
+sessão encerrada — ao fim do fluxo. Ou seja, a troca de senha é uma garantia do Auth,
+não da denylist: um access token já emitido para outra sessão continua
+criptograficamente válido até expirar, e é `revoke_current_session` — não a troca de
+senha — que fecha o caminho privilegiado imediatamente. É exatamente o modo de falha
+que `AGENTS.md` §2 registra sobre o escopo do logout, e por isso a asserção olha para
+o banco e para um refresh real, nunca para a mensagem da tela.
+
+#### Logout seguro
+
+O botão chama `revoke_current_session` pela Edge e só então encerra a sessão local,
+na ordem que `13` §5.5 exige — a revogação não depende do sucesso do `signOut`. A
+intenção é criada uma vez e reaproveitada no retry, de modo que uma falha de
+transporte não gasta um `request_id` novo. O harness prova pelo banco que **só** a
+sessão atual caiu: as demais linhas de `auth.sessions` continuam lá com refresh token
+ativo, e `private.revoked_auth_sessions` recebe exatamente o `session_id` da sessão
+encerrada.
+
+#### Os três estados e a acessibilidade automatizada
+
+`11` §0 distingue tela que exibe dados de tela de formulário. Na leitura de um perfil
+existente, carregamento e erro continuam exercitados ponta a ponta: esqueleto com a
+resposta segurada pelo teste e erro de rede honesto com **Tentar de novo**. Uma resposta
+válida sem perfil, porém, não é vazio: é o estado pendente da conta e abre o formulário
+de conclusão com ação clara. O vazio genérico foi removido desse caminho. Nenhum desses
+estados é confirmação otimista.
+
+O critério de aceite de `15` §1 entra no harness axe/Playwright que a Fatia B1 já
+tinha: axe sem violações na rota `/perfil` nos dois temas, alvos de toque de 44 px
+medidos em botões, links e campos, foco visível, erro anunciado por live region e
+associado ao campo, título próprio de rota, `prefers-reduced-motion` emulado e a
+afirmação separada de que erro e estado selecionado têm texto ou semântica além da cor.
+Continua valendo o que `15` §3 diz: isso não substitui a passada manual com leitor de
+tela.
+
+#### Dois defeitos que só a execução do harness revelou
+
+**`aria-describedby` apontando para nada.** A descrição de campo passou a ser
+renderizada sempre, para reservar altura e evitar salto de layout. Como o export
+estático pré-renderiza cada rota e a árvore do cliente monta o router inteiro,
+`useId()` **não** é estável entre o HTML pré-renderizado e a hidratação: a descrição
+pré-renderizada mantinha o id do servidor enquanto o `input` adotava o id do cliente,
+e o `aria-describedby` do campo passava a apontar para um id inexistente — o erro
+deixava de ser associado ao campo para quem usa leitor de tela. A correção devolve a
+descrição ao render condicional (assim os dois nós nascem juntos, no mesmo render) e
+move o `minHeight` para um contêiner sem id, preservando a altura reservada. A
+asserção que pegou isso já existia desde a Fatia B1 e falhou de verdade — ela não
+teria passado com o comportamento errado.
+
+**503 é retryable no cliente PostgREST.** `@supabase/postgrest-js` reexecuta métodos
+idempotentes em 503 e 520 até três vezes, com espera exponencial de 1 s, 2 s e 4 s.
+Medido: a leitura falhada só chega à tela por volta de 7 s. O erro honesto continua
+correto, mas o teste do estado de rede usa **500** — que a biblioteca não repete —
+para exercitar o mesmo caminho de tela sem pagar a espera. O fato fica registrado
+aqui porque um projeto Supabase pausado responde 503, e é bom saber que a tela leva
+sete segundos para admitir isso.
+
+#### A colisão das abas, e como foi resolvida
+
+`11` §1 desenha a área autenticada com três abas — Rachas, Grupos e Perfil. No M1-A
+só o Perfil existe: Grupos é M2 e Rachas é M3. Renderizar as três abas agora criaria
+precisamente o controle vazio que a fronteira da tela Perfil proíbe, e um alvo de
+toque de 44 px que não leva a lugar nenhum é pior do que a ausência da navegação.
+
+A colisão foi resolvida registrando uma **Fronteira da área autenticada no M1-A** em
+`16` §5, junto das outras: a navegação por abas entra com a fatia que trouxer a
+primeira aba adicional, e até lá a área autenticada leva direto ao Perfil. A
+arquitetura de informação de `11` §1 não muda — muda o momento em que a navegação
+entre abas passa a ter destino. `16` está no manifesto, e o checksum foi recalculado.
+
+#### Custo de CI adicionado
+
+Na execução local final depois da correção: exportar o build autenticado levou
+**7,4 s** e os **oito casos efetivos** do Playwright, nos dois viewports, levaram
+**9,3 s**; dois casos são ignorados no desktop para não criar contas redundantes. O
+caso efetivo adicional é a entrada de usuário Auth verificado sem perfil. A suíte
+unitária permanece em **65 casos** em 11 arquivos: oito casos adicionados pela fatia,
+três sobre o fio do patch em `api.test.ts`, três sobre o schema compartilhado e dois
+sobre o mapeamento de erro da tela.
+
+No primeiro runner do GitHub desta fatia, instalar o Chromium levou 27 s, exportar o
+build autenticado levou 63 s e executar o navegador levou **41 s**, contra 26 s na
+Fatia B1: **2 min 11 s incrementais**, ou +6 s sobre os 2 min 05 s de B1, praticamente
+todos no navegador que agora também percorre o Perfil. O job `Database security`
+completo fechou em **6 min 11 s**, contra 6 min 00 s em B1; `App quality` fechou em
+**45 s**, com 3 s de testes unitários. Nenhum job novo entrou no workflow: a fatia não
+toca `supabase/` e não adiciona migration, então o custo incremental fica em
+`App quality` e no passo de navegador do job `Database security`.
+
+#### O que continua fora
+
+Telas 14 e 15, rachas, grupos, notificações, exportação de dados, exclusão de conta,
+vínculo e desvínculo de provedor, Storage e `photo_url`, navegação por abas, migration
+nova e qualquer deploy. Nada disso ganhou botão, rota ou placeholder.
 
 ### Medição real da suíte pgTAP
 

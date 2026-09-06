@@ -1,7 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, View } from 'react-native';
 
@@ -18,11 +17,9 @@ import { spacing } from '@/theme/spacing';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage, fieldMessage } from './messages';
-import { ProfileCompletionForm } from './ProfileCompletionForm';
 import { loginSchema, type LoginValues } from './schemas';
 
 export function LoginScreen() {
-  const [completionName, setCompletionName] = useState<string | null>(null);
   const {
     control,
     handleSubmit,
@@ -36,42 +33,14 @@ export function LoginScreen() {
   });
 
   const login = useMutation({
-    mutationFn: async (values: LoginValues) => {
-      const signedIn = await api.signInWithPassword(values.email, values.password);
-      const profile = await api.getOwnProfile();
-      return { profile, user: signedIn.user };
-    },
-    onSuccess: ({ profile, user }) => {
-      if (profile !== null) {
-        router.replace('/');
-        return;
-      }
-      const metadataName = user.user_metadata['name'];
-      setCompletionName(typeof metadataName === 'string' ? metadataName : '');
-    },
+    mutationFn: (values: LoginValues) => api.signInWithPassword(values.email, values.password),
+    onSuccess: () => router.replace('/perfil'),
   });
 
   const submit = handleSubmit(
     (values) => login.mutate(values),
     (invalid) => focusFirstInvalid(invalid, setFocus),
   );
-
-  if (completionName !== null) {
-    return (
-      <AuthShell
-        description={pt.auth.profile.description}
-        eyebrow={pt.auth.profile.eyebrow}
-        title={pt.auth.profile.title}
-      >
-        <AppCard>
-          <ProfileCompletionForm
-            defaultName={completionName}
-            onCompleted={() => router.replace('/')}
-          />
-        </AppCard>
-      </AuthShell>
-    );
-  }
 
   return (
     <AuthShell

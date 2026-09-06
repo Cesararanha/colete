@@ -2,20 +2,27 @@ import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 
 import type { Database } from './database.types';
 import { isErrorCode, type ErrorCode } from './error-codes';
+import {
+  ownProfileSchema,
+  profilePatchSchema,
+  profileSchema,
+  type ProfileInput,
+  type ProfilePatch,
+} from './profile-schema';
 import { getSupabaseClient, publicSupabaseConfig, type ColeteSupabaseClient } from './supabase';
 
-export type ProfileInput = {
-  name: string;
-  nickname?: string | null;
-  position?: 'goalkeeper' | 'defender' | 'midfielder' | 'forward' | null;
-  dominant_foot?: 'left' | 'right' | 'both' | null;
-  shirt_number?: number | null;
-};
+export type { ProfileInput, ProfilePatch } from './profile-schema';
 
-export type OwnProfile = Pick<
-  Database['public']['Tables']['profiles']['Row'],
-  'id' | 'name' | 'nickname' | 'position' | 'dominant_foot' | 'shirt_number'
->;
+export type OwnProfile = Omit<
+  Pick<
+    Database['public']['Tables']['profiles']['Row'],
+    'id' | 'name' | 'nickname' | 'position' | 'dominant_foot' | 'shirt_number'
+  >,
+  'dominant_foot' | 'position'
+> & {
+  dominant_foot: 'left' | 'right' | 'both' | null;
+  position: 'goalkeeper' | 'defender' | 'midfielder' | 'forward' | null;
+};
 
 export type IdentityOperation =
   'accept_policies' | 'complete_profile' | 'revoke_current_session' | 'update_profile';
@@ -233,17 +240,44 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     return { operation, requestId, execute, retry: execute };
   }
 
+  function profileValidationError(error: {
+    issues: readonly { message: string; path: PropertyKey[] }[];
+  }) {
+    const fields = Object.fromEntries(
+      error.issues.map((issue) => [issue.path.join('.'), issue.message]),
+    );
+    return new AppError('VALIDATION', 'Revise os campos indicados e tente novamente.', { fields });
+  }
+
+  function parseProfile<T>(
+    schema: {
+      safeParse: (value: unknown) =>
+        | { success: true; data: T }
+        | {
+            success: false;
+            error: { issues: readonly { message: string; path: PropertyKey[] }[] };
+          };
+    },
+    value: unknown,
+  ): T {
+    const result = schema.safeParse(value);
+    if (!result.success) throw profileValidationError(result.error);
+    return result.data;
+  }
+
   return {
     completeProfile: (profile: ProfileInput) =>
       mutation<{
         outcome: { profile_id: string; logical_result: 'profile_created' };
         current: OwnProfile;
-      }>('complete_profile', { profile }),
-    updateProfile: (patch: Partial<ProfileInput>) =>
-      mutation<{ outcome: { logical_result: 'profile_updated' }; current: OwnProfile }>(
+      }>('complete_profile', { profile: parseProfile(profileSchema, profile) }),
+    updateProfile: (patch: ProfilePatch) => {
+      refuseInternalFields(patch);
+      return mutation<{ outcome: { logical_result: 'profile_updated' }; current: OwnProfile }>(
         'update_profile',
-        { patch },
-      ),
+        { patch: parseProfile(profilePatchSchema, patch) },
+      );
+    },
     acceptPolicies: (
       versions: readonly { document_type: 'terms' | 'privacy'; version: string }[],
     ) => mutation('accept_policies', { versions }),
@@ -303,7 +337,10 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         .select('id,name,nickname,position,dominant_foot,shirt_number')
         .maybeSingle();
       if (result.error !== null) throw new TransportError();
-      return result.data;
+      if (result.data === null) return null;
+      const parsed = ownProfileSchema.safeParse(result.data);
+      if (!parsed.success) throw new TransportError('O perfil chegou em um formato inesperado.');
+      return parsed.data;
     },
 
     async signOutLocally() {

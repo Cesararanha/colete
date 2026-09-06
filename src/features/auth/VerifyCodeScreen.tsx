@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -11,7 +11,7 @@ import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { AuthShell } from '@/components/ui/AuthShell';
-import { AppError, api, TransportError, type MutationIntent } from '@/lib/api';
+import { AppError, api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
@@ -20,21 +20,15 @@ import { useAuthFlowStore } from './auth-flow-store';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage, fieldMessage } from './messages';
-import { ProfileCompletionForm } from './ProfileCompletionForm';
 import { otpSchema, type OtpValues } from './schemas';
 
 export function VerifyCodeScreen() {
   const { colors } = useTheme();
-  const queryClient = useQueryClient();
   const pendingEmail = useAuthFlowStore((state) => state.pendingEmail);
-  const pendingName = useAuthFlowStore((state) => state.pendingName);
   const resendAvailableAt = useAuthFlowStore((state) => state.resendAvailableAt);
   const setResendAvailableAt = useAuthFlowStore((state) => state.setResendAvailableAt);
   const clearPendingSignup = useAuthFlowStore((state) => state.clearPendingSignup);
   const [now, setNow] = useState(() => Date.now());
-  const [needsCompletion, setNeedsCompletion] = useState(false);
-  const [completionError, setCompletionError] = useState<unknown>(null);
-  const completionIntent = useRef<MutationIntent<unknown> | null>(null);
   const {
     control,
     handleSubmit,
@@ -52,37 +46,12 @@ export function VerifyCodeScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const finishProfile = async (name: string) => {
-    completionIntent.current ??= api.completeProfile({ name });
-    const result = await completionIntent.current.execute();
-    await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
-    clearPendingSignup();
-    router.replace('/');
-    return result;
-  };
-
   const verification = useMutation({
     mutationFn: async ({ code }: OtpValues) => {
       if (pendingEmail === null) throw new AppError('VALIDATION', pt.auth.errors.validation);
-      const verified = await api.verifyEmailOtp(pendingEmail, code, 'signup');
-      const profile = await api.getOwnProfile();
-      if (profile !== null) {
-        clearPendingSignup();
-        router.replace('/');
-        return;
-      }
-
-      const metadataName = verified.user?.user_metadata['name'];
-      const name = pendingName ?? (typeof metadataName === 'string' ? metadataName : '');
-      if (name.trim().length < 2) {
-        setNeedsCompletion(true);
-        return;
-      }
-      try {
-        await finishProfile(name);
-      } catch (error) {
-        setCompletionError(error);
-      }
+      await api.verifyEmailOtp(pendingEmail, code, 'signup');
+      clearPendingSignup();
+      router.replace('/perfil');
     },
   });
 
@@ -98,19 +67,6 @@ export function VerifyCodeScreen() {
     (values) => verification.mutate(values),
     (invalid) => focusFirstInvalid(invalid, setFocus),
   );
-  const retryCompletion = async () => {
-    if (completionIntent.current === null) return;
-    setCompletionError(null);
-    try {
-      await completionIntent.current.retry();
-      await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
-      clearPendingSignup();
-      router.replace('/');
-    } catch (error) {
-      setCompletionError(error);
-    }
-  };
-
   if (pendingEmail === null) {
     return (
       <AuthShell
@@ -125,26 +81,6 @@ export function VerifyCodeScreen() {
           message={pt.auth.otp.missingBody}
           title={pt.auth.otp.missingTitle}
         />
-      </AuthShell>
-    );
-  }
-
-  if (needsCompletion) {
-    return (
-      <AuthShell
-        description={pt.auth.profile.description}
-        eyebrow={pt.auth.profile.eyebrow}
-        title={pt.auth.profile.title}
-      >
-        <AppCard>
-          <ProfileCompletionForm
-            defaultName={pendingName ?? ''}
-            onCompleted={() => {
-              clearPendingSignup();
-              router.replace('/');
-            }}
-          />
-        </AppCard>
       </AuthShell>
     );
   }
@@ -168,9 +104,6 @@ export function VerifyCodeScreen() {
         </Text>
         {verification.error === null ? null : (
           <FormAlert message={authErrorMessage(verification.error)} />
-        )}
-        {completionError === null ? null : (
-          <FormAlert message={authErrorMessage(completionError)} />
         )}
         {resend.error === null ? null : <FormAlert message={authErrorMessage(resend.error)} />}
         {resend.isSuccess ? (
@@ -208,10 +141,6 @@ export function VerifyCodeScreen() {
           />
           {verification.error instanceof TransportError ? (
             <AppButton label={pt.common.retry} onPress={submit} variant="secondary" />
-          ) : null}
-          {completionError instanceof TransportError ||
-          (completionError instanceof AppError && completionError.retryable) ? (
-            <AppButton label={pt.common.retry} onPress={retryCompletion} variant="secondary" />
           ) : null}
           {canResend ? (
             <AppButton
