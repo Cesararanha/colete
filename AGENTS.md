@@ -64,8 +64,8 @@ uma conversa anterior.
 
 `docs/spec-manifest.sha256` é a baseline de **especificação**, não de tudo.
 
-- **Estão no manifesto:** 22 entradas — `.gitignore`, `README.md`, os documentos
-  normativos `docs/01` a `docs/18`, `docs/99-prompt-review.md` e
+- **Estão no manifesto:** 23 entradas — `.gitignore`, `README.md`, os documentos
+  normativos `docs/01` a `docs/18`, o plano normativo `docs/22`, `docs/99-prompt-review.md` e
   `docs/99-prompt-review-externo.md`.
 - **Ficam de fora, por decisão registrada:** os documentos operacionais
   `docs/19`, `docs/20` e `docs/21`, porque são registro do que aconteceu, não
@@ -96,7 +96,8 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
       estão verdes. Pull Requests do Dependabot contam como trabalho de outra parte.
     - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
       para revisão independente.
-    - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18` ou
+    - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18`,
+      `docs/22` ou
       depende de uma decisão que você não pôde tomar deve parar para decisão humana.
     - A separação é deliberada: quem escreve já concluiu que o trabalho está certo, e todos
       os defeitos encontrados neste projeto foram descobertos por uma sessão diferente da
@@ -157,7 +158,7 @@ máquina não é.
 
 Pare e reporte, sem tentar resolver sozinho:
 
-- qualquer decisão que altere um documento normativo (`docs/01`–`docs/18`);
+- qualquer decisão que altere um documento normativo (`docs/01`–`docs/18` ou `docs/22`);
 - qualquer coisa que exija ampliar o escopo da fatia;
 - qualquer falha de CI que você não entenda completamente;
 - qualquer necessidade de segredo, projeto Supabase remoto, deploy ou push em

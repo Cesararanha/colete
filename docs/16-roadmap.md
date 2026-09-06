@@ -106,7 +106,7 @@ incremental por marco, e não muda a ordem de locks nem relaxa os critérios de 
 | M1-A, antecipação da fatia 7 | tabelas operacionais estritamente necessárias: `private.external_effects`, `private.job_runs` e `private.retention_runs` | `0005_operational_runs.sql` |
 | M1-A, antecipação da fatia 10 | catálogo de políticas, dispatcher interno e RPCs `accept_policies`, `complete_profile`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
 | M1-A, retenção antecipada da fatia 7 | expurgo de outcomes e tombstones nos prazos normativos | `0007_idempotency_retention.sql` |
-| M1-B, antecipação de identidade/privacidade da fatia 10 | export governado, saga de exclusão, bucket `data-exports` e download Edge | a numerar no plano detalhado do M1-B |
+| M1-B, antecipação de identidade/privacidade da fatia 10 | worker e jobs de identidade; saga de exclusão; export governado, bucket `data-exports` e download Edge | `0011_worker_foundation.sql` → `0012_account_deletion.sql` → `0013_data_export_delivery.sql`, conforme o plano normativo `22` |
 | B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
 
 Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separado,
@@ -289,8 +289,9 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 ## 8. Próximo passo objetivo
 
-Implementar o gateway Edge exclusivo e `0004_idempotency_foundation.sql`, com testes de grant,
-vetores e concorrência, antes de expor a primeira mutação. Depois seguem `0005`, `0006` e
-`0007` na ordem desta página. Os gates de beta podem avançar em paralelo, mas precisam estar
-concluídos antes do primeiro convite. Não começar pelas telas de lista: sem identidade
-interna, idempotência e autorização, a corrida apenas solidifica dívidas técnicas mais caras.
+Executar o plano do M1-B em `22-plano-m1-b.md`: primeiro a fundação do worker na `0011`,
+depois a saga de exclusão na `0012` e por último exportação/Storage/download na `0013`. Os
+controles da tela 13 entram somente depois desses contratos, sem migration artificial. Os
+gates de beta podem avançar em paralelo, mas precisam estar concluídos antes do primeiro
+convite. Não começar pelas telas de lista: sem identidade interna, idempotência e autorização,
+a corrida apenas solidifica dívidas técnicas mais caras.
