@@ -101,6 +101,25 @@ async function readLatestOtp(request: APIRequestContext, mailUrl: string, email:
     });
 }
 
+async function createVerifiedAuthUserWithoutProfile(
+  request: APIRequestContext,
+  env: ReturnType<typeof localEnvironment>,
+  user: { email: string; name: string; password: string },
+) {
+  const signup = await request.post(`${env.apiUrl}/auth/v1/signup`, {
+    data: { data: { name: user.name }, email: user.email, password: user.password },
+    headers: { apikey: env.publishableKey },
+  });
+  expect(signup.ok()).toBe(true);
+
+  const otp = await readLatestOtp(request, env.mailUrl, user.email);
+  const verification = await request.post(`${env.apiUrl}/auth/v1/verify`, {
+    data: { email: user.email, token: otp, type: 'signup' },
+    headers: { apikey: env.publishableKey },
+  });
+  expect(verification.ok()).toBe(true);
+}
+
 async function assertAccessible(page: Page) {
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -206,10 +225,29 @@ test.describe('M1-A authentication', () => {
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
 
       await expect(page).toHaveURL(/\/perfil$/u);
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
+      ).toBeVisible();
+      await expect(page.getByLabel('Nome')).toHaveValue(account.name);
+      await page.reload();
+      await expect(page).toHaveURL(/\/perfil$/u);
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
+      ).toBeVisible();
+      await expect(page.getByLabel('Nome')).toHaveValue(account.name);
+      await page.getByRole('button', { name: 'Concluir perfil' }).click();
       await expect(page).toHaveTitle('Perfil · Colete');
       await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
       await expect(page.getByLabel('Nome')).toHaveValue(account.name);
       await expect(page.getByTestId('profile-provider-card')).toContainText('E-mail e senha');
+      const profileAfterReloadedCompletion = await db.query<{ count: number; name: string }>(
+        `select count(*)::int as count, min(profile.name) as name
+           from public.profiles as profile
+           join auth.users as users on users.id = profile.auth_user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(profileAfterReloadedCompletion.rows).toEqual([{ count: 1, name: account.name }]);
       await assertAccessible(page);
       await page.getByRole('button', { name: 'Usar tema escuro' }).click();
       await assertAccessible(page);
@@ -440,17 +478,19 @@ test.describe('M1-A authentication', () => {
       await networkPage.getByRole('button', { name: 'Tentar de novo' }).click();
       await expect(networkPage.getByTestId('profile-data-card')).toBeVisible();
 
-      const emptyPage = loadingPage;
-      await emptyPage.route('**/rest/v1/profiles**', (route) =>
+      const incompletePage = loadingPage;
+      await incompletePage.route('**/rest/v1/profiles**', (route) =>
         route.fulfill({ body: '[]', contentType: 'application/json', status: 200 }),
       );
-      await emptyPage.goto('http://127.0.0.1:4173/perfil');
+      await incompletePage.goto('http://127.0.0.1:4173/perfil');
       await expect(
-        emptyPage.getByText('Seu perfil ainda não pôde ser lido', { exact: true }),
+        incompletePage.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();
-      await emptyPage.unroute('**/rest/v1/profiles**');
-      await emptyPage.getByRole('button', { name: 'Tentar de novo' }).click();
-      await expect(emptyPage.getByTestId('profile-data-card')).toBeVisible();
+      await expect(incompletePage.getByRole('button', { name: 'Concluir perfil' })).toBeVisible();
+      await expect(incompletePage.getByRole('button', { name: 'Tentar de novo' })).toHaveCount(0);
+      await incompletePage.unroute('**/rest/v1/profiles**');
+      await incompletePage.reload();
+      await expect(incompletePage.getByTestId('profile-data-card')).toBeVisible();
       await loadingContext.close();
 
       const sessionsBeforeSafeLogout = await db.query<{
@@ -611,6 +651,90 @@ test.describe('M1-A authentication', () => {
         },
       ]);
       expect(await messagesForRecipient(request, env.mailUrl, account.email)).toEqual([]);
+      await db.end();
+    }
+  });
+
+  test('signing in with a verified Auth user without a profile resumes profile completion', async ({
+    page,
+    request,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium');
+    const env = localEnvironment();
+    const db = new Client({ connectionString: env.dbUrl });
+    const profileless = {
+      email: `profileless-${runSuffix}@colete.test`,
+      name: 'Bia Retomada',
+      password: 'Frase-segura-2026',
+    };
+    await db.connect();
+
+    try {
+      await createVerifiedAuthUserWithoutProfile(request, env, profileless);
+      const beforeLogin = await db.query<{ profiles: number }>(
+        `select count(profile.id)::int as profiles
+           from auth.users as users
+           left join public.profiles as profile on profile.auth_user_id = users.id
+          where lower(users.email) = lower($1)`,
+        [profileless.email],
+      );
+      expect(beforeLogin.rows).toEqual([{ profiles: 0 }]);
+
+      await page.goto('/entrar');
+      await page.getByLabel('E-mail').fill(profileless.email);
+      await page.getByLabel('Senha', { exact: true }).fill(profileless.password);
+      await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+
+      await expect(page).toHaveURL(/\/perfil$/u);
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
+      ).toBeVisible();
+      await expect(page.getByLabel('Nome')).toHaveValue(profileless.name);
+      await expect(page.getByRole('button', { name: 'Tentar de novo' })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Concluir perfil' }).click();
+      await expect(page.getByTestId('profile-data-card')).toBeVisible();
+
+      const completed = await db.query<{ name: string; profiles: number }>(
+        `select min(profile.name) as name, count(profile.id)::int as profiles
+           from auth.users as users
+           left join public.profiles as profile on profile.auth_user_id = users.id
+          where lower(users.email) = lower($1)`,
+        [profileless.email],
+      );
+      expect(completed.rows).toEqual([{ name: profileless.name, profiles: 1 }]);
+    } finally {
+      await deleteMessagesForRecipient(request, env.mailUrl, profileless.email);
+      const user = await db.query<{ id: string }>(
+        'select id from auth.users where lower(email) = lower($1)',
+        [profileless.email],
+      );
+      const userId = user.rows[0]?.id;
+      if (userId !== undefined) {
+        await db.query(
+          `delete from private.idempotency_records
+            where actor_id in (select id from public.profiles where auth_user_id = $1)`,
+          [userId],
+        );
+        await db.query(
+          `delete from private.revoked_auth_sessions
+            where profile_id in (select id from public.profiles where auth_user_id = $1)`,
+          [userId],
+        );
+        await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        await db.query('delete from auth.users where id = $1', [userId]);
+      }
+      await db.query(
+        `delete from auth.audit_log_entries
+          where payload->>'actor_id' = $1
+             or lower(payload->>'actor_username') = lower($2)`,
+        [userId ?? '', profileless.email],
+      );
+      const residual = await db.query<{ users: number }>(
+        'select count(*)::int as users from auth.users where lower(email) = lower($1)',
+        [profileless.email],
+      );
+      expect(residual.rows).toEqual([{ users: 0 }]);
+      expect(await messagesForRecipient(request, env.mailUrl, profileless.email)).toEqual([]);
       await db.end();
     }
   });

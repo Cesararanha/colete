@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 
 import { ProfileScreen } from '../profile/ProfileScreen';
+import { ProfileCompletionScreen } from './ProfileCompletionScreen';
 
 export function AuthGateScreen() {
   const queryClient = useQueryClient();
@@ -77,20 +78,12 @@ export function AuthGateScreen() {
   }
 
   if (profile.data === null || profile.data === undefined) {
+    const metadataName = session.data.user.user_metadata['name'];
     return (
-      <AuthenticatedShell
-        description={pt.profile.description}
-        eyebrow={pt.profile.eyebrow}
-        title={pt.profile.title}
-      >
-        <AsyncNotice
-          action={() => void profile.refetch()}
-          actionLabel={pt.common.retry}
-          kind="empty"
-          message={pt.profile.empty.body}
-          title={pt.profile.empty.title}
-        />
-      </AuthenticatedShell>
+      <ProfileCompletionScreen
+        defaultName={typeof metadataName === 'string' ? metadataName : ''}
+        onCompleted={() => void profile.refetch()}
+      />
     );
   }
 

@@ -178,10 +178,6 @@ export const pt = {
     eyebrow: 'Conta e identidade',
     title: 'Perfil',
     description: 'Atualize seus dados e cuide da segurança desta sessão.',
-    empty: {
-      title: 'Seu perfil ainda não pôde ser lido',
-      body: 'A sessão está ativa, mas os dados do perfil não chegaram. Tente a leitura novamente.',
-    },
     fields: {
       name: 'Nome',
       nickname: 'Apelido',

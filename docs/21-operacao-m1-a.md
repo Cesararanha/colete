@@ -321,9 +321,10 @@ de tela prevista em `15` §3.
 1. cria a conta pela tela, com e-mail único;
 2. consulta a API do Mailpit/Inbucket em `127.0.0.1:54324` e extrai o OTP de seis
    dígitos do template local que usa `{{ .Token }}`;
-3. digita o código pela interface, obtém uma sessão GoTrue real e chama
-   `complete_profile` pela Edge;
-4. exige a tela autenticada e prova no PostgreSQL uma única linha de perfil e a
+3. digita o código pela interface, obtém uma sessão GoTrue real e chega à rota
+   `/perfil`, onde o gate autenticado reconhece que a conta ainda não tem perfil;
+4. recarrega a página antes da conclusão, exige novamente o formulário, chama
+   `complete_profile` pela Edge e prova no PostgreSQL uma única linha de perfil e a
    idempotência `completed`;
 5. abre uma segunda sessão real, identifica no PostgreSQL a sessão e seu refresh token,
    encerra a primeira com escopo local, exige que a segunda linha sobreviva e força a
@@ -368,8 +369,9 @@ desabilitado promete esse trabalho futuro.
 
 ### Fatia B2 — a tela 13, Perfil
 
-A Fatia B2 entrega a tela 13 dentro da fronteira que `16` §5 já registrava: edição
-dos próprios dados, leitura do provedor vinculado, troca de senha e logout seguro.
+A Fatia B2 entrega a tela 13 dentro da fronteira que `16` §5 já registrava: criação e
+conclusão do perfil, edição dos próprios dados, leitura do provedor vinculado, troca de
+senha e logout seguro.
 Nenhum controle de exportar dados, excluir conta ou vincular/desvincular provedor
 existe na árvore — nem oculto, nem desabilitado.
 
@@ -395,6 +397,32 @@ cinco campos; `features/auth/schemas.ts` reexporta `profileNameSchema` e
 `profileSchema` em vez de redeclará-los, de modo que cadastro, conclusão de perfil e
 edição compartilham o mesmo trim/NFC e os mesmos limites. `profilePatchSchema` é a
 versão `partial().strict()` do mesmo objeto — é ela que distingue ausência de `null`.
+
+#### Defeito bloqueante encontrado na revisão independente
+
+O primeiro commit da fatia tratava a conclusão do perfil como estado efêmero do fluxo
+de autenticação. `VerifyCodeScreen` mantinha o formulário e chamava
+`complete_profile` depois do OTP; `LoginScreen` mantinha uma segunda orquestração para
+o mesmo formulário. Ao recarregar, fechar a aba ou entrar mais tarde, nenhum desses
+estados locais sobrevivia. `AuthGateScreen` recebia então uma sessão verificada sem
+linha em `profiles` e apresentava o vazio genérico com **Tentar de novo**: o retry
+repetia uma leitura que continuaria vazia, sem oferecer a ação pendente.
+
+A correção moveu a decisão para a fronteira autenticada. `ProfileCompletionScreen`
+usa o `ProfileCompletionForm` e o schema compartilhado já existentes;
+`AuthGateScreen` o renderiza sempre que há sessão verificada sem perfil. Cadastro por
+OTP e entrada por senha agora apenas estabelecem a sessão e navegam para `/perfil`.
+O contrato de `complete_profile` continua exatamente o de `13` §5.7: os cinco campos
+externos permitidos mais `request_id`, sem ator, status ou identificador fornecido
+pelo cliente.
+
+O E2E faz duas provas que falhariam com o comportamento anterior. No cadastro, ele
+recarrega `/perfil` depois do OTP e antes do submit, conclui pelo formulário recuperado
+e exige a linha no banco. Em caso separado, cria um usuário Auth verificado sem perfil,
+entra por senha, exige o mesmo formulário — nunca o vazio genérico —, conclui e prova a
+linha no PostgreSQL. A contraprova executável restaurou temporariamente o vazio no
+gate: o segundo caso ficou vermelho ao não encontrar o título **Complete seu perfil**;
+reaplicar a correção tornou a suíte verde.
 
 #### A semântica de patch, provada no fio
 
@@ -452,11 +480,12 @@ encerrada.
 
 #### Os três estados e a acessibilidade automatizada
 
-`11` §0 distingue tela que exibe dados de tela de formulário. A tela 13 exibe dados,
-então os três estados são obrigatórios e os três são exercitados ponta a ponta:
-esqueleto durante a leitura (com a resposta segurada pelo teste), erro de rede honesto
-com **Tentar de novo**, e vazio explicado quando a leitura válida não devolve perfil.
-Nenhum deles é confirmação otimista.
+`11` §0 distingue tela que exibe dados de tela de formulário. Na leitura de um perfil
+existente, carregamento e erro continuam exercitados ponta a ponta: esqueleto com a
+resposta segurada pelo teste e erro de rede honesto com **Tentar de novo**. Uma resposta
+válida sem perfil, porém, não é vazio: é o estado pendente da conta e abre o formulário
+de conclusão com ação clara. O vazio genérico foi removido desse caminho. Nenhum desses
+estados é confirmação otimista.
 
 O critério de aceite de `15` §1 entra no harness axe/Playwright que a Fatia B1 já
 tinha: axe sem violações na rota `/perfil` nos dois temas, alvos de toque de 44 px
@@ -503,13 +532,13 @@ entre abas passa a ter destino. `16` está no manifesto, e o checksum foi recalc
 
 #### Custo de CI adicionado
 
-Na execução local desta fatia: exportar o build autenticado levou **7,2 s** e os sete
-casos efetivos do Playwright, nos dois viewports, levaram **8,4 s** — contra 8,9 s e
-6,1 s medidos na Fatia B1, ou seja **+2,3 s** de navegador, todo ele dentro do caso
-que agora também percorre o Perfil (5,1 s dele). A suíte unitária passou de 57 para
-**65 casos** em 11 arquivos, em **214 ms**: oito casos novos, três sobre o fio do
-patch em `api.test.ts`, três sobre o schema compartilhado e dois sobre o mapeamento
-de erro da tela.
+Na execução local final depois da correção: exportar o build autenticado levou
+**7,4 s** e os **oito casos efetivos** do Playwright, nos dois viewports, levaram
+**9,3 s**; dois casos são ignorados no desktop para não criar contas redundantes. O
+caso efetivo adicional é a entrada de usuário Auth verificado sem perfil. A suíte
+unitária permanece em **65 casos** em 11 arquivos: oito casos adicionados pela fatia,
+três sobre o fio do patch em `api.test.ts`, três sobre o schema compartilhado e dois
+sobre o mapeamento de erro da tela.
 
 No primeiro runner do GitHub desta fatia, instalar o Chromium levou 27 s, exportar o
 build autenticado levou 63 s e executar o navegador levou **41 s**, contra 26 s na
