@@ -263,6 +263,12 @@ mesmo com a sessão colocada na denylist; nenhuma outra leitura ou RPC de domín
 recebe essa exceção. Quando Auth desaparecer, a UI conserva apenas o protocolo e
 deixa de afirmar um status que já não consegue verificar.
 
+No mesmo commit da `0012`, o bloco SQL normativo de `10` §2 — onde a declaração
+está na linha 101, não no §9 — passa a dizer
+`create table private.deletion_requests`. A fatia recalcula no manifesto o
+checksum de todo documento normativo alterado; migration e contrato de schema
+não podem divergir entre commits.
+
 As provas mínimas incluem idempotência/conflito/rollback; bloqueio atômico sem
 substituto; JWT antigo sem acesso de domínio logo após o commit; prioridade do
 purge sobre build; Storage 404 e Auth not-found como sucesso reconciliado; crash
@@ -380,6 +386,12 @@ Antes de criar a projeção tipada, a `0013` revoga a leitura direta de
 `data_exports`, remove a policy `data_exports_select_own`, desliga `force`/RLS e
 move a tabela para `private`, atualizando dependências e referências
 qualificadas. A projeção não expõe path nem digest.
+
+No mesmo commit da `0013`, o bloco SQL normativo de `10` §2 — onde a declaração
+está na linha 118, não no §9 — passa a dizer
+`create table private.data_exports`. A fatia recalcula no manifesto o checksum
+de todo documento normativo alterado, pela mesma regra de atomicidade entre
+migration e contrato de schema.
 
 Há uma divergência normativa que esta fatia documental não resolve: `16` §4
 exige que logout remova o artefato e impeça segundo download, enquanto `13` §5.5
