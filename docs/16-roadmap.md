@@ -220,6 +220,16 @@ exportar dados, excluir conta ou vincular/desvincular Google. Esses controles en
 quando seus contratos estiverem implementados e testados; não há botão oculto/desabilitado
 prometendo trabalho futuro.
 
+### Fronteira da área autenticada no M1-A
+
+`11-telas-v1.md` §1 descreve a área autenticada como três abas — Rachas, Grupos e Perfil.
+No M1-A só o Perfil existe: Rachas entra no M3 e Grupos no M2. Renderizar as três abas
+agora produziria exatamente o controle vazio que a fronteira da tela Perfil proíbe, e um
+alvo de toque que não leva a lugar nenhum é pior do que a ausência da navegação. Por isso
+a navegação por abas entra com a fatia que trouxer a primeira aba adicional, e até lá a
+área autenticada leva direto ao Perfil. A arquitetura de informação de `11` §1 não muda;
+muda apenas o momento em que a navegação entre abas passa a ter destino.
+
 ### Fronteira das telas de autenticação no M1-A
 
 No M1-A as quatro telas entregam e-mail/senha, confirmação por OTP, recuperação de senha e

@@ -1,7 +1,7 @@
 import { HomeScreen } from '@/features/bootstrap/HomeScreen';
-import { AuthGateScreen } from '@/features/auth/AuthGateScreen';
 import { isSmokeMode } from '@/lib/runtime';
+import { Redirect } from 'expo-router';
 
 export default function IndexScreen() {
-  return isSmokeMode() ? <HomeScreen /> : <AuthGateScreen />;
+  return isSmokeMode() ? <HomeScreen /> : <Redirect href="/perfil" />;
 }

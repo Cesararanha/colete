@@ -54,25 +54,28 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
           </Pressable>
         )}
       </View>
-      {error === undefined && hint === undefined ? null : (
-        <Text
-          accessibilityLiveRegion={error === undefined ? 'none' : 'assertive'}
-          nativeID={describedBy}
-          role={error === undefined ? undefined : 'alert'}
-          style={[
-            styles.description,
-            { color: error === undefined ? colors.textMuted : colors.critical },
-          ]}
-        >
-          {error ?? hint}
-        </Text>
-      )}
+      <View style={styles.descriptionRow}>
+        {error === undefined && hint === undefined ? null : (
+          <Text
+            accessibilityLiveRegion={error === undefined ? 'none' : 'assertive'}
+            nativeID={describedBy}
+            role={error === undefined ? undefined : 'alert'}
+            style={[
+              styles.description,
+              { color: error === undefined ? colors.textMuted : colors.critical },
+            ]}
+          >
+            {error ?? hint}
+          </Text>
+        )}
+      </View>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   description: { fontSize: 14, lineHeight: 20 },
+  descriptionRow: { minHeight: 20 },
   group: { gap: spacing.xs },
   input: {
     borderRadius: radius.sm,

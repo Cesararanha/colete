@@ -57,7 +57,7 @@ export function VerifyCodeScreen() {
     const result = await completionIntent.current.execute();
     await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
     clearPendingSignup();
-    router.replace('/');
+    router.replace('/perfil');
     return result;
   };
 
@@ -68,7 +68,7 @@ export function VerifyCodeScreen() {
       const profile = await api.getOwnProfile();
       if (profile !== null) {
         clearPendingSignup();
-        router.replace('/');
+        router.replace('/perfil');
         return;
       }
 
@@ -105,7 +105,7 @@ export function VerifyCodeScreen() {
       await completionIntent.current.retry();
       await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
       clearPendingSignup();
-      router.replace('/');
+      router.replace('/perfil');
     } catch (error) {
       setCompletionError(error);
     }
@@ -141,7 +141,7 @@ export function VerifyCodeScreen() {
             defaultName={pendingName ?? ''}
             onCompleted={() => {
               clearPendingSignup();
-              router.replace('/');
+              router.replace('/perfil');
             }}
           />
         </AppCard>

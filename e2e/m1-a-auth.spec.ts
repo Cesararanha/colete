@@ -24,6 +24,7 @@ const account = {
   email: `auth-e2e-${runSuffix}@colete.test`,
   inputName: 'Ana Acessi\u0301vel',
   name: 'Ana Acessível',
+  newPassword: 'Frase-nova-segura-2026',
   password: 'Frase-segura-2026',
 };
 
@@ -169,9 +170,20 @@ test.describe('M1-A authentication', () => {
     const db = new Client({ connectionString: env.dbUrl });
     await db.connect();
     let secondContext: BrowserContext | undefined;
+    let thirdContext: BrowserContext | undefined;
+    const probeContexts: BrowserContext[] = [];
+    const profileBodies: { patch?: Record<string, unknown>; request_id?: string }[] = [];
+    page.on('request', (request) => {
+      if (!request.url().endsWith('/functions/v1/identity/update_profile')) return;
+      const body = request.postDataJSON() as {
+        patch?: Record<string, unknown>;
+        request_id?: string;
+      };
+      profileBodies.push(body);
+    });
 
     try {
-      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
       await page.goto('/criar-conta');
       await page.getByLabel('Nome').fill(account.inputName);
       await page.getByLabel('E-mail').fill(account.email.toUpperCase());
@@ -193,23 +205,79 @@ test.describe('M1-A authentication', () => {
       await page.unroute('**/auth/v1/verify**');
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
 
-      await expect(
-        page.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
-      ).toBeVisible();
-      await expect(page.getByTestId('authenticated-ready')).toContainText(account.name);
+      await expect(page).toHaveURL(/\/perfil$/u);
+      await expect(page).toHaveTitle('Perfil · Colete');
+      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(page.getByLabel('Nome')).toHaveValue(account.name);
+      await expect(page.getByTestId('profile-provider-card')).toContainText('E-mail e senha');
       await assertAccessible(page);
+      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
+      await assertAccessible(page);
+      await page.getByRole('button', { name: 'Usar tema claro' }).click();
+
+      await page.getByLabel('Apelido', { exact: true }).fill('Capitã');
+      await page.getByRole('button', { name: 'Meio-campista' }).click();
+      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      await expect(page.getByRole('status')).toContainText('Dados do perfil salvos.');
+      expect(profileBodies.at(-1)?.patch).toEqual({
+        nickname: 'Capitã',
+        position: 'midfielder',
+      });
+
+      const editedProfile = await db.query<{
+        nickname: string | null;
+        position: string | null;
+      }>(
+        `select profile.nickname, profile.position
+           from public.profiles as profile
+           join auth.users as users on users.id = profile.auth_user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(editedProfile.rows).toEqual([{ nickname: 'Capitã', position: 'midfielder' }]);
+
+      await page.getByRole('button', { name: 'Limpar apelido' }).click();
+      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      await expect(page.getByRole('status')).toContainText('Dados do perfil salvos.');
+      expect(profileBodies.at(-1)?.patch).toEqual({ nickname: null });
+
+      const clearedProfile = await db.query<{
+        nickname: string | null;
+        position: string | null;
+      }>(
+        `select profile.nickname, profile.position
+           from public.profiles as profile
+           join auth.users as users on users.id = profile.auth_user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(clearedProfile.rows).toEqual([{ nickname: null, position: 'midfielder' }]);
+
+      const transmittedBeforeBlank = profileBodies.length;
+      await page.getByLabel('Apelido', { exact: true }).fill('   ');
+      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      await expect(page.getByLabel('Apelido', { exact: true })).toBeFocused();
+      await expect(page.getByRole('alert')).toContainText(
+        'Apague o campo ou escreva pelo menos um caractere.',
+      );
+      expect(profileBodies).toHaveLength(transmittedBeforeBlank);
+      await page.getByRole('button', { name: 'Limpar apelido' }).click();
 
       const evidence = await db.query<{
         acceptance_count: number;
         auth_name: string;
         idempotency_state: string;
+        profile_nickname: string | null;
         profile_count: number;
         profile_name: string;
+        profile_position: string | null;
       }>(
         `select
            users.raw_user_meta_data->>'name' as auth_name,
            (select count(*)::int from public.profiles where auth_user_id = users.id) as profile_count,
            (select name from public.profiles where auth_user_id = users.id) as profile_name,
+           (select nickname from public.profiles where auth_user_id = users.id) as profile_nickname,
+           (select position from public.profiles where auth_user_id = users.id) as profile_position,
            (select count(*)::int
               from public.policy_acceptances as acceptance
               join public.profiles as profile on profile.id = acceptance.profile_id
@@ -230,6 +298,8 @@ test.describe('M1-A authentication', () => {
           idempotency_state: 'completed',
           profile_count: 1,
           profile_name: account.name,
+          profile_nickname: null,
+          profile_position: 'midfielder',
         },
       ]);
 
@@ -243,17 +313,24 @@ test.describe('M1-A authentication', () => {
       expect(initialSessions.rows).toHaveLength(1);
       const initialSessionIds = new Set(initialSessions.rows.map((session) => session.id));
 
-      secondContext = await browser.newContext();
+      secondContext = await browser.newContext({
+        colorScheme: 'light',
+        reducedMotion: 'reduce',
+        serviceWorkers: 'block',
+        viewport: { height: 800, width: 1280 },
+      });
       const secondPage = await secondContext.newPage();
       await secondPage.goto('http://127.0.0.1:4173/entrar');
       await secondPage.getByLabel('E-mail').fill(account.email);
       await secondPage.getByLabel('Senha', { exact: true }).fill(account.password);
       await secondPage.getByRole('button', { name: 'Entrar', exact: true }).click();
-      await expect(
-        secondPage.getByRole('heading', { level: 1, name: 'Sua conta está pronta' }),
-      ).toBeVisible();
+      await expect(secondPage.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(secondPage).toHaveTitle('Perfil · Colete');
+      await assertAccessible(secondPage);
+      await secondPage.getByRole('button', { name: 'Usar tema escuro' }).click();
+      await assertAccessible(secondPage);
 
-      const sessionsBeforeLogout = await db.query<{
+      const sessionsBeforePasswordChange = await db.query<{
         active_refresh_token_id: string;
         active_refresh_tokens: number;
         id: string;
@@ -274,14 +351,127 @@ test.describe('M1-A authentication', () => {
           where lower(users.email) = lower($1)`,
         [account.email],
       );
-      expect(sessionsBeforeLogout.rows).toHaveLength(2);
-      const secondSessions = sessionsBeforeLogout.rows.filter(
+      expect(sessionsBeforePasswordChange.rows).toHaveLength(2);
+      const secondSessions = sessionsBeforePasswordChange.rows.filter(
         (session) => !initialSessionIds.has(session.id),
       );
       expect(secondSessions).toHaveLength(1);
       const secondSession = secondSessions[0];
       expect(secondSession).toBeDefined();
       expect(secondSession?.active_refresh_tokens).toBeGreaterThan(0);
+
+      await page.getByLabel('Nova senha', { exact: true }).fill(account.newPassword);
+      await page.getByLabel('Confirmar nova senha', { exact: true }).fill(account.newPassword);
+      await page.getByRole('button', { name: 'Salvar nova senha' }).click();
+      await expect(page.getByRole('status')).toContainText('Senha atualizada.');
+
+      const sessionsAfterPasswordChange = await db.query<{ id: string }>(
+        `select session.id
+           from auth.sessions as session
+           join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(sessionsAfterPasswordChange.rows).toEqual(initialSessions.rows);
+      await expect(
+        refreshStoredSession(secondPage, env.apiUrl, env.publishableKey),
+      ).resolves.toEqual({ ok: false, status: 400 });
+
+      thirdContext = await browser.newContext({
+        colorScheme: 'light',
+        reducedMotion: 'reduce',
+        serviceWorkers: 'block',
+        viewport: { height: 800, width: 1280 },
+      });
+      const thirdPage = await thirdContext.newPage();
+      await thirdPage.goto('http://127.0.0.1:4173/entrar');
+      await thirdPage.getByLabel('E-mail').fill(account.email);
+      await thirdPage.getByLabel('Senha', { exact: true }).fill(account.newPassword);
+      await thirdPage.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await expect(thirdPage.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+
+      const authenticatedState = await thirdContext.storageState();
+      await thirdContext.close();
+      thirdContext = undefined;
+      const newProbeContext = async () => {
+        const context = await browser.newContext({
+          colorScheme: 'light',
+          reducedMotion: 'reduce',
+          serviceWorkers: 'block',
+          storageState: authenticatedState,
+          viewport: { height: 800, width: 1280 },
+        });
+        probeContexts.push(context);
+        return context;
+      };
+
+      let releaseProfileRead: () => void = () => undefined;
+      const heldProfileRead = new Promise<void>((resolve) => {
+        releaseProfileRead = resolve;
+      });
+      const loadingContext = await newProbeContext();
+      const loadingPage = await loadingContext.newPage();
+      await loadingPage.route('**/rest/v1/profiles**', async (route) => {
+        await heldProfileRead;
+        await route.continue();
+      });
+      const loadingNavigation = loadingPage.goto('http://127.0.0.1:4173/perfil');
+      await expect(loadingPage.getByTestId('loading-skeleton')).toBeVisible();
+      releaseProfileRead();
+      await loadingNavigation;
+      await loadingPage.unroute('**/rest/v1/profiles**');
+      await expect(loadingPage.getByTestId('profile-data-card')).toBeVisible();
+
+      // 500 and not 503: postgrest-js retries an idempotent 503 three times with
+      // exponential backoff, so the honest error would only reach the screen about
+      // seven seconds later. The screen behaviour under test is the same either way.
+      const networkPage = loadingPage;
+      await networkPage.route('**/rest/v1/profiles**', (route) =>
+        route.fulfill({
+          body: JSON.stringify({ message: 'local unavailable' }),
+          contentType: 'application/json',
+          status: 500,
+        }),
+      );
+      await networkPage.goto('http://127.0.0.1:4173/perfil');
+      await expect(networkPage.getByRole('alert')).toContainText('Confira sua conexão');
+      await expect(networkPage.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+      await networkPage.unroute('**/rest/v1/profiles**');
+      await networkPage.getByRole('button', { name: 'Tentar de novo' }).click();
+      await expect(networkPage.getByTestId('profile-data-card')).toBeVisible();
+
+      const emptyPage = loadingPage;
+      await emptyPage.route('**/rest/v1/profiles**', (route) =>
+        route.fulfill({ body: '[]', contentType: 'application/json', status: 200 }),
+      );
+      await emptyPage.goto('http://127.0.0.1:4173/perfil');
+      await expect(
+        emptyPage.getByText('Seu perfil ainda não pôde ser lido', { exact: true }),
+      ).toBeVisible();
+      await emptyPage.unroute('**/rest/v1/profiles**');
+      await emptyPage.getByRole('button', { name: 'Tentar de novo' }).click();
+      await expect(emptyPage.getByTestId('profile-data-card')).toBeVisible();
+      await loadingContext.close();
+
+      const sessionsBeforeSafeLogout = await db.query<{
+        active_refresh_tokens: number;
+        id: string;
+      }>(
+        `select session.id,
+                (select count(*)::int
+                   from auth.refresh_tokens as token
+                  where token.session_id = session.id
+                    and not token.revoked) as active_refresh_tokens
+           from auth.sessions as session
+           join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)
+          order by session.id`,
+        [account.email],
+      );
+      expect(sessionsBeforeSafeLogout.rows).toHaveLength(2);
+      expect(
+        sessionsBeforeSafeLogout.rows.every((session) => session.active_refresh_tokens > 0),
+      ).toBe(true);
 
       await page.getByRole('button', { name: 'Sair com segurança' }).click();
       await expect(page).toHaveURL(/\/entrar$/u);
@@ -296,39 +486,27 @@ test.describe('M1-A authentication', () => {
                     and not token.revoked) as active_refresh_tokens
            from auth.sessions as session
            join auth.users as users on users.id = session.user_id
+          where lower(users.email) = lower($1)
+          order by session.id`,
+        [account.email],
+      );
+      const originalSessionId = initialSessions.rows[0]?.id;
+      expect(originalSessionId).toBeDefined();
+      expect(sessionsAfterLogout.rows).toEqual(
+        sessionsBeforeSafeLogout.rows.filter((session) => session.id !== originalSessionId),
+      );
+
+      const revocation = await db.query<{
+        session_id: string;
+      }>(
+        `select revoked.session_id
+           from private.revoked_auth_sessions as revoked
+           join public.profiles as profile on profile.id = revoked.profile_id
+           join auth.users as users on users.id = profile.auth_user_id
           where lower(users.email) = lower($1)`,
         [account.email],
       );
-      expect(sessionsAfterLogout.rows).toEqual([
-        { active_refresh_tokens: 1, id: secondSession?.id },
-      ]);
-
-      await expect(
-        refreshStoredSession(secondPage, env.apiUrl, env.publishableKey),
-      ).resolves.toEqual({ ok: true, status: 200 });
-      const refreshedSecondSession = await db.query<{
-        active_refresh_token_id: string;
-        active_refresh_tokens: number;
-      }>(
-        `select (select token.id::text
-                   from auth.refresh_tokens as token
-                  where token.session_id = session.id
-                    and not token.revoked
-                  order by token.id desc
-                  limit 1) as active_refresh_token_id,
-                (select count(*)::int
-                   from auth.refresh_tokens as token
-                  where token.session_id = session.id
-                    and not token.revoked) as active_refresh_tokens
-           from auth.sessions as session
-          where session.id = $1`,
-        [secondSession?.id],
-      );
-      expect(refreshedSecondSession.rows).toHaveLength(1);
-      expect(refreshedSecondSession.rows[0]?.active_refresh_tokens).toBe(1);
-      expect(refreshedSecondSession.rows[0]?.active_refresh_token_id).not.toBe(
-        secondSession?.active_refresh_token_id,
-      );
+      expect(revocation.rows).toEqual([{ session_id: originalSessionId }]);
 
       await page.goto('/esqueci-senha');
       await page.getByLabel('E-mail').fill(account.email);
@@ -358,7 +536,9 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
       await page.unroute('**/auth/v1/user**');
     } finally {
+      await Promise.all(probeContexts.map((context) => context.close()));
       await secondContext?.close();
+      await thirdContext?.close();
       await deleteMessagesForRecipient(request, env.mailUrl, account.email);
       const user = await db.query<{ id: string; profile_id: string | null }>(
         `select auth_user.id,

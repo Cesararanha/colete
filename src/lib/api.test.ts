@@ -24,6 +24,61 @@ function success(body: Record<string, unknown>) {
 }
 
 describe('lib/api identity mutations', () => {
+  it('keeps untouched profile fields absent from the wire payload', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+      success({ data: { ok: true }, request_id: REQUEST_ID }),
+    );
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await client.updateProfile({ nickname: 'Capitã' }).execute();
+
+    const init = fetcher.mock.calls[0]?.[1];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      patch: { nickname: 'Capitã' },
+      request_id: REQUEST_ID,
+    });
+  });
+
+  it('preserves an explicit null that clears an optional profile field on the wire', async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+      success({ data: { ok: true }, request_id: REQUEST_ID }),
+    );
+    const client = createApiClient({
+      fetch: fetcher as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await client.updateProfile({ nickname: null }).execute();
+
+    const init = fetcher.mock.calls[0]?.[1];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      patch: { nickname: null },
+      request_id: REQUEST_ID,
+    });
+  });
+
+  it('rejects an optional text made only of spaces before anything reaches the wire', () => {
+    const fetcher = vi.fn();
+    const client = createApiClient({
+      fetch: fetcher,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    expect(() => client.updateProfile({ nickname: '   ' })).toThrowError(
+      expect.objectContaining({ code: 'VALIDATION' }),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it.each(['input_hmac', 'hash_key_version', 'auth_user_id', 'profile_id', 'session_id'])(
     'refuses the internal-only field %s before transport',
     (field) => {

@@ -43,7 +43,7 @@ export function LoginScreen() {
     },
     onSuccess: ({ profile, user }) => {
       if (profile !== null) {
-        router.replace('/');
+        router.replace('/perfil');
         return;
       }
       const metadataName = user.user_metadata['name'];
@@ -66,7 +66,7 @@ export function LoginScreen() {
         <AppCard>
           <ProfileCompletionForm
             defaultName={completionName}
-            onCompleted={() => router.replace('/')}
+            onCompleted={() => router.replace('/perfil')}
           />
         </AppCard>
       </AuthShell>
