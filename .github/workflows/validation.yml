@@ -115,6 +115,8 @@ jobs:
         run: npm run db:test:idempotency
       - name: Run the identity gateway commit harness
         run: npm run db:test:gateway
+      - name: Run the worker lease and lifecycle harness
+        run: npm run db:test:worker
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build

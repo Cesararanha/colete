@@ -394,6 +394,7 @@ deno_version = 2
 # the vault and is never read by anything in this repository.
 [edge_runtime.secrets]
 IDEMPOTENCY_HMAC_KEY_V1 = "env(IDEMPOTENCY_HMAC_KEY_V1)"
+WORKER_CRON_SECRET = "env(WORKER_CRON_SECRET)"
 
 # The exclusive identity gateway of docs/14-convencoes-app.md section 5.3.
 #
@@ -408,6 +409,14 @@ IDEMPOTENCY_HMAC_KEY_V1 = "env(IDEMPOTENCY_HMAC_KEY_V1)"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/identity/index.ts"
+
+# Cron authenticates this separate worker with WORKER_CRON_SECRET. The function
+# verifies it before creating a job_run; the platform publishable key only
+# addresses the endpoint and is not the worker credential.
+[functions.worker]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/worker/index.ts"
 
 [analytics]
 enabled = true
