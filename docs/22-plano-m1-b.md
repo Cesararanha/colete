@@ -393,11 +393,13 @@ está na linha 118, não no §9 — passa a dizer
 de todo documento normativo alterado, pela mesma regra de atomicidade entre
 migration e contrato de schema.
 
-Há uma divergência normativa que esta fatia documental não resolve: `16` §4
-exige que logout remova o artefato e impeça segundo download, enquanto `13` §5.5
-define `revoke_current_session` sem efeito externo. A `0013` fica bloqueada nesse
-ponto até decisão humana reconciliar os dois contratos; o plano não acrescenta
-efeito ao logout por conta própria.
+O logout não remove nem enfileira purge do artefato. A enumeração de `16` §4
+define fluxos de teste separados e uma invariante comum — nenhum permite segundo
+download —, não um efeito de remoção compartilhado por todos. Conforme `13`
+§5.3, o endpoint exige sessão não revogada e reautenticação recente; depois de
+`revoke_current_session`, a denylist criada na `0003` faz a mesma sessão falhar
+antes do CAS ou do stream. O artefato permanece até download, exclusão ou
+expiração convergir para purge, preservando `13` §5.5 sem efeito externo.
 
 ### 5.4 Provas de saída
 
@@ -410,7 +412,13 @@ do ZIP verificam byte a byte a ordem, o manifesto, todos os SHA-256 e a
 allowlist negativa. Contraprovas injetam campo proibido e signed URL e precisam
 falhar. Um papel-sonda sem `BYPASSRLS`, com contexto de titular, precisa ler a
 projeção com sucesso, falhar no `select` direto em `private.data_exports` e não
-ver linha de outro titular; a prova não pode rodar apenas como `postgres`.
+ver linha de outro titular; a prova não pode rodar apenas como `postgres`. O
+harness também prepara um export `ready`, conclui `revoke_current_session` e
+tenta baixá-lo com o mesmo JWT: o endpoint precisa recusar antes do CAS e não
+alterar nem apagar o artefato. A contraprova executa a mesma jornada com a
+checagem de sessão revogada removida e precisa falhar ao observar que o download
+seria aceito; uma asserção que só confira o estado intacto do arquivo não prova a
+denylist.
 
 ## 6. Fatia 4 — controles da tela 13
 
@@ -499,10 +507,8 @@ implementação**:
    `dead`, `RUN_ABANDONED`, exclusão atrasada e pedido bloqueado? Sentry é o
    transporte técnico, não uma definição de plantão nem um canal ao titular.
 
-Nenhuma dessas respostas muda a numeração. A divergência logout × purge
-registrada em §5.3 também exige reconciliação humana antes da `0013`. Se uma
-decisão exigir contrariar `13`, `14`, `16` ou `17`, o trabalho para antes de
-qualquer migration.
+Nenhuma dessas respostas muda a numeração. Se uma decisão exigir contrariar
+`13`, `14`, `16` ou `17`, o trabalho para antes de qualquer migration.
 
 ## 9. Manifesto de especificação
 

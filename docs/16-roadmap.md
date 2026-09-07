@@ -186,7 +186,9 @@ o mesmo `request_id`. O piloto valida o número antes de tratá-lo como calibrag
   confirmação de evidência indisponível;
 - URL assinada de comprovante nunca é emitida; remoção/reatribuição corta próximo stream;
 - exclusão crasha antes/depois de Storage, Auth e finalize; `deletion_pending` nega JWT antigo;
-- export pronto/download/logout/exclusão/expiração remove artefato e não permite segundo download;
+- export pronto, download, logout, exclusão e expiração são exercitados em fluxos separados e
+  nenhum permite segundo download: download/exclusão/expiração convergem para remoção do
+  artefato; logout não o remove, mas a denylist torna-o inalcançável pela sessão revogada;
 - contestação de nota concorrendo com saída/purge preserva somente `rating_history_id` alvo;
 - conteúdo de notificação com 91 dias é apagado sem quebrar delivery de 11 meses;
 
