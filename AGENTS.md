@@ -42,9 +42,10 @@ uma conversa anterior.
   migration em que ela foi escrita, depois do achado de fail-open do M0-B.
   `private.app_limits` e `private.allowed_proof_mime_types` nasceram antes disso,
   na `0002`, com `enable` + `force row level security` e zero policies. Elas são
-  **dívida registrada na fatia 9** de `docs/16-roadmap.md` §3, não um
-  contraexemplo da regra: migration commitada é imutável e a correção pertence à
-  varredura final.
+  o caso histórico que motivou a dívida registrada na fatia 9 de
+  `docs/16-roadmap.md` §3, não um contraexemplo da regra: migration commitada é
+  imutável, e a `0008` saldou a dívida de forma append-only, removendo `force` e
+  desligando RLS nas duas tabelas.
 - **`service_role` não faz DML direto.** A `0004` revogou tudo em `public` e
   `private` e ajustou `alter default privileges`. Migrations novas não repetem
   a revogação — elas **provam** que as tabelas novas nascem sem privilégio.
@@ -64,8 +65,8 @@ uma conversa anterior.
 
 `docs/spec-manifest.sha256` é a baseline de **especificação**, não de tudo.
 
-- **Estão no manifesto:** 22 entradas — `.gitignore`, `README.md`, os documentos
-  normativos `docs/01` a `docs/18`, `docs/99-prompt-review.md` e
+- **Estão no manifesto:** 23 entradas — `.gitignore`, `README.md`, os documentos
+  normativos `docs/01` a `docs/18`, o plano normativo `docs/22`, `docs/99-prompt-review.md` e
   `docs/99-prompt-review-externo.md`.
 - **Ficam de fora, por decisão registrada:** os documentos operacionais
   `docs/19`, `docs/20` e `docs/21`, porque são registro do que aconteceu, não
@@ -96,7 +97,8 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
       estão verdes. Pull Requests do Dependabot contam como trabalho de outra parte.
     - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
       para revisão independente.
-    - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18` ou
+    - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18`,
+      `docs/22` ou
       depende de uma decisão que você não pôde tomar deve parar para decisão humana.
     - A separação é deliberada: quem escreve já concluiu que o trabalho está certo, e todos
       os defeitos encontrados neste projeto foram descobertos por uma sessão diferente da
@@ -157,7 +159,7 @@ máquina não é.
 
 Pare e reporte, sem tentar resolver sozinho:
 
-- qualquer decisão que altere um documento normativo (`docs/01`–`docs/18`);
+- qualquer decisão que altere um documento normativo (`docs/01`–`docs/18` ou `docs/22`);
 - qualquer coisa que exija ampliar o escopo da fatia;
 - qualquer falha de CI que você não entenda completamente;
 - qualquer necessidade de segredo, projeto Supabase remoto, deploy ou push em

@@ -34,9 +34,9 @@ RLS default-deny e sorteio versionado.
 - [x] **Gate histórico anterior à primeira migration:** criar o commit de baseline e provar
       que clone limpo reproduz documentos/checksums. Cumprido no M0-A; tag documental e
       proteção de `main` continuam como preparação do primeiro PR remoto.
-- [ ] **Antes da primeira RPC mutável:** implementar e testar o gateway Edge exclusivo. O
-      cliente chama somente a Edge; `public`, `anon` e `authenticated` não recebem `EXECUTE`
-      na RPC interna, e a secret key permanece apenas no backend.
+- [x] **Antes da primeira RPC mutável:** gateway Edge exclusivo implementado e testado na
+      Fatia A do M1-A. O cliente chama somente a Edge; `public`, `anon` e `authenticated` não
+      recebem `EXECUTE` na RPC interna, e a secret key permanece apenas no backend.
 - [ ] **Antes de convidar o beta:** escolher provedor SMTP transacional e validar domínio remetente (SPF/DKIM/DMARC).
       O SMTP padrão do ambiente de desenvolvimento não atende beta com usuários reais.
 - [ ] **Antes de convidar o beta:** registrar `VAPID` e estratégia mínima do service worker; nenhum cache de Pix,
@@ -49,8 +49,9 @@ RLS default-deny e sorteio versionado.
       `14-convencoes-app.md`, separando banco, migrations, configuração e Storage.
 - [ ] **Antes de guardar dado real:** escolher destino externo/chave, executar e aprovar o
       primeiro restore isolado com manifesto de exclusões.
-- [ ] **Antes de convidar o beta:** aprovar formalmente RPO/RTO de comprovante em 24 h,
-      implementar o export diário por allowlist e provar em restore que vencido/órfão não volta.
+- [ ] **Antes de convidar o beta:** RPO/RTO de comprovante em 24 h formalmente aceitos;
+      ainda falta implementar o export diário por allowlist e provar em restore que
+      vencido/órfão não volta.
 - [ ] **Antes de convidar o beta:** confirmar que o beta é pessoal/não comercial enquanto usar Vercel Hobby; cobrança
       ou uso por terceiros exige revisão de plano/provedor.
 - [ ] **Antes de convidar o beta:** publicar o catálogo de políticas com **pelo menos uma
@@ -106,7 +107,7 @@ incremental por marco, e não muda a ordem de locks nem relaxa os critérios de 
 | M1-A, antecipação da fatia 7 | tabelas operacionais estritamente necessárias: `private.external_effects`, `private.job_runs` e `private.retention_runs` | `0005_operational_runs.sql` |
 | M1-A, antecipação da fatia 10 | catálogo de políticas, dispatcher interno e RPCs `accept_policies`, `complete_profile`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
 | M1-A, retenção antecipada da fatia 7 | expurgo de outcomes e tombstones nos prazos normativos | `0007_idempotency_retention.sql` |
-| M1-B, antecipação de identidade/privacidade da fatia 10 | export governado, saga de exclusão, bucket `data-exports` e download Edge | a numerar no plano detalhado do M1-B |
+| M1-B, antecipação de identidade/privacidade da fatia 10 | worker e jobs de identidade; saga de exclusão; export governado, bucket `data-exports` e download Edge | `0011_worker_foundation.sql` → `0012_account_deletion.sql` → `0013_data_export_delivery.sql`, conforme o plano normativo `22` |
 | B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
 
 Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separado,
@@ -116,8 +117,8 @@ as reconciliações/retention que dependem desses domínios e as demais policies
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
 
 As quatro linhas `0004`–`0007` estão **executadas**: as migrations existem, com evidência
-operacional em `21`. As RPCs internas de identidade, o catálogo e o expurgo do livro de
-idempotência já existem; a Edge Function do gateway, o rate limit produtivo, o seed de
+operacional em `21`. As RPCs internas de identidade, o catálogo, o expurgo do livro de
+idempotência e a Edge Function do gateway já existem; o rate limit produtivo, o seed de
 políticas e o agendamento dos jobs continuam sem implementação. `0001`–`0003` têm evidência
 operacional em `19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
 existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
@@ -185,7 +186,9 @@ o mesmo `request_id`. O piloto valida o número antes de tratá-lo como calibrag
   confirmação de evidência indisponível;
 - URL assinada de comprovante nunca é emitida; remoção/reatribuição corta próximo stream;
 - exclusão crasha antes/depois de Storage, Auth e finalize; `deletion_pending` nega JWT antigo;
-- export pronto/download/logout/exclusão/expiração remove artefato e não permite segundo download;
+- export pronto, download, logout, exclusão e expiração são exercitados em fluxos separados e
+  nenhum permite segundo download: download/exclusão/expiração convergem para remoção do
+  artefato; logout não o remove, mas a denylist torna-o inalcançável pela sessão revogada;
 - contestação de nota concorrendo com saída/purge preserva somente `rating_history_id` alvo;
 - conteúdo de notificação com 91 dias é apagado sem quebrar delivery de 11 meses;
 
@@ -289,8 +292,9 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 ## 8. Próximo passo objetivo
 
-Implementar o gateway Edge exclusivo e `0004_idempotency_foundation.sql`, com testes de grant,
-vetores e concorrência, antes de expor a primeira mutação. Depois seguem `0005`, `0006` e
-`0007` na ordem desta página. Os gates de beta podem avançar em paralelo, mas precisam estar
-concluídos antes do primeiro convite. Não começar pelas telas de lista: sem identidade
-interna, idempotência e autorização, a corrida apenas solidifica dívidas técnicas mais caras.
+Executar o plano do M1-B em `22-plano-m1-b.md`: primeiro a fundação do worker na `0011`,
+depois a saga de exclusão na `0012` e por último exportação/Storage/download na `0013`. Os
+controles da tela 13 entram somente depois desses contratos, sem migration artificial. Os
+gates de beta podem avançar em paralelo, mas precisam estar concluídos antes do primeiro
+convite. Não começar pelas telas de lista: sem identidade interna, idempotência e autorização,
+a corrida apenas solidifica dívidas técnicas mais caras.
