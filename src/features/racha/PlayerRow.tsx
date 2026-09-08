@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { StatusTag } from './StatusTag';
 
@@ -11,8 +12,16 @@ type PlayerRowProps = {
   readonly meta: string;
   readonly name: string;
   readonly statusLabel?: string;
-  readonly statusTone?: 'neutral' | 'positive' | 'primary';
+  readonly statusTone?: 'critical' | 'neutral' | 'positive' | 'primary';
 };
+
+const initialsFor = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toLocaleUpperCase('pt-BR'))
+    .join('');
 
 export function PlayerRow({
   highlighted = false,
@@ -34,7 +43,15 @@ export function PlayerRow({
         },
       ]}
     >
-      <View style={[styles.leading, { backgroundColor: colors.surfaceStrong }]}>
+      <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+        <Text style={[styles.avatarText, { color: colors.onPrimary }]}>{initialsFor(name)}</Text>
+      </View>
+      <View
+        style={[
+          styles.leading,
+          { backgroundColor: colors.surfaceStrong, borderColor: colors.primary },
+        ]}
+      >
         <Text style={[styles.leadingText, { color: colors.primary }]}>{leadingLabel}</Text>
       </View>
       <View style={styles.copy}>
@@ -47,6 +64,17 @@ export function PlayerRow({
 }
 
 const styles = StyleSheet.create({
+  avatar: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  avatarText: {
+    ...typography.caption,
+    fontWeight: '800',
+  },
   copy: {
     flex: 1,
     gap: spacing.xs,
@@ -55,22 +83,21 @@ const styles = StyleSheet.create({
   leading: {
     alignItems: 'center',
     borderRadius: radius.pill,
+    borderWidth: 1,
     height: 44,
     justifyContent: 'center',
     width: 44,
   },
   leadingText: {
-    fontSize: 13,
-    fontWeight: '900',
+    ...typography.caption,
+    fontWeight: '800',
   },
   meta: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...typography.caption,
   },
   name: {
-    fontSize: 16,
+    ...typography.body,
     fontWeight: '800',
-    lineHeight: 22,
   },
   row: {
     alignItems: 'center',

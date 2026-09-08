@@ -255,6 +255,7 @@ export const pt = {
       cardDate: (date: string, time: string) => `${date} · ${time}`,
       matchMeta: (date: string, time: string, group: string) => `${date} · ${time} · ${group}`,
       occupancy: (filled: number, capacity: number) => `${filled} de ${capacity} titulares`,
+      occupancyPercent: (percent: number) => `${percent}% ocupado`,
     },
     empty: {
       title: 'Nenhum racha à vista',

@@ -1,5 +1,6 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
 
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { pt } from '@/lib/i18n/pt';
@@ -19,11 +20,15 @@ const openMatch = (match: DemoMatch) => {
 };
 
 export function MatchListScreen() {
+  const { demo } = useLocalSearchParams<{ demo?: string | string[] }>();
   const { width } = useWindowDimensions();
   const wide = getLayoutMode(width) === 'wide';
-  const matches = [...demoMatches].sort((left, right) =>
-    left.startsAt.localeCompare(right.startsAt),
-  );
+  const reducedMotion = useReducedMotion();
+  const demoMode = Array.isArray(demo) ? demo[0] : demo;
+  const matches =
+    demoMode === 'vazio'
+      ? []
+      : [...demoMatches].sort((left, right) => left.startsAt.localeCompare(right.startsAt));
 
   return (
     <AuthenticatedShell
@@ -38,8 +43,13 @@ export function MatchListScreen() {
           accessibilityLabel={pt.racha.list.timelineLabel}
           style={[styles.timeline, wide ? styles.timelineWide : styles.timelineNarrow]}
         >
-          {matches.map((match) => (
-            <MatchCard key={match.id} match={match} onAction={() => openMatch(match)} />
+          {matches.map((match, index) => (
+            <Animated.View
+              key={match.id}
+              {...(!reducedMotion ? { entering: FadeInDown.delay(index * 80).duration(360) } : {})}
+            >
+              <MatchCard match={match} onAction={() => openMatch(match)} />
+            </Animated.View>
           ))}
         </View>
       )}

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 type OccupancyBarProps = {
   readonly capacity: number;
@@ -12,12 +13,15 @@ type OccupancyBarProps = {
 export function OccupancyBar({ capacity, filled }: OccupancyBarProps) {
   const { colors } = useTheme();
   const label = pt.racha.list.occupancy(filled, capacity);
+  const percent = capacity > 0 ? Math.round((filled / capacity) * 100) : 0;
+  const percentLabel = pt.racha.list.occupancyPercent(percent);
+  const accessibleLabel = `${label}, ${percentLabel}`;
 
   return (
     <View
-      accessibilityLabel={label}
+      accessibilityLabel={accessibleLabel}
       accessibilityRole="progressbar"
-      accessibilityValue={{ max: capacity, min: 0, now: filled, text: label }}
+      accessibilityValue={{ max: capacity, min: 0, now: filled, text: accessibleLabel }}
       style={styles.container}
     >
       <View accessibilityElementsHidden style={styles.track}>
@@ -34,7 +38,10 @@ export function OccupancyBar({ capacity, filled }: OccupancyBarProps) {
           />
         ))}
       </View>
-      <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>
+      <View style={styles.labels}>
+        <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>
+        <Text style={[styles.percent, { color: colors.primary }]}>{percentLabel}</Text>
+      </View>
     </View>
   );
 }
@@ -44,9 +51,17 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '700',
-    lineHeight: 20,
+    ...typography.caption,
+  },
+  labels: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  percent: {
+    ...typography.caption,
   },
   segment: {
     borderRadius: radius.pill,

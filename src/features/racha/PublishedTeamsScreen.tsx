@@ -12,6 +12,7 @@ import { pt } from '@/lib/i18n/pt';
 import { getLayoutMode } from '@/theme/layout';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import type { AuditEventKind } from './demo-data';
 import { findDemoMatch } from './demo-data';
@@ -176,13 +177,11 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   auditKind: {
-    fontSize: 16,
+    ...typography.body,
     fontWeight: '800',
-    lineHeight: 22,
   },
   auditMeta: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...typography.caption,
   },
   auditToggle: {
     alignItems: 'center',
@@ -194,20 +193,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   auditToggleLabel: {
-    fontSize: 16,
+    ...typography.body,
     fontWeight: '800',
-    lineHeight: 22,
   },
   description: {
-    fontSize: 17,
-    lineHeight: 26,
+    ...typography.body,
     maxWidth: 680,
   },
   eyebrow: {
-    fontSize: 14,
-    fontWeight: '800',
+    ...typography.caption,
     letterSpacing: 0.8,
-    lineHeight: 20,
     textTransform: 'uppercase',
   },
   intro: {
@@ -226,9 +221,8 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   matchMeta: {
-    fontSize: 17,
+    ...typography.body,
     fontWeight: '800',
-    lineHeight: 24,
   },
   missing: {
     alignSelf: 'center',
@@ -261,10 +255,8 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   title: {
-    fontSize: 38,
-    fontWeight: '900',
+    ...typography.display,
     letterSpacing: -1,
-    lineHeight: 46,
   },
   topBar: {
     alignSelf: 'center',

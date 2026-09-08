@@ -1,4 +1,5 @@
 // A origem real destes dados será a fatia de grupos/rachas de docs/16-roadmap.md §3.
+// Use /rachas?demo=vazio para apresentar o estado vazio sem alterar os dados da demonstração.
 
 export type MatchSituation = 'open' | 'payment_due' | 'reserve' | 'teams_published';
 

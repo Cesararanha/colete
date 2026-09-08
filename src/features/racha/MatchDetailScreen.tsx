@@ -10,6 +10,7 @@ import { pt } from '@/lib/i18n/pt';
 import { getLayoutMode } from '@/theme/layout';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import type { DemoMatch, PaymentStatus } from './demo-data';
 import { findDemoMatch } from './demo-data';
@@ -26,7 +27,7 @@ const paymentLabel = (status: PaymentStatus) => {
 const paymentTone = (status: PaymentStatus) => {
   if (status === 'paid') return 'positive' as const;
   if (status === 'review') return 'primary' as const;
-  return 'neutral' as const;
+  return 'critical' as const;
 };
 
 const actionLabel = (match: DemoMatch) => {
@@ -49,6 +50,13 @@ const statusLabel = (match: DemoMatch) => {
     );
   }
   return pt.racha.status.teamsPublished(match.publishedTeamNumber ?? 1);
+};
+
+const statusTone = (match: DemoMatch) => {
+  if (match.situation === 'payment_due') return 'critical' as const;
+  if (match.situation === 'teams_published') return 'positive' as const;
+  if (match.situation === 'open') return 'primary' as const;
+  return 'neutral' as const;
 };
 
 export function MatchDetailScreen() {
@@ -126,7 +134,7 @@ export function MatchDetailScreen() {
                 eyebrow={pt.racha.detail.occupancyEyebrow}
                 title={pt.racha.list.occupancy(match.starters.length, match.capacity)}
               />
-              <StatusTag label={statusLabel(match)} tone="primary" />
+              <StatusTag label={statusLabel(match)} tone={statusTone(match)} />
               <OccupancyBar capacity={match.capacity} filled={match.starters.length} />
             </AppCard>
 
@@ -139,7 +147,7 @@ export function MatchDetailScreen() {
                 {match.starters.map((player, index) => (
                   <PlayerRow
                     key={player.id}
-                    leadingLabel={player.name.slice(0, 1)}
+                    leadingLabel={String(index + 1)}
                     meta={pt.racha.detail.playerNumber(index + 1)}
                     name={player.name}
                     statusLabel={paymentLabel(player.paymentStatus)}
@@ -224,19 +232,14 @@ export function MatchDetailScreen() {
 
 const styles = StyleSheet.create({
   amount: {
-    fontSize: 30,
-    fontWeight: '900',
-    lineHeight: 38,
+    ...typography.title,
   },
   body: {
-    fontSize: 16,
-    lineHeight: 24,
+    ...typography.body,
   },
   eyebrow: {
-    fontSize: 14,
-    fontWeight: '800',
+    ...typography.caption,
     letterSpacing: 0.8,
-    lineHeight: 20,
     textTransform: 'uppercase',
   },
   footer: {
@@ -252,9 +255,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   group: {
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 26,
+    ...typography.section,
   },
   intro: {
     gap: spacing.sm,
@@ -288,10 +289,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   title: {
-    fontSize: 38,
-    fontWeight: '900',
+    ...typography.display,
     letterSpacing: -1,
-    lineHeight: 46,
   },
   topBar: {
     alignSelf: 'center',

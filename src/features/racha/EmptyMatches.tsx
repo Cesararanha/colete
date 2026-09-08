@@ -1,9 +1,11 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 const doNothing = () => undefined;
 
@@ -12,6 +14,13 @@ export function EmptyMatches() {
 
   return (
     <View style={styles.container}>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.iconCircle, { backgroundColor: colors.surfaceStrong }]}
+      >
+        <Ionicons color={colors.primary} name="football-outline" size={48} />
+      </View>
       <Text aria-level={2} role="heading" style={[styles.title, { color: colors.text }]}>
         {pt.racha.empty.title}
       </Text>
@@ -37,22 +46,33 @@ export function EmptyMatches() {
 
 const styles = StyleSheet.create({
   actions: {
+    alignSelf: 'center',
     gap: spacing.sm,
     marginTop: spacing.sm,
+    maxWidth: 360,
+    width: '100%',
   },
   container: {
-    alignItems: 'stretch',
-    gap: spacing.sm,
-    paddingVertical: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xxl,
   },
   description: {
-    fontSize: 17,
-    lineHeight: 26,
+    ...typography.body,
     maxWidth: 560,
+    textAlign: 'center',
+  },
+  iconCircle: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    height: 96,
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+    width: 96,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '900',
-    lineHeight: 36,
+    ...typography.title,
+    textAlign: 'center',
   },
 });

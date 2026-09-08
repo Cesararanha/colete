@@ -2,6 +2,7 @@ import { ScrollViewStyleReset } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
 
 import { pt } from '@/lib/i18n/pt';
+import { colors } from '@/theme/colors';
 
 const serviceWorkerRegistration = `
 (() => {
@@ -45,9 +46,9 @@ const globalStyles = `
   :root { color-scheme: light dark; }
   html, body, #root { min-height: 100%; margin: 0; }
   *, *::before, *::after { box-sizing: border-box; }
-  :focus-visible { outline: 3px solid #A33D00; outline-offset: 3px; }
+  :focus-visible { outline: 3px solid ${colors.light.focus}; outline-offset: 3px; }
   @media (prefers-color-scheme: dark) {
-    :focus-visible { outline-color: #FFB37D; }
+    :focus-visible { outline-color: ${colors.dark.focus}; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -70,7 +71,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
           name="viewport"
         />
         <meta content="no-referrer" name="referrer" />
-        <meta content="#0A6335" name="theme-color" />
+        <meta content={colors.light.primary} name="theme-color" />
         <meta content="yes" name="mobile-web-app-capable" />
         <meta content="yes" name="apple-mobile-web-app-capable" />
         <meta content={pt.app.name} name="apple-mobile-web-app-title" />

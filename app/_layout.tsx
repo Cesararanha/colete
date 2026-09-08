@@ -1,3 +1,5 @@
+import { Manrope_400Regular } from '@expo-google-fonts/manrope';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
@@ -23,6 +25,8 @@ function ThemedRoutes() {
 }
 
 export default function RootLayout() {
+  useFonts({ Manrope: Manrope_400Regular });
+
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
