@@ -18,7 +18,10 @@ export default function AppTabsLayout() {
         <View
           accessibilityLabel={pt.navigation.label}
           role="navigation"
-          style={wide ? styles.navigationWide : styles.navigationNarrow}
+          style={[
+            wide ? styles.navigationWide : styles.navigationNarrow,
+            wide ? { backgroundColor: colors.surface, borderColor: colors.border } : undefined,
+          ]}
         >
           <BottomTabBar {...props} />
         </View>
@@ -73,6 +76,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   navigationWide: {
+    borderRightWidth: 1,
     height: '100%',
   },
   tabBar: {
@@ -91,7 +95,6 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   tabBarWide: {
-    borderRightWidth: 1,
     borderTopWidth: 0,
     minWidth: 112,
     paddingTop: 16,

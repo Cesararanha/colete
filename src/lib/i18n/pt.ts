@@ -211,13 +211,13 @@ export const pt = {
       saved: 'Dados do perfil salvos.',
     },
     provider: {
-      eyebrow: 'Acesso',
-      title: 'Provedor vinculado',
-      description: 'Leitura da identidade desta sessão. Nenhum vínculo é alterado aqui.',
+      eyebrow: 'Sua conta',
+      title: 'Como você entrou',
+      description: 'Este cartão só informa o método usado para entrar. Nada é alterado aqui.',
       email: 'E-mail e senha',
       google: 'Google',
-      unavailable: 'O provedor desta sessão não está disponível.',
-      other: (provider: string) => `Provedor: ${provider}`,
+      unavailable: 'Não foi possível identificar como você entrou.',
+      other: (provider: string) => `Método usado: ${provider}`,
     },
     password: {
       eyebrow: 'Segurança',

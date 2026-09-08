@@ -25,6 +25,14 @@ export function AppButton({
 }: AppButtonProps) {
   const { colors } = useTheme();
   const primary = variant === 'primary';
+  const selected = pressed === true;
+  const backgroundColor = selected
+    ? colors.surfaceStrong
+    : primary
+      ? colors.primary
+      : colors.surface;
+  const borderColor = selected || primary ? colors.primary : colors.border;
+  const labelColor = selected || !primary ? colors.text : colors.onPrimary;
 
   return (
     <Pressable
@@ -36,8 +44,8 @@ export function AppButton({
       style={({ pressed: isPressed }) => [
         styles.base,
         {
-          backgroundColor: primary ? colors.primary : colors.surface,
-          borderColor: primary ? colors.primary : colors.border,
+          backgroundColor,
+          borderColor,
           opacity: isPressed ? 0.78 : 1,
           transform: [{ scale: isPressed ? 0.99 : 1 }],
         } satisfies ViewStyle,
@@ -45,9 +53,7 @@ export function AppButton({
       testID={testID}
     >
       {children}
-      <Text style={[styles.label, { color: primary ? colors.onPrimary : colors.text }]}>
-        {label}
-      </Text>
+      <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
     </Pressable>
   );
 }
