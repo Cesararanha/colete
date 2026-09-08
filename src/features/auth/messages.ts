@@ -35,3 +35,11 @@ export function authErrorMessage(error: unknown): string {
   }
   return pt.auth.errors.generic;
 }
+
+export function loginErrorMessage(error: unknown): string {
+  if (error instanceof AppError && error.code === 'UNAUTHENTICATED') {
+    return pt.auth.errors.credentials;
+  }
+
+  return authErrorMessage(error);
+}

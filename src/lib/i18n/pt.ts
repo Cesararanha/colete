@@ -121,6 +121,8 @@ export const pt = {
       forgot: 'Esqueci minha senha',
       signup: 'Criar conta',
       credentialErrorTitle: 'Não foi possível entrar',
+      credentialsSupport:
+        'Se você acabou de criar a conta, use o código enviado por e-mail para confirmar o acesso.',
     },
     signup: {
       eyebrow: 'Primeiro acesso',

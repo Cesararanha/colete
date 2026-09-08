@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Controller, useForm } from 'react-hook-form';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
@@ -10,16 +10,18 @@ import { AppNavLink } from '@/components/ui/AppNavLink';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthShell } from '@/components/ui/AuthShell';
-import { api, TransportError } from '@/lib/api';
+import { api, AppError, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { spacing } from '@/theme/spacing';
+import { useTheme } from '@/theme/ThemeProvider';
 
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
-import { authErrorMessage, fieldMessage } from './messages';
+import { fieldMessage, loginErrorMessage } from './messages';
 import { loginSchema, type LoginValues } from './schemas';
 
 export function LoginScreen() {
+  const { colors } = useTheme();
   const {
     control,
     handleSubmit,
@@ -41,6 +43,8 @@ export function LoginScreen() {
     (values) => login.mutate(values),
     (invalid) => focusFirstInvalid(invalid, setFocus),
   );
+  const credentialsRejected =
+    login.error instanceof AppError && login.error.code === 'UNAUTHENTICATED';
 
   return (
     <AuthShell
@@ -49,7 +53,16 @@ export function LoginScreen() {
       title={pt.auth.login.title}
     >
       <AppCard>
-        {login.error === null ? null : <FormAlert message={authErrorMessage(login.error)} />}
+        {login.error === null ? null : (
+          <View style={styles.loginError}>
+            <FormAlert message={loginErrorMessage(login.error)} />
+            {credentialsRejected ? (
+              <Text style={[styles.credentialsSupport, { color: colors.textMuted }]}>
+                {pt.auth.login.credentialsSupport}
+              </Text>
+            ) : null}
+          </View>
+        )}
         <View style={styles.form}>
           <Controller
             control={control}
@@ -111,6 +124,8 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  credentialsSupport: { fontSize: 14, lineHeight: 20 },
   form: { gap: spacing.md },
   links: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
+  loginError: { gap: spacing.xs },
 });

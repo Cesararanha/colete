@@ -44,10 +44,15 @@ const serviceWorkerRegistration = `
 
 const globalStyles = `
   :root { color-scheme: light dark; }
-  html, body, #root { min-height: 100%; margin: 0; }
+  html, body, #root {
+    background-color: ${colors.light.background};
+    min-height: 100%;
+    margin: 0;
+  }
   *, *::before, *::after { box-sizing: border-box; }
   :focus-visible { outline: 3px solid ${colors.light.focus}; outline-offset: 3px; }
   @media (prefers-color-scheme: dark) {
+    html, body, #root { background-color: ${colors.dark.background}; }
     :focus-visible { outline-color: ${colors.dark.focus}; }
   }
   @media (prefers-reduced-motion: reduce) {

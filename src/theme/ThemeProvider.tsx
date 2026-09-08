@@ -1,4 +1,11 @@
-import { createContext, type PropsWithChildren, useContext, useMemo, useState } from 'react';
+import {
+  createContext,
+  type PropsWithChildren,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useColorScheme } from 'react-native';
 
 import { colors, type ThemeColors, type ThemeMode } from './colors';
@@ -15,6 +22,17 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   const systemMode = useColorScheme();
   const [override, setOverride] = useState<ThemeMode | null>(null);
   const mode: ThemeMode = override ?? (systemMode === 'dark' ? 'dark' : 'light');
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const backgroundColor = colors[mode].background;
+    document.documentElement.style.backgroundColor = backgroundColor;
+    document.documentElement.style.colorScheme = mode;
+    document.body.style.backgroundColor = backgroundColor;
+    const root = document.getElementById('root');
+    if (root !== null) root.style.backgroundColor = backgroundColor;
+  }, [mode]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({
