@@ -47,7 +47,13 @@ export function changedProfilePatch(
   return profilePatchSchema.parse(patch);
 }
 
-export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
+export function ProfileDataForm({
+  onSaved,
+  profile,
+}: {
+  onSaved?: () => void;
+  profile: OwnProfile;
+}) {
   const queryClient = useQueryClient();
   const inputRefs = useRef<Partial<Record<'name' | 'nickname' | 'shirt_number', TextInput>>>({});
   const [focusRequest, setFocusRequest] = useState<{
@@ -81,6 +87,7 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
       setIntent(null);
       queryClient.setQueryData(['own-profile'], result.current);
       reset(formValues(result.current));
+      onSaved?.();
       await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
     },
   });
@@ -130,6 +137,7 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
           <AppTextField
             autoCapitalize="words"
             autoComplete="name"
+            autoFocus
             error={fieldMessage(errors.name?.message)}
             label={pt.profile.fields.name}
             onBlur={field.onBlur}

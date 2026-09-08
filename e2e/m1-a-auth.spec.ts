@@ -238,6 +238,7 @@ test.describe('M1-A authentication', () => {
       await page.getByRole('button', { name: 'Concluir perfil' }).click();
       await expect(page).toHaveTitle('Perfil · Colete');
       await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await page.getByRole('button', { name: 'Editar informações pessoais' }).click();
       await expect(page.getByLabel('Nome')).toHaveValue(account.name);
       await expect(page.getByTestId('profile-provider-card')).toContainText('E-mail e senha');
       const profileAfterReloadedCompletion = await db.query<{ count: number; name: string }>(
@@ -274,6 +275,7 @@ test.describe('M1-A authentication', () => {
       );
       expect(editedProfile.rows).toEqual([{ nickname: 'Capitã', position: 'midfielder' }]);
 
+      await page.getByRole('button', { name: 'Editar informações pessoais' }).click();
       await page.getByRole('button', { name: 'Limpar apelido' }).click();
       await page.getByRole('button', { name: 'Salvar dados' }).click();
       await expect(page.getByRole('status')).toContainText('Dados do perfil salvos.');
@@ -291,6 +293,7 @@ test.describe('M1-A authentication', () => {
       );
       expect(clearedProfile.rows).toEqual([{ nickname: null, position: 'midfielder' }]);
 
+      await page.getByRole('button', { name: 'Editar informações pessoais' }).click();
       const transmittedBeforeBlank = profileBodies.length;
       await page.getByLabel('Apelido', { exact: true }).fill('   ');
       await page.getByRole('button', { name: 'Salvar dados' }).click();
@@ -398,6 +401,7 @@ test.describe('M1-A authentication', () => {
       expect(secondSession).toBeDefined();
       expect(secondSession?.active_refresh_tokens).toBeGreaterThan(0);
 
+      await page.getByRole('button', { name: 'Trocar senha' }).click();
       await page.getByLabel('Nova senha', { exact: true }).fill(account.newPassword);
       await page.getByLabel('Confirmar nova senha', { exact: true }).fill(account.newPassword);
       await page.getByRole('button', { name: 'Salvar nova senha' }).click();

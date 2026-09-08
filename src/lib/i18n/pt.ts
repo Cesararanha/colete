@@ -178,6 +178,11 @@ export const pt = {
     eyebrow: 'Conta e identidade',
     title: 'Perfil',
     description: 'Atualize seus dados e cuide da segurança desta sessão.',
+    actions: {
+      cancel: 'Cancelar',
+      changePassword: 'Trocar senha',
+      editPersonalInformation: 'Editar informações pessoais',
+    },
     fields: {
       name: 'Nome',
       nickname: 'Apelido',
@@ -206,7 +211,8 @@ export const pt = {
     data: {
       eyebrow: 'Meus dados',
       title: 'Como você aparece no Colete',
-      description: 'Somente os campos alterados são enviados ao salvar.',
+      description: 'Confira como suas informações aparecem no Colete.',
+      notInformed: 'Não informado',
       save: 'Salvar dados',
       saved: 'Dados do perfil salvos.',
     },

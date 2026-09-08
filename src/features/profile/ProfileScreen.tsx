@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 
-import { AppAlert } from '@/components/ui/AppAlert';
+import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
@@ -12,7 +12,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { AppError, api, TransportError, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
 
 import { ProfileDataForm } from './ProfileDataForm';
 import { profileErrorMessage } from './profile-errors';
@@ -36,9 +36,44 @@ export function linkedProviderLabels(session: Session): string[] {
   });
 }
 
+function ProfileSectionToggle({
+  expanded,
+  label,
+  onPress,
+}: {
+  expanded: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      aria-expanded={expanded}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.toggle,
+        {
+          backgroundColor: expanded ? colors.surfaceStrong : colors.surface,
+          borderColor: expanded ? colors.primary : colors.border,
+          opacity: pressed ? 0.78 : 1,
+        },
+      ]}
+    >
+      <Text style={[styles.toggleLabel, { color: colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function ProfileScreen({ profile, session }: { profile: OwnProfile; session: Session }) {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
+  const [dataEditing, setDataEditing] = useState(false);
+  const [dataSaved, setDataSaved] = useState(false);
+  const [passwordEditing, setPasswordEditing] = useState(false);
   const logoutIntent = useRef<MutationIntent<unknown> | null>(null);
   const logout = useMutation({
     mutationFn: async () => {
@@ -56,6 +91,23 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
     logout.error instanceof TransportError ||
     (logout.error instanceof AppError && logout.error.retryable);
   const providers = linkedProviderLabels(session);
+  const missingValue = pt.profile.data.notInformed;
+  const position =
+    pt.profile.positionOptions.find((option) => option.value === profile.position)?.label ??
+    missingValue;
+  const dominantFoot =
+    pt.profile.footOptions.find((option) => option.value === profile.dominant_foot)?.label ??
+    missingValue;
+  const details = [
+    { label: pt.profile.fields.name, value: profile.name.trim() || missingValue },
+    { label: pt.profile.fields.nickname, value: profile.nickname?.trim() || missingValue },
+    { label: pt.profile.fields.position, value: position },
+    { label: pt.profile.fields.dominantFoot, value: dominantFoot },
+    {
+      label: pt.profile.fields.shirtNumber,
+      value: profile.shirt_number === null ? missingValue : String(profile.shirt_number),
+    },
+  ];
 
   return (
     <AuthenticatedShell
@@ -69,7 +121,52 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
           eyebrow={pt.profile.data.eyebrow}
           title={pt.profile.data.title}
         />
-        <ProfileDataForm profile={profile} />
+        {dataSaved ? <AppStatus message={pt.profile.data.saved} /> : null}
+        {dataEditing ? (
+          <>
+            <ProfileSectionToggle
+              expanded
+              label={pt.profile.actions.editPersonalInformation}
+              onPress={() => setDataEditing(false)}
+            />
+            <ProfileDataForm
+              onSaved={() => {
+                setDataEditing(false);
+                setDataSaved(true);
+              }}
+              profile={profile}
+            />
+            <AppButton
+              label={pt.profile.actions.cancel}
+              onPress={() => setDataEditing(false)}
+              variant="secondary"
+            />
+          </>
+        ) : (
+          <>
+            <View style={styles.details}>
+              {details.map((detail) => (
+                <View
+                  key={detail.label}
+                  style={[styles.detail, { borderBottomColor: colors.border }]}
+                >
+                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>
+                    {detail.label}
+                  </Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{detail.value}</Text>
+                </View>
+              ))}
+            </View>
+            <ProfileSectionToggle
+              expanded={false}
+              label={pt.profile.actions.editPersonalInformation}
+              onPress={() => {
+                setDataSaved(false);
+                setDataEditing(true);
+              }}
+            />
+          </>
+        )}
       </AppCard>
 
       <AppCard testID="profile-provider-card">
@@ -95,7 +192,21 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
           eyebrow={pt.profile.password.eyebrow}
           title={pt.profile.password.title}
         />
-        <ProfilePasswordForm />
+        <ProfileSectionToggle
+          expanded={passwordEditing}
+          label={pt.profile.actions.changePassword}
+          onPress={() => setPasswordEditing((current) => !current)}
+        />
+        {passwordEditing ? (
+          <>
+            <ProfilePasswordForm />
+            <AppButton
+              label={pt.profile.actions.cancel}
+              onPress={() => setPasswordEditing(false)}
+              variant="secondary"
+            />
+          </>
+        ) : null}
       </AppCard>
 
       <AppCard testID="profile-session-card">
@@ -121,6 +232,30 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
 }
 
 const styles = StyleSheet.create({
+  detail: {
+    alignItems: 'baseline',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    minHeight: 40,
+    paddingVertical: spacing.sm,
+  },
+  detailLabel: { fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  details: { gap: spacing.xs },
+  detailValue: { fontSize: 16, fontWeight: '800', lineHeight: 22 },
   provider: { fontSize: 16, fontWeight: '700', lineHeight: 24 },
   providers: { gap: spacing.sm },
+  toggle: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  toggleLabel: { fontSize: 16, fontWeight: '700', lineHeight: 22 },
 });
