@@ -3,6 +3,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { localWorkerCronSecret } from './local-worker-test-config.mjs';
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..');
 const supabaseBinary = path.join(
@@ -23,6 +25,7 @@ const result = spawnSync(supabaseBinary, ['start'], {
   env: {
     ...process.env,
     IDEMPOTENCY_HMAC_KEY_V1: publicTestKey,
+    WORKER_CRON_SECRET: localWorkerCronSecret(),
     SUPABASE_TELEMETRY_DISABLED: '1',
   },
   stdio: 'inherit',
