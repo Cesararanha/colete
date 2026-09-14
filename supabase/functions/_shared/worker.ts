@@ -9,6 +9,7 @@ export const WORKER_JOBS = [
   'health_check_jobs',
   'purge_expired_revoked_sessions',
   'purge_expired_idempotency_outcomes',
+  'purge_completed_deletion_requests',
 ] as const;
 
 export type WorkerJob = (typeof WORKER_JOBS)[number];

@@ -96,7 +96,7 @@ async function verifyActor(token: string): Promise<ActorContext | undefined> {
   return { authUserId: user.id, sessionId };
 }
 
-// The only database access this gateway has: the four named RPCs. No generic
+// The only database access this gateway has: the five named RPCs. No generic
 // administrative endpoint, no free DML, no SQL built here.
 const callRpc: RpcCaller = async (functionName, params) => {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {

@@ -63,6 +63,16 @@ describe('the external boundary', () => {
     // object. The actor and the request id are not part of what is signed.
     expect(canonicalise(normalised.canonicalInput)).toBe('{}');
   });
+
+  it('accepts deletion with only request_id and signs an empty business input', () => {
+    const normalised = normaliseRequest('delete_account', { request_id: REQUEST_ID });
+    expect(canonicalise(normalised.canonicalInput)).toBe('{}');
+    expect(
+      refusal(() =>
+        normaliseRequest('delete_account', { request_id: REQUEST_ID, reason: 'private' }),
+      ).fields?.['reason'],
+    ).toBe('unknown key');
+  });
 });
 
 describe('profile field normalisation', () => {

@@ -36,14 +36,14 @@ select hasnt_table(
   'public', 'revoked_auth_sessions',
   'the session denylist is not in public, so no client role can even name it'
 );
-select has_table('public', 'deletion_requests', 'deletion_requests exists');
+select has_table('private', 'deletion_requests', 'deletion_requests exists as a service table');
 select has_table('public', 'data_exports', 'data_exports exists');
 
 select col_is_pk(
   'private', 'revoked_auth_sessions', 'session_id', 'the revoked session id is the key'
 );
 select col_is_unique(
-  'public', 'deletion_requests', 'profile_id', 'a profile has at most one deletion saga'
+  'private', 'deletion_requests', 'profile_id', 'a profile has at most one deletion saga'
 );
 select col_is_unique(
   'public', 'data_exports', 'privacy_request_id', 'an export belongs to one request'
@@ -64,10 +64,10 @@ select fk_ok(
 select is(
   (select count(*)
    from pg_constraint c
-   where c.conrelid = 'public.deletion_requests'::regclass
+   where c.conrelid = 'private.deletion_requests'::regclass
      and c.contype = 'f'
      and c.conkey @> array[(select a.attnum from pg_attribute a
-                            where a.attrelid = 'public.deletion_requests'::regclass
+                            where a.attrelid = 'private.deletion_requests'::regclass
                               and a.attname = 'auth_user_id')]),
   0::bigint,
   'deletion_requests.auth_user_id has no foreign key, so the saga outlives Auth'
@@ -76,7 +76,7 @@ select col_not_null(
   'private', 'revoked_auth_sessions', 'expires_at', 'a revocation has to expire'
 );
 select col_type_is(
-  'public', 'deletion_requests', 'attempts', 'integer', 'the saga counts its attempts'
+  'private', 'deletion_requests', 'attempts', 'integer', 'the saga counts its attempts'
 );
 
 -- ---------------------------------------------------------------------------
@@ -236,11 +236,11 @@ reset request.jwt.claims;
 -- Deletion saga
 -- ---------------------------------------------------------------------------
 
-insert into public.deletion_requests (profile_id, auth_user_id)
+insert into private.deletion_requests (profile_id, auth_user_id)
 values ('cccccccc-0000-4000-8000-00000000000c', '00000000-0000-4000-8000-000000000003');
 
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, auth_user_id)
+  $$insert into private.deletion_requests (profile_id, auth_user_id)
     values ('cccccccc-0000-4000-8000-00000000000c',
             '00000000-0000-4000-8000-000000000003')$$,
   '23505',
@@ -248,7 +248,7 @@ select throws_ok(
   'a second deletion request for the same profile is refused'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, auth_user_id, status, completed_at)
+  $$insert into private.deletion_requests (profile_id, auth_user_id, status, completed_at)
     values ('aaaaaaaa-0000-4000-8000-00000000000a',
             '00000000-0000-4000-8000-000000000001', 'completed', now())$$,
   '23514',
@@ -256,21 +256,21 @@ select throws_ok(
   'a completed saga cannot still be holding an Auth identifier'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, status)
+  $$insert into private.deletion_requests (profile_id, status)
     values ('aaaaaaaa-0000-4000-8000-00000000000a', 'completed')$$,
   '23514',
   null,
   'a completed saga has to record when it completed'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, status)
+  $$insert into private.deletion_requests (profile_id, status)
     values ('aaaaaaaa-0000-4000-8000-00000000000a', 'requested')$$,
   '23514',
   null,
   'an unfinished saga must keep the Auth identifier it still has to delete'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, auth_user_id, status, completed_at)
+  $$insert into private.deletion_requests (profile_id, auth_user_id, status, completed_at)
     values ('aaaaaaaa-0000-4000-8000-00000000000a',
             '00000000-0000-4000-8000-000000000001', 'requested', now())$$,
   '23514',
@@ -278,12 +278,12 @@ select throws_ok(
   'an unfinished saga is not completed'
 );
 select lives_ok(
-  $$insert into public.deletion_requests (profile_id, status, completed_at, auth_deleted_at)
+  $$insert into private.deletion_requests (profile_id, status, completed_at, auth_deleted_at)
     values ('aaaaaaaa-0000-4000-8000-00000000000a', 'completed', now(), now())$$,
   'a finished saga keeps its record without the Auth identifier'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, auth_user_id, status)
+  $$insert into private.deletion_requests (profile_id, auth_user_id, status)
     values ('bbbbbbbb-0000-4000-8000-00000000000b',
             '00000000-0000-4000-8000-000000000002', 'abandoned')$$,
   '23514',
@@ -291,7 +291,7 @@ select throws_ok(
   'an unknown saga status is rejected'
 );
 select throws_ok(
-  $$insert into public.deletion_requests (profile_id, auth_user_id, attempts)
+  $$insert into private.deletion_requests (profile_id, auth_user_id, attempts)
     values ('bbbbbbbb-0000-4000-8000-00000000000b',
             '00000000-0000-4000-8000-000000000002', -1)$$,
   '23514',
@@ -430,12 +430,12 @@ select ok(
 -- policy would hide it from the very code that has to read it; see the BYPASSRLS
 -- assertions below.
 select ok(
-  (select relrowsecurity from pg_class where oid = 'public.deletion_requests'::regclass),
-  'deletion_requests has row level security enabled'
+  not (select relrowsecurity from pg_class where oid = 'private.deletion_requests'::regclass),
+  'the private deletion service table has no RLS'
 );
 select ok(
-  (select relforcerowsecurity from pg_class where oid = 'public.deletion_requests'::regclass),
-  'deletion_requests forces row level security'
+  not (select relforcerowsecurity from pg_class where oid = 'private.deletion_requests'::regclass),
+  'the private deletion service table does not force RLS'
 );
 select ok(
   (select relrowsecurity from pg_class where oid = 'public.data_exports'::regclass),
@@ -463,7 +463,7 @@ select ok(
   'anon cannot read the session denylist'
 );
 select ok(
-  not has_table_privilege('anon', 'public.deletion_requests', 'select'),
+  not has_table_privilege('anon', 'private.deletion_requests', 'select'),
   'anon cannot read deletion sagas'
 );
 select ok(
@@ -484,8 +484,8 @@ select ok(
   'the session denylist is a service table with no client grant at all'
 );
 select ok(
-  has_table_privilege('authenticated', 'public.deletion_requests', 'select'),
-  'authenticated may read deletion sagas, narrowed to its own rows by RLS'
+  not has_table_privilege('authenticated', 'private.deletion_requests', 'select'),
+  'authenticated reads only the typed deletion projection, never the service table'
 );
 select ok(
   has_table_privilege('authenticated', 'public.data_exports', 'select'),
@@ -529,15 +529,15 @@ select ok(
   'authenticated cannot delete revocations'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.deletion_requests', 'insert'),
+  not has_table_privilege('authenticated', 'private.deletion_requests', 'insert'),
   'authenticated cannot insert deletion sagas'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.deletion_requests', 'update'),
+  not has_table_privilege('authenticated', 'private.deletion_requests', 'update'),
   'authenticated cannot update deletion sagas'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.deletion_requests', 'delete'),
+  not has_table_privilege('authenticated', 'private.deletion_requests', 'delete'),
   'authenticated cannot delete deletion sagas'
 );
 select ok(
@@ -556,8 +556,7 @@ select ok(
 select is(
   (select count(*) from pg_policies
    where schemaname = 'public'
-     and tablename in ('policy_acceptances', 'privacy_requests',
-                       'deletion_requests', 'data_exports')
+     and tablename in ('policy_acceptances', 'privacy_requests', 'data_exports')
      and cmd in ('INSERT', 'UPDATE', 'DELETE')),
   0::bigint,
   'this slice grants no client write path to any privacy table'
@@ -565,11 +564,10 @@ select is(
 select is(
   (select count(*) from pg_policies
    where schemaname = 'public'
-     and tablename in ('policy_acceptances', 'privacy_requests',
-                       'deletion_requests', 'data_exports')
+     and tablename in ('policy_acceptances', 'privacy_requests', 'data_exports')
      and cmd = 'SELECT'),
-  4::bigint,
-  'exactly four own-row read policies, one per table the titular may read'
+  3::bigint,
+  'exactly three direct own-row read policies; deletion uses a typed projection'
 );
 
 -- ---------------------------------------------------------------------------
@@ -601,9 +599,9 @@ select is(
   'exports of other people are invisible'
 );
 select is(
-  (select count(*) from public.deletion_requests),
+  (select count(*) from public.get_own_deletion_request()),
   1::bigint,
-  'only the caller own deletion saga is visible'
+  'the typed projection exposes only the caller own deletion saga'
 );
 select throws_ok(
   'select count(*) from private.revoked_auth_sessions',
