@@ -119,7 +119,16 @@ git diff --check
 
 Confirme também: o banco recria do zero somente pelas migrations; nenhum teste
 deixou objeto ou registro residual; o worktree contém somente mudanças da
-fatia; nenhum segredo no diff; nenhum serviço remoto foi acessado.
+fatia; nenhum segredo no diff; nenhum projeto Supabase remoto, deploy ou serviço
+de produção foi acessado.
+
+**O que "remoto" proíbe, e o que não proíbe.** A regra protege contra projeto
+Supabase remoto, deploy, segredo real e qualquer serviço de produção. Ela não
+proíbe o registry público de pacotes nem o GitHub: o `npm run audit:high` desta
+mesma seção não tem modo offline, e a §4.9 e a §4.10 exigem publicar a branch e
+acompanhar a CI. Baixar imagem Docker fixada, consultar o registry para auditoria
+e publicar branch ou ler CI são parte do fluxo normal de uma fatia. O que
+continua proibido está enumerado na §8.
 
 ## 6. Se você for interrompido no meio de uma fatia
 
