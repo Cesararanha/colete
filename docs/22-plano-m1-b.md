@@ -239,7 +239,14 @@ conquista idempotência antes dos locks e, na mesma transação:
    ainda não existem, portanto o conjunto é vazio; migrations futuras estendem
    a primitiva quando criarem esses domínios, sem relaxar o contrato;
 3. cancela exports: `queued/building` não chegam a `ready`; todo objeto existente
-   passa a `cleanup_pending` e recebe `delete_data_export:<export_id>`;
+   passa a `cleanup_pending` e recebe
+   `delete_data_export:<export_id>:<request_id>`. A chave inclui o pedido porque
+   dedupe vale dentro de uma ocasião, e não para sempre na vida do objeto: efeito
+   terminal de ocasião anterior — `succeeded` com path ainda gravado por queda
+   antes do commit, ou `dead` depois do limite de tentativas — não pode impedir
+   que a saga nova enfileire trabalho adquirível, sob pena de a exclusão parar em
+   silêncio. A reconciliação de §3.4 torna a repetição segura: objeto ausente é
+   sucesso;
 4. cria `deletion_requests`, preservando o Auth ID apenas nessa saga restrita;
 5. muda o perfil para `deletion_pending`, grava a sessão atual na denylist e
    remove a autoridade de domínio no mesmo commit;

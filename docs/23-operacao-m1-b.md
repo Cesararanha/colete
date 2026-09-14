@@ -4,9 +4,8 @@ Status deste documento: operacional. Ele não altera requisitos nem substitui
 as fontes normativas `10`, `13`, `14`, `16`, `17` e `22`. Continua de
 `21-operacao-m1-a.md`.
 
-O M1-B está em andamento. Esta seção registra somente a Fatia 1,
-`0011_worker_foundation.sql`; a saga de exclusão, a exportação governada e os
-controles da tela 13 continuam nas fatias seguintes.
+O M1-B está em andamento. Este documento registra as Fatias 1 e 2; a exportação
+governada e os controles da tela 13 continuam nas fatias seguintes.
 
 ## Fatia 1 — `0011_worker_foundation.sql`
 
@@ -106,6 +105,128 @@ acessado nesta fatia.
   notificações, deploy, secrets reais e qualquer acesso remoto;
 - controles de exportação/exclusão na tela 13.
 
+## Fatia 2 — `0012_account_deletion.sql`
+
+### O que foi entregue
+
+| Objeto | Contrato provado |
+| --- | --- |
+| `delete_account` | envelope append-only, idempotência antes do lock, guard financeiro, cancelamento de build, criação da saga, denylist, perda de autoridade e enfileiramento sem avanço prematuro em uma transação |
+| `private.deletion_requests` | tabela de serviço sem RLS nem DML administrativo; leitura direta anterior revogada e schema movido de forma append-only |
+| `get_own_deletion_request` | projeção própria por tipo composto com somente protocolo, estado, dois instantes e booleano de falha; `completed_at` gerado como anulável e leitura preservada no shell de exclusão |
+| policies de leitura | JWT antigo perde perfil, aceites e exports imediatamente; somente projeção da saga e canal de privacidade continuam funcionais |
+| três handlers de efeito | `delete_data_export`, `delete_storage_object` e `delete_auth_user`, e nenhum kind sem consumidor publicado |
+| reconciliação da saga | `requested → cleaning_storage → deleting_auth → finalizing → completed`, com ausência em Storage/Auth tratada como sucesso |
+| `finalize_deletion` | exige Auth e objetos ausentes, deidentifica o perfil, redige a saga e conclui sem reabrir autoridade |
+| retenção da saga | agenda `colete_v1_purge_completed_deletion_requests` às 03:43 UTC, `run_key` por slot e expurgo após conclusão + 90 dias com evidência só por contagens |
+| harness externo | commits reais, concorrência, perda de conexão, timeout, mutação recusada pela Edge com JWT antigo, GoTrue e Storage locais e censo residual por tabela |
+
+### Decisões de implementação
+
+- O ledger continua guardando somente
+  `deletion_request_id/logical_result='deletion_requested'`. Replays combinam
+  esse outcome imutável com uma projeção fresca; estado operacional nunca vira
+  payload congelado de idempotência.
+- A RPC sempre devolve e persiste a saga em `requested`. Quando não existe
+  objeto de Storage conhecido, ela ainda cria na mesma transação o efeito
+  `delete_auth_user:<request_id>`; o worker é quem chama a reconciliação ao
+  adquirir o primeiro efeito e avança `requested → cleaning_storage` ou
+  `requested → deleting_auth`.
+- O purge de cada export iniciado por `delete_account` usa
+  `delete_data_export:<export_id>:<deletion_request_id>`. A deduplicação fica
+  limitada à ocasião da saga: um efeito `succeeded` ou `dead` de ocasião anterior
+  permanece como histórico, enquanto o pedido novo sempre ganha trabalho
+  adquirível. O handler continua opaco à chave e reconcilia pelo `kind` e pelo
+  `resource_id`.
+- O guard `private.require_financial_deletion_substitute` é fechado e chamado
+  antes da perda de autoridade. O conjunto do M1-B é vazio; migrations dos
+  domínios futuros substituem a primitiva sem remover a chamada obrigatória.
+- A policy do canal de privacidade usa um helper `SECURITY DEFINER` mínimo para
+  resolver o perfil mesmo depois de `deletion_pending`. `authenticated` recebe
+  `EXECUTE` apenas para a avaliação da policy e continua sem `USAGE` em
+  `private`, portanto não consegue chamar o helper nem selecionar a saga.
+- Cada handler observa o provedor antes de agir e confirma no banco sob o mesmo
+  lease. O runtime usa `HEAD` com a semântica 400/404 de ausência do SDK Storage
+  fixado e prefere o JWT legado de `service_role` nas APIs locais que ainda não
+  aceitam `sb_secret_*`; a chave moderna continua sendo enviada somente em
+  `apikey`, nunca como Bearer.
+- A agenda diária usa `private.account_deletion_job_slot`, com conversão UTC
+  explícita. A migration não altera `private.worker_job_slot` da `0011`.
+- `service_role` passou a executar 13 RPCs públicas nominais no total, sete com
+  prefixo `worker_`, e continua sem privilégio direto de tabela nos schemas da
+  aplicação.
+
+### Provas e números medidos
+
+Depois de recriar o banco somente por migrations, `npm run db:test` executou
+**723 asserções pgTAP em 11 arquivos**: as 658 anteriores mais **65** da
+`0012_account_deletion.test.sql`. Todas passaram. As provas novas cobrem a
+fronteira privada/projeção funcional com papel sem `BYPASSRLS`, transação
+inicial ainda em `requested` com efeito Auth enfileirado, replay, conflito,
+autoridade removida, prioridade sobre build, backoff, fencing, guard financeiro,
+finalização, nulabilidade da projeção, retenção e censos negativos de payload.
+As duas asserções acrescentadas reproduzem efeitos terminais anteriores — um
+`succeeded` e um `dead` — e exigem, em cada caso, resposta `requested`, aquisição
+do efeito de export da ocasião nova e conclusão integral da saga.
+O censo agora procura também os valores literais do Auth UUID e do session UUID;
+uma sonda sob rollback prova que o regex antigo não detectava o Auth UUID cru e
+que o novo detecta a mesma linha.
+
+`npm test` executou **80 testes em 13 arquivos**. A Fatia 2 acrescentou **nove**:
+um para o contrato canônico vazio de `delete_account` e oito para os handlers.
+As fronteiras de crash exercitadas foram antes do efeito, depois do efeito e
+antes da confirmação, depois da confirmação commitada com resposta perdida, e
+depois da finalização commitada antes da conclusão genérica do efeito. Cada
+retry reobservou o estado e convergiu.
+
+`npm run db:test:deletion` mediu **13 conexões PostgreSQL simultâneas com PIDs
+distintos**. O harness provou uma saga para chamadas concorrentes, replay,
+`IDEMPOTENCY_CONFLICT`, `payload_expired`, rollback por perda real da conexão,
+espera limitada em 3.000 ms, retry posterior, recusa `UNAUTHENTICATED` de
+`update_profile` pela Edge com o JWT emitido antes de `delete_account`, Storage
+ausente na API local, Auth not-found real e finalização única.
+
+Ao terminar, o censo mediu **zero linha** em cada uma das 15 tabelas operacionais
+enumeradas: `public.profiles`, `public.policy_acceptances`,
+`public.privacy_requests`, `public.data_exports`,
+`private.deletion_requests`, `private.revoked_auth_sessions`,
+`private.idempotency_records`, `private.external_effects`, `private.job_runs`,
+`private.retention_runs`, `auth.users`, `auth.identities`, `auth.sessions`,
+`auth.refresh_tokens` e `storage.objects`. O censo dinâmico de todas as tabelas
+base de `public`, `private`, `auth` e `storage` confirmou que nenhuma outra
+tabela mudou em relação à baseline, exceto `auth.audit_log_entries`: ela terminou
+com **14 linhas**, das quais **12** foram acrescentadas pelo harness. Esse resíduo
+é aceito e reportado porque a tabela pertence ao GoTrue e criar, autenticar e
+apagar usuários Auth reais escreve auditoria por definição; o harness não apaga
+evidência do provedor nem volta a afirmar zero global.
+
+Os harnesses herdados de idempotência, gateway e worker também passaram. O do
+worker continuou usando três conexões PostgreSQL independentes e suas três
+contraprovas executáveis de fencing/prioridade permaneceram vermelhas para as
+implementações defeituosas e verdes para a implementação publicada.
+
+### Contrato normativo e ambiente
+
+O bloco de schema em `docs/10-schema-db.md` passou a qualificar
+`private.deletion_requests`, como exige `22` §4. Por decisão humana separada de
+09/09/2026, a deriva pré-existente da denylist também foi corrigida no mesmo
+bloco para `private.revoked_auth_sessions`. O checksum de `docs/10` foi
+recalculado uma vez depois das duas linhas; o manifesto mantém 23 entradas.
+
+Nenhum Vault hospedado, segredo remoto, deploy ou projeto Supabase remoto foi
+acessado. Auth e Storage exercitados pelo harness são exclusivamente os
+serviços descartáveis da stack local.
+
+### O que continua fora
+
+- exportação governada, bucket `data-exports`, ZIP e endpoint de download da
+  Fatia 3;
+- controles de exportação e exclusão na tela 13, pertencentes à Fatia 4;
+- grupos, ownership e casos financeiros futuros, que estenderão o guard sem
+  relaxar a transação desta fatia;
+- deploy, configuração de Vault hospedado, secrets reais e qualquer acesso a
+  projeto remoto.
+
 ## Manifesto de especificação
 
 Este documento fica fora de `docs/spec-manifest.sha256`, pelo mesmo precedente
@@ -120,6 +241,7 @@ npm run db:test
 npm run db:test:idempotency
 npm run db:test:gateway
 npm run db:test:worker
+npm run db:test:deletion
 npm run verify:app
 npm run scan:docs
 npm run scan:secrets

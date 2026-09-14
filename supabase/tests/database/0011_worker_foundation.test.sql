@@ -281,8 +281,9 @@ select set_eq(
       ('colete_v1_process_external_effects:* * * * *'::text),
       ('colete_v1_health_check_jobs:*/5 * * * *'),
       ('colete_v1_purge_expired_revoked_sessions:17 * * * *'),
-      ('colete_v1_purge_expired_idempotency_outcomes:23 3 * * *')) as expected(value)$$,
-  'the four 0011 schedules are exact and versioned'
+      ('colete_v1_purge_expired_idempotency_outcomes:23 3 * * *'),
+      ('colete_v1_purge_completed_deletion_requests:43 3 * * *')) as expected(value)$$,
+  'the five schedules are exact and versioned'
 );
 select is(
   (select count(*) from cron.job
@@ -316,8 +317,8 @@ select is(
   (select count(*) from information_schema.routine_privileges
    where grantee = 'service_role' and specific_schema = 'public'
      and routine_name like 'worker_%'),
-  5::bigint,
-  'the worker receives exactly five nominal public RPC grants'
+  7::bigint,
+  'the worker receives exactly seven nominal public RPC grants'
 );
 select is(
   (select count(*) from information_schema.routine_privileges

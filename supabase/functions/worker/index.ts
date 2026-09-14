@@ -3,6 +3,7 @@
 // deliberately ignored.
 
 import { isWorkerJob, runScheduledJob, timingSafeEqualText } from '../_shared/worker.ts';
+import { accountDeletionHandlers } from '../_shared/deletion.ts';
 import type {
   BegunJob,
   ExternalEffect,
@@ -10,6 +11,8 @@ import type {
   JobSummary,
   WorkerRpc,
 } from '../_shared/worker.ts';
+import { WorkerEffectError } from '../_shared/worker.ts';
+import type { DeletionEffectTarget, DeletionRpc } from '../_shared/deletion.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -78,6 +81,92 @@ function databaseRpc(supabaseUrl: string, secretKey: string): WorkerRpc {
   };
 }
 
+function deletionRpc(supabaseUrl: string, secretKey: string): DeletionRpc {
+  return {
+    getTarget: (effectId, leaseToken) =>
+      rpcCall<DeletionEffectTarget>(supabaseUrl, secretKey, 'worker_get_deletion_effect_target', {
+        p_effect_id: effectId,
+        p_lease_token: leaseToken,
+      }),
+    confirmEffect: async (effectId, leaseToken) => {
+      await rpcCall(supabaseUrl, secretKey, 'worker_confirm_deletion_effect', {
+        p_effect_id: effectId,
+        p_lease_token: leaseToken,
+      });
+    },
+    finalizeDeletion: async (requestId) => {
+      await rpcCall(supabaseUrl, secretKey, 'finalize_deletion', { p_request_id: requestId });
+    },
+  };
+}
+
+function providerHeaders(secretKey: string): Record<string, string> {
+  const headers: Record<string, string> = { apikey: secretKey };
+  // Legacy service_role keys are JWTs and belong in both headers. Modern
+  // sb_secret keys authenticate through apikey; sending one as Bearer makes
+  // Storage/Auth try to parse a non-JWT compact token.
+  if (!secretKey.startsWith('sb_secret_')) {
+    headers.Authorization = `Bearer ${secretKey}`;
+  }
+  return headers;
+}
+
+function encodedObjectPath(bucket: string, path: string): string {
+  return [bucket, ...path.split('/')].map(encodeURIComponent).join('/');
+}
+
+function deletionProviders(supabaseUrl: string, secretKey: string) {
+  const headers = providerHeaders(secretKey);
+  return {
+    storage: {
+      exists: async (bucket: string, path: string) => {
+        const response = await fetch(
+          `${supabaseUrl}/storage/v1/object/${encodedObjectPath(bucket, path)}`,
+          { method: 'HEAD', headers },
+        );
+        // storage-js defines both 400 and 404 from HEAD as "does not exist";
+        // this preserves the provider's not-found behavior across versions.
+        if (response.status === 400 || response.status === 404) return false;
+        if (response.ok) return true;
+        throw new WorkerEffectError('STORAGE_UNAVAILABLE', response.status < 500);
+      },
+      remove: async (bucket: string, path: string) => {
+        const response = await fetch(
+          `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}`,
+          {
+            method: 'DELETE',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ prefixes: [path] }),
+          },
+        );
+        if (!response.ok && response.status !== 404) {
+          throw new WorkerEffectError('STORAGE_UNAVAILABLE', response.status < 500);
+        }
+      },
+    },
+    auth: {
+      exists: async (authUserId: string) => {
+        const response = await fetch(
+          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
+          { headers },
+        );
+        if (response.status === 404) return false;
+        if (response.ok) return true;
+        throw new WorkerEffectError('AUTH_UNAVAILABLE', response.status < 500);
+      },
+      remove: async (authUserId: string) => {
+        const response = await fetch(
+          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
+          { method: 'DELETE', headers },
+        );
+        if (!response.ok && response.status !== 404) {
+          throw new WorkerEffectError('AUTH_UNAVAILABLE', response.status < 500);
+        }
+      },
+    },
+  };
+}
+
 Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'METHOD_NOT_ALLOWED' });
 
@@ -99,17 +188,24 @@ Deno.serve(async (request: Request): Promise<Response> => {
   }
 
   const supabaseUrl = readEnv('SUPABASE_URL');
-  const secretKey = readEnv('SUPABASE_SECRET_KEY') ?? readEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const serviceRoleJwt = readEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const secretKey = readEnv('SUPABASE_SECRET_KEY') ?? serviceRoleJwt;
   if (supabaseUrl === undefined || secretKey === undefined) {
     return jsonResponse(500, { error: 'INTERNAL' });
   }
 
-  // No handler is published in 0011. The empty map makes the acquisition RPC
-  // receive an empty supported-kind list, so queued future effects stay idle.
+  const rpc = databaseRpc(supabaseUrl, secretKey);
+  const handlers = accountDeletionHandlers(
+    deletionRpc(supabaseUrl, secretKey),
+    // Self-hosted/local Storage versions may predate sb_secret support even
+    // while PostgREST accepts it. Prefer the legacy service-role JWT for the
+    // provider APIs when the platform supplies both credentials.
+    deletionProviders(supabaseUrl, serviceRoleJwt ?? secretKey),
+  );
   const result = await runScheduledJob(
     {
-      rpc: databaseRpc(supabaseUrl, secretKey),
-      handlers: {},
+      rpc,
+      handlers,
       healthAlert: (code) => console.error(code),
     },
     jobName,

@@ -85,53 +85,6 @@ export type Database = {
           },
         ];
       };
-      deletion_requests: {
-        Row: {
-          attempts: number;
-          auth_deleted_at: string | null;
-          auth_user_id: string | null;
-          completed_at: string | null;
-          id: string;
-          last_error_code: string | null;
-          next_attempt_at: string | null;
-          profile_id: string;
-          requested_at: string;
-          status: string;
-        };
-        Insert: {
-          attempts?: number;
-          auth_deleted_at?: string | null;
-          auth_user_id?: string | null;
-          completed_at?: string | null;
-          id?: string;
-          last_error_code?: string | null;
-          next_attempt_at?: string | null;
-          profile_id: string;
-          requested_at?: string;
-          status?: string;
-        };
-        Update: {
-          attempts?: number;
-          auth_deleted_at?: string | null;
-          auth_user_id?: string | null;
-          completed_at?: string | null;
-          id?: string;
-          last_error_code?: string | null;
-          next_attempt_at?: string | null;
-          profile_id?: string;
-          requested_at?: string;
-          status?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'deletion_requests_profile_id_fkey';
-            columns: ['profile_id'];
-            isOneToOne: true;
-            referencedRelation: 'profiles';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
       policy_acceptances: {
         Row: {
           accepted_at: string;
@@ -279,6 +232,28 @@ export type Database = {
         };
         Returns: Json;
       };
+      delete_account: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
+      get_own_deletion_request: {
+        Args: never;
+        Returns: Database['public']['CompositeTypes']['deletion_request_projection'][];
+        SetofOptions: {
+          from: '*';
+          to: 'deletion_request_projection';
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       revoke_current_session: {
         Args: {
           p_actor_auth_user_id: string;
@@ -302,12 +277,50 @@ export type Database = {
         };
         Returns: Json;
       };
+      worker_acquire_external_effect: {
+        Args: { p_supported_kinds: string[] };
+        Returns: Json;
+      };
+      worker_begin_job: { Args: { p_job_name: string }; Returns: Json };
+      worker_complete_external_effect: {
+        Args: {
+          p_effect_id: string;
+          p_error_code: string;
+          p_lease_token: string;
+          p_result: string;
+        };
+        Returns: Json;
+      };
+      worker_confirm_deletion_effect: {
+        Args: { p_effect_id: string; p_lease_token: string };
+        Returns: Json;
+      };
+      worker_execute_database_job: { Args: { p_run_id: number }; Returns: Json };
+      worker_finish_job: {
+        Args: {
+          p_error_code: string;
+          p_run_id: number;
+          p_status: string;
+          p_summary: Json;
+        };
+        Returns: Json;
+      };
+      worker_get_deletion_effect_target: {
+        Args: { p_effect_id: string; p_lease_token: string };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;
     };
     CompositeTypes: {
-      [_ in never]: never;
+      deletion_request_projection: {
+        id: string | null;
+        status: string | null;
+        requested_at: string | null;
+        completed_at: string | null;
+        has_operational_failure: boolean | null;
+      };
     };
   };
 };

@@ -15,6 +15,7 @@ export const OPERATIONS = [
   'update_profile',
   'accept_policies',
   'revoke_current_session',
+  'delete_account',
 ] as const;
 
 export type Operation = (typeof OPERATIONS)[number];
@@ -222,6 +223,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     update_profile: ['request_id', 'patch'],
     accept_policies: ['request_id', 'versions'],
     revoke_current_session: ['request_id'],
+    delete_account: ['request_id'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -259,6 +261,11 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     case 'revoke_current_session': {
       // docs/13 section 5.5: the canonical input is the empty object. The actor
       // comes from the verified claims and never from the body.
+      return { operation, requestId, canonicalInput: {} };
+    }
+    case 'delete_account': {
+      // docs/22 section 4: deletion has no client-supplied business fields.
+      // The authenticated actor and session are derived from verified claims.
       return { operation, requestId, canonicalInput: {} };
     }
   }

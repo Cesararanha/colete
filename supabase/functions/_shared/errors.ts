@@ -9,6 +9,8 @@ export const ERROR_CODES = [
   'NOT_FOUND',
   'VALIDATION',
   'PROFILE_SUSPENDED',
+  'DELETION_ALREADY_PENDING',
+  'FINANCIAL_SUBSTITUTE_REQUIRED',
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_EXPIRED',
   'IDEMPOTENCY_WAIT_TIMEOUT',
@@ -52,6 +54,9 @@ const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'The subject of the operation does not exist.',
   VALIDATION: 'The request did not pass validation.',
   PROFILE_SUSPENDED: 'A suspended account cannot mutate the domain.',
+  DELETION_ALREADY_PENDING: 'Account deletion is already pending.',
+  FINANCIAL_SUBSTITUTE_REQUIRED:
+    'Account deletion requires a financial substitute before it can continue.',
   IDEMPOTENCY_CONFLICT:
     'This request_id was already used with a different input. Use a new request_id for a new intent.',
   IDEMPOTENCY_EXPIRED:
@@ -78,10 +83,12 @@ export function httpStatusFor(code: ErrorCode): number {
       return 401;
     case 'FORBIDDEN':
     case 'PROFILE_SUSPENDED':
+    case 'FINANCIAL_SUBSTITUTE_REQUIRED':
       return 403;
     case 'NOT_FOUND':
       return 404;
     case 'IDEMPOTENCY_CONFLICT':
+    case 'DELETION_ALREADY_PENDING':
     case 'CONCURRENT_CHANGE':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':

@@ -640,7 +640,7 @@ select is(
    from information_schema.routine_privileges
    where grantee = 'service_role'
      and specific_schema = 'public'),
-  'accept_policies, complete_profile, revoke_current_session, update_profile, worker_acquire_external_effect, worker_begin_job, worker_complete_external_effect, worker_execute_database_job, worker_finish_job',
+  'accept_policies, complete_profile, delete_account, finalize_deletion, revoke_current_session, update_profile, worker_acquire_external_effect, worker_begin_job, worker_complete_external_effect, worker_confirm_deletion_effect, worker_execute_database_job, worker_finish_job, worker_get_deletion_effect_target',
   'service_role executes only the nominal gateway allowlist, and nothing else'
 );
 -- string_agg(distinct ...) collapses overloads, so a second signature of an
@@ -651,8 +651,8 @@ select is(
    from information_schema.routine_privileges
    where grantee = 'service_role'
      and specific_schema = 'public'),
-  9::bigint,
-  'the allowlist is exactly nine routines, so no overload can hide inside a name'
+  13::bigint,
+  'the allowlist is exactly thirteen routines, so no overload can hide inside a name'
 );
 select ok(
   not has_table_privilege('anon', 'private.idempotency_records', 'select'),

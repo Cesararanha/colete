@@ -90,7 +90,7 @@ create table privacy_requests (
   resolved_at   timestamptz
 );
 
-create table revoked_auth_sessions (
+create table private.revoked_auth_sessions (
   session_id   uuid primary key,
   profile_id   uuid not null references profiles,
   revoked_at   timestamptz not null default now(),
@@ -98,7 +98,7 @@ create table revoked_auth_sessions (
   check (expires_at > revoked_at)
 );
 
-create table deletion_requests (
+create table private.deletion_requests (
   id              uuid primary key default gen_random_uuid(),
   profile_id      uuid not null unique references profiles,
   auth_user_id    uuid,

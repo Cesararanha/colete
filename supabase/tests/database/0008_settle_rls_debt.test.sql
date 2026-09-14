@@ -38,7 +38,7 @@ select is(
 -- Nothing else was touched
 -- ---------------------------------------------------------------------------
 -- docs/14-convencoes-app.md section 5.2: public + enable/force + policy is for
--- tables with an authorised direct reader. Those five keep exactly what they
+-- tables with an authorised direct reader. Those four keep exactly what they
 -- had, and no private table has RLS any more.
 
 select set_eq(
@@ -52,9 +52,8 @@ select set_eq(
       ('public.profiles'::text),
       ('public.policy_acceptances'),
       ('public.privacy_requests'),
-      ('public.deletion_requests'),
       ('public.data_exports')) as still_protected(name)$$,
-  'RLS still covers exactly the public tables that have an authorised reader'
+  'RLS covers exactly the public tables that still have an authorised direct reader'
 );
 select is(
   (select count(*) from pg_class as c
