@@ -28,63 +28,6 @@ export type Database = {
   };
   public: {
     Tables: {
-      data_exports: {
-        Row: {
-          content_digest: string | null;
-          created_at: string;
-          downloaded_at: string | null;
-          expires_at: string | null;
-          id: string;
-          privacy_request_id: string;
-          profile_id: string;
-          purged_at: string | null;
-          ready_at: string | null;
-          status: string;
-          storage_path: string | null;
-        };
-        Insert: {
-          content_digest?: string | null;
-          created_at?: string;
-          downloaded_at?: string | null;
-          expires_at?: string | null;
-          id?: string;
-          privacy_request_id: string;
-          profile_id: string;
-          purged_at?: string | null;
-          ready_at?: string | null;
-          status?: string;
-          storage_path?: string | null;
-        };
-        Update: {
-          content_digest?: string | null;
-          created_at?: string;
-          downloaded_at?: string | null;
-          expires_at?: string | null;
-          id?: string;
-          privacy_request_id?: string;
-          profile_id?: string;
-          purged_at?: string | null;
-          ready_at?: string | null;
-          status?: string;
-          storage_path?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'data_exports_privacy_request_id_fkey';
-            columns: ['privacy_request_id'];
-            isOneToOne: true;
-            referencedRelation: 'privacy_requests';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'data_exports_profile_id_fkey';
-            columns: ['profile_id'];
-            isOneToOne: false;
-            referencedRelation: 'profiles';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
       policy_acceptances: {
         Row: {
           accepted_at: string;
@@ -232,6 +175,14 @@ export type Database = {
         };
         Returns: Json;
       };
+      consume_data_export: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_export_id: string;
+        };
+        Returns: Json;
+      };
       delete_account: {
         Args: {
           p_actor_auth_user_id: string;
@@ -243,7 +194,21 @@ export type Database = {
         };
         Returns: Json;
       };
+      enqueue_data_export_purge: {
+        Args: { p_export_id: string };
+        Returns: Json;
+      };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
+      get_own_data_exports: {
+        Args: never;
+        Returns: Database['public']['CompositeTypes']['data_export_projection'][];
+        SetofOptions: {
+          from: '*';
+          to: 'data_export_projection';
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       get_own_deletion_request: {
         Args: never;
         Returns: Database['public']['CompositeTypes']['deletion_request_projection'][];
@@ -253,6 +218,17 @@ export type Database = {
           isOneToOne: false;
           isSetofReturn: true;
         };
+      };
+      request_data_export: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
       };
       revoke_current_session: {
         Args: {
@@ -305,8 +281,21 @@ export type Database = {
         };
         Returns: Json;
       };
+      worker_get_data_export_build_target: {
+        Args: { p_effect_id: string; p_lease_token: string };
+        Returns: Json;
+      };
       worker_get_deletion_effect_target: {
         Args: { p_effect_id: string; p_lease_token: string };
+        Returns: Json;
+      };
+      worker_publish_data_export: {
+        Args: {
+          p_content_digest: string;
+          p_effect_id: string;
+          p_lease_token: string;
+          p_storage_path: string;
+        };
         Returns: Json;
       };
     };
@@ -314,6 +303,15 @@ export type Database = {
       [_ in never]: never;
     };
     CompositeTypes: {
+      data_export_projection: {
+        id: string | null;
+        status: string | null;
+        created_at: string | null;
+        ready_at: string | null;
+        expires_at: string | null;
+        downloaded_at: string | null;
+        purged_at: string | null;
+      };
       deletion_request_projection: {
         id: string | null;
         status: string | null;

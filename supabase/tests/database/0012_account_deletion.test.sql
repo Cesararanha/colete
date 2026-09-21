@@ -74,14 +74,14 @@ insert into public.privacy_requests (id, profile_id, kind) values
   ('12200000-0000-4000-8000-000000000005',
    '12100000-0000-4000-8000-000000000005', 'access');
 
-insert into public.data_exports
+insert into private.data_exports
   (id, privacy_request_id, profile_id, status)
 values
   ('12300000-0000-4000-8000-000000000001',
    '12200000-0000-4000-8000-000000000001',
    '12100000-0000-4000-8000-000000000001', 'building');
 
-insert into public.data_exports
+insert into private.data_exports
   (id, privacy_request_id, profile_id, status, storage_path, content_digest,
    ready_at, expires_at)
 values
@@ -234,7 +234,7 @@ select is(
   'domain authority disappears in the request transaction'
 );
 select is(
-  (select status from public.data_exports
+  (select status from private.data_exports
    where id = '12300000-0000-4000-8000-000000000001'),
   'failed',
   'a build in flight is cancelled before it can publish ready'
@@ -292,8 +292,8 @@ set local request.jwt.claims =
 set local role authenticated;
 select is((select count(*) from public.profiles), 0::bigint,
   'an old JWT sees no profile row after deletion_pending commits');
-select is((select count(*) from public.data_exports), 0::bigint,
-  'an old JWT sees no export row after deletion_pending commits');
+select is((select count(*) from public.get_own_data_exports()), 0::bigint,
+  'an old JWT sees no export through the typed projection after deletion_pending commits');
 select is((select count(*) from public.policy_acceptances), 0::bigint,
   'an old JWT sees no policy-acceptance row after deletion_pending commits');
 select is((select count(*) from public.privacy_requests), 1::bigint,
@@ -407,6 +407,12 @@ select lives_ok(
   ),
   'confirmed Storage absence advances the saga'
 );
+select is(
+  (select status from private.deletion_requests
+   where profile_id = '12100000-0000-4000-8000-000000000002'),
+  'cleaning_storage',
+  'a leased avatar purge keeps the saga in cleaning_storage after absence is confirmed'
+);
 select lives_ok(
   format(
     $sql$select public.worker_complete_external_effect(%L, %L, 'succeeded', null)$sql$,
@@ -419,7 +425,7 @@ select is(
   (select status from private.deletion_requests
    where profile_id = '12100000-0000-4000-8000-000000000002'),
   'deleting_auth',
-  'the saga advances to Auth only after all known Storage paths are cleared'
+  'the saga advances to Auth only after the avatar purge effect is terminal'
 );
 
 -- ---------------------------------------------------------------------------

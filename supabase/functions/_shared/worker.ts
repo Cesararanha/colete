@@ -10,6 +10,7 @@ export const WORKER_JOBS = [
   'purge_expired_revoked_sessions',
   'purge_expired_idempotency_outcomes',
   'purge_completed_deletion_requests',
+  'expire_data_exports',
 ] as const;
 
 export type WorkerJob = (typeof WORKER_JOBS)[number];
@@ -85,6 +86,15 @@ export class WorkerEffectError extends Error {
     this.code = /^[A-Z][A-Z0-9_]{0,62}$/.test(code) ? code : 'EXTERNAL_PROVIDER_FAILURE';
     this.permanent = permanent;
   }
+}
+
+// Provider status classes do not describe whether an operation can succeed on
+// a later attempt. Credential rotation and throttling are transient even though
+// they are 4xx. Only a request that is intrinsically malformed is terminal.
+const PERMANENT_PROVIDER_STATUSES = new Set([400, 405, 406, 413, 415, 422]);
+
+export function providerHttpError(code: string, status: number): WorkerEffectError {
+  return new WorkerEffectError(code, PERMANENT_PROVIDER_STATUSES.has(status));
 }
 
 const zeroSummary = (): JobSummary => ({

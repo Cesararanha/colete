@@ -115,7 +115,7 @@ create table private.deletion_requests (
       or (status <> 'completed' and completed_at is null and auth_user_id is not null))
 );
 
-create table data_exports (
+create table private.data_exports (
   id                 uuid primary key default gen_random_uuid(),
   privacy_request_id uuid not null unique references privacy_requests,
   profile_id         uuid not null references profiles,

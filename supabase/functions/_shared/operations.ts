@@ -16,6 +16,7 @@ export const OPERATIONS = [
   'accept_policies',
   'revoke_current_session',
   'delete_account',
+  'request_data_export',
 ] as const;
 
 export type Operation = (typeof OPERATIONS)[number];
@@ -224,6 +225,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     accept_policies: ['request_id', 'versions'],
     revoke_current_session: ['request_id'],
     delete_account: ['request_id'],
+    request_data_export: ['request_id'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -266,6 +268,9 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     case 'delete_account': {
       // docs/22 section 4: deletion has no client-supplied business fields.
       // The authenticated actor and session are derived from verified claims.
+      return { operation, requestId, canonicalInput: {} };
+    }
+    case 'request_data_export': {
       return { operation, requestId, canonicalInput: {} };
     }
   }

@@ -51,8 +51,7 @@ select set_eq(
   $$select * from (values
       ('public.profiles'::text),
       ('public.policy_acceptances'),
-      ('public.privacy_requests'),
-      ('public.data_exports')) as still_protected(name)$$,
+      ('public.privacy_requests')) as still_protected(name)$$,
   'RLS covers exactly the public tables that still have an authorised direct reader'
 );
 select is(
