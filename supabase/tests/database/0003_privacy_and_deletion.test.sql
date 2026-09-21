@@ -37,7 +37,7 @@ select hasnt_table(
   'the session denylist is not in public, so no client role can even name it'
 );
 select has_table('private', 'deletion_requests', 'deletion_requests exists as a service table');
-select has_table('public', 'data_exports', 'data_exports exists');
+select has_table('private', 'data_exports', 'data_exports exists as a service table');
 
 select col_is_pk(
   'private', 'revoked_auth_sessions', 'session_id', 'the revoked session id is the key'
@@ -46,10 +46,10 @@ select col_is_unique(
   'private', 'deletion_requests', 'profile_id', 'a profile has at most one deletion saga'
 );
 select col_is_unique(
-  'public', 'data_exports', 'privacy_request_id', 'an export belongs to one request'
+  'private', 'data_exports', 'privacy_request_id', 'an export belongs to one request'
 );
 select col_is_unique(
-  'public', 'data_exports', 'storage_path', 'two exports never share a storage path'
+  'private', 'data_exports', 'storage_path', 'two exports never share a storage path'
 );
 select col_is_unique(
   'public', 'policy_acceptances',
@@ -57,7 +57,7 @@ select col_is_unique(
   'a document version is accepted once per person'
 );
 select fk_ok(
-  'public', 'data_exports', 'privacy_request_id',
+  'private', 'data_exports', 'privacy_request_id',
   'public', 'privacy_requests', 'id',
   'an export hangs off the privacy request that asked for it'
 );
@@ -328,7 +328,7 @@ select lives_ok(
 -- ---------------------------------------------------------------------------
 
 select throws_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path)
     values ('11111111-0000-4000-8000-00000000000a',
             'aaaaaaaa-0000-4000-8000-00000000000a', 'queued', 'exports/a.zip')$$,
@@ -337,7 +337,7 @@ select throws_ok(
   'a queued export has no artifact yet'
 );
 select throws_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path, ready_at, expires_at)
     values ('11111111-0000-4000-8000-00000000000a',
             'aaaaaaaa-0000-4000-8000-00000000000a', 'ready', 'exports/a.zip',
@@ -347,7 +347,7 @@ select throws_ok(
   'a ready export cannot exist without its content digest'
 );
 select throws_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path, content_digest,
        ready_at, expires_at)
     values ('11111111-0000-4000-8000-00000000000a',
@@ -358,7 +358,7 @@ select throws_ok(
   'an export cannot outlive its 24 hour window'
 );
 select lives_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path, content_digest,
        ready_at, expires_at)
     values ('11111111-0000-4000-8000-00000000000a',
@@ -367,7 +367,7 @@ select lives_ok(
   'an export may live exactly 24 hours'
 );
 select throws_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path, content_digest,
        ready_at, expires_at, downloaded_at, purged_at)
     values ('22222222-0000-4000-8000-00000000000b',
@@ -378,7 +378,7 @@ select throws_ok(
   'a downloaded export is either still stored or purged, never both'
 );
 select lives_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, ready_at, expires_at,
        downloaded_at, purged_at)
     values ('22222222-0000-4000-8000-00000000000b',
@@ -387,7 +387,7 @@ select lives_ok(
   'a downloaded export survives as a record after its artifact is purged'
 );
 select throws_ok(
-  $$insert into public.data_exports
+  $$insert into private.data_exports
       (privacy_request_id, profile_id, status, storage_path, purged_at)
     values ('11111111-0000-4000-8000-00000000000a',
             'aaaaaaaa-0000-4000-8000-00000000000a', 'expired', 'exports/c.zip', now())$$,
@@ -396,7 +396,7 @@ select throws_ok(
   'an expired export keeps no path to its artifact'
 );
 select throws_ok(
-  $$insert into public.data_exports (privacy_request_id, profile_id, status)
+  $$insert into private.data_exports (privacy_request_id, profile_id, status)
     values ('11111111-0000-4000-8000-00000000000a',
             'aaaaaaaa-0000-4000-8000-00000000000a', 'archived')$$,
   '23514',
@@ -438,12 +438,12 @@ select ok(
   'the private deletion service table does not force RLS'
 );
 select ok(
-  (select relrowsecurity from pg_class where oid = 'public.data_exports'::regclass),
-  'data_exports has row level security enabled'
+  not (select relrowsecurity from pg_class where oid = 'private.data_exports'::regclass),
+  'the private export service table has no RLS'
 );
 select ok(
-  (select relforcerowsecurity from pg_class where oid = 'public.data_exports'::regclass),
-  'data_exports forces row level security'
+  not (select relforcerowsecurity from pg_class where oid = 'private.data_exports'::regclass),
+  'the private export service table does not force RLS'
 );
 
 -- ---------------------------------------------------------------------------
@@ -467,7 +467,7 @@ select ok(
   'anon cannot read deletion sagas'
 );
 select ok(
-  not has_table_privilege('anon', 'public.data_exports', 'select'),
+  not has_table_privilege('anon', 'private.data_exports', 'select'),
   'anon cannot read exports'
 );
 
@@ -488,8 +488,8 @@ select ok(
   'authenticated reads only the typed deletion projection, never the service table'
 );
 select ok(
-  has_table_privilege('authenticated', 'public.data_exports', 'select'),
-  'authenticated may read exports, narrowed to its own rows by RLS'
+  not has_table_privilege('authenticated', 'private.data_exports', 'select'),
+  'authenticated reads only the typed export projection'
 );
 
 select ok(
@@ -541,15 +541,15 @@ select ok(
   'authenticated cannot delete deletion sagas'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.data_exports', 'insert'),
+  not has_table_privilege('authenticated', 'private.data_exports', 'insert'),
   'authenticated cannot insert exports'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.data_exports', 'update'),
+  not has_table_privilege('authenticated', 'private.data_exports', 'update'),
   'authenticated cannot mark its own export downloaded'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.data_exports', 'delete'),
+  not has_table_privilege('authenticated', 'private.data_exports', 'delete'),
   'authenticated cannot delete exports'
 );
 
@@ -566,8 +566,8 @@ select is(
    where schemaname = 'public'
      and tablename in ('policy_acceptances', 'privacy_requests', 'data_exports')
      and cmd = 'SELECT'),
-  3::bigint,
-  'exactly three direct own-row read policies; deletion uses a typed projection'
+  2::bigint,
+  'exactly two direct own-row read policies; deletion and exports use typed projections'
 );
 
 -- ---------------------------------------------------------------------------
@@ -592,11 +592,9 @@ select is(
   0::bigint,
   'privacy requests of other people are invisible'
 );
-select is(
-  (select count(*) from public.data_exports
-   where profile_id <> 'aaaaaaaa-0000-4000-8000-00000000000a'),
-  0::bigint,
-  'exports of other people are invisible'
+select throws_ok(
+  'select count(*) from private.data_exports', '42501', null,
+  'exports are unreachable directly even with titular context'
 );
 select is(
   (select count(*) from public.get_own_deletion_request()),

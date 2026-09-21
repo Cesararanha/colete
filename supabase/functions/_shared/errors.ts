@@ -11,6 +11,9 @@ export const ERROR_CODES = [
   'PROFILE_SUSPENDED',
   'DELETION_ALREADY_PENDING',
   'FINANCIAL_SUBSTITUTE_REQUIRED',
+  'EXPORT_ALREADY_PENDING',
+  'EXPORT_EXPIRED',
+  'RECENT_REAUTH_REQUIRED',
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_EXPIRED',
   'IDEMPOTENCY_WAIT_TIMEOUT',
@@ -57,6 +60,9 @@ const MESSAGES: Record<ErrorCode, string> = {
   DELETION_ALREADY_PENDING: 'Account deletion is already pending.',
   FINANCIAL_SUBSTITUTE_REQUIRED:
     'Account deletion requires a financial substitute before it can continue.',
+  EXPORT_ALREADY_PENDING: 'A data export is already being prepared or awaiting cleanup.',
+  EXPORT_EXPIRED: 'This data export is expired or has already been consumed.',
+  RECENT_REAUTH_REQUIRED: 'Authenticate again before downloading this data export.',
   IDEMPOTENCY_CONFLICT:
     'This request_id was already used with a different input. Use a new request_id for a new intent.',
   IDEMPOTENCY_EXPIRED:
@@ -84,14 +90,17 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'FORBIDDEN':
     case 'PROFILE_SUSPENDED':
     case 'FINANCIAL_SUBSTITUTE_REQUIRED':
+    case 'RECENT_REAUTH_REQUIRED':
       return 403;
     case 'NOT_FOUND':
       return 404;
     case 'IDEMPOTENCY_CONFLICT':
     case 'DELETION_ALREADY_PENDING':
+    case 'EXPORT_ALREADY_PENDING':
     case 'CONCURRENT_CHANGE':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
+    case 'EXPORT_EXPIRED':
       return 410;
     case 'IDEMPOTENCY_WAIT_TIMEOUT':
       return 503;

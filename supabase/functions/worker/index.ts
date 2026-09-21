@@ -2,7 +2,12 @@
 // job. The database derives the slot and all effect identifiers; the body is
 // deliberately ignored.
 
-import { isWorkerJob, runScheduledJob, timingSafeEqualText } from '../_shared/worker.ts';
+import {
+  isWorkerJob,
+  providerHttpError,
+  runScheduledJob,
+  timingSafeEqualText,
+} from '../_shared/worker.ts';
 import { accountDeletionHandlers } from '../_shared/deletion.ts';
 import type {
   BegunJob,
@@ -11,8 +16,9 @@ import type {
   JobSummary,
   WorkerRpc,
 } from '../_shared/worker.ts';
-import { WorkerEffectError } from '../_shared/worker.ts';
 import type { DeletionEffectTarget, DeletionRpc } from '../_shared/deletion.ts';
+import { dataExportBuildHandler } from '../_shared/data-export.ts';
+import type { ExportBuildTarget, ExportRpc } from '../_shared/data-export.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -100,6 +106,29 @@ function deletionRpc(supabaseUrl: string, secretKey: string): DeletionRpc {
   };
 }
 
+function exportRpc(supabaseUrl: string, secretKey: string): ExportRpc {
+  return {
+    getBuildTarget: (effectId, leaseToken) =>
+      rpcCall<ExportBuildTarget>(supabaseUrl, secretKey, 'worker_get_data_export_build_target', {
+        p_effect_id: effectId,
+        p_lease_token: leaseToken,
+      }),
+    publish: async (effectId, leaseToken, path, digest) => {
+      await rpcCall(supabaseUrl, secretKey, 'worker_publish_data_export', {
+        p_effect_id: effectId,
+        p_lease_token: leaseToken,
+        p_storage_path: path,
+        p_content_digest: digest,
+      });
+    },
+    enqueuePurge: async (exportId) => {
+      await rpcCall(supabaseUrl, secretKey, 'enqueue_data_export_purge', {
+        p_export_id: exportId,
+      });
+    },
+  };
+}
+
 function providerHeaders(secretKey: string): Record<string, string> {
   const headers: Record<string, string> = { apikey: secretKey };
   // Legacy service_role keys are JWTs and belong in both headers. Modern
@@ -124,11 +153,9 @@ function deletionProviders(supabaseUrl: string, secretKey: string) {
           `${supabaseUrl}/storage/v1/object/${encodedObjectPath(bucket, path)}`,
           { method: 'HEAD', headers },
         );
-        // storage-js defines both 400 and 404 from HEAD as "does not exist";
-        // this preserves the provider's not-found behavior across versions.
-        if (response.status === 400 || response.status === 404) return false;
+        if (response.status === 404) return false;
         if (response.ok) return true;
-        throw new WorkerEffectError('STORAGE_UNAVAILABLE', response.status < 500);
+        throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
       },
       remove: async (bucket: string, path: string) => {
         const response = await fetch(
@@ -140,7 +167,7 @@ function deletionProviders(supabaseUrl: string, secretKey: string) {
           },
         );
         if (!response.ok && response.status !== 404) {
-          throw new WorkerEffectError('STORAGE_UNAVAILABLE', response.status < 500);
+          throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
         }
       },
     },
@@ -152,7 +179,7 @@ function deletionProviders(supabaseUrl: string, secretKey: string) {
         );
         if (response.status === 404) return false;
         if (response.ok) return true;
-        throw new WorkerEffectError('AUTH_UNAVAILABLE', response.status < 500);
+        throw providerHttpError('AUTH_UNAVAILABLE', response.status);
       },
       remove: async (authUserId: string) => {
         const response = await fetch(
@@ -160,8 +187,75 @@ function deletionProviders(supabaseUrl: string, secretKey: string) {
           { method: 'DELETE', headers },
         );
         if (!response.ok && response.status !== 404) {
-          throw new WorkerEffectError('AUTH_UNAVAILABLE', response.status < 500);
+          throw providerHttpError('AUTH_UNAVAILABLE', response.status);
         }
+      },
+    },
+  };
+}
+
+function exportProviders(supabaseUrl: string, secretKey: string) {
+  const headers = providerHeaders(secretKey);
+  const objectUrl = (path: string) =>
+    `${supabaseUrl}/storage/v1/object/${encodedObjectPath('data-exports', path)}`;
+  return {
+    storage: {
+      read: async (path: string) => {
+        const response = await fetch(objectUrl(path), { headers });
+        if (response.status === 404) return null;
+        if (!response.ok) throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+      upload: async (path: string, bytes: Uint8Array) => {
+        const response = await fetch(objectUrl(path), {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'content-type': 'application/zip',
+            'cache-control': 'no-store',
+            'x-upsert': 'false',
+          },
+          body: bytes,
+        });
+        if (!response.ok) throw providerHttpError('STORAGE_UPLOAD_FAILED', response.status);
+      },
+      remove: async (path: string) => {
+        const response = await fetch(`${supabaseUrl}/storage/v1/object/data-exports`, {
+          method: 'DELETE',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ prefixes: [path] }),
+        });
+        if (!response.ok && response.status !== 404) {
+          throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
+        }
+      },
+    },
+    auth: {
+      projection: async (authUserId: string) => {
+        const response = await fetch(
+          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
+          { headers },
+        );
+        if (!response.ok) throw providerHttpError('AUTH_UNAVAILABLE', response.status);
+        const user = (await response.json()) as {
+          email_confirmed_at?: unknown;
+          identities?: Array<{ provider?: unknown }>;
+        };
+        const providers = [
+          ...new Set(
+            (user.identities ?? [])
+              .map((identity) => identity.provider)
+              .filter((provider): provider is string => typeof provider === 'string'),
+          ),
+        ].sort();
+        const raw = user as typeof user & { email?: unknown };
+        return {
+          email:
+            typeof user.email_confirmed_at === 'string' && typeof raw.email === 'string'
+              ? raw.email
+              : null,
+          providers,
+        };
       },
     },
   };
@@ -201,6 +295,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // while PostgREST accepts it. Prefer the legacy service-role JWT for the
     // provider APIs when the platform supplies both credentials.
     deletionProviders(supabaseUrl, serviceRoleJwt ?? secretKey),
+  );
+  const exportDependencies = exportProviders(supabaseUrl, serviceRoleJwt ?? secretKey);
+  handlers.build_data_export = dataExportBuildHandler(
+    exportRpc(supabaseUrl, secretKey),
+    exportDependencies.storage,
+    exportDependencies.auth,
   );
   const result = await runScheduledJob(
     {

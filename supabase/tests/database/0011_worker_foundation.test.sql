@@ -210,9 +210,9 @@ select is(
   '2026-09-06 03:23:00+00'::timestamptz,
   'the daily slot is the latest 03:23 UTC occurrence'
 );
-select throws_ok(
-  $$select public.worker_begin_job('expire_data_exports')$$,
-  '22023', 'VALIDATION', 'a future job is not accepted before its slice publishes it'
+select ok(
+  (public.worker_begin_job('expire_data_exports') ->> 'acquired')::boolean,
+  'the export slice publishes its hourly job'
 );
 
 create temporary table worker_run_ids (kind text primary key, id bigint not null);
@@ -282,8 +282,9 @@ select set_eq(
       ('colete_v1_health_check_jobs:*/5 * * * *'),
       ('colete_v1_purge_expired_revoked_sessions:17 * * * *'),
       ('colete_v1_purge_expired_idempotency_outcomes:23 3 * * *'),
-      ('colete_v1_purge_completed_deletion_requests:43 3 * * *')) as expected(value)$$,
-  'the five schedules are exact and versioned'
+      ('colete_v1_purge_completed_deletion_requests:43 3 * * *'),
+      ('colete_v1_expire_data_exports:7 * * * *')) as expected(value)$$,
+  'the six schedules are exact and versioned'
 );
 select is(
   (select count(*) from cron.job
@@ -317,8 +318,8 @@ select is(
   (select count(*) from information_schema.routine_privileges
    where grantee = 'service_role' and specific_schema = 'public'
      and routine_name like 'worker_%'),
-  7::bigint,
-  'the worker receives exactly seven nominal public RPC grants'
+  9::bigint,
+  'the worker receives exactly nine nominal public RPC grants'
 );
 select is(
   (select count(*) from information_schema.routine_privileges

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { computeIdempotencyHmac } from './hmac.ts';
 import {
   processExternalEffects,
+  providerHttpError,
   runScheduledJob,
   timingSafeEqualText,
   WorkerEffectError,
@@ -190,4 +191,42 @@ describe('worker runtime boundary', () => {
     ]);
     expect(summary.failed).toBe(1);
   });
+
+  it.each([401, 403, 429, 500, 503])(
+    'keeps provider HTTP %i retryable instead of treating the 4xx boundary as terminal',
+    async (status) => {
+      const completions: unknown[] = [];
+      let acquired = false;
+      await processExternalEffects(
+        fakeRpc({
+          acquireEffect: async () => {
+            if (acquired) return null;
+            acquired = true;
+            return effect;
+          },
+          completeEffect: async (...args) => {
+            completions.push(args);
+          },
+        }),
+        {
+          delete_auth_user: async () => {
+            throw providerHttpError('STORAGE_UNAVAILABLE', status);
+          },
+        },
+        1,
+        120,
+        () => 0,
+      );
+      expect(completions).toEqual([
+        [effect.id, effect.lease_token, 'retryable_failure', 'STORAGE_UNAVAILABLE'],
+      ]);
+    },
+  );
+
+  it.each([400, 405, 406, 413, 415, 422])(
+    'treats intrinsically malformed provider HTTP %i as permanent',
+    (status) => {
+      expect(providerHttpError('STORAGE_REQUEST_INVALID', status).permanent).toBe(true);
+    },
+  );
 });

@@ -334,9 +334,21 @@ async function main() {
        returning id`,
     );
     createdAvatarBucket = bucket.rowCount === 1;
+    const avatarPath = 'profiles/invariant-avatar.webp';
+    const avatarUpload = await fetch(`${status.apiUrl}/storage/v1/object/avatars/${avatarPath}`, {
+      method: 'POST',
+      headers: {
+        apikey: status.serviceRoleKey,
+        Authorization: `Bearer ${status.serviceRoleKey}`,
+        'content-type': 'image/webp',
+        'x-upsert': 'false',
+      },
+      body: new TextEncoder().encode('local-avatar-fixture'),
+    });
+    assert.equal(avatarUpload.status, 200, `avatar upload returned ${avatarUpload.status}`);
     await admin.query('update public.profiles set photo_url=$2 where id=$1', [
       profileIds[4],
-      'profiles/nonexistent-avatar.webp',
+      avatarPath,
     ]);
     const oldJwt = await signIn(status, 4);
     const edgeDeletion = await callIdentity(
@@ -365,6 +377,80 @@ async function main() {
       'the rejected old-JWT mutation changed the profile',
     );
     console.log('ok - the pre-deletion JWT cannot mutate through the real identity Edge');
+
+    const avatarEffect = (
+      await admin.query(
+        "select public.worker_acquire_external_effect(array['delete_storage_object']::text[]) as effect",
+      )
+    ).rows[0].effect;
+    assert.equal(avatarEffect?.resource_id, profileIds[4], 'avatar purge was not acquired');
+    const avatarTarget = (
+      await admin.query('select public.worker_get_deletion_effect_target($1,$2) as target', [
+        avatarEffect.id,
+        avatarEffect.lease_token,
+      ])
+    ).rows[0].target;
+    assert.deepEqual(
+      avatarTarget,
+      { action: 'storage', bucket: 'avatars', path: avatarPath },
+      'avatar purge exposed the wrong target',
+    );
+    const avatarDelete = await fetch(`${status.apiUrl}/storage/v1/object/avatars`, {
+      method: 'DELETE',
+      headers: {
+        apikey: status.serviceRoleKey,
+        Authorization: `Bearer ${status.serviceRoleKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ prefixes: [avatarPath] }),
+    });
+    assert.ok(avatarDelete.ok || avatarDelete.status === 404);
+    const avatarGone = await fetch(`${status.apiUrl}/storage/v1/object/avatars/${avatarPath}`, {
+      method: 'HEAD',
+      headers: {
+        apikey: status.serviceRoleKey,
+        Authorization: `Bearer ${status.serviceRoleKey}`,
+      },
+    });
+    assert.notEqual(avatarGone.status, 200, 'avatar remained after provider deletion');
+    await admin.query('select public.worker_confirm_deletion_effect($1,$2)', [
+      avatarEffect.id,
+      avatarEffect.lease_token,
+    ]);
+    const avatarLeasedState = await admin.query(
+      `select request.status,
+              count(effect.id) filter (where effect.kind='delete_auth_user')::integer auth_effects
+         from private.deletion_requests request
+         left join private.external_effects effect on effect.resource_id=request.id
+        where request.profile_id=$1
+        group by request.status`,
+      [profileIds[4]],
+    );
+    assert.deepEqual(
+      avatarLeasedState.rows[0],
+      { status: 'cleaning_storage', auth_effects: 0 },
+      'avatar-invariant: Auth became available before the leased purge was terminal',
+    );
+    await admin.query('select public.worker_complete_external_effect($1,$2,$3,$4)', [
+      avatarEffect.id,
+      avatarEffect.lease_token,
+      'succeeded',
+      null,
+    ]);
+    const avatarTerminalState = await admin.query(
+      `select request.status,
+              count(effect.id) filter (where effect.kind='delete_auth_user')::integer auth_effects
+         from private.deletion_requests request
+         left join private.external_effects effect on effect.resource_id=request.id
+        where request.profile_id=$1
+        group by request.status`,
+      [profileIds[4]],
+    );
+    assert.deepEqual(
+      avatarTerminalState.rows[0],
+      { status: 'deleting_auth', auth_effects: 1 },
+      'avatar-invariant: saga did not expose Auth after the purge became terminal',
+    );
     await invokeDeletionWorker(admin, status.functionsUrl, status.publishableKey);
     const storageState = await admin.query(
       `select request.status as saga_status,
@@ -385,9 +471,18 @@ async function main() {
       'deleted',
       `Storage 404 did not reconcile through Auth and finalization: ${JSON.stringify(storageState.rows)}`,
     );
-    console.log('ok - real Storage 404 is reconciled as success before Auth deletion');
+    console.log('ok - real avatar deletion keeps Auth fenced until the purge effect is terminal');
 
     await deleteAccount(workers[0], 5, '12900000-0000-4000-8000-000000000006', '1'.repeat(64));
+    assert.equal(
+      (
+        await admin.query('select status from private.deletion_requests where profile_id=$1', [
+          profileIds[5],
+        ])
+      ).rows[0].status,
+      'requested',
+      'no-object regression: deletion did not preserve its contractual initial state',
+    );
     await admin.query('delete from auth.users where id=$1', [authIds[5]]);
     await invokeDeletionWorker(admin, status.functionsUrl, status.publishableKey);
     assert.equal(
@@ -396,7 +491,7 @@ async function main() {
       'deleted',
       'Auth not-found did not reconcile through finalization',
     );
-    console.log('ok - real Auth not-found is reconciled as success and finalizes once');
+    console.log('ok - deletion without any Storage object still reaches completed exactly once');
 
     await cleanup(admin);
     await admin.query('delete from private.job_runs where id > $1', [jobBaseline]);
@@ -409,7 +504,7 @@ async function main() {
         select 'public.profiles' as table_name, count(*)::integer as rows from public.profiles
         union all select 'public.policy_acceptances', count(*)::integer from public.policy_acceptances
         union all select 'public.privacy_requests', count(*)::integer from public.privacy_requests
-        union all select 'public.data_exports', count(*)::integer from public.data_exports
+        union all select 'private.data_exports', count(*)::integer from private.data_exports
         union all select 'private.deletion_requests', count(*)::integer from private.deletion_requests
         union all select 'private.revoked_auth_sessions', count(*)::integer from private.revoked_auth_sessions
         union all select 'private.idempotency_records', count(*)::integer from private.idempotency_records

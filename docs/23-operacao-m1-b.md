@@ -4,8 +4,8 @@ Status deste documento: operacional. Ele não altera requisitos nem substitui
 as fontes normativas `10`, `13`, `14`, `16`, `17` e `22`. Continua de
 `21-operacao-m1-a.md`.
 
-O M1-B está em andamento. Este documento registra as Fatias 1 e 2; a exportação
-governada e os controles da tela 13 continuam nas fatias seguintes.
+O M1-B está em andamento. Este documento registra as Fatias 1, 2 e 3; os
+controles da tela 13 continuam na fatia seguinte.
 
 ## Fatia 1 — `0011_worker_foundation.sql`
 
@@ -227,6 +227,276 @@ serviços descartáveis da stack local.
 - deploy, configuração de Vault hospedado, secrets reais e qualquer acesso a
   projeto remoto.
 
+## Fatia 3 — `0013_data_export_delivery.sql`
+
+### O que foi entregue
+
+| Objeto | Contrato provado |
+| --- | --- |
+| `request_data_export` | envelope append-only, idempotência antes do lock do perfil, criação atômica do pedido LGPD, export e efeito de build; canal aberto para `suspended|banned` e fechado para `deletion_pending` |
+| `private.data_exports` | tabela de serviço sem RLS ou grants, índice parcial de um export ativo por perfil, `snapshot_at` persistido na primeira aquisição e referências da `0012` atualizadas append-only |
+| `get_own_data_exports` | projeção tipada própria sem `storage_path` nem `content_digest`, isolada por titular sob papel sem `BYPASSRLS` |
+| ZIP `colete-export-v1` | sete entradas fixas, ordem lexical, JSON JCS/UTF-8, método `store`, mtime constante, CRC32, SHA-256 por entrada e digest do ZIP |
+| bucket `data-exports` | privado, 50 MiB, somente `application/zip`, path determinístico e zero policy de cliente |
+| handlers de build/purge | lock canônico perfil→export, observação do objeto antes da ação, overwrite desabilitado, comparação de digest, publicação de `ready` só depois da leitura confirmatória, build terminal convertido em purge determinístico e Auth cercado por um único predicado de Storage |
+| `consume_data_export` e Edge `data-exports` | canal para `suspended|banned`, reauth de 300 s pelo timestamp de método em `amr`, denylist antes do CAS, `ready → downloaded` antes do stream e rejeição de resposta que não seja ZIP direto |
+| `expire_data_exports` | agenda `colete_v1_expire_data_exports` no minuto 7 de cada hora e reconciliação de todo `downloaded` ainda com path pela chave estável |
+| harness externo | nove usuários GoTrue, seis objetos Storage, chamadas HTTP concorrentes, corrida build×exclusão, três retries de build interrompido, reconstrução real, queda pós-CAS, logout real pela Edge e censo dinâmico |
+
+### Decisões de implementação
+
+- As seis funções da `0012` que continham a referência textual
+  `public.data_exports` são primeiro recriadas pela `0013` a partir da definição
+  no catálogo. `delete_account` também deixa de fabricar `purged_at` para build
+  cancelado; as demais extensões explícitas ficam listadas abaixo. Isso mantém
+  as migrations entregues imutáveis e evita uma view pública de compatibilidade
+  que recolocaria path e digest no schema exposto.
+- O outcome idempotente contém exatamente `export_id` e
+  `logical_result='data_export_requested'`. A projeção `current` é relida e
+  nunca congela `queued` no livro.
+- `snapshot_at` é escolhido na primeira aquisição do build e persistido no
+  próprio export. Esse instante representa a primeira leitura efetiva dos dados;
+  retries reutilizam o valor, permitindo reconstruir e comparar o mesmo ZIP.
+- O build passou a travar perfil antes de export. A correção não recriou nem
+  alterou `delete_account` da `0012`; as seis funções anteriores continuam sendo
+  recriadas na `0013` somente pela mudança já existente de schema da tabela.
+- `privacy-requests.json` não contém o UUID técnico do pedido. O validador e a
+  projeção usam a mesma allowlist fechada de tipo, status, resposta e instantes.
+- O manifesto enumera e assina as seis entradas de conteúdo; ele próprio fica
+  fora da lista para evitar uma dependência circular de digest. O ZIP final
+  contém também `manifest.json`, totalizando sete entradas.
+- `auth.json` inclui o endereço somente quando o Auth o marcou como verificado,
+  além dos nomes ordenados dos provedores. Não inclui senha, hash, token,
+  refresh token, `session_id` ou metadado arbitrário.
+- A Edge usa `redirect: 'error'` tanto ao validar o usuário quanto ao abrir o
+  objeto. O cliente recebe bytes com `application/zip`, attachment e
+  `private, no-store`; nunca recebe URL assinada, path ou digest.
+- Conclusão, erro e cancelamento do leitor convergem para
+  `delete_data_export:<export_id>`. Se o callback não ocorrer, a agenda horária
+  cria a mesma chave para todo `downloaded` ainda com path.
+- Um retry de build que encontra export `failed|expired`, perfil em exclusão ou
+  `cleanup_pending` converge para o mesmo purge mesmo sem path publicado. O
+  handler sonda `exports/<profile_id>/<export_id>.zip`, apaga quando presente,
+  confirma a ausência e só então conclui a reconciliação. A ausência inicial do
+  objeto é o mesmo sucesso reconciliado.
+- `private.deletion_has_pending_storage(uuid)` é agora a única resposta para
+  “ainda falta Storage nesta saga?”. A lista
+  `build_data_export|delete_data_export|delete_storage_object` aparece uma vez
+  nessa função; tanto `reconcile_deletion_request` quanto a guarda de aquisição
+  de Auth a reutilizam, inclusive quando a saga já alcançou `deleting_auth`.
+  `pending|leased|failed_retryable` de qualquer dos três kinds mantém o fence.
+- Build `dead` muda o export para `failed`, libera o índice parcial para um novo
+  pedido do titular e cria `delete_data_export:<export_id>`. O handler sonda o
+  path determinístico mesmo sem `storage_path`; somente ausência confirmada
+  grava `purged_at`.
+- A política terminal de todo purge de Storage é única: a saga avança. Segurar
+  `dead` em `cleaning_storage` seria um travamento permanente depois das oito
+  tentativas. A coluna booleana durável
+  `deletion_requests.has_operational_failure` registra o evento sem texto, path
+  ou PII. `finalize_deletion` continua zerando `last_error_code`, mas não apaga
+  o booleano; a projeção de cinco campos combina o marcador com retry vivo.
+  Quando a ausência não foi confirmada, o export fica `failed`, conserva o path
+  apenas na tabela privada para recuperação e mantém `purged_at` nulo.
+- `delete_account` não marca mais `purged_at` ao cancelar `queued|building`:
+  path determinístico desconhecido pelo banco ainda exige a sonda de purge. A
+  constraint de estado distingue falha terminal de purge confirmado.
+- A classificação HTTP é semântica em todos os handlers de Storage/Auth:
+  `404` é ausência reconciliada; `401`, `403`, `429`, timeout, rede e 5xx são
+  retryable; somente requisição intrinsecamente malformada é permanente.
+- Lista completa de funções anteriores recriadas pela `0013` nesta versão:
+  da `0011`, `public.worker_acquire_external_effect(text[])`,
+  `public.worker_begin_job(text)`,
+  `public.worker_execute_database_job(bigint)` e
+  `private.invoke_worker_cron(text)`; da `0012`,
+  `private.deletion_request_projection(uuid)`,
+  `public.get_own_deletion_request()`,
+  `private.reconcile_deletion_request(uuid)`,
+  `public.delete_account(uuid,uuid,uuid,text,integer,integer)`,
+  `public.worker_get_deletion_effect_target(uuid,uuid)`,
+  `public.worker_confirm_deletion_effect(uuid,uuid)`,
+  `public.finalize_deletion(uuid)` e
+  `private.sync_deletion_failure_from_effect()`.
+- Logout não toca o artefato. O harness chama `revoke_current_session` pela
+  Edge real e confirma que o download posterior recebe 401 enquanto a linha
+  continua `ready` e com path.
+- `service_role` executa 18 RPCs públicas nominais no total, nove com prefixo
+  `worker_`, e continua sem privilégio direto nas tabelas da aplicação.
+
+### Provas e números medidos
+
+Depois de recriar o banco somente por migrations, `npm run db:test` executou
+**802 asserções pgTAP em 12 arquivos**. A suíte prova os cinco estados de export
+ativo, snapshot persistido, canal de conta suspensa/banida, bloqueio de
+`deletion_pending`, CAS one-shot, negação de sessão revogada antes de alterar a
+linha, backoff futuro de Storage rate-limited, build não terminal cercando Auth,
+build `dead` liberando novo pedido e criando purge, purge conhecido `dead`
+chegando a `completed` sem `purged_at`, marcador durável e censos negativos,
+além das garantias anteriores.
+
+`npm test` executou **107 testes em 16 arquivos**. Os testes novos cobrem bytes
+determinísticos, remoção do UUID de pedido, cinco classes de campo proibido,
+reauth velha/ausente pela Edge completa, rejeição de corpo que não seja ZIP,
+headers sem `Location`, instrumentação da emissão de signed URL no cliente real
+de Storage, purge em conclusão/cancelamento/erro do stream e a classificação
+real de `429` pela Edge como `retryable_failure`.
+
+`npm run db:test:export` criou **nove usuários Auth**, executou **sete uploads
+Storage** ao longo das jornadas e
+abriu **duas requisições HTTP concorrentes** para o mesmo export: exatamente uma
+recebeu 200 e a outra 410. Duas aquisições do alvo real produziram bytes
+idênticos e digest
+`70f384cf8105b6b3f5aaac5a94a995b6f5f5ae953b3d57e028eb79a73632bbae`.
+Duas conexões independentes reproduziram a ordem adversarial do build e da
+exclusão sem `40P01`; a exclusão venceu com perfil `deletion_pending` e export
+`failed`. Cancelar o corpo antes de ler bytes da aplicação preservou o CAS
+`downloaded` e enfileirou um único purge.
+
+Três jornadas adicionais interromperam o build depois da escolha do path e antes
+de `worker_publish_data_export`: exclusão da conta com ZIP presente, expiração
+com ZIP presente e cancelamento sem upload. Os três retries enfileiraram e
+executaram o purge, sondaram o path determinístico e deixaram path/digest nulos;
+os dois objetos existentes foram apagados e o objeto ausente convergiu sem erro.
+Na jornada de exclusão, o avatar foi reconciliado primeiro e a saga permaneceu
+em `cleaning_storage` por causa do build `failed_retryable`; nenhum
+`delete_auth_user` ficou adquirível. O build então morreu, criou o purge pelo
+path determinístico, o ZIP foi removido e a saga chegou a `completed`. Outra
+jornada deixou o purge de path conhecido em `dead` e também chegou a
+`completed`, com marcador verdadeiro, erro textual redigido, path somente na
+tabela privada e `purged_at` nulo. O harness de exclusão confirmou em ambos os
+lados da mudança que uma conta sem objeto continua chegando a `completed` uma
+única vez.
+
+O censo dinâmico mediu todas as **46 tabelas BASE TABLE** de `public`, `private`,
+`auth` e `storage` antes e depois do harness, na execução completa:
+
+| Tabela | Antes → depois (delta) |
+| --- | --- |
+| `auth.audit_log_entries` | 14 → 41 (+27, resíduo aceito do GoTrue) |
+| `auth.custom_oauth_providers` | 0 → 0 |
+| `auth.flow_state` | 0 → 0 |
+| `auth.identities` | 0 → 0 |
+| `auth.instances` | 0 → 0 |
+| `auth.mfa_amr_claims` | 0 → 0 |
+| `auth.mfa_challenges` | 0 → 0 |
+| `auth.mfa_factors` | 0 → 0 |
+| `auth.oauth_authorizations` | 0 → 0 |
+| `auth.oauth_client_states` | 0 → 0 |
+| `auth.oauth_clients` | 0 → 0 |
+| `auth.oauth_consents` | 0 → 0 |
+| `auth.one_time_tokens` | 0 → 0 |
+| `auth.refresh_tokens` | 0 → 0 |
+| `auth.saml_providers` | 0 → 0 |
+| `auth.saml_relay_states` | 0 → 0 |
+| `auth.schema_migrations` | 77 → 77 |
+| `auth.sessions` | 0 → 0 |
+| `auth.sso_domains` | 0 → 0 |
+| `auth.sso_providers` | 0 → 0 |
+| `auth.users` | 0 → 0 |
+| `auth.webauthn_challenges` | 0 → 0 |
+| `auth.webauthn_credentials` | 0 → 0 |
+| `private.allowed_proof_mime_types` | 4 → 4 |
+| `private.app_limits` | 13 → 13 |
+| `private.data_exports` | 0 → 0 |
+| `private.deletion_requests` | 0 → 0 |
+| `private.external_effects` | 0 → 0 |
+| `private.idempotency_records` | 0 → 0 |
+| `private.job_runs` | 0 → 0 |
+| `private.policy_documents` | 0 → 0 |
+| `private.retention_runs` | 0 → 0 |
+| `private.revoked_auth_sessions` | 0 → 0 |
+| `public.policy_acceptances` | 0 → 0 |
+| `public.privacy_requests` | 0 → 0 |
+| `public.profiles` | 0 → 0 |
+| `storage.buckets` | 1 → 1 |
+| `storage.buckets_analytics` | 0 → 0 |
+| `storage.buckets_vectors` | 0 → 0 |
+| `storage.iceberg_namespaces` | 0 → 0 |
+| `storage.iceberg_tables` | 0 → 0 |
+| `storage.migrations` | 65 → 65 |
+| `storage.objects` | 0 → 0 |
+| `storage.s3_multipart_uploads` | 0 → 0 |
+| `storage.s3_multipart_uploads_parts` | 0 → 0 |
+| `storage.vector_indexes` | 0 → 0 |
+
+As contraprovas foram executadas em clone temporário isolado no commit
+`656f288`. Falharam literalmente com `PROFILE_SUSPENDED`, `FORBIDDEN`,
+`have: 2 / want: 1` para os snapshots, ausência da coluna persistida,
+`privacy request ids stay outside the closed export allowlist`,
+`expected [Function] to throw an error`, `expected 200 to be 410` para signed
+URL e `build_data_export died with SQLSTATE 40P01`. A regeneração de tipos
+produziu diff de 112 linhas (55 inserções, 57 remoções). Os testes de reauth
+velha/ausente, erro de stream, censo dinâmico, queda zero-byte e cinco estados
+ativos são regressões de cobertura: passavam em `656f288` quando o comportamento
+correto já existia, e não foram relatados como contraprovas.
+
+Os três testes de órfão foram aplicados separadamente a um clone temporário de
+`e327865` e falharam, respectivamente, com as mensagens literais
+`cancelled-after-upload: build retry did not enqueue deterministic purge`,
+`expired-after-upload: build retry did not enqueue deterministic purge` e
+`cancelled-without-upload: build retry did not enqueue deterministic purge`.
+A contraprova de signed URL, por outro lado, **passou em `e327865`** (8/8 no
+arquivo), porque é regressão de cobertura e a implementação já fazia download
+direto. No mesmo clone, uma variante que emitiu em paralelo e ignorou uma signed
+URL, mantendo resposta 200/ZIP sem `Location`, falhou literalmente com
+`expected "vi.fn()" to not be called at all, but actually been called 1 times`;
+a chamada observada foi
+`/storage/v1/object/sign/data-exports/exports/profile/export.zip`.
+
+As novas contraprovas foram aplicadas em clone temporário isolado de `a093a24`.
+O ZIP órfão falhou literalmente com
+`AssertionError [ERR_ASSERTION]: export-orphan: delete_auth_user became acquirable while the crashed build could still reveal an object`,
+mostrando um efeito `delete_auth_user` adquirido em vez de `null`. Uma segunda
+contraprova focada no estado falhou com
+`export-orphan: deletion left cleaning_storage before deterministic purge completed`,
+`actual: 'requested'` e `expected: 'cleaning_storage'`. O avatar falhou literalmente com
+`Failed test 41: "a leased avatar purge keeps the saga in cleaning_storage after absence is confirmed"`,
+`have: deleting_auth` e `want: cleaning_storage`. O controle sem objeto passou
+em `a093a24` com
+`ok - real Auth not-found is reconciled as success and finalizes once`, como
+esperado para uma regressão de comportamento que já era correto; por isso não
+existe mensagem de falha honesta contra esse commit. A prova de `dead` falhou no
+mesmo clone com `have: failed_retryable` e `want: deleting_auth`. No estado
+corrigido, as três jornadas chegam a `completed`.
+
+As seis contraprovas desta revisão foram então aplicadas separadamente a um
+clone temporário isolado de `ae8cfe2`. Elas falharam literalmente com:
+
+1. `export-orphan: saga advanced after avatar purge while build was retryable`,
+   com `actual: { status: 'deleting_auth', photo_url: null }` e
+   `expected: { status: 'cleaning_storage', photo_url: null }`;
+2. o retorno real de Storage `429` produziu `p_result: 'permanent_failure'` em
+   vez de `p_result: 'retryable_failure'`;
+3. `terminal build did not enqueue deterministic purge`, com `actual:
+   undefined` em vez do `export_id` esperado;
+4. `terminal build left export active instead of failed`, com `actual:
+   'building'` e `expected: 'failed'`;
+5. `known-path-dead-purge: saga did not advance after the purge effect became
+   terminal`, com `actual: 'cleaning_storage'` e `expected: 'deleting_auth'`;
+6. `completed deletion lost durable operational failure marker`, com `false !==
+   true`.
+
+O controle sem qualquer objeto Storage passou nos dois lados da mudança com
+`ok - deletion without any Storage object still reaches completed exactly once`;
+ele é regressão, não contraprova.
+
+Os harnesses herdados também passaram: idempotência com 25 conexões, worker com
+três conexões e exclusão com 13 conexões. `verify:app` mediu 14 rotas estáticas,
+`scan:docs` confirmou 22 arquivos e D1–D62/N1–N28/25 telas,
+`scan:secrets` verificou 188 arquivos, e `npm audit --audit-level=high` terminou
+sem vulnerabilidade alta (13 vulnerabilidades moderadas reportadas pelo registry,
+sem alteração de dependências nesta fatia).
+
+Nenhum projeto Supabase remoto, deploy, Vault hospedado ou segredo real foi
+acessado. Auth, Storage, Edge e Postgres exercitados são exclusivamente os
+serviços descartáveis da stack local.
+
+### O que continua fora
+
+- controles de exportação e exclusão da tela 13, pertencentes à Fatia 4;
+- validação jurídica da allowlist e designação do responsável operacional,
+  gates externos anteriores ao convite do beta;
+- deploy, configuração remota, secrets reais e domínios futuros do inventário.
+
 ## Manifesto de especificação
 
 Este documento fica fora de `docs/spec-manifest.sha256`, pelo mesmo precedente
@@ -242,6 +512,7 @@ npm run db:test:idempotency
 npm run db:test:gateway
 npm run db:test:worker
 npm run db:test:deletion
+npm run db:test:export
 npm run verify:app
 npm run scan:docs
 npm run scan:secrets

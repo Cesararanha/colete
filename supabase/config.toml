@@ -418,6 +418,11 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/worker/index.ts"
 
+[functions.data-exports]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/data-exports/index.ts"
+
 [analytics]
 enabled = true
 port = 54327
