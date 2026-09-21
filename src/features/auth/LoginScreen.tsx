@@ -14,6 +14,7 @@ import { api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { spacing } from '@/theme/spacing';
 
+import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage, fieldMessage } from './messages';
@@ -34,7 +35,12 @@ export function LoginScreen() {
 
   const login = useMutation({
     mutationFn: (values: LoginValues) => api.signInWithPassword(values.email, values.password),
-    onSuccess: () => router.replace('/perfil'),
+    onSuccess: () => {
+      // Whoever signs in here owns this device now; a protocol kept by an
+      // earlier account must not shadow their own gate.
+      deletionProtocolStore.clear();
+      router.replace('/perfil');
+    },
   });
 
   const submit = handleSubmit(

@@ -4,8 +4,8 @@ Status deste documento: operacional. Ele não altera requisitos nem substitui
 as fontes normativas `10`, `13`, `14`, `16`, `17` e `22`. Continua de
 `21-operacao-m1-a.md`.
 
-O M1-B está em andamento. Este documento registra as Fatias 1, 2 e 3; os
-controles da tela 13 continuam na fatia seguinte.
+Este documento registra as quatro fatias do M1-B: as três migrations e os
+controles da tela 13, que fecham a entrega visível do marco.
 
 ## Fatia 1 — `0011_worker_foundation.sql`
 
@@ -497,6 +497,188 @@ serviços descartáveis da stack local.
   gates externos anteriores ao convite do beta;
 - deploy, configuração remota, secrets reais e domínios futuros do inventário.
 
+## Fatia 4 — controles da tela 13, sem migration
+
+### O que foi entregue
+
+| Objeto | Contrato provado |
+| --- | --- |
+| `DataExportCard` | os cinco estados de `22` §6 derivados só da projeção `get_own_data_exports`: `queued|building` → **Preparando seus dados** sem download; `ready` válido → **Pronto para baixar** com validade absoluta e aviso de tentativa única; `expired` → **Export expirado** com **Gerar novo export**; `downloaded|cleanup_pending` → **Download já consumido**, novo export só depois de `purged_at`; `failed` → erro honesto, novo pedido e suporte quando a falha se repete |
+| `api.requestDataExport` / `api.deleteAccount` | intenções do gateway com `request_id` único por intenção consciente, conservado em retry de transporte e em `IDEMPOTENCY_WAIT_TIMEOUT`; recusa de negócio encerra a intenção e a próxima ação cria outro ID |
+| `api.downloadDataExport` | uma única tentativa contra `GET /data-exports/:id/content`, sem retry automático, sem cache (`no-store`), sem URL assinada; bytes ficam em memória e vão ao navegador por object URL revogada; `DownloadInterruptedError` nunca reabre o stream |
+| reautenticação no mesmo lugar | `RECENT_REAUTH_REQUIRED` real da Edge abre o campo de senha dentro do card, foco no campo, e o sucesso retoma o download do mesmo `export_id` |
+| `DeleteAccountCard` | primeiro passo explica anonimização, perda imediata, limpeza assíncrona e bloqueios; primeira confirmação abre o resumo; segunda exige checkbox explícito e botão destrutivo **Excluir minha conta**; sem a caixa, o botão continua focável, descreve o requisito por `aria-describedby`, anuncia o erro e move o foco à caixa; `FINANCIAL_SUBSTITUTE_REQUIRED` mostra a ação normativa sem contorno |
+| `DeletionShellScreen` | shell restrito com protocolo, `requested|cleaning_storage|deleting_auth|finalizing` como **Exclusão em andamento**, `failed_retryable`/`has_operational_failure` como **Exclusão com atraso** com suporte, `completed` como concluído, e **Pedido registrado** quando o status deixa de ser verificável; nenhum card de domínio permanece |
+| `AuthGateScreen` | ordem sessão → `get_own_deletion_request` → perfil; perfil ausente nunca significa "complete seu perfil" enquanto houver pedido; protocolo conservado localmente (`colete.deletion-protocol.v1`, somente `id` e `requested_at`) sustenta o shell sem sessão e sem recriar sessão |
+| `AppCheckbox` | controle `role="checkbox"` de 48 px, alterna por toque, Enter e Espaço, erro associado e anunciado |
+| `e2e/m1-b-privacy.spec.ts` | as duas jornadas contra Auth, Edge, worker agendado e Storage locais reais, com as duas provas de navegador de `22` §6 e passada axe nos dois temas |
+
+### Decisões de implementação
+
+- Nenhuma migration: a fatia lê apenas as duas projeções tipadas da `0012` e da
+  `0013` e escreve somente pelo gateway. Os schemas Zod de
+  `src/lib/privacy-schema.ts` são `strict`: uma linha que trouxesse path,
+  digest, Auth ID ou tentativa seria recusada antes de chegar a uma tela.
+- `ready` com `expires_at` no passado, antes da varredura horária, é mostrado
+  como **Export expirado** aguardando limpeza, com **Atualizar status** e sem
+  **Gerar novo export**: o índice parcial ainda conta a linha como ativa e o
+  pedido receberia `EXPORT_ALREADY_PENDING`. `EXPORT_ALREADY_PENDING` nunca é
+  apresentado como falha: a tela relê a projeção e mostra o estado do export
+  existente.
+- `cleanup_pending` só nasce de expiração ou cancelamento, nunca de download,
+  mas a tabela normativa manda apresentá-lo como consumido; o texto do estado
+  diz explicitamente que a tentativa única pode ter sido usada por download,
+  por queda de conexão ou pelo fim do prazo.
+- O botão de confirmação da exclusão não usa `disabled` nem `aria-disabled`:
+  `react-native-web` sobrescreve `aria-disabled` no `Pressable` e `disabled`
+  tira o botão do teclado. A regra de `15` ("botão sempre habilitado; com erro,
+  foco vai ao primeiro campo inválido") é cumprida com texto adjacente
+  associado e foco na caixa.
+- A limpeza do protocolo local acontece nos pontos explícitos de nova
+  autenticação (`LoginScreen`, `VerifyCodeScreen`) e quando um perfil válido
+  volta a existir. `SIGNED_IN` do supabase-js não serve como sinal: ele também
+  dispara ao refocar a aba, e apagou o protocolo no meio da prova.
+- O canal de suporte continua sendo a pergunta 2 de `22` §8. A tela usa a
+  formulação neutra "procure o canal de suporte do Colete", com o rótulo em um
+  único ponto (`pt.support.channel`), sem e-mail, link, telefone ou formulário
+  inventados.
+- Dois defeitos da Fatia 3 impediam a jornada 1 e foram corrigidos aqui, com
+  contraprova e teste unitário próprios, porque não exigiam decisão de contrato:
+  `rpcParameters` do gateway não tinha `case 'request_data_export'` e a operação
+  respondia `500 INTERNAL` pela Edge real; e os providers de Storage do worker
+  só reconheciam `404` como ausência, enquanto o Storage local responde `400`
+  com corpo `{"statusCode":"404","error":"not_found"}`, o que matava
+  `build_data_export` e `delete_data_export` como `STORAGE_UNAVAILABLE`
+  permanente na primeira tentativa. O `exists` reprova um `400` de HEAD com um
+  `GET` de um byte antes de decidir. A revisão independente da Fatia 4 extraiu
+  esse adaptador para `_shared/worker-providers.ts`: o worker e o harness da
+  Fatia 3 agora executam exatamente a mesma implementação, em vez do antigo
+  `exists` próprio que convertia qualquer `400 || 404` em ausência.
+
+### Provas e números medidos
+
+`npm run db:reset` recriou o banco em 28,6 s somente pelas migrations e
+`npm run db:test` executou **802 asserções pgTAP em 12 arquivos**, o mesmo
+número da Fatia 3, como exige uma fatia sem migration.
+
+`npm test` executou **140 testes em 19 arquivos** (+33 testes, +3 arquivos):
+os seis operations do gateway chegam à RPC com ator e HMAC e nunca com
+parâmetros indefinidos; `404`, `400 error:not_found` e `400 statusCode:404` do
+Storage viram ausência reconciliada, os dois últimos com a sequência `HEAD` →
+`GET+range`; `400 permission_denied` é permanente; `401`, `403`, `429`, `500`,
+falha de rede e erro desconhecido são retryable. Os cinco estados de apresentação do
+export, inclusive `ready` vencido antes da varredura, `downloaded|cleanup_pending`
+com e sem `purged_at` e `failed` repetido; o protocolo local recusa qualquer
+campo além de `id` e `requested_at`; e os cinco códigos de `13` §5.3 têm texto
+normativo.
+
+`npm run test:privacy:web` executou as duas jornadas em **9,7 s** contra a stack
+local (`mobile-chromium`; `wide-chromium` cobre a tela 13 pelo `m1-a`). Na
+jornada de export, a página emitiu **21 requisições** à API (5 ao gateway, 11 a
+RPCs de projeção, 3 ao endpoint de download), o worker real construiu e
+publicou dois exports e o navegador recebeu um ZIP de **2331 bytes** começando
+por `PK`. Na jornada de exclusão foram **12 requisições** (5 ao gateway, 5 a
+projeções) e o worker real removeu o usuário Auth e finalizou a saga.
+
+Prova 1 (corpo nunca contém identidade): as 33 requisições capturadas depois da
+conclusão do perfil foram inspecionadas uma a uma; nenhuma URL ou corpo contém
+Auth ID, `profile_id`, `session_id` de qualquer sessão da conta, e-mail, nome,
+`exports/<profile_id>`, `.zip`, `input_hmac`, `storage_path`, `content_digest`
+nem um hexadecimal de 64 dígitos; todo corpo para `request_data_export` e
+`delete_account` tem exatamente a chave `request_id`; toda chamada de projeção
+vai com corpo vazio; o download é `GET` sem corpo.
+
+Prova 2 (queda depois de iniciar não dispara retry): o segundo export foi
+baixado com o Storage respondendo pela Edge real e a conexão do navegador
+derrubada depois do CAS (`route.fetch` + `abort('connectionreset')`). A tela
+mostrou "A transferência foi interrompida" e **Download já consumido**, o
+banco ficou `downloaded`, o endpoint recebeu **exatamente 1** requisição para
+aquele export mesmo 1,5 s depois, nenhum evento de download ocorreu e o botão
+**Baixar agora** não voltou nem após recarregar. A prova de reauth usou a Edge
+real: com `amr` envelhecido para 10 min por `auth.mfa_amr_claims` e token
+renovado, a primeira chamada recebeu `403 RECENT_REAUTH_REQUIRED` sem alterar a
+linha `ready`; a senha confirmada no card retomou o mesmo `export_id` e a
+segunda chamada entregou o arquivo.
+
+Retry de transporte: o pedido inicial de export atravessou **4 corpos com o
+mesmo `request_id`** (3 tentativas automáticas abortadas + a manual que
+venceu); o pedido consciente seguinte nasceu com outro ID. Na exclusão, **4
+corpos** compartilharam o ID através da queda e da recusa
+`FINANCIAL_SUBSTITUTE_REQUIRED`, e a confirmação real veio com ID novo. O
+arquivo não deixou rastro: zero entradas de `/functions/` no Cache API e nenhum
+valor de `localStorage` menciona o `export_id`.
+
+Acessibilidade: a passada axe rodou **seis vezes** sem violação (perfil com os
+dois cards em claro e escuro, resumo da exclusão, shell da exclusão em claro e
+escuro), todos os alvos visíveis (links, botões, campos e a caixa de seleção)
+mediram ≥ 44 × 44 px e nenhuma página apresentou rolagem horizontal. Com zoom
+CSS de 200%, as ações das duas jornadas permaneceram visíveis e a página
+continuou sem rolagem horizontal. Foco gerenciado provado: campo de senha após
+`RECENT_REAUTH_REQUIRED`, resumo final ao abrir a segunda etapa e caixa de
+seleção após tentar confirmar sem marcá-la. A ordem de tabulação percorreu senha
+→ mostrar senha → confirmar → cancelar e caixa → confirmar → voltar, sem
+armadilha; Espaço alterna a caixa pelo teclado. Os dois erros têm uma única live
+region, `id` estável, `aria-invalid=true` e `aria-describedby` que sobrevive a
+foco/desfoco; a senha valida no blur e em tempo real depois do primeiro erro.
+A recusa de senha incorreta usa a mesma associação e devolve o foco ao campo,
+sem criar um segundo alerta geral.
+A árvore ARIA automatizada prova essa estrutura, mas não substitui nem é
+registrada como passada de VoiceOver, TalkBack ou NVDA.
+
+`npm run test:auth:web` continuou verde (8 testes, 9,9 s) depois de escopar
+quatro localizadores `status`/`alert` ao card correspondente: a live region
+do export passou a existir na mesma página. Os harnesses herdados passaram:
+idempotência, gateway, worker, exclusão e export. `verify:app` mediu 14 rotas
+estáticas, `scan:docs` confirmou 22 arquivos, `scan:secrets` verificou 203
+arquivos e `npm audit --audit-level=high` terminou sem vulnerabilidade alta (13
+moderadas, sem alteração de dependências).
+
+Contraprovas: sem o `case 'request_data_export'`, `gateway.test.ts` falhou em
+`request_data_export reaches its RPC with the actor and HMAC, never undefined`
+(6/7), e a Edge real respondeu literalmente
+`{"error":{"code":"INTERNAL","message":"The request could not be completed."}}`;
+sem a classificação do `400 not_found`, `worker-provider.test.ts` falhou em
+`reads a Storage 400 whose body says not_found as reconciled absence` e o
+worker real deixou `build_data_export|dead|1|STORAGE_UNAVAILABLE` com o export
+`failed`. A revisão independente executou mais cinco mutações: `404` tratado
+como erro e os dois formatos de `400 not_found` recusados produziram
+`expected [] to have a length of 1 but got 0`; `permission_denied` tratado como
+ausência produziu `expected confirmations length 0, received 1`; tornar
+`401|403|429|500` permanentes produziu o diff
+`retryable_failure → permanent_failure` nos quatro testes; e tornar falha de
+rede/erro desconhecido permanentes produziu o mesmo diff nos dois testes. Antes
+de trocar `SIGNED_IN` pelos pontos explícitos de login, a
+jornada 2 falhou após `page.reload()` mostrando **Complete seu perfil** em vez
+de **Pedido registrado**.
+
+Nenhum projeto Supabase remoto, deploy, Vault hospedado ou segredo real foi
+acessado.
+
+### Divergências encontradas e não corrigidas
+
+- `completed` é inobservável pelo titular: `finalize_deletion` zera
+  `profiles.auth_user_id` no mesmo commit em que grava `completed`, e
+  `get_own_deletion_request` faz `join` por `auth_user_id = auth.uid()`. A
+  projeção devolve conjunto vazio a partir daí; a tela implementa o estado
+  concluído, mas na prática o titular vê **Pedido registrado** (não
+  verificável). `22` §6 promete `completed` como concluído.
+- O e2e precisa apagar a linha de `private.job_runs` do minuto corrente entre
+  acordar o worker duas vezes: a agenda de `process_external_effects` é um run
+  por minuto, e nenhuma saga de teste cabe nessa cadência.
+- O edge runtime local não recarregou `worker/index.ts` com a política
+  `per_worker`; foi preciso `docker restart supabase_edge_runtime_colete`. Na
+  CI a stack nasce limpa.
+
+### O que continua fora
+
+- Google OAuth, vínculo/desvínculo e `avatars`/`photo_url`, mesmo com a tela
+  13 de `11` mencionando o vínculo: contratos independentes por `22` §7;
+- textos legais, aceite, rate limit do gateway, grupos, ownership e casos
+  financeiros;
+- entrega do arquivo em alvo nativo: `deliverBlobToBrowser` é web; sem
+  `document` a função devolve `false` e a tentativa única já foi consumida;
+- o canal real de suporte e o responsável operacional.
+
 ## Manifesto de especificação
 
 Este documento fica fora de `docs/spec-manifest.sha256`, pelo mesmo precedente
@@ -514,12 +696,20 @@ npm run db:test:worker
 npm run db:test:deletion
 npm run db:test:export
 npm run verify:app
+npm run build:web:auth-e2e
+npm run test:auth:web
+npm run test:privacy:web
 npm run scan:docs
 npm run scan:secrets
 npm run audit:high
 git diff --check
 ```
 
-O job `Database security` da CI executa o harness do worker depois do gateway.
+O job `Database security` da CI executa **seis passos de banco**: pgTAP,
+idempotência, gateway, worker, exclusão e exportação. Depois instala o Chromium
+e executa os fluxos de autenticação e dos controles da tela 13. A auditoria de
+scripts confirmou que todos os dez scripts de teste do `package.json` aparecem
+no workflow: `test`, os três `test:*`, `db:test` e os cinco `db:test:*`; não há
+ausência a justificar.
 Os cinco nomes de job continuam `App quality`, `PWA export`,
 `Database security`, `Repository guardrails` e `PWA smoke`.

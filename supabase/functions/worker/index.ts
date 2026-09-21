@@ -2,12 +2,7 @@
 // job. The database derives the slot and all effect identifiers; the body is
 // deliberately ignored.
 
-import {
-  isWorkerJob,
-  providerHttpError,
-  runScheduledJob,
-  timingSafeEqualText,
-} from '../_shared/worker.ts';
+import { isWorkerJob, runScheduledJob, timingSafeEqualText } from '../_shared/worker.ts';
 import { accountDeletionHandlers } from '../_shared/deletion.ts';
 import type {
   BegunJob,
@@ -19,6 +14,7 @@ import type {
 import type { DeletionEffectTarget, DeletionRpc } from '../_shared/deletion.ts';
 import { dataExportBuildHandler } from '../_shared/data-export.ts';
 import type { ExportBuildTarget, ExportRpc } from '../_shared/data-export.ts';
+import { createDeletionProviders, createExportProviders } from '../_shared/worker-providers.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -129,138 +125,6 @@ function exportRpc(supabaseUrl: string, secretKey: string): ExportRpc {
   };
 }
 
-function providerHeaders(secretKey: string): Record<string, string> {
-  const headers: Record<string, string> = { apikey: secretKey };
-  // Legacy service_role keys are JWTs and belong in both headers. Modern
-  // sb_secret keys authenticate through apikey; sending one as Bearer makes
-  // Storage/Auth try to parse a non-JWT compact token.
-  if (!secretKey.startsWith('sb_secret_')) {
-    headers.Authorization = `Bearer ${secretKey}`;
-  }
-  return headers;
-}
-
-function encodedObjectPath(bucket: string, path: string): string {
-  return [bucket, ...path.split('/')].map(encodeURIComponent).join('/');
-}
-
-function deletionProviders(supabaseUrl: string, secretKey: string) {
-  const headers = providerHeaders(secretKey);
-  return {
-    storage: {
-      exists: async (bucket: string, path: string) => {
-        const response = await fetch(
-          `${supabaseUrl}/storage/v1/object/${encodedObjectPath(bucket, path)}`,
-          { method: 'HEAD', headers },
-        );
-        if (response.status === 404) return false;
-        if (response.ok) return true;
-        throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
-      },
-      remove: async (bucket: string, path: string) => {
-        const response = await fetch(
-          `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}`,
-          {
-            method: 'DELETE',
-            headers: { ...headers, 'content-type': 'application/json' },
-            body: JSON.stringify({ prefixes: [path] }),
-          },
-        );
-        if (!response.ok && response.status !== 404) {
-          throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
-        }
-      },
-    },
-    auth: {
-      exists: async (authUserId: string) => {
-        const response = await fetch(
-          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
-          { headers },
-        );
-        if (response.status === 404) return false;
-        if (response.ok) return true;
-        throw providerHttpError('AUTH_UNAVAILABLE', response.status);
-      },
-      remove: async (authUserId: string) => {
-        const response = await fetch(
-          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
-          { method: 'DELETE', headers },
-        );
-        if (!response.ok && response.status !== 404) {
-          throw providerHttpError('AUTH_UNAVAILABLE', response.status);
-        }
-      },
-    },
-  };
-}
-
-function exportProviders(supabaseUrl: string, secretKey: string) {
-  const headers = providerHeaders(secretKey);
-  const objectUrl = (path: string) =>
-    `${supabaseUrl}/storage/v1/object/${encodedObjectPath('data-exports', path)}`;
-  return {
-    storage: {
-      read: async (path: string) => {
-        const response = await fetch(objectUrl(path), { headers });
-        if (response.status === 404) return null;
-        if (!response.ok) throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
-        return new Uint8Array(await response.arrayBuffer());
-      },
-      upload: async (path: string, bytes: Uint8Array) => {
-        const response = await fetch(objectUrl(path), {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'content-type': 'application/zip',
-            'cache-control': 'no-store',
-            'x-upsert': 'false',
-          },
-          body: bytes,
-        });
-        if (!response.ok) throw providerHttpError('STORAGE_UPLOAD_FAILED', response.status);
-      },
-      remove: async (path: string) => {
-        const response = await fetch(`${supabaseUrl}/storage/v1/object/data-exports`, {
-          method: 'DELETE',
-          headers: { ...headers, 'content-type': 'application/json' },
-          body: JSON.stringify({ prefixes: [path] }),
-        });
-        if (!response.ok && response.status !== 404) {
-          throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
-        }
-      },
-    },
-    auth: {
-      projection: async (authUserId: string) => {
-        const response = await fetch(
-          `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`,
-          { headers },
-        );
-        if (!response.ok) throw providerHttpError('AUTH_UNAVAILABLE', response.status);
-        const user = (await response.json()) as {
-          email_confirmed_at?: unknown;
-          identities?: Array<{ provider?: unknown }>;
-        };
-        const providers = [
-          ...new Set(
-            (user.identities ?? [])
-              .map((identity) => identity.provider)
-              .filter((provider): provider is string => typeof provider === 'string'),
-          ),
-        ].sort();
-        const raw = user as typeof user & { email?: unknown };
-        return {
-          email:
-            typeof user.email_confirmed_at === 'string' && typeof raw.email === 'string'
-              ? raw.email
-              : null,
-          providers,
-        };
-      },
-    },
-  };
-}
-
 Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method !== 'POST') return jsonResponse(405, { error: 'METHOD_NOT_ALLOWED' });
 
@@ -294,9 +158,9 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // Self-hosted/local Storage versions may predate sb_secret support even
     // while PostgREST accepts it. Prefer the legacy service-role JWT for the
     // provider APIs when the platform supplies both credentials.
-    deletionProviders(supabaseUrl, serviceRoleJwt ?? secretKey),
+    createDeletionProviders(supabaseUrl, serviceRoleJwt ?? secretKey),
   );
-  const exportDependencies = exportProviders(supabaseUrl, serviceRoleJwt ?? secretKey);
+  const exportDependencies = createExportProviders(supabaseUrl, serviceRoleJwt ?? secretKey);
   handlers.build_data_export = dataExportBuildHandler(
     exportRpc(supabaseUrl, secretKey),
     exportDependencies.storage,

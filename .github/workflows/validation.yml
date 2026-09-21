@@ -119,12 +119,16 @@ jobs:
         run: npm run db:test:worker
       - name: Run the account deletion commit and concurrency harness
         run: npm run db:test:deletion
+      - name: Run the data export delivery and reconciliation harness
+        run: npm run db:test:export
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build
         run: npm run build:web:auth-e2e
       - name: Run the real authentication browser flow
         run: npm run test:auth:web
+      - name: Run the screen 13 privacy controls browser flow
+        run: npm run test:privacy:web
       - name: Stop the disposable local stack
         if: always()
         run: npm run db:stop

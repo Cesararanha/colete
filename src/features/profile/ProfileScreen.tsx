@@ -14,6 +14,8 @@ import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
+import { DataExportCard } from './DataExportCard';
+import { DeleteAccountCard } from './DeleteAccountCard';
 import { ProfileDataForm } from './ProfileDataForm';
 import { profileErrorMessage } from './profile-errors';
 import { ProfilePasswordForm } from './ProfilePasswordForm';
@@ -116,6 +118,10 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
           <AppButton label={pt.common.retry} onPress={() => logout.mutate()} variant="secondary" />
         ) : null}
       </AppCard>
+
+      <DataExportCard email={session.user.email ?? null} />
+
+      <DeleteAccountCard />
     </AuthenticatedShell>
   );
 }
