@@ -3,6 +3,12 @@ import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 import { isErrorCode, type ErrorCode } from './error-codes';
 import {
+  dataExportProjectionSchema,
+  deletionRequestProjectionSchema,
+  type DataExportProjection,
+  type DeletionRequestProjection,
+} from './privacy-schema';
+import {
   ownProfileSchema,
   profilePatchSchema,
   profileSchema,
@@ -12,6 +18,12 @@ import {
 import { getSupabaseClient, publicSupabaseConfig, type ColeteSupabaseClient } from './supabase';
 
 export type { ProfileInput, ProfilePatch } from './profile-schema';
+export type {
+  DataExportProjection,
+  DataExportStatus,
+  DeletionRequestProjection,
+  DeletionRequestStatus,
+} from './privacy-schema';
 
 export type OwnProfile = Omit<
   Pick<
@@ -25,7 +37,22 @@ export type OwnProfile = Omit<
 };
 
 export type IdentityOperation =
-  'accept_policies' | 'complete_profile' | 'revoke_current_session' | 'update_profile';
+  | 'accept_policies'
+  | 'complete_profile'
+  | 'delete_account'
+  | 'request_data_export'
+  | 'revoke_current_session'
+  | 'update_profile';
+
+export type DataExportRequestResult = {
+  outcome: { export_id: string; logical_result: 'data_export_requested' };
+  current: DataExportProjection[];
+};
+
+export type AccountDeletionResult = {
+  outcome: { deletion_request_id: string; logical_result: 'deletion_requested' };
+  current: DeletionRequestProjection;
+};
 
 export class AppError extends Error {
   readonly code: ErrorCode;
@@ -60,6 +87,22 @@ export class TransportError extends Error {
   constructor(message = 'A rede não respondeu. Confira a conexão e tente novamente.') {
     super(message);
     this.name = 'TransportError';
+  }
+}
+
+/**
+ * A data export transfer that did not complete. Whether the compare-and-set
+ * happened before the interruption is unknowable from the client, so this is
+ * never retried automatically: the screen re-reads the projection instead.
+ */
+export class DownloadInterruptedError extends Error {
+  readonly phase: 'connect' | 'stream';
+  readonly retryable = false;
+
+  constructor(phase: 'connect' | 'stream') {
+    super('A transferência do export foi interrompida.');
+    this.name = 'DownloadInterruptedError';
+    this.phase = phase;
   }
 }
 
@@ -194,12 +237,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   ): Promise<T> {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        const sessionResult = await supabase().auth.getSession();
-        if (sessionResult.error !== null) authFailure(sessionResult.error, 'UNAUTHENTICATED');
-        const accessToken = sessionResult.data.session?.access_token;
-        if (accessToken === undefined) {
-          throw new AppError('UNAUTHENTICATED', 'Entre novamente para continuar.', { requestId });
-        }
+        const accessToken = await accessTokenOrThrow(requestId);
 
         const { url, publishableKey } = config();
         const response = await fetcher(`${url}/functions/v1/identity/${operation}`, {
@@ -265,6 +303,32 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     return result.data;
   }
 
+  async function accessTokenOrThrow(requestId = ''): Promise<string> {
+    const sessionResult = await supabase().auth.getSession();
+    if (sessionResult.error !== null) authFailure(sessionResult.error, 'UNAUTHENTICATED');
+    const accessToken = sessionResult.data.session?.access_token;
+    if (accessToken === undefined) {
+      throw new AppError('UNAUTHENTICATED', 'Entre novamente para continuar.', { requestId });
+    }
+    return accessToken;
+  }
+
+  function parseProjectionRows<T>(
+    schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
+    rows: unknown,
+  ): T[] {
+    if (!Array.isArray(rows)) {
+      throw new TransportError('A projeção chegou em um formato inesperado.');
+    }
+    return rows.map((row) => {
+      const parsed = schema.safeParse(row);
+      if (!parsed.success) {
+        throw new TransportError('A projeção chegou em um formato inesperado.');
+      }
+      return parsed.data;
+    });
+  }
+
   return {
     completeProfile: (profile: ProfileInput) =>
       mutation<{
@@ -282,6 +346,60 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       versions: readonly { document_type: 'terms' | 'privacy'; version: string }[],
     ) => mutation('accept_policies', { versions }),
     revokeCurrentSession: () => mutation('revoke_current_session', {}),
+    requestDataExport: () => mutation<DataExportRequestResult>('request_data_export', {}),
+    deleteAccount: () => mutation<AccountDeletionResult>('delete_account', {}),
+
+    async getOwnDataExports(): Promise<DataExportProjection[]> {
+      const result = await supabase().rpc('get_own_data_exports');
+      if (result.error !== null) {
+        if (result.status === 401) throw new AppError('UNAUTHENTICATED', result.error.message);
+        throw new TransportError();
+      }
+      return parseProjectionRows(dataExportProjectionSchema, result.data);
+    },
+
+    async getOwnDeletionRequest(): Promise<DeletionRequestProjection | null> {
+      const result = await supabase().rpc('get_own_deletion_request');
+      if (result.error !== null) {
+        if (result.status === 401) throw new AppError('UNAUTHENTICATED', result.error.message);
+        throw new TransportError();
+      }
+      return parseProjectionRows(deletionRequestProjectionSchema, result.data)[0] ?? null;
+    },
+
+    /**
+     * The one-shot stream of docs/22 section 5.3. Exactly one attempt: the
+     * server consumes the export before the first byte, so a transfer that
+     * drops is never resumed, reopened or retried here. The bytes stay in
+     * memory and are handed to the browser by the caller.
+     */
+    async downloadDataExport(exportId: string): Promise<Blob> {
+      const accessToken = await accessTokenOrThrow();
+      const { url, publishableKey } = config();
+      let response: Response;
+      try {
+        response = await fetcher(`${url}/functions/v1/data-exports/${exportId}/content`, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { apikey: publishableKey, Authorization: `Bearer ${accessToken}` },
+        });
+      } catch {
+        throw new DownloadInterruptedError('connect');
+      }
+      if (!response.ok) {
+        const responseBody: unknown = await response.json().catch(() => undefined);
+        const businessError = appErrorFromEnvelope(responseBody, '');
+        if (businessError !== undefined && businessError.code !== 'INTERNAL') throw businessError;
+        throw new DownloadInterruptedError('connect');
+      }
+      const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
+      if (contentType !== 'application/zip') throw new DownloadInterruptedError('stream');
+      try {
+        return await response.blob();
+      } catch {
+        throw new DownloadInterruptedError('stream');
+      }
+    },
 
     async signUpWithPassword(email: string, password: string, name: string) {
       const result = await supabase().auth.signUp({

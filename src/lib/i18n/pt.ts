@@ -240,4 +240,124 @@ export const pt = {
         'Seu perfil está suspenso. Os dados continuam visíveis, mas não podem ser alterados.',
     },
   },
+  support: {
+    // The real support channel is question 2 of docs/22 section 8 and is still
+    // open. Every screen that must refer to it goes through this single label
+    // so that the destination can be configured in one place later.
+    channel: 'o canal de suporte do Colete',
+    contact: (channel: string) => `Se precisar de ajuda, procure ${channel}.`,
+  },
+  privacy: {
+    export: {
+      eyebrow: 'Meus dados',
+      title: 'Baixar meus dados',
+      description:
+        'Um arquivo ZIP com o que o Colete guarda sobre você. Download único, válido por até 24 horas depois de pronto.',
+      contents:
+        'O arquivo inclui: dados do perfil, e-mail verificado e provedores de acesso, aceites de políticas, pedidos de privacidade e o histórico dos seus exports.',
+      exclusions:
+        'Ficam de fora: senha, chaves, sessões, comprovantes, Pix, fotos e dados de outras pessoas.',
+      request: 'Gerar export',
+      requestAgain: 'Gerar novo export',
+      refresh: 'Atualizar status',
+      download: 'Baixar agora',
+      downloading: 'Baixando…',
+      stateLabel: 'Situação do export',
+      states: {
+        none: {
+          title: 'Nenhum export ativo',
+          body: 'Gere um export para receber seus dados.',
+        },
+        preparing: {
+          title: 'Preparando seus dados',
+          body: 'Estamos montando o arquivo. Atualize o status para saber quando estiver pronto; nada é baixado automaticamente.',
+        },
+        ready: {
+          title: 'Pronto para baixar',
+          validUntil: (when: string) => `Válido até ${when}.`,
+          oneShot:
+            'Tentativa única: depois que o download começar, o arquivo não pode ser baixado de novo, mesmo se a conexão cair.',
+        },
+        expired: {
+          title: 'Export expirado',
+          body: 'O prazo passou e o arquivo foi descartado. Você pode gerar um novo export.',
+          awaitingCleanup:
+            'O prazo passou. Assim que a limpeza automática terminar, você poderá gerar um novo export.',
+        },
+        consumed: {
+          title: 'Download já consumido',
+          body: 'A tentativa única deste export foi usada — por download concluído, por queda de conexão durante a transferência ou pelo fim do prazo. O arquivo não pode ser reaberto.',
+          awaitingCleanup:
+            'Assim que a limpeza automática terminar, você poderá gerar um novo export.',
+          cleaned: 'A limpeza terminou. Você pode gerar um novo export.',
+        },
+        failed: {
+          title: 'Não foi possível gerar o export',
+          body: 'Algo falhou ao montar o arquivo. Você pode tentar gerar de novo.',
+          repeated: 'A falha se repetiu.',
+        },
+      },
+      requested: 'Pedido registrado. Atualize o status para acompanhar.',
+      alreadyPending: 'Já existe um export ativo. A situação dele está mostrada acima.',
+      downloadStarted: 'Download entregue ao navegador. Esta era a tentativa única.',
+      interrupted:
+        'A transferência foi interrompida. Se ela chegou a começar, a tentativa única foi consumida. Confira o status atualizado.',
+      reauth: {
+        title: 'Confirme sua senha para baixar',
+        body: 'Por segurança, o download exige que você tenha entrado há menos de 5 minutos. Confirme sua senha e o download continua.',
+        password: 'Senha',
+        passwordRequired: 'Digite sua senha para confirmar e baixar o arquivo.',
+        action: 'Confirmar e baixar',
+        cancel: 'Cancelar download',
+      },
+    },
+    deletion: {
+      eyebrow: 'Encerrar conta',
+      title: 'Excluir conta',
+      description: 'Pedido acompanhado, com dupla confirmação. Não pode ser desfeito.',
+      intro: {
+        anonymization:
+          'Seus dados de perfil são anonimizados: nome vira um rótulo aleatório e apelido, foto, posição, perna e camisa são apagados.',
+        immediateLoss: 'O acesso é bloqueado imediatamente ao confirmar, em todos os dispositivos.',
+        asyncCleanup:
+          'A limpeza de arquivos e da conta de acesso acontece depois, de forma automática. O que for necessário para auditoria e obrigações legais permanece pelo prazo previsto, sem ligação com seu acesso.',
+        blockers:
+          'Se você for titular de grupo ou tiver caso financeiro em aberto sem substituto, a exclusão é bloqueada até a titularidade ou o caso serem transferidos.',
+      },
+      start: 'Excluir conta',
+      summaryTitle: 'Resumo final',
+      summary:
+        'Ao confirmar: acesso bloqueado agora, perfil anonimizado, limpeza automática depois. Você receberá um protocolo para acompanhar o pedido.',
+      checkbox: 'Entendo que a exclusão é definitiva e quero excluir minha conta.',
+      requirement: 'O botão só conclui a exclusão com a caixa de confirmação marcada.',
+      confirm: 'Excluir minha conta',
+      back: 'Voltar',
+      checkboxRequired: 'Marque a caixa de confirmação para excluir a conta.',
+      financialSubstituteRequired:
+        'A exclusão está bloqueada: transfira a titularidade do grupo ou o caso financeiro em aberto para outra pessoa antes de excluir a conta.',
+      alreadyPending: 'Já existe um pedido de exclusão para esta conta.',
+    },
+    shell: {
+      eyebrow: 'Pedido de exclusão',
+      title: 'Exclusão em andamento',
+      titleDelayed: 'Exclusão com atraso',
+      titleCompleted: 'Exclusão concluída',
+      titleUnverifiable: 'Pedido registrado',
+      description: 'Esta conta não tem mais acesso ao Colete. Guarde o protocolo abaixo.',
+      protocol: 'Protocolo',
+      requestedAt: (when: string) => `Pedido feito em ${when}.`,
+      completedAt: (when: string) => `Concluído em ${when}.`,
+      inProgress:
+        'A limpeza automática está em andamento. Nenhuma ação é necessária; o acesso já foi encerrado.',
+      delayed:
+        'A limpeza automática está atrasada. O pedido continua registrado e será retomado automaticamente.',
+      completed: 'A conta foi anonimizada e o acesso encerrado.',
+      unverifiable:
+        'Não foi possível verificar o status do pedido: a conta de acesso já pode ter sido removida. O protocolo continua guardado neste dispositivo.',
+      statusLabel: 'Situação do pedido',
+      refresh: 'Atualizar status',
+      leave: 'Sair deste dispositivo',
+      leaveHint: 'Anote o protocolo antes de sair: ele deixa de ficar guardado aqui.',
+    },
+  },
 } as const;

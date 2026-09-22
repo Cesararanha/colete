@@ -8,6 +8,7 @@ import pg from 'pg';
 import { buildDataExport } from '../supabase/functions/_shared/data-export.ts';
 import { dataExportBuildHandler } from '../supabase/functions/_shared/data-export.ts';
 import { accountDeletionHandlers } from '../supabase/functions/_shared/deletion.ts';
+import { createDeletionProviders } from '../supabase/functions/_shared/worker-providers.ts';
 
 const { Client } = pg;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -50,6 +51,7 @@ function environment() {
     functions: read('FUNCTIONS_URL'),
     publishable: read('PUBLISHABLE_KEY'),
     secret: read('SECRET_KEY'),
+    serviceRole: read('SERVICE_ROLE_KEY'),
   };
 }
 
@@ -145,7 +147,7 @@ function exportBuildHandler(db) {
 }
 
 function deletionHandler(db, env, observedPaths) {
-  const headers = { apikey: env.secret, Authorization: `Bearer ${env.secret}` };
+  const providers = createDeletionProviders(env.api, env.serviceRole);
   const handlers = accountDeletionHandlers(
     {
       getTarget: async (id, leaseToken) =>
@@ -164,28 +166,9 @@ function deletionHandler(db, env, observedPaths) {
       storage: {
         exists: async (bucket, storagePath) => {
           observedPaths.push(storagePath);
-          const response = await fetch(
-            `${env.api}/storage/v1/object/${bucket}/${storagePath
-              .split('/')
-              .map(encodeURIComponent)
-              .join('/')}`,
-            { method: 'HEAD', headers },
-          );
-          if (response.status === 400 || response.status === 404) return false;
-          assert.equal(response.status, 200, `Storage probe returned ${response.status}`);
-          return true;
+          return providers.storage.exists(bucket, storagePath);
         },
-        remove: async (bucket, storagePath) => {
-          const response = await fetch(`${env.api}/storage/v1/object/${bucket}`, {
-            method: 'DELETE',
-            headers: { ...headers, 'content-type': 'application/json' },
-            body: JSON.stringify({ prefixes: [storagePath] }),
-          });
-          assert.ok(
-            response.ok || response.status === 404,
-            `Storage delete returned ${response.status}`,
-          );
-        },
+        remove: (bucket, storagePath) => providers.storage.remove(bucket, storagePath),
       },
       auth: {
         exists: async () => assert.fail('an export purge must not inspect Auth'),

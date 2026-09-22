@@ -19,6 +19,24 @@ describe('profile screen error mapping', () => {
     );
   });
 
+  it('maps the privacy codes of docs/13 section 5.3 to the normative interface text', () => {
+    expect(profileErrorMessage(new AppError('FINANCIAL_SUBSTITUTE_REQUIRED', 'raw'))).toBe(
+      pt.privacy.deletion.financialSubstituteRequired,
+    );
+    expect(profileErrorMessage(new AppError('DELETION_ALREADY_PENDING', 'raw'))).toBe(
+      pt.privacy.deletion.alreadyPending,
+    );
+    expect(profileErrorMessage(new AppError('EXPORT_ALREADY_PENDING', 'raw'))).toBe(
+      pt.privacy.export.alreadyPending,
+    );
+    expect(profileErrorMessage(new AppError('EXPORT_EXPIRED', 'raw'))).toBe(
+      pt.privacy.export.states.consumed.body,
+    );
+    expect(profileErrorMessage(new AppError('RECENT_REAUTH_REQUIRED', 'raw'))).toBe(
+      pt.privacy.export.reauth.body,
+    );
+  });
+
   it('keeps a recognised fallback for errors without a dedicated screen treatment', () => {
     expect(profileErrorMessage(new AppError('NOT_FOUND', 'Registro indisponível.'))).toBe(
       'Registro indisponível.',

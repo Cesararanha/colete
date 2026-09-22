@@ -17,6 +17,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
 import { useAuthFlowStore } from './auth-flow-store';
+import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage, fieldMessage } from './messages';
@@ -51,6 +52,7 @@ export function VerifyCodeScreen() {
       if (pendingEmail === null) throw new AppError('VALIDATION', pt.auth.errors.validation);
       await api.verifyEmailOtp(pendingEmail, code, 'signup');
       clearPendingSignup();
+      deletionProtocolStore.clear();
       router.replace('/perfil');
     },
   });

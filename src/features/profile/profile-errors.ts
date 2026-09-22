@@ -15,6 +15,16 @@ export function profileErrorMessage(error: unknown): string {
         return pt.auth.errors.validation;
       case 'IDEMPOTENCY_WAIT_TIMEOUT':
         return pt.auth.errors.wait;
+      case 'DELETION_ALREADY_PENDING':
+        return pt.privacy.deletion.alreadyPending;
+      case 'FINANCIAL_SUBSTITUTE_REQUIRED':
+        return pt.privacy.deletion.financialSubstituteRequired;
+      case 'EXPORT_ALREADY_PENDING':
+        return pt.privacy.export.alreadyPending;
+      case 'EXPORT_EXPIRED':
+        return pt.privacy.export.states.consumed.body;
+      case 'RECENT_REAUTH_REQUIRED':
+        return pt.privacy.export.reauth.body;
       default:
         return error.message || pt.auth.errors.generic;
     }

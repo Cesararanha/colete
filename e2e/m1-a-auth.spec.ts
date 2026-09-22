@@ -256,7 +256,9 @@ test.describe('M1-A authentication', () => {
       await page.getByLabel('Apelido', { exact: true }).fill('Capitã');
       await page.getByRole('button', { name: 'Meio-campista' }).click();
       await page.getByRole('button', { name: 'Salvar dados' }).click();
-      await expect(page.getByRole('status')).toContainText('Dados do perfil salvos.');
+      await expect(page.getByTestId('profile-data-card').getByRole('status')).toContainText(
+        'Dados do perfil salvos.',
+      );
       expect(profileBodies.at(-1)?.patch).toEqual({
         nickname: 'Capitã',
         position: 'midfielder',
@@ -276,7 +278,9 @@ test.describe('M1-A authentication', () => {
 
       await page.getByRole('button', { name: 'Limpar apelido' }).click();
       await page.getByRole('button', { name: 'Salvar dados' }).click();
-      await expect(page.getByRole('status')).toContainText('Dados do perfil salvos.');
+      await expect(page.getByTestId('profile-data-card').getByRole('status')).toContainText(
+        'Dados do perfil salvos.',
+      );
       expect(profileBodies.at(-1)?.patch).toEqual({ nickname: null });
 
       const clearedProfile = await db.query<{
@@ -295,7 +299,7 @@ test.describe('M1-A authentication', () => {
       await page.getByLabel('Apelido', { exact: true }).fill('   ');
       await page.getByRole('button', { name: 'Salvar dados' }).click();
       await expect(page.getByLabel('Apelido', { exact: true })).toBeFocused();
-      await expect(page.getByRole('alert')).toContainText(
+      await expect(page.getByTestId('profile-data-card').getByRole('alert')).toContainText(
         'Apague o campo ou escreva pelo menos um caractere.',
       );
       expect(profileBodies).toHaveLength(transmittedBeforeBlank);
@@ -401,7 +405,9 @@ test.describe('M1-A authentication', () => {
       await page.getByLabel('Nova senha', { exact: true }).fill(account.newPassword);
       await page.getByLabel('Confirmar nova senha', { exact: true }).fill(account.newPassword);
       await page.getByRole('button', { name: 'Salvar nova senha' }).click();
-      await expect(page.getByRole('status')).toContainText('Senha atualizada.');
+      await expect(page.getByTestId('profile-password-card').getByRole('status')).toContainText(
+        'Senha atualizada.',
+      );
 
       const sessionsAfterPasswordChange = await db.query<{ id: string }>(
         `select session.id

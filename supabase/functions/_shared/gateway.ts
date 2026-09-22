@@ -96,6 +96,7 @@ function rpcParameters(
       return { ...common, p_versions: canonicalInput['versions'] };
     case 'revoke_current_session':
     case 'delete_account':
+    case 'request_data_export':
       return common;
   }
 }
