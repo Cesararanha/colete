@@ -131,7 +131,7 @@ select lives_ok('select private.expire_data_exports()',
 select is((select count(*) from private.external_effects where resource_id=
  '13500000-0000-4000-8000-000000000002'),1::bigint,
  'reconciliation never duplicates the purge effect');
-select is(private.data_export_job_slot('expire_data_exports','2026-09-14 12:06:59+00'),
+select is(private.worker_job_slot('expire_data_exports','2026-09-14 12:06:59+00'),
  '2026-09-14 11:07:00+00'::timestamptz,'the hourly slot is the latest minute 7 UTC');
 select is((select schedule from cron.job where jobname='colete_v1_expire_data_exports'),
  '7 * * * *','the export expiry schedule is exact');

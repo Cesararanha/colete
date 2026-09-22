@@ -170,7 +170,12 @@ Aquisição ocorre numa RPC curta, em `READ COMMITTED`:
    `next_attempt_at asc nulls first, created_at, id`, usando `for update skip
    locked` e filtrando apenas kinds para os quais o runtime já publicou handler;
    o `nulls first` é explícito porque efeito novo nasce com `next_attempt_at`
-   nulo e deve preceder retry em backoff;
+   nulo e deve preceder retry em backoff. A seleção admite um gancho de
+   elegibilidade por domínio: um kind pode declarar um predicado que o torna
+   temporariamente não adquirível enquanto uma invariante própria não estiver
+   satisfeita. Hoje `delete_auth_user` usa esse gancho para não ser entregue
+   enquanto houver trabalho de Storage pendente para o perfil. O gancho não
+   altera a ordenação nem o fencing, e kinds sem predicado seguem a regra geral;
 3. grava `leased`, incrementa `attempts`, cria `lease_token` novo e fixa
    `lease_until=now()+180s`, tudo no mesmo statement;
 4. devolve somente `id`, `kind`, `resource_type`, `resource_id`, `dedupe_key`,
@@ -462,10 +467,11 @@ normativa de transferir titularidade/caso; não oferece contorno.
 
 Depois do sucesso, a área autenticada vira o shell restrito do pedido: mostra
 protocolo e estados `requested|cleaning_storage|deleting_auth|finalizing` como
-**Exclusão em andamento**, `failed_retryable` como atraso com canal de suporte e
-`completed` como concluído. Nenhuma navegação de domínio permanece. Se Auth for
-apagado antes da próxima consulta, a tela conserva o protocolo localmente, deixa
-de alegar status verificável e encaminha ao canal de suporte; não recria sessão.
+**Exclusão em andamento** e `failed_retryable` como atraso com canal de suporte.
+`completed` não é observável pela projeção própria: a conclusão da saga elimina
+o Auth e, com ele, o meio de consulta do titular. A tela conserva o protocolo
+localmente sem alegar status verificável, encaminha ao canal de suporte e não
+recria sessão. Nenhuma navegação de domínio permanece.
 
 As duas jornadas recebem estados de carregamento/erro/tentar novamente, foco
 gerenciado, live region, alvos de 44 px, tema/reflow e passada automatizada axe.
