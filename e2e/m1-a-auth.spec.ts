@@ -11,6 +11,12 @@ import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
 
+import {
+  applyCpuThrottling,
+  assertMinimumInteractiveTargets,
+  assertNoHorizontalOverflow,
+} from './support/layout';
+
 const { Client } = pg;
 const repositoryRoot = process.cwd();
 const supabaseBinary = path.join(
@@ -27,6 +33,10 @@ const account = {
   newPassword: 'Frase-nova-segura-2026',
   password: 'Frase-segura-2026',
 };
+
+test.beforeEach(async ({ page }) => {
+  await applyCpuThrottling(page, process.env.COLETE_E2E_CPU_THROTTLE_RATE);
+});
 
 function localEnvironment() {
   const raw = execFileSync(supabaseBinary, ['status', '-o', 'env'], {
@@ -121,24 +131,74 @@ async function createVerifiedAuthUserWithoutProfile(
 }
 
 async function assertAccessible(page: Page) {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-  );
-  expect(overflow).toBe(false);
-
-  const targets = page.locator(
+  await assertNoHorizontalOverflow(page);
+  await assertMinimumInteractiveTargets(
+    page,
     'a:visible, button:visible, input:visible, [role="button"]:visible, [role="link"]:visible',
   );
-  expect(await targets.count()).toBeGreaterThan(0);
-  for (let index = 0; index < (await targets.count()); index += 1) {
-    const box = await targets.nth(index).boundingBox();
-    expect(box).not.toBeNull();
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-  }
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
+}
+
+function waitForProfileGate(page: Page) {
+  const ownProfile = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === 'GET' && url.pathname === '/rest/v1/profiles' && response.ok()
+    );
+  });
+  const deletionRequest = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === 'POST' &&
+      url.pathname === '/rest/v1/rpc/get_own_deletion_request'
+    );
+  });
+  return Promise.all([ownProfile, deletionRequest]).then((responses) => {
+    for (const response of responses) {
+      const request = response.request();
+      expect(
+        response.ok(),
+        `${request.method()} ${new URL(response.url()).pathname} returned ${response.status()}`,
+      ).toBe(true);
+    }
+  });
+}
+
+async function installSessionPropagationGap(page: Page) {
+  await page.addInitScript(() => {
+    const state = { armed: false, denied: false };
+    Object.defineProperty(window, '__coleteSessionPropagationGap', { value: state });
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      const input = args[0];
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/auth/v1/verify') && response.ok) state.armed = true;
+      return response;
+    };
+    const originalGetItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function getItem(key: string) {
+      const sessionLookup = (new Error().stack ?? '').includes('_getSessionToken');
+      if (state.armed && !state.denied && sessionLookup && key.includes('-auth-token')) {
+        state.denied = true;
+        return null;
+      }
+      return originalGetItem.call(this, key);
+    };
+  });
+}
+
+async function sessionPropagationGapWasApplied(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __coleteSessionPropagationGap: { denied: boolean };
+        }
+      ).__coleteSessionPropagationGap.denied,
+  );
 }
 
 async function refreshStoredSession(page: Page, apiUrl: string, publishableKey: string) {
@@ -202,6 +262,7 @@ test.describe('M1-A authentication', () => {
     });
 
     try {
+      await installSessionPropagationGap(page);
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
       await page.goto('/criar-conta');
       await page.getByLabel('Nome').fill(account.inputName);
@@ -222,15 +283,30 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
       await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
       await page.unroute('**/auth/v1/verify**');
+      const firstProfileGate = waitForProfileGate(page);
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
 
       await expect(page).toHaveURL(/\/perfil$/u);
+      await firstProfileGate;
+      expect(await sessionPropagationGapWasApplied(page)).toBe(true);
       await expect(
         page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();
+      const invalidSession = await request.post(
+        `${env.apiUrl}/rest/v1/rpc/get_own_deletion_request`,
+        {
+          headers: {
+            apikey: env.publishableKey,
+            Authorization: 'Bearer invalid-session-token',
+          },
+        },
+      );
+      expect(invalidSession.status()).toBe(401);
       await expect(page.getByLabel('Nome')).toHaveValue(account.name);
+      const reloadedProfileGate = waitForProfileGate(page);
       await page.reload();
       await expect(page).toHaveURL(/\/perfil$/u);
+      await reloadedProfileGate;
       await expect(
         page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();

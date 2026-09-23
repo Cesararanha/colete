@@ -291,6 +291,39 @@ describe('lib/api identity mutations', () => {
 });
 
 describe('lib/api authentication boundaries', () => {
+  it('uses the gate session token for the deletion projection', async () => {
+    const getSession = vi.fn();
+    const setHeader = vi.fn(async () => ({ data: [], error: null, status: 200 }));
+    const rpc = vi.fn(() => ({ setHeader }));
+    const client = createApiClient({
+      supabase: { auth: { getSession }, rpc } as unknown as ColeteSupabaseClient,
+    });
+
+    await expect(client.getOwnDeletionRequest('session-from-gate')).resolves.toBeNull();
+
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('get_own_deletion_request');
+    expect(setHeader).toHaveBeenCalledExactlyOnceWith('Authorization', 'Bearer session-from-gate');
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps a genuinely invalid gate session terminal', async () => {
+    const setHeader = vi.fn(async () => ({
+      data: null,
+      error: { message: 'invalid JWT' },
+      status: 401,
+    }));
+    const rpc = vi.fn(() => ({ setHeader }));
+    const client = createApiClient({
+      supabase: { rpc } as unknown as ColeteSupabaseClient,
+    });
+
+    await expect(client.getOwnDeletionRequest('invalid-session')).rejects.toMatchObject({
+      code: 'UNAUTHENTICATED',
+      message: 'invalid JWT',
+    });
+    expect(setHeader).toHaveBeenCalledTimes(1);
+  });
+
   it('signs out only the current session', async () => {
     const signOut = vi.fn(async () => ({ error: null }));
     const client = createApiClient({

@@ -61,7 +61,7 @@ export function AuthenticatedShell({
 }
 
 const styles = StyleSheet.create({
-  brand: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+  brand: { flexShrink: 1, fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
   description: { fontSize: 16, lineHeight: 24, maxWidth: 680 },
   eyebrow: { fontSize: 14, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
   header: {
@@ -69,16 +69,19 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     borderBottomWidth: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     justifyContent: 'space-between',
     maxWidth: 980,
     padding: spacing.md,
     width: '100%',
   },
-  intro: { gap: spacing.sm },
+  intro: { gap: spacing.sm, minWidth: 0 },
   main: {
     alignSelf: 'center',
     gap: spacing.lg,
     maxWidth: 820,
+    minWidth: 0,
     padding: spacing.md,
     width: '100%',
   },

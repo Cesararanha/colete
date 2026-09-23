@@ -365,7 +365,13 @@ export function DataExportCard({ email }: { email: string | null }) {
 }
 
 const styles = StyleSheet.create({
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    minWidth: 0,
+    width: '100%',
+  },
   body: { fontSize: 15, lineHeight: 22 },
   reauth: { gap: spacing.sm },
   state: { borderRadius: 18, borderWidth: 1, gap: spacing.xs, padding: spacing.md },

@@ -178,9 +178,22 @@ export function DeleteAccountCard() {
 }
 
 const styles = StyleSheet.create({
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    minWidth: 0,
+    width: '100%',
+  },
   body: { fontSize: 15, lineHeight: 22 },
   list: { gap: spacing.sm },
-  summary: { borderRadius: 18, borderWidth: 2, gap: spacing.sm, padding: spacing.md },
+  summary: {
+    borderRadius: 18,
+    borderWidth: 2,
+    gap: spacing.sm,
+    minWidth: 0,
+    padding: spacing.md,
+    width: '100%',
+  },
   summaryTitle: { fontSize: 20, fontWeight: '800', lineHeight: 26 },
 });
