@@ -1,5 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
 
@@ -13,22 +15,189 @@ import {
   runWorker,
   type LocalEnvironment,
 } from './support/local-stack';
+import {
+  applyCpuThrottling,
+  assertMinimumInteractiveTargets,
+  assertNoHorizontalOverflow,
+} from './support/layout';
 
 const { Client } = pg;
 const runSuffix = `${Date.now()}-${process.pid}`;
 const PASSWORD = 'Frase-segura-2026';
 const HEX_64 = /\b[0-9a-f]{64}\b/u;
+const supabaseBrowserBundle = path.join(
+  process.cwd(),
+  'node_modules/@supabase/supabase-js/dist/umd/supabase.js',
+);
 
-type CapturedRequest = { body: string | null; method: string; url: string };
+test.beforeEach(async ({ page }) => {
+  await applyCpuThrottling(page, process.env.COLETE_E2E_CPU_THROTTLE_RATE);
+});
+
+type CapturedRequest = {
+  body: string | null;
+  headers: Record<string, string>;
+  method: string;
+  url: string;
+};
 
 function captureApiRequests(page: Page): CapturedRequest[] {
   const captured: CapturedRequest[] = [];
   page.on('request', (request) => {
     const url = request.url();
     if (!url.includes('/functions/v1/') && !url.includes('/rest/v1/')) return;
-    captured.push({ body: request.postData(), method: request.method(), url });
+    captured.push({
+      body: request.postData(),
+      headers: request.headers(),
+      method: request.method(),
+      url,
+    });
   });
   return captured;
+}
+
+function fingerprint(value: string) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 8);
+}
+
+function requestLabel(request: Pick<CapturedRequest, 'method' | 'url'>) {
+  return `${request.method} ${new URL(request.url).pathname}`;
+}
+
+async function storedAccessToken(page: Page) {
+  return page.evaluate(() => {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key === null || !key.endsWith('-auth-token')) continue;
+      const stored = JSON.parse(localStorage.getItem(key) ?? 'null') as {
+        access_token?: unknown;
+      } | null;
+      if (typeof stored?.access_token === 'string' && stored.access_token !== '') {
+        return stored.access_token;
+      }
+    }
+    throw new Error('the browser has no persisted access token');
+  });
+}
+
+async function refreshBrowserSession(page: Page, env: LocalEnvironment) {
+  const previousToken = await storedAccessToken(page);
+  const nextSecond = await page.evaluate(() => (Math.floor(Date.now() / 1_000) + 1) * 1_000);
+  await page.waitForFunction((deadline) => Date.now() >= deadline, nextSecond);
+  await page.addScriptTag({ path: supabaseBrowserBundle });
+  const currentToken = await page.evaluate(
+    async ({ apiUrl, publishableKey }) => {
+      type RefreshResult = {
+        data: { session: { access_token: string } | null };
+        error: { message: string } | null;
+      };
+      type RefreshClient = { auth: { refreshSession: () => Promise<RefreshResult> } };
+      const browserWindow = window as typeof window & {
+        supabase?: {
+          createClient: (
+            url: string,
+            key: string,
+            options: {
+              auth: {
+                autoRefreshToken: boolean;
+                detectSessionInUrl: boolean;
+                persistSession: boolean;
+              };
+            },
+          ) => RefreshClient;
+        };
+      };
+      if (browserWindow.supabase === undefined) {
+        throw new Error('the browser Supabase SDK did not load');
+      }
+      const client = browserWindow.supabase.createClient(apiUrl, publishableKey, {
+        auth: { autoRefreshToken: false, detectSessionInUrl: false, persistSession: true },
+      });
+      const result = await client.auth.refreshSession();
+      if (result.error !== null) throw new Error(result.error.message);
+      const accessToken = result.data.session?.access_token;
+      if (accessToken === undefined || accessToken === '') {
+        throw new Error('refreshSession returned no access token');
+      }
+      return accessToken;
+    },
+    { apiUrl: env.apiUrl, publishableKey: env.publishableKey },
+  );
+  expect(fingerprint(currentToken), 'refreshSession must rotate the access token').not.toBe(
+    fingerprint(previousToken),
+  );
+  await expect
+    .poll(async () => fingerprint(await storedAccessToken(page)))
+    .toBe(fingerprint(currentToken));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  return { currentToken, previousToken };
+}
+
+function assertRequestUsesRefreshedToken(
+  request: Request,
+  tokens: { currentToken: string; previousToken: string },
+) {
+  const authorization = request.headers()['authorization'] ?? '';
+  const label = `${request.method()} ${new URL(request.url()).pathname}`;
+  expect(
+    /^Bearer [^.]+\.[^.]+\.[^.]+$/u.test(authorization),
+    `${label} must carry one access token exclusively as Authorization: Bearer`,
+  ).toBe(true);
+  const token = authorization.slice('Bearer '.length);
+  expect(fingerprint(token), `${label} must carry the refreshed access token`).toBe(
+    fingerprint(tokens.currentToken),
+  );
+  expect(
+    fingerprint(token),
+    `${label} must not carry the access token from before refresh`,
+  ).not.toBe(fingerprint(tokens.previousToken));
+}
+
+function assertAccessTokensOnlyInAuthorization(
+  captured: CapturedRequest[],
+  accessTokens: string[],
+  expectedBearerTokens: string[],
+) {
+  const distinctTokens = [...new Set(accessTokens)];
+  expect(distinctTokens.length).toBeGreaterThan(0);
+  const tokensSeenAsBearer = new Set<string>();
+  for (const request of captured) {
+    const label = requestLabel(request);
+    for (const token of distinctTokens) {
+      expect(request.url.includes(token), `${label} must not put an access token in its URL`).toBe(
+        false,
+      );
+      expect(
+        (request.body ?? '').includes(token),
+        `${label} must not put an access token in its body`,
+      ).toBe(false);
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (name.toLowerCase() === 'authorization') {
+          if (value.includes(token)) {
+            expect(
+              value === `Bearer ${token}`,
+              `${label} must put an access token exclusively in Authorization: Bearer`,
+            ).toBe(true);
+            tokensSeenAsBearer.add(token);
+          }
+        } else {
+          expect(
+            value.includes(token),
+            `${label} must not put an access token in the ${name} header`,
+          ).toBe(false);
+        }
+      }
+    }
+  }
+  expect(
+    [...tokensSeenAsBearer].map(fingerprint).sort(),
+    'the journey must send each expected access token as Bearer',
+  ).toEqual([...new Set(expectedBearerTokens)].map(fingerprint).sort());
 }
 
 /**
@@ -89,6 +258,7 @@ async function signInAndCompleteProfile(page: Page, email: string) {
   await expect(page.getByRole('heading', { level: 1, name: 'Complete seu perfil' })).toBeVisible();
   await page.getByRole('button', { name: 'Concluir perfil' }).click();
   await expect(page.getByTestId('profile-data-card')).toBeVisible();
+  await expect(page.getByTestId('export-state-title')).toBeVisible();
 }
 
 async function identifiers(db: pg.Client, email: string) {
@@ -226,8 +396,16 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await expect(page).toHaveTitle('Perfil · Colete');
       const ids = await identifiers(db, account.email);
       profileId = ids.profile_id;
+      const refreshedTokens = await refreshBrowserSession(page, env);
+      const refreshedProfileRequest = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return request.method() === 'GET' && url.pathname === '/rest/v1/profiles';
+      });
+      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      assertRequestUsesRefreshedToken(await refreshedProfileRequest, refreshedTokens);
       // The proof covers the privacy journeys; profile completion legitimately
-      // carried the name as its business input.
+      // carried the name as its business input. The deliberate profile save
+      // above exists only to prove the post-refresh gate request.
       captured.length = 0;
 
       const card = page.getByTestId('profile-export-card');
@@ -287,11 +465,11 @@ test.describe('M1-B screen 13 privacy controls', () => {
         document.body.style.zoom = '2';
       });
       await expect(card.getByRole('button', { name: 'Baixar agora' })).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        ),
-      ).toBe(false);
+      await assertNoHorizontalOverflow(page);
+      await assertMinimumInteractiveTargets(
+        page,
+        'a:visible, button:visible, input:visible, [role="button"]:visible, [role="link"]:visible, [role="checkbox"]:visible',
+      );
       await page.evaluate(() => {
         document.body.style.zoom = '1';
       });
@@ -454,6 +632,12 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await expect(title).toHaveText('Download já consumido');
       await expect(card.getByRole('button', { name: 'Baixar agora' })).toHaveCount(0);
 
+      const finalAccessToken = await storedAccessToken(page);
+      assertAccessTokensOnlyInAuthorization(
+        captured,
+        [refreshedTokens.previousToken, refreshedTokens.currentToken, finalAccessToken],
+        [refreshedTokens.currentToken, finalAccessToken],
+      );
       const sessions = await identifiers(db, account.email);
       assertBodiesNeverLeakIdentity(captured, {
         authUserId: ids.auth_user_id,
@@ -500,6 +684,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       const ids = await identifiers(db, account.email);
       profileId = ids.profile_id;
       expect(passwordGrants).toHaveLength(1);
+      const refreshedTokens = await refreshBrowserSession(page, env);
       captured.length = 0;
 
       const card = page.getByTestId('profile-deletion-card');
@@ -560,11 +745,11 @@ test.describe('M1-B screen 13 privacy controls', () => {
         document.body.style.zoom = '2';
       });
       await expect(confirm).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        ),
-      ).toBe(false);
+      await assertNoHorizontalOverflow(page);
+      await assertMinimumInteractiveTargets(
+        page,
+        'a:visible, button:visible, input:visible, [role="button"]:visible, [role="link"]:visible, [role="checkbox"]:visible',
+      );
       await page.evaluate(() => {
         document.body.style.zoom = '1';
       });
@@ -610,7 +795,14 @@ test.describe('M1-B screen 13 privacy controls', () => {
       expect(stillActive.rows[0]?.account_status).toBe('active');
 
       // The real deletion: a new intent after a refusal carries a new request_id.
+      const refreshedDeletionRequest = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return (
+          request.method() === 'POST' && url.pathname === '/rest/v1/rpc/get_own_deletion_request'
+        );
+      });
       await confirm.click();
+      assertRequestUsesRefreshedToken(await refreshedDeletionRequest, refreshedTokens);
       await expect(
         page.getByRole('heading', { level: 1, name: 'Exclusão em andamento' }),
       ).toBeVisible();
@@ -718,6 +910,11 @@ test.describe('M1-B screen 13 privacy controls', () => {
         await page.evaluate(() => localStorage.getItem('colete.deletion-protocol.v1')),
       ).toBeNull();
 
+      assertAccessTokensOnlyInAuthorization(
+        captured,
+        [refreshedTokens.previousToken, refreshedTokens.currentToken],
+        [refreshedTokens.currentToken],
+      );
       assertBodiesNeverLeakIdentity(captured, {
         authUserId: ids.auth_user_id,
         email: account.email,

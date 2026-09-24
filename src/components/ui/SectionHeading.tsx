@@ -28,6 +28,7 @@ export function SectionHeading({ description, eyebrow, title }: SectionHeadingPr
 const styles = StyleSheet.create({
   container: {
     gap: spacing.sm,
+    minWidth: 0,
   },
   description: {
     fontSize: 18,

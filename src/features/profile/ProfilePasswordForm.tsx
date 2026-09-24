@@ -103,4 +103,4 @@ export function ProfilePasswordForm() {
   );
 }
 
-const styles = StyleSheet.create({ form: { gap: spacing.md } });
+const styles = StyleSheet.create({ form: { gap: spacing.md, minWidth: 0, width: '100%' } });

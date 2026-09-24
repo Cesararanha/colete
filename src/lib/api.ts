@@ -358,8 +358,10 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       return parseProjectionRows(dataExportProjectionSchema, result.data);
     },
 
-    async getOwnDeletionRequest(): Promise<DeletionRequestProjection | null> {
-      const result = await supabase().rpc('get_own_deletion_request');
+    async getOwnDeletionRequest(accessToken: string): Promise<DeletionRequestProjection | null> {
+      const result = await supabase()
+        .rpc('get_own_deletion_request')
+        .setHeader('Authorization', `Bearer ${accessToken}`);
       if (result.error !== null) {
         if (result.status === 401) throw new AppError('UNAUTHENTICATED', result.error.message);
         throw new TransportError();
@@ -449,11 +451,12 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       return supabase().auth.onAuthStateChange(callback).data.subscription;
     },
 
-    async getOwnProfile(): Promise<OwnProfile | null> {
+    async getOwnProfile(accessToken: string): Promise<OwnProfile | null> {
       const result = await supabase()
         .from('profiles')
         .select('id,name,nickname,position,dominant_foot,shirt_number')
-        .maybeSingle();
+        .maybeSingle()
+        .setHeader('Authorization', `Bearer ${accessToken}`);
       if (result.error !== null) throw new TransportError();
       if (result.data === null) return null;
       const parsed = ownProfileSchema.safeParse(result.data);

@@ -92,14 +92,16 @@ const styles = StyleSheet.create({
     width: 28,
   },
   error: { fontSize: 14, fontWeight: '700', lineHeight: 20 },
-  group: { gap: spacing.xs },
-  label: { flex: 1, fontSize: 16, lineHeight: 24 },
+  group: { gap: spacing.xs, minWidth: 0, width: '100%' },
+  label: { flex: 1, fontSize: 16, lineHeight: 24, minWidth: 0 },
   mark: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
     minHeight: 48,
+    minWidth: 0,
     paddingVertical: spacing.sm,
+    width: '100%',
   },
 });

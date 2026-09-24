@@ -6,6 +6,7 @@ import process from 'node:process';
 import type pg from 'pg';
 
 import { localWorkerCronSecret } from '../../scripts/local-worker-test-config.mjs';
+import { assertMinimumInteractiveTargets, assertNoHorizontalOverflow } from './layout';
 
 const repositoryRoot = process.cwd();
 const supabaseBinary = path.join(
@@ -121,21 +122,11 @@ export async function runWorker(
 }
 
 export async function assertAccessible(page: Page) {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-  );
-  expect(overflow).toBe(false);
-
-  const targets = page.locator(
+  await assertNoHorizontalOverflow(page);
+  await assertMinimumInteractiveTargets(
+    page,
     'a:visible, button:visible, input:visible, [role="button"]:visible, [role="link"]:visible, [role="checkbox"]:visible',
   );
-  expect(await targets.count()).toBeGreaterThan(0);
-  for (let index = 0; index < (await targets.count()); index += 1) {
-    const box = await targets.nth(index).boundingBox();
-    expect(box).not.toBeNull();
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-  }
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);

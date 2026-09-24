@@ -40,16 +40,28 @@ export function AuthGateScreen() {
     deletionProtocolStore.getSnapshot,
   );
   const session = useQuery({ queryKey: ['session'], queryFn: () => api.getSession() });
-  const hasSession = session.data !== null && session.data !== undefined;
+  const currentSession = session.data ?? null;
+  const accessToken = currentSession?.access_token ?? null;
+  const hasUsableSession = accessToken !== null && accessToken !== '';
   const deletion = useQuery({
-    enabled: hasSession,
+    enabled: hasUsableSession,
     queryKey: DELETION_REQUEST_QUERY_KEY,
-    queryFn: () => api.getOwnDeletionRequest(),
+    queryFn: () => {
+      if (accessToken === null || accessToken === '') {
+        throw new Error('The deletion projection ran without a usable session.');
+      }
+      return api.getOwnDeletionRequest(accessToken);
+    },
   });
   const profile = useQuery({
-    enabled: hasSession,
+    enabled: hasUsableSession,
     queryKey: ['own-profile'],
-    queryFn: () => api.getOwnProfile(),
+    queryFn: () => {
+      if (accessToken === null || accessToken === '') {
+        throw new Error('The profile projection ran without a usable session.');
+      }
+      return api.getOwnProfile(accessToken);
+    },
   });
 
   useEffect(() => {
@@ -83,7 +95,6 @@ export function AuthGateScreen() {
     if (currentProfile !== null) deletionProtocolStore.clear();
   }, [currentProfile]);
 
-  const currentSession = session.data ?? null;
   const leave = () => {
     deletionProtocolStore.clear();
     void api

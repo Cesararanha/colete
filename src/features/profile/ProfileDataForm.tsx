@@ -253,6 +253,6 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
 }
 
 const styles = StyleSheet.create({
-  form: { gap: spacing.md },
-  optionalField: { gap: spacing.sm },
+  form: { gap: spacing.md, minWidth: 0, width: '100%' },
+  optionalField: { gap: spacing.sm, minWidth: 0, width: '100%' },
 });
