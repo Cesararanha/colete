@@ -292,9 +292,9 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 ## 8. Próximo passo objetivo
 
-Executar o plano do M1-B em `22-plano-m1-b.md`: primeiro a fundação do worker na `0011`,
-depois a saga de exclusão na `0012` e por último exportação/Storage/download na `0013`. Os
-controles da tela 13 entram somente depois desses contratos, sem migration artificial. Os
-gates de beta podem avançar em paralelo, mas precisam estar concluídos antes do primeiro
-convite. Não começar pelas telas de lista: sem identidade interna, idempotência e autorização,
-a corrida apenas solidifica dívidas técnicas mais caras.
+Executar o plano do M2 em `25-plano-m2.md`: fundação/isolamento e extensão da exclusão na
+`0015`, membership/titularidade na `0016` e convites/reentrada/HMAC na `0017`. As telas
+10–12 entram somente depois desses contratos, sem migration artificial. Os gates de beta
+podem avançar em paralelo, mas precisam estar concluídos antes do primeiro convite. Não
+começar pelas telas: sem locks, RLS, capacidade e protocolo criptográfico provados, a
+interface apenas esconderia dívidas técnicas mais caras.
