@@ -538,13 +538,13 @@ select is(
   'job observability contains only counters and normalized errors'
 );
 select is(
-  private.account_deletion_job_slot(
+  private.worker_job_slot(
     'purge_completed_deletion_requests', '2026-09-09 03:42:59+00'),
   '2026-09-08 03:43:00+00'::timestamptz,
   'the daily retention slot is UTC and chooses the preceding slot before 03:43'
 );
 select is(
-  private.account_deletion_job_slot(
+  private.worker_job_slot(
     'purge_completed_deletion_requests', '2026-09-09 03:43:00+00'),
   '2026-09-09 03:43:00+00'::timestamptz,
   'the daily retention slot includes the exact boundary'

@@ -127,11 +127,16 @@ acessado nesta fatia.
   `deletion_request_id/logical_result='deletion_requested'`. Replays combinam
   esse outcome imutável com uma projeção fresca; estado operacional nunca vira
   payload congelado de idempotência.
-- A RPC sempre devolve e persiste a saga em `requested`. Quando não existe
-  objeto de Storage conhecido, ela ainda cria na mesma transação o efeito
-  `delete_auth_user:<request_id>`; o worker é quem chama a reconciliação ao
-  adquirir o primeiro efeito e avança `requested → cleaning_storage` ou
-  `requested → deleting_auth`.
+- `delete_account` devolve o literal contratual `status:'requested'`, enquanto
+  o trigger `after insert` executa a reconciliação dentro da mesma transação e,
+  havendo Storage pendente, a linha já fica em `cleaning_storage`. O literal é
+  o outcome estável de `13` §5.3; o
+  estado atual vem de projeção fresca, como determina `22` §4. A asserção da
+  `0012` descrita como “permanece `requested` até o worker rodar” verifica hoje
+  somente o literal e deixou de ser contraprova do estado persistido. Quando
+  não existe objeto de Storage conhecido, a RPC ainda cria na mesma transação o
+  efeito `delete_auth_user:<request_id>`; o worker chama a reconciliação ao
+  adquirir o primeiro efeito.
 - O purge de cada export iniciado por `delete_account` usa
   `delete_data_export:<export_id>:<deletion_request_id>`. A deduplicação fica
   limitada à ocasião da saga: um efeito `succeeded` ou `dead` de ocasião anterior
@@ -654,14 +659,15 @@ de **Pedido registrado**.
 Nenhum projeto Supabase remoto, deploy, Vault hospedado ou segredo real foi
 acessado.
 
-### Divergências encontradas e não corrigidas
+### Divergências encontradas na fatia 4
 
 - `completed` é inobservável pelo titular: `finalize_deletion` zera
   `profiles.auth_user_id` no mesmo commit em que grava `completed`, e
   `get_own_deletion_request` faz `join` por `auth_user_id = auth.uid()`. A
   projeção devolve conjunto vazio a partir daí; a tela implementa o estado
   concluído, mas na prática o titular vê **Pedido registrado** (não
-  verificável). `22` §6 promete `completed` como concluído.
+  verificável). A `0014` corrige a promessa incompatível de `22` §6 sem mudar a
+  tela.
 - O e2e precisa apagar a linha de `private.job_runs` do minuto corrente entre
   acordar o worker duas vezes: a agenda de `process_external_effects` é um run
   por minuto, e nenhuma saga de teste cabe nessa cadência.
@@ -678,6 +684,77 @@ acessado.
 - entrega do arquivo em alvo nativo: `deliverBlobToBrowser` é web; sem
   `document` a função devolve `false` e a tentativa única já foi consumida;
 - o canal real de suporte e o responsável operacional.
+
+## Correções de review — `0014_worker_slot_and_gate.sql`
+
+### O que foi corrigido
+
+- `private.worker_job_slot` passou a resolver, em uma única implementação, os
+  seis jobs publicados. O cálculo converte o instante para `timestamp` UTC
+  antes de truncar dia, hora ou minuto e volta a `timestamptz` com UTC
+  explícito; a função é `stable`, não `immutable`.
+- `worker_begin_job` e `invoke_worker_cron` usam somente o resolvedor canônico.
+  Os adaptadores `account_deletion_job_slot` e `data_export_job_slot` foram
+  removidos para não conservar três implementações do mesmo conceito.
+- O gancho de elegibilidade de `delete_auth_user` admite o pedido `completed`.
+  Se o isolate cai depois de `finalize_deletion` e antes da conclusão genérica
+  do efeito, o lease vencido volta a ser adquirido, o target devolve
+  `action:'none'` e o efeito termina em `succeeded` sem repetir Auth.
+- `22` §3.3 registra o gancho de elegibilidade por domínio e §6 registra que
+  `completed` é inobservável pelo titular. A nota operacional da Fatia 2 fixa
+  que o literal `status:'requested'` da RPC não representa necessariamente o
+  estado já reconciliado da linha.
+
+### Contraprovas contra `4bcb4c0`
+
+As duas provas foram executadas em clone temporário isolado, recriado somente
+pelas migrations `0001`–`0013`. Com `SET TimeZone='Asia/Kathmandu'`, a prova dos
+seis jobs falhou literalmente em:
+
+```text
+# Failed test 3: "all six jobs keep their UTC slot under Asia/Kathmandu: purge_expired_revoked_sessions"
+#         have: 2026-09-07 17:17:00+05:45
+#         want: 2026-09-07 17:02:00+05:45
+# Failed test 4: "all six jobs keep their UTC slot under Asia/Kathmandu: purge_expired_idempotency_outcomes"
+#         have: 2026-09-07 03:23:00+05:45
+#         want: 2026-09-06 09:08:00+05:45
+```
+
+A saga sem Storage adquiriu Auth, confirmou sua ausência e commitou
+`completed`; depois do vencimento forçado do lease, a base antiga falhou
+literalmente em:
+
+```text
+# Failed test 4: "a lease expired after completed is reacquired instead of stranded retryable"
+```
+
+O estado do titular já era `completed`; a falha afirma o efeito não-terminal,
+que é o defeito de higiene da fila.
+
+### Provas e números medidos
+
+Depois de `db:reset`, `npm run db:test` executou **822 asserções pgTAP em 13
+arquivos**: 20 asserções novas verificam a função única, os seis slots sob
+`Asia/Kathmandu`, o enum fechado e a saga completa de lease vencido. Os cinco
+harnesses passaram: idempotência com 25 conexões, gateway, worker com três
+conexões, exclusão com 13 conexões e exportação. Os censos terminaram sem
+resíduo operacional; somente `auth.audit_log_entries`, trilha própria do
+GoTrue, conservou o resíduo já aceito.
+
+`verify:app` passou com **140 testes em 19 arquivos** e 14 rotas estáticas. O
+fluxo Auth passou 8 testes e pulou 2 duplicatas por projeto; o fluxo da tela 13
+passou 2 e pulou 2 pela mesma matriz. `scan:docs` confirmou 22 documentos,
+`scan:secrets` verificou 216 arquivos e `npm audit --audit-level=high` terminou
+sem vulnerabilidade alta ou crítica, mantendo as 13 moderadas fora do escopo.
+
+A auditoria do workflow encontrou os dez scripts de teste do `package.json` e
+nenhuma ausência: `test`, três `test:*`, `db:test` e cinco `db:test:*`. O
+manifesto continua com 23 entradas; somente o hash de `22` mudou, e o hash de
+`10` permaneceu
+`03d041b9a91a5ce5cd087daec655b9962163f8393becb58e53326625de3c9535`.
+
+Nenhum projeto Supabase remoto, deploy, Vault hospedado ou segredo real foi
+acessado.
 
 ## Manifesto de especificação
 
