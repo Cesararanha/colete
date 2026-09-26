@@ -5,6 +5,7 @@ import {
   type APIRequestContext,
   type BrowserContext,
   type Page,
+  type Response,
 } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -155,15 +156,27 @@ function waitForProfileGate(page: Page) {
       url.pathname === '/rest/v1/rpc/get_own_deletion_request'
     );
   });
-  return Promise.all([ownProfile, deletionRequest]).then((responses) => {
+  return Promise.all([ownProfile, deletionRequest]).then(async (responses) => {
     for (const response of responses) {
       const request = response.request();
+      const body = response.ok() ? '' : `: ${await failedResponseBody(response)}`;
       expect(
         response.ok(),
-        `${request.method()} ${new URL(response.url()).pathname} returned ${response.status()}`,
+        `${request.method()} ${new URL(response.url()).pathname} returned ${response.status()}${body}`,
       ).toBe(true);
     }
   });
+}
+
+// The body is what tells an anonymous call (42501) from a rejected JWT in the
+// CI log. Request headers never enter the message, and any credential a body
+// might echo is redacted before truncation.
+async function failedResponseBody(response: Response) {
+  const text = await response.text().catch(() => '<body unavailable>');
+  return text
+    .replace(/eyJ[\w-]*\.[\w-]*\.[\w-]*/gu, '<jwt>')
+    .replace(/sb_(?:publishable|secret)_[\w-]+/gu, '<api key>')
+    .slice(0, 500);
 }
 
 async function installSessionPropagationGap(page: Page) {
