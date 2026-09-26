@@ -9,6 +9,7 @@ import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AppError, api, TransportError, type MutationIntent } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import { privateQueryKeys } from '@/lib/private-queries';
 import { spacing } from '@/theme/spacing';
 
 import { focusFirstInvalid } from './form-utils';
@@ -45,7 +46,7 @@ export function ProfileCompletionForm({
       return intent.current.execute();
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
+      await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });
       onCompleted();
     },
   });

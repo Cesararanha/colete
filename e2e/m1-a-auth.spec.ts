@@ -17,6 +17,7 @@ import {
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
 } from './support/layout';
+import { observeRestAuthorization } from './support/rest-authorization';
 
 const { Client } = pg;
 const repositoryRoot = process.cwd();
@@ -273,6 +274,7 @@ test.describe('M1-A authentication', () => {
       };
       profileBodies.push(body);
     });
+    const restAuthorization = observeRestAuthorization(page);
 
     try {
       await installSessionPropagationGap(page);
@@ -608,6 +610,12 @@ test.describe('M1-A authentication', () => {
         sessionsBeforeSafeLogout.rows.every((session) => session.active_refresh_tokens > 0),
       ).toBe(true);
 
+      const leavingAccount = await db.query<{ id: string }>(
+        `select users.id from auth.users as users where lower(users.email) = lower($1)`,
+        [account.email],
+      );
+      expect(leavingAccount.rows).toHaveLength(1);
+      restAuthorization.markLogout(leavingAccount.rows[0]?.id);
       await page.getByRole('button', { name: 'Sair com segurança' }).click();
       await expect(page).toHaveURL(/\/entrar$/u);
       const sessionsAfterLogout = await db.query<{
@@ -670,6 +678,8 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
       await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
       await page.unroute('**/auth/v1/user**');
+      restAuthorization.assertNoAnonymousRequestAfterLogout(testInfo);
+      restAuthorization.assertNoLeavingAccountRequestAfterLogout(testInfo);
     } finally {
       await Promise.all(probeContexts.map((context) => context.close()));
       await secondContext?.close();

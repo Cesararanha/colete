@@ -76,6 +76,9 @@ export const pt = {
     sending: 'Enviando…',
     networkTitle: 'Não foi possível falar com o serviço',
     networkBody: 'Confira sua conexão e tente novamente. Nenhuma confirmação foi presumida.',
+    sessionTitle: 'Não foi possível confirmar sua sessão',
+    sessionBody:
+      'Tente de novo. Se o aviso continuar, entre novamente para continuar com segurança.',
   },
   validation: {
     required: 'Preencha este campo para continuar.',

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useSyncExternalStore } from 'react';
 
@@ -6,8 +6,13 @@ import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { AppError, api } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import {
+  isSessionUnavailable,
+  privateQueryKeys,
+  usePrivateQuery,
+  useSessionQuery,
+} from '@/lib/private-queries';
 
-import { DELETION_REQUEST_QUERY_KEY } from '../profile/DeleteAccountCard';
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { DeletionShellScreen } from '../profile/DeletionShellScreen';
 import { ProfileScreen } from '../profile/ProfileScreen';
@@ -39,41 +44,14 @@ export function AuthGateScreen() {
     deletionProtocolStore.getSnapshot,
     deletionProtocolStore.getSnapshot,
   );
-  const session = useQuery({ queryKey: ['session'], queryFn: () => api.getSession() });
+  const session = useSessionQuery();
   const currentSession = session.data ?? null;
-  const accessToken = currentSession?.access_token ?? null;
-  const hasUsableSession = accessToken !== null && accessToken !== '';
-  const deletion = useQuery({
-    enabled: hasUsableSession,
-    queryKey: DELETION_REQUEST_QUERY_KEY,
-    queryFn: () => {
-      if (accessToken === null || accessToken === '') {
-        throw new Error('The deletion projection ran without a usable session.');
-      }
-      return api.getOwnDeletionRequest(accessToken);
-    },
-  });
-  const profile = useQuery({
-    enabled: hasUsableSession,
-    queryKey: ['own-profile'],
-    queryFn: () => {
-      if (accessToken === null || accessToken === '') {
-        throw new Error('The profile projection ran without a usable session.');
-      }
-      return api.getOwnProfile(accessToken);
-    },
-  });
-
-  useEffect(() => {
-    const subscription = api.onAuthStateChange((_event, nextSession) => {
-      queryClient.setQueryData(['session'], nextSession);
-      if (nextSession === null) {
-        queryClient.removeQueries({ queryKey: ['own-profile'] });
-        queryClient.removeQueries({ queryKey: DELETION_REQUEST_QUERY_KEY });
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [queryClient]);
+  const deletion = usePrivateQuery(privateQueryKeys.deletionRequest, (accessToken) =>
+    api.getOwnDeletionRequest(accessToken),
+  );
+  const profile = usePrivateQuery(privateQueryKeys.ownProfile, (accessToken) =>
+    api.getOwnProfile(accessToken),
+  );
 
   useEffect(() => {
     if (session.isSuccess && session.data === null && storedProtocol === null) {
@@ -127,6 +105,7 @@ export function AuthGateScreen() {
 
   const queryError = session.error ?? deletion.error ?? profile.error;
   if (queryError !== null) {
+    const sessionUnavailable = isSessionUnavailable(queryError);
     return (
       <AuthenticatedShell
         description={pt.profile.description}
@@ -141,8 +120,8 @@ export function AuthGateScreen() {
           }}
           actionLabel={pt.common.retry}
           kind="network"
-          message={pt.common.networkBody}
-          title={pt.common.networkTitle}
+          message={sessionUnavailable ? pt.common.sessionBody : pt.common.networkBody}
+          title={sessionUnavailable ? pt.common.sessionTitle : pt.common.networkTitle}
         />
       </AuthenticatedShell>
     );

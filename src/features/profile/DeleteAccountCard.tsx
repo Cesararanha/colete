@@ -17,13 +17,12 @@ import {
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { deletionRequestProjectionSchema } from '@/lib/privacy-schema';
+import { privateQueryKeys } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
 import { deletionProtocolStore } from './deletion-protocol';
 import { profileErrorMessage } from './profile-errors';
-
-export const DELETION_REQUEST_QUERY_KEY = ['deletion-request'] as const;
 
 export function DeleteAccountCard() {
   const { colors } = useTheme();
@@ -43,18 +42,18 @@ export function DeleteAccountCard() {
       const parsed = deletionRequestProjectionSchema.safeParse(result.current);
       if (parsed.success) {
         deletionProtocolStore.store({ id: parsed.data.id, requested_at: parsed.data.requested_at });
-        queryClient.setQueryData(DELETION_REQUEST_QUERY_KEY, parsed.data);
+        queryClient.setQueryData(privateQueryKeys.deletionRequest, parsed.data);
       }
       // The profile row is hidden by RLS from this commit on; the gate reads the
       // deletion projection and renders the restricted shell.
-      queryClient.setQueryData(['own-profile'], null);
-      await queryClient.invalidateQueries({ queryKey: DELETION_REQUEST_QUERY_KEY });
+      queryClient.setQueryData(privateQueryKeys.ownProfile, null);
+      await queryClient.invalidateQueries({ queryKey: privateQueryKeys.deletionRequest });
     },
     onError: async (error) => {
       if (error instanceof AppError && !error.retryable) setIntent(null);
       if (error instanceof AppError && error.code === 'DELETION_ALREADY_PENDING') {
-        await queryClient.invalidateQueries({ queryKey: DELETION_REQUEST_QUERY_KEY });
-        queryClient.setQueryData(['own-profile'], null);
+        await queryClient.invalidateQueries({ queryKey: privateQueryKeys.deletionRequest });
+        queryClient.setQueryData(privateQueryKeys.ownProfile, null);
       }
     },
   });

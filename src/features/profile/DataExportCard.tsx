@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -20,6 +20,12 @@ import {
 import { deliverBlobToBrowser } from '@/lib/deliver-file';
 import { pt } from '@/lib/i18n/pt';
 import { dataExportProjectionSchema } from '@/lib/privacy-schema';
+import {
+  isSessionUnavailable,
+  privateQueryKeys,
+  SESSION_QUERY_KEY,
+  usePrivateQuery,
+} from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
@@ -29,8 +35,6 @@ import {
   type DataExportView,
 } from './data-export-state';
 import { profileErrorMessage } from './profile-errors';
-
-export const OWN_DATA_EXPORTS_QUERY_KEY = ['own-data-exports'] as const;
 
 type DownloadPhase =
   | { phase: 'idle' }
@@ -87,10 +91,9 @@ export function DataExportCard({ email }: { email: string | null }) {
   const [requestIntent, setRequestIntent] =
     useState<MutationIntent<DataExportRequestResult> | null>(null);
 
-  const exports = useQuery({
-    queryKey: OWN_DATA_EXPORTS_QUERY_KEY,
-    queryFn: () => api.getOwnDataExports(),
-  });
+  const exports = usePrivateQuery(privateQueryKeys.ownDataExports, (accessToken) =>
+    api.getOwnDataExports(accessToken),
+  );
   const refresh = () => void exports.refetch();
   const focusState = () => stateRef.current?.focus();
 
@@ -99,7 +102,7 @@ export function DataExportCard({ email }: { email: string | null }) {
     onSuccess: (result) => {
       setRequestIntent(null);
       const parsed = dataExportProjectionSchema.array().safeParse(result.current);
-      if (parsed.success) queryClient.setQueryData(OWN_DATA_EXPORTS_QUERY_KEY, parsed.data);
+      if (parsed.success) queryClient.setQueryData(privateQueryKeys.ownDataExports, parsed.data);
       refresh();
       focusState();
     },
@@ -146,7 +149,7 @@ export function DataExportCard({ email }: { email: string | null }) {
   const reauth = useMutation({
     mutationFn: async ({ exportId, secret }: { exportId: string; secret: string }) => {
       const result = await api.signInWithPassword(email ?? '', secret);
-      queryClient.setQueryData(['session'], result.session);
+      queryClient.setQueryData(SESSION_QUERY_KEY, result.session);
       return exportId;
     },
     onSuccess: (exportId) => {
@@ -191,8 +194,14 @@ export function DataExportCard({ email }: { email: string | null }) {
           action={refresh}
           actionLabel={pt.common.retry}
           kind="network"
-          message={profileErrorMessage(exports.error)}
-          title={pt.common.networkTitle}
+          message={
+            isSessionUnavailable(exports.error)
+              ? pt.common.sessionBody
+              : profileErrorMessage(exports.error)
+          }
+          title={
+            isSessionUnavailable(exports.error) ? pt.common.sessionTitle : pt.common.networkTitle
+          }
         />
       ) : view === null || copy === null ? null : (
         <>

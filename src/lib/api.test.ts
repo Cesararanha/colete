@@ -306,6 +306,21 @@ describe('lib/api authentication boundaries', () => {
     expect(getSession).not.toHaveBeenCalled();
   });
 
+  it('sends the caller token with the export projection, never the implicit session', async () => {
+    const getSession = vi.fn();
+    const setHeader = vi.fn(async () => ({ data: [], error: null, status: 200 }));
+    const rpc = vi.fn(() => ({ setHeader }));
+    const client = createApiClient({
+      supabase: { auth: { getSession }, rpc } as unknown as ColeteSupabaseClient,
+    });
+
+    await expect(client.getOwnDataExports('session-from-query')).resolves.toEqual([]);
+
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('get_own_data_exports');
+    expect(setHeader).toHaveBeenCalledExactlyOnceWith('Authorization', 'Bearer session-from-query');
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
   it('keeps a genuinely invalid gate session terminal', async () => {
     const setHeader = vi.fn(async () => ({
       data: null,
