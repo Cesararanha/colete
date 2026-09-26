@@ -12,8 +12,12 @@ decisões humanas M2-D4 a M2-D7 do §8 e os achados A1 a A16 da terceira revisã
 independente e, por elas, altera também `10` §11, `11` §6, `13` §5, `16` §3 e
 §8 e `AGENTS.md`. A terceira emenda, também de 2026-09-26, aplica as decisões
 humanas M2-D8 a M2-D11 do §8 e corrige a prova de vaga liberada da `0015` no
-§3.3; ela altera somente este documento. Nenhuma das quatro cria migration,
-função, bucket, tela ou configuração Supabase.
+§3.3; ela altera somente este documento. A quarta emenda, também de
+2026-09-26, delimita o que a `0016` prova sobre remoção (§2 e §4.3), declara no
+§4.2 que as regras de reentrada são executadas pelo resgate da `0017`, dá a cada
+uma prova própria no §5.4 e registra no §8.2 os comportamentos que elas deixam
+indefinidos; ela também altera somente este documento. Nenhuma das cinco cria
+migration, função, bucket, tela ou configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -56,7 +60,7 @@ permanentes: são os dois pontos de extensão obrigatórios da primeira fatia.
 | Ordem | Fatia | Migration | Entrega que precisa ser provável | O que destrava | Revisão independente esperada |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Fundação, isolamento e extensão da exclusão | `0015_group_foundation.sql` | tabelas/constraints, RLS default-deny, owner derivado, trigger diferido, limites canônicos, extensão da exclusão (§3.3), fence de Storage da foto de grupo por `delete_storage_object` com `resource_type='group_photo'` e extensão do `colete-export-v1` com `groups.json` | um domínio de grupos seguro para as RPCs; a saga não pode apagar Auth deixando ownership, membership ou foto de grupo para trás | **4 rodadas:** schema/constraints; RLS e privilégios com papel-sonda; saga/Storage/export e crashes; locks/commit real/privacidade |
-| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership serializada pelo perfil; a recontagem de capacidade em `approve_member` é defesa, sem corrida própria; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/capacidade; owner/reentrada preparada/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
+| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership serializada pelo perfil; a recontagem de capacidade em `approve_member` é defesa, sem corrida própria; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/capacidade; owner/remoção e estado `removed`/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
 | 3 | Convites, reentrada, HMAC e criação | `0017_group_invites.sql` | material, cofre, código, link, compartilhamento, revogação, expiração, esgotamento, rotação, resgate e `create_group` com convite inicial | entrada pendente, reentrada explícita, criação real de grupo e critério de saída criptográfico do M2 | **6 rodadas:** formato/vetores; cofre/rotação/instrumentos de vazamento; locks/capacidade; HTTP/log/referrer/rate limit; RLS/projeções/preview e abuso; `create_group` e convite inicial |
 | 4 | UI-A (entrada e convite) | —, sem migration | telas 10 (lista), 11 (detalhe), 12 (entrar por código/link), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação, convite, preview e entrada pendente visíveis sobre contratos reais, somente com estados alcançáveis sem aprovação | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E pelo gateway produtivo, resgate/preview e segurança de link/token; regressões M0–M1 e privacidade |
 | 5 | UI-B (decisão e titularidade) | —, sem migration | telas 17 (aprovar e gerir) e 25 (configurações e transferência) | aprovação, gestão de membros e titularidade visíveis sobre contratos reais | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E de aprovação/remoção/transferência e segurança de token; regressões M0–M1, UI-A e privacidade |
@@ -418,11 +422,18 @@ pendente. O agendamento segue o mesmo estado dos demais jobs em `16` §3.
 
 ### 4.2 Reentrada e `removal_count`
 
+A `0016` só prepara o estado `removed`: `remove_member` e `leave_group` fazem
+`active → removed`, e nenhuma RPC desta fatia reativa a membership nem a devolve
+a `pending`. As regras de reentrada abaixo são executadas pelo resgate da
+`0017` e provadas no §5.4; esta seção as fixa aqui porque definem o estado que a
+`0016` precisa deixar pronto.
+
 Remoção não é banimento. A linha `(group_id, profile_id)` nunca é substituída
 para apagar o histórico:
 
 - `active → removed` marca `removed_at`, desliga `is_monthly` e retira
-  autoridade; não existe RPC de reativação direta;
+  autoridade; não existe RPC de reativação direta. Esta é a única regra da
+  seção executada pela `0016`;
 - somente resgate válido da fatia 3 faz `removed → pending`, atualiza
   `last_requested_at`, zera `removed_at`, força `role='player'` e
   `is_monthly=false`, e exige nova aprovação;
@@ -434,13 +445,23 @@ para apagar o histórico:
 
 Pendente repetindo o mesmo pedido recebe projeção corrente sem nova membership
 nem consumo duplicado. Membership ativa nunca é rebaixada por resgate; a resposta
-não revela a terceiros se o perfil já pertence ao grupo.
+não revela a terceiros se o perfil já pertence ao grupo. Estas duas regras
+também são executadas pelo resgate da `0017`. Se o resgate repetido com
+`request_id` novo, de quem já está `pending` ou `active`, consome uso do convite,
+e qual resposta recebe, são indefinidos do §8.2, antes da `0017`.
 
 ### 4.3 Provas de saída e orçamento
 
 As cinco rodadas cobrem: envelope/grants; concorrência/capacidade;
-titularidade/reentrada preparada/suspensão; exclusão × membership e retenção; e
-HTTP real com contraprovas. O harness de 25 conexões prova duas aprovações
+titularidade/remoção e estado `removed`/suspensão; exclusão × membership e
+retenção; e HTTP real com contraprovas. A parte “remoção e estado `removed`” da
+terceira rodada prova que `active → removed`, por `remove_member` e por
+`leave_group`, grava `removed_at`, desliga `is_monthly` e retira autoridade: RLS
+e RPC negam já na chamada seguinte do perfil removido. Prova também que nenhuma
+RPC da `0016` reativa a membership nem a devolve a `pending`, e que a linha
+continua existindo depois da remoção. A transição `removed → pending` e o
+incremento de `removal_count` não são provas desta fatia: dependem do resgate e
+pertencem à `0017` (§5.4). O harness de 25 conexões prova duas aprovações
 contra a quinta e a sexta membership do mesmo perfil, transferência × saída,
 exclusão × transferência e exclusão do dono × exclusão do organizador escolhido,
 sempre nas duas ordens. Criação contra a quinta vaga pertence à `0017`, onde
@@ -632,12 +653,52 @@ exclusão de conta (§3.3), em que o grupo em 100 `pending + active` perde um
 membro por `delete_account` e aceita exatamente uma entrada, com a seguinte
 recebendo `GROUP_FULL`; criação × aprovação e duas criações contra a quinta
 vaga; `create_group` devolvendo `{ group_id, invite_id }` com convite inicial
-válido; reentrada única; preview sem consumo nem
+válido; as provas de reentrada do parágrafo seguinte; preview sem consumo nem
 linha; tentativa N+1 recusada pela Edge sem tocar o banco; expurgo de convite no
 prazo; e objeto/linha residual zero. Todo par concorrente usa a barreira do §2:
 duas conexões dedicadas com `application_name` distinto, ordens A→B e B→A,
 liberação somente depois de observar `wait_event_type='Lock'`; nas provas N-way,
 ao menos N−1 transações esperaram lock. `setTimeout` não é barreira.
+
+As regras de reentrada do §4.2 são executadas por esta fatia e têm, cada uma,
+prova própria. O ponto de partida é a membership `removed` que a `0016` deixa
+pronta:
+
+- **mesma linha:** o resgate válido de perfil `removed` atualiza a linha
+  `(group_id, profile_id)` existente, sem `delete` nem `insert` em
+  `group_members`, e `joined_at` fica preservado, como `10` §3 exige;
+- **`removed → pending`:** depois do resgate, a linha está `pending`, com
+  `last_requested_at` atualizado, `removed_at` nulo, `role='player'` e
+  `is_monthly=false`, inclusive quando o perfil era organizador antes da
+  remoção. A linha continua sem autoridade e sem leitura de `groups` até nova
+  aprovação por `approve_member`;
+- **incremento único:** `removal_count` aumenta exatamente em um na reentrada, e
+  o replay idempotente com o mesmo `request_id` devolve o mesmo outcome sem novo
+  incremento e sem novo consumo de uso;
+- **mesma transação que o consumo:** reentrada recusada depois do lock, por
+  `GROUP_FULL`, `GROUP_LIMIT` ou convite que deixou de ser resgatável, deixa
+  `used_count`, `removal_count` e a linha `removed` inalterados; nunca há
+  consumo sem incremento nem incremento sem consumo;
+- **o contador não decide nada:** perfil com `removal_count >= 2` reentra, ocupa
+  exatamente uma vaga de `pending + active`, continua `player` e `pending` até
+  aprovação e é aprovado pelo mesmo caminho de qualquer pendente, sem bloqueio,
+  desconto de capacidade nem banimento;
+- **pendente repetindo o pedido:** perfil já `pending` que resgata de novo não
+  gera nova membership. A chave primária `(group_id, profile_id)` já impede a
+  segunda linha, e por isso contar linhas passaria também com o defeito. A
+  prova afirma o que o defeito quebraria: o resgate repetido não falha por
+  violação de chave, não aplica a transição de reentrada e deixa `status`,
+  `role`, `joined_at`, `removed_at` e `removal_count` inalterados. O consumo de
+  uso, `last_requested_at` e a resposta desse resgate repetido com `request_id`
+  novo são indefinidos do §8.2; a prova deles fica pendente dessa resposta;
+- **ativa nunca rebaixada:** perfil `active` que resgata convite do próprio
+  grupo mantém `status`, `role`, `is_monthly`, `joined_at` e `removal_count`
+  inalterados, e o resgate não falha por violação de chave nem por erro
+  interno, que também deixariam a linha intacta. A resposta, e se esse resgate
+  consome uso, são indefinidos do §8.2;
+- **nada revelado a terceiros:** outcome, projeção devolvida, erro e log do
+  resgate contêm somente dados do próprio chamador, sem ID, status ou
+  existência de membership de outro perfil.
 
 “Nenhum token em banco, log, Sentry ou cache” depende de três **instrumentos
 novos desta fatia**, sem os quais o critério não fecha. Hoje nenhum deles existe:
@@ -931,7 +992,16 @@ implementa, sem que o implementador escolha:
 - o destino do `reason` de `remove_member`, que não pode ir para coluna
   operacional, log nem erro, antes da `0016`;
 - o que um membro já `active` recebe ao resgatar convite do próprio grupo, dado
-  que `13` §5 só prevê `{ status: 'pending', reentry }`, antes da `0017`.
+  que `13` §5 só prevê `{ status: 'pending', reentry }`, e se esse resgate
+  consome uso do convite, antes da `0017`. O §4.2 só fixa que a membership
+  ativa não é rebaixada e que a resposta não revela a terceiros a membership;
+- o que acontece quando perfil já `pending` no grupo resgata de novo com
+  `request_id` novo, pelo mesmo convite ou por outro convite do mesmo grupo,
+  antes da `0017`: se consome uso do convite, se atualiza `last_requested_at` e
+  qual `reentry` devolve. O §4.2 diz “sem nova membership nem consumo
+  duplicado”, mas não diz se “duplicado” cobre só o replay idempotente, que o
+  envelope já resolve, ou também o resgate novo; e o passo 4 do §5.3 incrementa
+  `used_count` antes do passo 5, sem ramo para membership já `pending`.
 
 Continuam valendo os gates herdados: textos/digests legais efetivos, restore
 isolado, RPO/RTO aceitos e evidência em hardware real antes do beta. Nenhuma
