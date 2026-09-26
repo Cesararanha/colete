@@ -107,11 +107,17 @@ o celular manda nas decisões de layout quando houver conflito.
 
 **Titularidade:**
 
-- O dono **não sai do grupo nem exclui a conta sem transferir a titularidade e os casos
-  financeiros abertos**.
-- Se não houver outro membro ativo ou pendente, a exclusão arquiva o grupo e remove a
-  membership ativa na mesma operação; `owner_id` permanece apenas como referência histórica
-  ao perfil desidentificado. Caso contrário, exige transferência.
+- O dono **não sai do grupo sem transferir a titularidade e os casos financeiros abertos**.
+- Na exclusão da conta, a transação inicial escolhe um organizador ativo elegível e transfere
+  a ele a titularidade (`13-contratos-funcoes.md` §2.11). Se houver outro membro ativo mas
+  nenhum organizador ativo elegível, a exclusão retorna `FINANCIAL_SUBSTITUTE_REQUIRED`: o dono
+  promove alguém ou transfere à mão antes de repetir o pedido.
+- Se não houver outro membro ativo, a exclusão arquiva o grupo, cancela os pedidos pendentes
+  e remove a membership do dono na mesma operação; membro pendente não impede o arquivamento.
+  `owner_id` permanece apenas como referência histórica ao perfil desidentificado. (Decisão
+  humana M2-D2, 2026-09-25, registrada em `25-plano-m2.md` §8: pela letra anterior, dono com
+  um único pendente não era solo nem tinha a quem transferir, e a exclusão travaria para
+  sempre.)
 - Dono ausente/inativo: outro membro ativo elegível pode assumir. Sem candidato, Admin só
   recebe casos financeiros explícitos para fechamento; não assume acesso geral ao grupo.
 

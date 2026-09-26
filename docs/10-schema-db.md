@@ -1539,7 +1539,8 @@ financeiro da seção 2.
 | `policy_acceptances`, `privacy_requests`, `data_exports`, `deletion_requests` | próprio por projeção mínima; export só por stream autenticado | RPC própria/sistema; tabelas de saga somente worker |
 | `revoked_auth_sessions` | serviço; próprio vê apenas estado agregado da sessão | RPC de revogação/sistema |
 | `groups`, `group_members` | membros ativos; pendente vê só o pedido | RPC de dono/organizador conforme ação |
-| `group_invites`, `match_invites` | criador/organizadores; token nunca é retornado do banco | RPC |
+| `group_invites` | dono ou organizador com membership `active` no momento da leitura; `created_by` é histórico, não autoridade; token nunca é retornado do banco | RPC |
+| `match_invites` | criador/organizadores; token nunca é retornado do banco | RPC |
 | `recurrences`, `recurrence_payment_secrets` | regra a organizadores; segredo só por função interna | somente RPC/sistema |
 | `matches`, `match_payment_secrets` | detalhe seguro por projeção; Pix só por RPC a organizador/starter/claim válido | RPC de organizador/sistema |
 | `match_players` | participantes só por projeção; própria posição por RPC | somente RPC |

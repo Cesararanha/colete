@@ -608,7 +608,9 @@ Todas as mutações abaixo também recebem `request_id`.
 | `create_match_invite(match_id, expires_at, max_uses, request_id)` | `{ invite_id, expires_at, max_uses }` | `TEAMS_ALREADY_PUBLISHED` · `MATCH_STARTED` | `expires_at <= starts_at`; bloqueia publicação atual; outcome não contém token; banco guarda nonce público + digest |
 | `accept_match_invite(token, request_id)` | `{ outcome: { match_player_id,payment_cycle_id,claim_id?,logical_result:'guest_added' }, current: { status,claim_status?,claim_expires_at? } }` | `INVITE_REVOKED` · `INVITE_EXPIRED` · `INVITE_USED` · `NO_OPEN_SLOT` · `TEAMS_ALREADY_PUBLISHED` · `MATCH_STARTED` | resolve IDs e trava perfil→grupo→racha→convite; consumo/capacidade/ciclo são atômicos; prazo/status só em projeção fresca; nunca devolve Pix; `is_guest`; auditoria |
 
-`get_invite_share_link(invite_id)` é projeção sensível para criador/organizador: reconstitui
+`get_invite_share_link(invite_id)` é projeção sensível para dono ou organizador com membership
+`active` no momento da chamada; `created_by` é registro histórico, sem autoridade (decisão
+humana M2-D4, 2026-09-26, registrada em `25-plano-m2.md` §8.1). Reconstitui
 token autenticado a partir de ID + `token_version` + `public_nonce` de 16 bytes e HMAC do
 cofre, revalida revogação/expiração e não
 persiste a URL na idempotência. Token usa fragmento, sai do endereço após a troca e não entra

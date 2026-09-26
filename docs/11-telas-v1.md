@@ -413,10 +413,14 @@ decidíveis só para resolver pagamento/estorno → recorrência **continua** (D
 | Marco | Telas |
 |---|---|
 | M1 | 1–4 e 13 (perfil, exportação e exclusão essenciais) |
-| M2 | 5, 10, 11, 12, 16, 17, 24, 25 |
-| M3 | 18 (e 6 parcial) |
+| M2 | 10, 11, 12, 16, 17, 24, 25 |
+| M3 | 5 e 18 (e 6 parcial) |
 | M4 | 6 e 7 (listas) |
 | M5 | 8, 19, 20 e 23 |
 | M6 | 21, 22 e 9 |
 | M7 | 14, 15 + push de verdade |
 | M8 | acabamento e auditoria transversal das 25 telas |
+
+A tela 5 (Rachas — vazio) saiu do M2 para o M3 por decisão humana M2-D1, de 2026-09-25,
+registrada em `25-plano-m2.md` §8: o domínio de rachas não existe no M2, e `16-roadmap.md`
+§5 (“Fronteira da área autenticada no M1-A”) põe Rachas no M3.
