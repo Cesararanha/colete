@@ -17,6 +17,7 @@ import {
   type ProfilePatch,
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import { privateQueryKeys } from '@/lib/private-queries';
 import { profilePatchSchema } from '@/lib/profile-schema';
 import { spacing } from '@/theme/spacing';
 
@@ -79,9 +80,9 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
     ) => command.execute(),
     onSuccess: async (result) => {
       setIntent(null);
-      queryClient.setQueryData(['own-profile'], result.current);
+      queryClient.setQueryData(privateQueryKeys.ownProfile, result.current);
       reset(formValues(result.current));
-      await queryClient.invalidateQueries({ queryKey: ['own-profile'] });
+      await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });
     },
   });
 

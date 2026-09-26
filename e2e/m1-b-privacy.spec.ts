@@ -20,6 +20,7 @@ import {
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
 } from './support/layout';
+import { observeRestAuthorization, userJwtSubject } from './support/rest-authorization';
 
 const { Client } = pg;
 const runSuffix = `${Date.now()}-${process.pid}`;
@@ -259,6 +260,46 @@ async function signInAndCompleteProfile(page: Page, email: string) {
   await page.getByRole('button', { name: 'Concluir perfil' }).click();
   await expect(page.getByTestId('profile-data-card')).toBeVisible();
   await expect(page.getByTestId('export-state-title')).toBeVisible();
+}
+
+/**
+ * Makes the next call-time session read of a private query find no session,
+ * once, after the test arms it. Private queries read Auth through
+ * `auth.getSession()` right before the request; the supabase-js transport
+ * reads it through `_getSessionToken`, which the regression of #31 already
+ * covers, so that path is left alone here.
+ */
+async function installCallTimeSessionReadFailure(page: Page) {
+  await page.addInitScript(() => {
+    const state = { armed: false, denied: false };
+    Object.defineProperty(window, '__coleteCallTimeSessionRead', { value: state });
+    const originalGetItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function getItem(key: string) {
+      const stack = new Error().stack ?? '';
+      const callTimeRead = stack.includes('getSession') && !stack.includes('_getSessionToken');
+      if (state.armed && !state.denied && callTimeRead && key.includes('-auth-token')) {
+        state.denied = true;
+        return null;
+      }
+      return originalGetItem.call(this, key);
+    };
+  });
+}
+
+async function armCallTimeSessionReadFailure(page: Page) {
+  await page.evaluate(() => {
+    (
+      window as typeof window & { __coleteCallTimeSessionRead: { armed: boolean } }
+    ).__coleteCallTimeSessionRead.armed = true;
+  });
+}
+
+async function callTimeSessionReadWasDenied(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as typeof window & { __coleteCallTimeSessionRead: { denied: boolean } })
+        .__coleteCallTimeSessionRead.denied,
+  );
 }
 
 async function identifiers(db: pg.Client, email: string) {
@@ -924,6 +965,162 @@ test.describe('M1-B screen 13 privacy controls', () => {
       });
     } finally {
       await cleanupAccount(db, env, request, { authUserId, email: account.email, profileId });
+      await db.end();
+    }
+  });
+
+  test('a sign-out in another tab leaves nothing of the previous account to the next one', async ({
+    page,
+    request,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium');
+    test.setTimeout(90_000);
+    const env = localEnvironment();
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const first = {
+      email: `cache-first-${runSuffix}@colete.test`,
+      name: 'Fábia Primeira',
+      password: PASSWORD,
+    };
+    const second = {
+      email: `cache-second-${runSuffix}@colete.test`,
+      name: 'Sofia Segunda',
+      password: PASSWORD,
+    };
+    let firstAuthUserId: string | undefined;
+    let secondAuthUserId: string | undefined;
+    const restAuthorization = observeRestAuthorization(page);
+
+    try {
+      firstAuthUserId = (await createVerifiedUser(request, env, first)).id;
+      secondAuthUserId = (await createVerifiedUser(request, env, second)).id;
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+      await signInAndCompleteProfile(page, first.email);
+      const card = page.getByTestId('profile-export-card');
+      const title = card.getByTestId('export-state-title');
+      await card.getByRole('button', { name: 'Gerar export' }).click();
+      await expect(title).toHaveText('Preparando seus dados');
+
+      // The first account leaves from another tab of the same browser. This
+      // tab only learns it through Auth, not through its own logout handler.
+      const otherTab = await page.context().newPage();
+      await otherTab.goto('/perfil');
+      await expect(otherTab.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      restAuthorization.markLogout();
+      await otherTab.getByRole('button', { name: 'Sair com segurança' }).click();
+      await expect(otherTab).toHaveURL(/\/entrar$/u);
+      await otherTab.close();
+      await expect(page).toHaveURL(/\/entrar$/u);
+
+      // The second account's own export projection is held at the network, so
+      // whatever the card shows meanwhile can only come from the query cache.
+      let releaseSecondProjection: () => void = () => undefined;
+      const secondProjectionReleased = new Promise<void>((resolve) => {
+        releaseSecondProjection = resolve;
+      });
+      // Only whether the JWT belongs to the second account is kept, never the `sub`.
+      const heldProjections: boolean[] = [];
+      await page.route('**/rest/v1/rpc/get_own_data_exports', async (route) => {
+        const subject = userJwtSubject(route.request().headers()['authorization']);
+        heldProjections.push(subject !== null && subject === secondAuthUserId);
+        await secondProjectionReleased;
+        await route.continue();
+      });
+
+      // Same document, no reload: a reload would empty the cache and hide the leak.
+      await page.getByLabel('E-mail').fill(second.email);
+      await page.getByLabel('Senha', { exact: true }).fill(PASSWORD);
+      await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Concluir perfil' }).click();
+      await expect(page.getByTestId('profile-data-card')).toBeVisible();
+      await expect(card).toBeVisible();
+      await expect(card.getByText('Carregando com segurança…')).toBeVisible();
+      await expect(title).toHaveCount(0);
+      await expect.poll(() => heldProjections).toEqual([true]);
+
+      releaseSecondProjection();
+      await expect(title).toHaveText('Nenhum export ativo');
+      await page.unroute('**/rest/v1/rpc/get_own_data_exports');
+      restAuthorization.assertNoAnonymousRequestAfterLogout(testInfo);
+    } finally {
+      await cleanupAccount(db, env, request, {
+        authUserId: firstAuthUserId,
+        email: first.email,
+        profileId: undefined,
+      });
+      await cleanupAccount(db, env, request, {
+        authUserId: secondAuthUserId,
+        email: second.email,
+        profileId: undefined,
+      });
+      await db.end();
+    }
+  });
+  test('a private query whose call-time session read fails sends nothing and recovers', async ({
+    page,
+    request,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium');
+    test.setTimeout(60_000);
+    const env = localEnvironment();
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const owner = {
+      email: `session-read-${runSuffix}@colete.test`,
+      name: 'Rita Releitura',
+      password: PASSWORD,
+    };
+    let authUserId: string | undefined;
+
+    try {
+      authUserId = (await createVerifiedUser(request, env, owner)).id;
+      await installCallTimeSessionReadFailure(page);
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+      await signInAndCompleteProfile(page, owner.email);
+      const card = page.getByTestId('profile-export-card');
+      const title = card.getByTestId('export-state-title');
+      // The request's own success refetches the projection; that read must
+      // finish before the failure is armed.
+      const projectionAfterRequest = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/rest/v1/rpc/get_own_data_exports',
+      );
+      await card.getByRole('button', { name: 'Gerar export' }).click();
+      await projectionAfterRequest;
+      await expect(title).toHaveText('Preparando seus dados');
+
+      // From here on, only whether each projection carried this account's JWT is kept.
+      const projections: boolean[] = [];
+      page.on('request', (sent) => {
+        if (new URL(sent.url()).pathname !== '/rest/v1/rpc/get_own_data_exports') return;
+        const subject = userJwtSubject(sent.headers()['authorization']);
+        projections.push(subject !== null && subject === authUserId);
+      });
+
+      // "Atualizar status" refetches only the export projection, so the one
+      // session read that fails is the call-time read of that query.
+      await armCallTimeSessionReadFailure(page);
+      await card.getByRole('button', { name: 'Atualizar status' }).click();
+      const notice = card.getByRole('alert');
+      await expect(notice).toContainText('Não foi possível confirmar sua sessão');
+      await expect(notice).toContainText('entre novamente para continuar com segurança');
+      await expect(notice).not.toContainText('Confira sua conexão');
+      expect(await callTimeSessionReadWasDenied(page)).toBe(true);
+      expect(projections).toEqual([]);
+
+      await notice.getByRole('button', { name: 'Tentar de novo' }).click();
+      await expect(title).toHaveText('Preparando seus dados');
+      await expect(card.getByRole('alert')).toHaveCount(0);
+      expect(projections).toEqual([true]);
+    } finally {
+      await cleanupAccount(db, env, request, {
+        authUserId,
+        email: owner.email,
+        profileId: undefined,
+      });
       await db.end();
     }
   });

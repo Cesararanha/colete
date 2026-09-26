@@ -349,8 +349,10 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     requestDataExport: () => mutation<DataExportRequestResult>('request_data_export', {}),
     deleteAccount: () => mutation<AccountDeletionResult>('delete_account', {}),
 
-    async getOwnDataExports(): Promise<DataExportProjection[]> {
-      const result = await supabase().rpc('get_own_data_exports');
+    async getOwnDataExports(accessToken: string): Promise<DataExportProjection[]> {
+      const result = await supabase()
+        .rpc('get_own_data_exports')
+        .setHeader('Authorization', `Bearer ${accessToken}`);
       if (result.error !== null) {
         if (result.status === 401) throw new AppError('UNAUTHENTICATED', result.error.message);
         throw new TransportError();

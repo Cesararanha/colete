@@ -756,6 +756,146 @@ manifesto continua com 23 entradas; somente o hash de `22` mudou, e o hash de
 Nenhum projeto Supabase remoto, deploy, Vault hospedado ou segredo real foi
 acessado.
 
+## Correções pós-fatia — consultas privadas presas ao ciclo da sessão
+
+Esta correção não tem migration. Ela registra três defeitos da mesma classe,
+achados depois da fatia 4: uma leitura privada do app que não estava amarrada
+ao ciclo de vida da sessão Auth.
+
+### Defeitos encontrados
+
+1. **Requisição anônima depois do logout.** O `onSuccess` do logout chama
+   `queryClient.resetQueries()`, que refaz toda consulta ativa. A consulta
+   `own-data-exports` do `DataExportCard` não tinha `enabled` ligado à sessão e
+   usava a sessão implícita do supabase-js. Sem sessão, o supabase-js envia a
+   chave publicável como `Authorization`, e toda execução mandava
+   `POST /rest/v1/rpc/get_own_data_exports`, recebendo `401` com
+   `42501 permission denied for function`. O `resetQueries` é o gatilho; o
+   defeito é a consulta não depender da sessão.
+2. **Dado da conta anterior no cache.** O handler de Auth do gate só removia
+   `own-profile` e `deletion-request` no `SIGNED_OUT`. O export ficava no cache
+   da aba para a próxima conta. A revisão independente mostrou o efeito na tela
+   do `main`: depois de um logout em outra aba, a segunda conta chegou a
+   `/perfil` na terceira tentativa e o card mostrou "Preparando seus dados", que
+   era o export da primeira conta.
+3. **Assinatura de Auth só no gate.** A única chamada a `onAuthStateChange`
+   vivia no `AuthGateScreen`. Um login feito em `/entrar` depois de um logout em
+   outra aba não era observado: o gate lia do cache uma sessão `null` ainda
+   fresca e mandava a pessoa de volta a `/entrar`.
+
+### O que foi corrigido
+
+- `SessionLifecycle`, montado em `app/_layout.tsx`, é a única assinatura de
+  Auth do app e vive tanto quanto o cache de consultas. O build de smoke não se
+  inscreve, porque não tem configuração do Supabase.
+- Toda leitura privada fica sob a raiz de chaves `['private']` e passa por
+  `usePrivateQuery`. A consulta só roda com sessão utilizável e lê o token do
+  Auth na hora da chamada; sem token, lança `UNAUTHENTICATED` sem enviar nada.
+  `getOwnDataExports` passou a mandar o token explícito, como as outras duas
+  projeções.
+- `applySessionChange` remove tudo sob `['private']` no logout ou na troca de
+  pessoa, antes de publicar a nova sessão. A renovação de token da mesma pessoa
+  preserva o cache. A remoção também cancela o fetch em voo: `removeQueries`
+  destrói a consulta, e a destruição chama `cancel({ silent: true })`.
+- Cada sessão publicada abre uma nova geração. Uma leitura da sessão iniciada
+  antes da última publicação devolve a sessão publicada, e não o próprio
+  resultado, que pode ser da pessoa anterior.
+- Quando a sessão não se confirma numa leitura privada, o gate e o card de
+  export mostram "Não foi possível confirmar sua sessão", separado do aviso de
+  rede, com "Tentar de novo".
+
+**Mudança de desenho em relação ao PR #31.** O #31 derivava o token do estado
+de sessão já estabelecido no render do gate. Agora o token é relido do Auth na
+hora de cada chamada. O caminho novo falha fechado: sem sessão legível, nenhuma
+requisição sai. A regressão do #31 só reage a `_getSessionToken` e não exercita
+essa releitura, por isso ela ganhou um teste próprio.
+
+### Correções da revisão independente
+
+- O observador de PostgREST compara em memória o `sub` do JWT com o Auth user
+  id da conta que saiu e registra só booleanos e contagens. No M1-A, falha se
+  alguma requisição depois do logout carregar o JWT dessa conta, e prova que a
+  comparação está viva exigindo ao menos uma requisição dela antes do logout.
+  No M1-B, a projeção retida precisa carregar o JWT da segunda conta.
+- O `cancelQueries` redundante saiu de `clearPrivateQueries`.
+- O teste do M1-B `a private query whose call-time session read fails sends
+  nothing and recovers` nega uma única leitura de sessão feita por
+  `auth.getSession()` fora de `_getSessionToken`, depois de "Atualizar status".
+  Ele afirma que nenhuma projeção sai, que o card mostra o aviso de sessão e não
+  o de rede, e que "Tentar de novo" recupera o estado com uma única projeção
+  carregando o JWT da conta.
+
+### Contraprovas
+
+Todas as mutações abaixo foram temporárias e revertidas antes do commit.
+
+Com uma requisição injetada depois do logout do M1-A, carregando o JWT da conta
+que saiu, a asserção antiga passou e a nova falhou literalmente em:
+
+```text
+[rest-authorization] 9 PostgREST requests before logout (9 with a user JWT); 1 after logout (0 without a user JWT)
+[rest-authorization-account] 9 PostgREST requests before logout with the JWT of the account that left; 1 of 1 after logout
+Error: PostgREST requests with the JWT of the account that left, after logout: 9 PostgREST requests before logout with the JWT of the account that left; 1 of 1 after logout
++   "POST /rest/v1/rpc/get_own_deletion_request",
+```
+
+No M1-B, comparar a projeção retida com a primeira conta, em vez da segunda,
+falhou com `Received: [false]`: o predicado distingue as contas, o que
+`carriesUserJwt` sozinho não fazia.
+
+Sem o contador de geração, dois testes unitários falharam literalmente em:
+
+```text
+× never lets a read started before a published change overwrite it
+AssertionError: expected 'user-a' to be 'user-b' // Object.is equality
+× never lets a stale read bring a session back after sign-out
+AssertionError: expected { …(2) } to be null
+```
+
+O teste da releitura falhou nas duas mutações. Com o card de volta ao aviso de
+rede, recebeu `"Não foi possível falar com o serviçoEntre novamente para
+continuar com segurança.Tentar de novo"`. Com o token capturado no render, como
+no #31, a negação nunca atuou e o aviso de sessão não apareceu
+(`element(s) not found`).
+
+### Provas e números medidos
+
+Depois de `db:reset`, `npm run db:test` executou **822 asserções pgTAP em 13
+arquivos**, sem mudança, porque a correção não toca o banco. Os cinco harnesses
+passaram: idempotência com 25 conexões, gateway, worker com três conexões,
+exclusão com 13 conexões e exportação. Os censos terminaram sem resíduo
+operacional; somente `auth.audit_log_entries`, trilha própria do GoTrue,
+conservou o resíduo já aceito (12 linhas na exclusão, 27 na exportação).
+
+`verify:app` passou com **153 testes em 20 arquivos** e 14 rotas estáticas;
+`private-queries.test.ts` tem 10 testes. O fluxo Auth passou 8 testes e pulou 2
+duplicatas por projeto. O fluxo da tela 13 passou 4 e pulou 4 pela mesma
+matriz. O smoke do PWA passou 6. `scan:docs` confirmou 22 documentos,
+`scan:secrets` verificou 210 arquivos e `npm audit --audit-level=high` terminou
+sem vulnerabilidade alta ou crítica, mantendo as 13 moderadas fora do escopo.
+
+Os observadores registraram, em todas as execuções: no M1-A,
+`9 before (9 with a user JWT); 0 after logout (0 without a user JWT)` e
+`9 ... with the JWT of the account that left; 0 of 0 after logout`; no M1-B,
+`6 before (6 with a user JWT); 5 after logout (0 without a user JWT)`.
+
+Os specs afetados (`m1-a-auth.spec.ts` e `m1-b-privacy.spec.ts`, inteiros)
+rodaram em duas séries de dez execuções seguidas, em processos separados. Na
+primeira série, 19 das 20 passaram. Na execução 1 do M1-B, o teste novo estourou
+o timeout de 60 s na limpeza, com o `DELETE /auth/v1/admin/users` ainda
+pendente, depois que todas as asserções do corpo já tinham passado. O arquivo
+inteiro levou 6,6 min, contra cerca de 14 s nas outras execuções. Entre
+17:56:56Z e 18:03:20Z, o Postgres local não registrou nenhum disparo do
+`pg_cron`, que roda a cada minuto, e o GoTrue não registrou nenhuma requisição:
+a VM do Docker ficou parada nesse intervalo. A segunda série rodou sobre a
+árvore final, com o bundle recompilado, e as 20 execuções passaram:
+`m1-a-auth.spec.ts` com 8 passed e 2 skipped, e `m1-b-privacy.spec.ts` com
+4 passed e 4 skipped, todas as dez vezes, com as contagens dos observadores
+idênticas.
+
+Nenhum documento normativo mudou e o manifesto não foi tocado. Nenhum projeto
+Supabase remoto, deploy, Vault hospedado ou segredo real foi acessado.
+
 ## Manifesto de especificação
 
 Este documento fica fora de `docs/spec-manifest.sha256`, pelo mesmo precedente
