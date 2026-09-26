@@ -129,6 +129,20 @@ jobs:
         run: npm run test:auth:web
       - name: Run the screen 13 privacy controls browser flow
         run: npm run test:privacy:web
+      # Evidence for a failed browser run: trace, screenshot and error context.
+      # The repository is private, and the trace records only traffic to the
+      # disposable local stack started above, whose keys are the fixed local
+      # defaults of the Supabase CLI. The results live under the hidden .expo
+      # directory, hence include-hidden-files.
+      - name: Upload the Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-results-database-security
+          path: .expo/playwright-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Stop the disposable local stack
         if: always()
         run: npm run db:stop
@@ -185,3 +199,15 @@ jobs:
         run: npm run build:web:smoke
       - name: Run browser smoke tests
         run: npm run test:smoke:web
+      # Evidence for a failed browser run: trace, screenshot and error context.
+      # The smoke build is synthetic and reaches no Supabase stack. The results
+      # live under the hidden .expo directory, hence include-hidden-files.
+      - name: Upload the Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-results-pwa-smoke
+          path: .expo/playwright-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 3
