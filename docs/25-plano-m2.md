@@ -10,8 +10,10 @@ documento, seu ponteiro no roadmap e sua entrada no manifesto. A emenda de
 também `01`, `11` §6, `16` §3 e `AGENTS.md`. A emenda de 2026-09-26 aplica as
 decisões humanas M2-D4 a M2-D7 do §8 e os achados A1 a A16 da terceira revisão
 independente e, por elas, altera também `10` §11, `11` §6, `13` §5, `16` §3 e
-§8 e `AGENTS.md`. Nenhuma das três cria migration, função, bucket, tela ou
-configuração Supabase.
+§8 e `AGENTS.md`. A terceira emenda, também de 2026-09-26, aplica as decisões
+humanas M2-D8 a M2-D11 do §8 e corrige a prova de vaga liberada da `0015` no
+§3.3; ela altera somente este documento. Nenhuma das quatro cria migration,
+função, bucket, tela ou configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -227,35 +229,51 @@ sobre conjunto vazio:
 
 1. `delete_account`, e não o guard, resolve sem lock os candidatos e trava em
    bytes crescentes os perfis do titular e dos candidatos antes do primeiro
-   grupo (§2); o guard recebe os grupos já travados. Se a revalidação sob lock
-   encontra candidato inelegível ou grupo próprio que não estava no conjunto
-   resolvido, a transação aborta com `CONCURRENT_CHANGE`, nunca trava perfil
-   depois de grupo e nunca deixa o trigger decidir;
+   grupo (§2); o guard recebe os grupos já travados. Sob lock, a escolha do caso
+   2 é feita pelo critério da M2-D8 somente entre os candidatos travados. Se a
+   revalidação encontra candidato inelegível, organizador elegível fora do
+   conjunto resolvido ou grupo próprio que não estava no conjunto resolvido, a
+   transação aborta com `CONCURRENT_CHANGE`, nunca trava perfil depois de grupo
+   e nunca deixa o trigger decidir;
 2. grupo com organizador ativo elegível: a transação inicial o escolhe e
    transfere `groups.owner_id` antes de desidentificar, como `13` §2.11
    descreve; a membership do antigo owner passa a `removed` no mesmo commit.
-   No M2 essa transferência não emite N28 nem trilha, porque auditoria e outbox
-   ainda não existem (M2-D7, §8.1);
+   Com mais de um organizador ativo elegível, escolhe o de `joined_at` mais
+   antigo e, em empate, o de menor `profile_id` em bytes crescentes (M2-D8). É
+   a mesma ordem determinística que `10` §6 (linhas 788–791) usa para a
+   autoridade financeira, menor `(joined_at, profile_id_bytes)`. Como `10` §3
+   (linhas 263–264) preserva `joined_at` na reentrada, quem saiu e voltou
+   conserva a antiguidade da primeira entrada. A transferência por exclusão é
+   permitida em grupo suspenso, e o grupo continua suspenso depois dela
+   (M2-D10): exclusão de conta é direito LGPD do titular, e a suspensão do grupo
+   não está sob o controle dele. No M2 essa transferência não emite N28 nem
+   trilha, porque auditoria e outbox ainda não existem (M2-D7, §8.1);
 3. grupo com outro membro ativo, mas sem organizador ativo elegível, retorna
    `FINANCIAL_SUBSTITUTE_REQUIRED` sem iniciar a saga; o dono promove alguém ou
    transfere à mão antes de repetir o pedido;
 4. grupo sem outro membro ativo e sem caso financeiro é solo para o M2, ainda
-   que tenha pedidos pendentes: é arquivado no mesmo commit, os pedidos pendentes
-   são cancelados no mesmo commit e a membership do owner passa a `removed` no
-   mesmo commit. Membro pendente não impede o arquivamento (M2-D2);
+   que tenha pedidos pendentes: é arquivado no mesmo commit, e no mesmo commit
+   cada pedido pendente passa a `removed`, com `removed_at` preenchido e
+   `removal_count` inalterado, e a membership do owner passa a `removed`. O
+   contador não muda porque, por `10` §3, ele só aumenta na reentrada; não há
+   estado novo nem mudança em `10` (M2-D9). Membro pendente não impede o
+   arquivamento (M2-D2);
 5. a extensão futura do M5 consulta casos financeiros antes do arquivamento e
    conserva a mesma chamada em `delete_account`.
 
 Além dos grupos próprios, `delete_account` passa a `removed` TODA membership
 não-dona do titular (`pending` ou `active`) no mesmo commit. `10` §3 conta
 `pending + active` na capacidade; sem esse passo a vaga ficaria ocupada para
-sempre por um perfil desidentificado. A prova reconta a capacidade do grupo
-depois do commit e observa a vaga liberada: com o grupo em 100, a exclusão de um
-membro permite exatamente mais uma entrada.
+sempre por um perfil desidentificado. A `0015` não tem resgate: a entrada só
+existe na `0017`. Por isso a prova desta fatia mede diretamente no banco, depois
+do commit real, que a exclusão passou a membership não-dona do titular a
+`removed` e que a contagem `pending + active` do grupo caiu exatamente em um. A
+prova de que a vaga liberada aceita exatamente uma entrada pertence ao §5.4.
 
 O guard nunca promove `pending` nem `player` e nunca transfere a quem não é
 organizador ativo elegível. O critério de escolha entre vários organizadores
-elegíveis é gate do §8. Exceção Admin usa o contrato já definido em `13` §5.4.
+elegíveis é o da M2-D8 (caso 2). Exceção Admin usa o contrato já definido em
+`13` §5.4.
 
 `private.require_financial_deletion_substitute` é hoje `stable` (`0012`, linha
 430). Em função não-volátil o plpgsql executa por SPI em modo read-only, e
@@ -323,9 +341,17 @@ existentes, que é exatamente a ampliação que `22` §5.1 prevê dentro da v1.
 Além das quatro rodadas da tabela do §2, a fatia só fecha quando provar: banco
 do zero; constraints e FKs; trigger de owner em commit real; RLS positiva e
 cruzada por tabela; zero DML administrativo; transferência automática ao
-organizador elegível; `FINANCIAL_SUBSTITUTE_REQUIRED` sem organizador elegível;
-grupo solo com pendente arquivado e pedidos cancelados; memberships não-donas do
-titular em `removed` e vaga liberada; guard `volatile` travando sob concorrência;
+organizador elegível; com vários organizadores elegíveis, escolha do de
+`joined_at` mais antigo, em fixture na qual ele foi inserido por último e tem o
+maior `profile_id`, para que escolha por ordem física ou só por `profile_id`
+reprove, e, com `joined_at` empatado, escolha do menor `profile_id` em bytes,
+em fixture inserida na ordem inversa dos bytes (M2-D8); transferência por
+exclusão em grupo suspenso, com `suspended_at` inalterado depois do commit
+(M2-D10); `FINANCIAL_SUBSTITUTE_REQUIRED` sem organizador elegível; grupo solo
+com pendente arquivado e cada pedido pendente em `removed`, com `removed_at`
+preenchido e `removal_count` inalterado (M2-D9); memberships não-donas do
+titular em `removed` e contagem `pending + active` do grupo caindo exatamente em
+um, medida no banco (§3.3); guard `volatile` travando sob concorrência;
 foto pendente impedindo Auth; crash e retry do `delete_storage_object` de
 `group_photo`; `groups.json` byte a byte e allowlist negativa; censo pgTAP por
 valor de path/token/PII de fixture em todas as tabelas novas e nos livros de
@@ -368,9 +394,12 @@ As operações revalidam `account_status`, aceite pendente, sessão revogada,
 membership e `suspended_at` depois dos locks. Grupo arquivado retorna
 `GROUP_ARCHIVED`. Grupo suspenso retorna `GROUP_SUSPENDED` para criação/entrada,
 aprovação, papel, mensalista, visibilidade, transferência comum e qualquer edição.
-A allowlist mínima continua disponível: leitura própria, privacidade/exportação,
-`leave_group` de não-owner e, nos marcos futuros, cancelamento seguro e resolução
-financeira pela autoridade substituta. O M2 não implementa RPC Admin:
+Esse bloqueio vale somente para a transferência comum por `transfer_ownership`:
+a transferência por exclusão de `delete_account` (§3.3, caso 2) é permitida em
+grupo suspenso, e o grupo continua suspenso (M2-D10). A allowlist mínima
+continua disponível: leitura própria, privacidade/exportação, `leave_group` de
+não-owner e, nos marcos futuros, cancelamento seguro e resolução financeira pela
+autoridade substituta. O M2 não implementa RPC Admin:
 `set_group_suspension` e `admin_transfer_ownership` continuam no caminho Admin de
 `13` §5.4 e ficam para a fatia que os publicar, com razão obrigatória e grants
 separados. `suspended_at` é preparado por fixture como `postgres` somente no
@@ -598,9 +627,12 @@ base64url sem padding; domínio exato; vetor nos runtimes; MAC inválido; versã
 desconhecida; fragmento removido; compartilhamento autorizado; outro grupo
 negado; criador removido ou rebaixado negado; revogado, expirado e esgotado;
 rotação invalidando o anterior; regeneração invalidando o anterior sem mudar a
-versão; 25 resgates no último uso; 99º/100º/101º membro; criação × aprovação e
-duas criações contra a quinta vaga; `create_group` devolvendo `{ group_id,
-invite_id }` com convite inicial válido; reentrada única; preview sem consumo nem
+versão; 25 resgates no último uso; 99º/100º/101º membro; vaga liberada por
+exclusão de conta (§3.3), em que o grupo em 100 `pending + active` perde um
+membro por `delete_account` e aceita exatamente uma entrada, com a seguinte
+recebendo `GROUP_FULL`; criação × aprovação e duas criações contra a quinta
+vaga; `create_group` devolvendo `{ group_id, invite_id }` com convite inicial
+válido; reentrada única; preview sem consumo nem
 linha; tentativa N+1 recusada pela Edge sem tocar o banco; expurgo de convite no
 prazo; e objeto/linha residual zero. Todo par concorrente usa a barreira do §2:
 duas conexões dedicadas com `application_name` distinto, ordens A→B e B→A,
@@ -699,11 +731,16 @@ do §8: sem ele, nenhuma das duas fatias fecha.
 O E2E usa Auth, Edge e Postgres locais reais. Inspeciona URL, corpo, headers,
 Cache API, storage persistente e Sentry fake para provar ausência de token/HMAC/
 ator. Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia
-anterior; nenhum `insert` como `postgres` no E2E, exceto `suspended_at`,
-declarado teste a teste. A UI-A exercita criação no limite, convite inicial,
-compartilhamento por autoridade, `OWNER_MUST_TRANSFER` do dono sozinho, preview
-sem consumo, resgate com pedido próprio pendente, membro de outro grupo, último
-uso e grupo cheio, todos alcançáveis sem aprovação. A UI-B exercita aprovação e
+anterior, ou pela Edge real por HTTP, com usuários criados pela API admin local
+de Auth; nenhum `insert` como `postgres` no E2E, exceto `suspended_at`,
+declarado teste a teste (M2-D11). Semear pela Edge real não é adaptador: a
+chamada passa pelo envelope, pela capacidade e pela cota de produção. A UI-A
+exercita criação no limite, convite inicial, compartilhamento por autoridade,
+`OWNER_MUST_TRANSFER` do dono sozinho, preview sem consumo, resgate com pedido
+próprio pendente, membro de outro grupo, último uso e grupo cheio, todos
+alcançáveis sem aprovação. Nos cenários “grupo cheio” e “último uso”, as
+entradas anteriores à que a UI exercita são semeadas pela Edge real, com
+usuários criados pela API admin local de Auth. A UI-B exercita aprovação e
 recusa, lista com mais de um ativo, saída de jogador, reentrada, negação a
 criador rebaixado, transferência antes da saída e grupo suspenso. Nenhum harness
 implementa parser, classificador de erro ou adapter próprio: importa o mesmo
@@ -773,10 +810,12 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 - **M2-D5 (decidida em 2026-09-26).** A interface se divide pela alcançabilidade
   do estado de domínio: UI-A (entrada e convite) = telas 10, 11, 12, 16 e 24;
   UI-B (decisão e titularidade) = telas 17 e 25. Estado de domínio do E2E nasce
-  pela UI da própria fatia ou de fatia anterior; nenhum `insert` como `postgres`
-  no E2E, exceto `suspended_at`, declarado teste a teste. O gate 8 passa a
-  bloquear a UI-A. `16` §3 (linha da tabela do M2) e §8 foram emendados para a
-  nova divisão. Razão: a divisão anterior deixava na UI-A provas que só a UI-B
+  pela UI da própria fatia ou de fatia anterior, ou pela Edge real por HTTP, com
+  usuários criados pela API admin local de Auth; nenhum `insert` como `postgres`
+  no E2E, exceto `suspended_at`, declarado teste a teste. A regra está na
+  redação ajustada pela M2-D11; a original não admitia a Edge real. O gate 8
+  passa a bloquear a UI-A. `16` §3 (linha da tabela do M2) e §8 foram
+  emendados para a nova divisão. Razão: a divisão anterior deixava na UI-A provas que só a UI-B
   produzia — o pedido próprio pendente exige a tela 12, e a lista com mais de um
   ativo e a negação a criador rebaixado exigem as telas 17 e 25.
 - **M2-D6 (decidida em 2026-09-26).** Mensalista fica fora da interface do M2: o
@@ -793,6 +832,33 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   localmente, mas não convida o beta antes das fatias B2 de auditoria e outbox.
   Com este aceite, a pré-condição da `0015` apontada pela terceira revisão
   independente (achado A8) está satisfeita: a `0015` pode começar.
+- **M2-D8 (decidida em 2026-09-26).** Com mais de um organizador ativo elegível,
+  a transferência por exclusão (§3.3, caso 2) escolhe o de `joined_at` mais
+  antigo; empate pelo `profile_id` em bytes crescentes. Citação confirmada: `10`
+  §6 (linhas 788–791) define a seleção automática da autoridade financeira como
+  “dono elegível; senão menor `(joined_at, profile_id_bytes)`”, que é a mesma
+  ordem; na exclusão o dono é quem sai, então vale somente a segunda parte. Fato
+  consciente: `10` §3 (linhas 263–264) preserva `joined_at` na reentrada, e
+  portanto um organizador que saiu e voltou concorre com a antiguidade da
+  primeira entrada, não com a da reentrada. Resolve o antigo item 11 do §8.2.
+- **M2-D9 (decidida em 2026-09-26).** Pedido pendente de grupo arquivado por
+  exclusão do dono (§3.3, caso 4) passa a `removed`, com `removed_at` preenchido
+  e `removal_count` inalterado, porque por `10` §3 o contador só aumenta na
+  reentrada. Não há estado novo nem mudança em `10`. Resolve o indefinido do
+  §8.2 sobre o estado resultante desse cancelamento, retirado de lá.
+- **M2-D10 (decidida em 2026-09-26).** A transferência por exclusão (§3.3, caso
+  2) é permitida em grupo suspenso, e o grupo continua suspenso. Razão: exclusão
+  de conta é direito LGPD do titular, e a suspensão do grupo não está sob o
+  controle dele. O bloqueio de transferência do §4.1 vale somente para a
+  transferência comum por `transfer_ownership`. Resolve o indefinido do §8.2
+  sobre a transferência por exclusão em grupo suspenso, retirado de lá.
+- **M2-D11 (decidida em 2026-09-26).** A regra de E2E da M2-D5 passa a ser:
+  “Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia anterior,
+  ou pela Edge real por HTTP, com usuários criados pela API admin local de Auth;
+  nenhum insert como postgres no E2E, exceto suspended_at, declarado teste a
+  teste.” Os cenários “grupo cheio” e “último uso” da UI-A semeiam as entradas
+  dessa forma (§6.3). Semear pela Edge real não é adaptador: a chamada passa
+  pelo envelope, pela capacidade e pela cota de produção.
 
 ### 8.2 Gates humanos
 
@@ -829,9 +895,8 @@ A implementação não pode preencher estas respostas:
    da tela 25 saiu deste gate: entra no M3 (M2-D6).
 10. Decidido como M2-D7 (§8.1). O número fica reservado para que as referências
     aos demais itens não mudem.
-11. Qual é o critério de escolha entre vários organizadores ativos elegíveis na
-    transferência por exclusão (§3.3)? `13` §2.11 manda escolher, mas não diz
-    qual. Precisa estar decidido antes da `0015`.
+11. Decidido como M2-D8 (§8.1). O número fica reservado para que as referências
+    aos demais itens não mudem.
 12. Qual é o formato de evidência da passada manual com leitor de tela de `15`
     §3? Sem ele, UI-A e UI-B não fecham.
 13. Alfabeto, comprimento e piso de entropia do código humano, com o cálculo que
@@ -859,14 +924,6 @@ Decisões de escopo do plano, sem gate humano:
 Continuam indefinidos, e cada um precisa de resposta antes da fatia que o
 implementa, sem que o implementador escolha:
 
-- o estado resultante do cancelamento de pedido pendente por arquivamento e seu
-  efeito em `removal_count`, antes da `0015`, que faz esse cancelamento (§3.3,
-  caso 4);
-- se a transferência por exclusão (§3.3, caso 2) é permitida em grupo suspenso,
-  antes da `0015`. O §4.1 só bloqueia a transferência comum, e `13` §5.4 diz que
-  grupo suspenso bloqueia “novas inscrições, convites, edição, draw e
-  publicação” e que a exclusão pode ser bloqueada pelo contrato 2.11, sem tratar
-  a transferência por exclusão;
 - o estado resultante da recusa em `approve_member` e seu efeito em
   `removal_count`, antes da `0016`;
 - o erro de `set_role` e `set_monthly` sobre alvo sem membership `active`, que
