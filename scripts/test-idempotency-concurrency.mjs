@@ -138,6 +138,17 @@ function expectDomainError(result, message) {
   assert.equal(result.reason?.message, message);
 }
 
+function expectFulfilled(results) {
+  for (const result of results) {
+    assert.equal(
+      result.status,
+      'fulfilled',
+      `a competitor was rejected: ${result.reason?.code} ${result.reason?.message}`,
+    );
+  }
+  return results.map((result) => result.value);
+}
+
 async function testSingleWinner(workers) {
   const scenario = 'single_winner';
   const requestId = '60000000-0000-4000-8000-000000000001';
@@ -187,12 +198,15 @@ async function testConflictAfterWait(workers) {
       throw error;
     }
   });
+  // The handler is attached before any await: a competitor may reject as soon
+  // as the winner commits, before this function resumes from that commit.
+  const settledCompetitors = Promise.allSettled(competitors);
 
   await delay(250);
   await complete(winner, requestId, winnerHmac);
   await winner.query('commit');
 
-  const results = await Promise.allSettled(competitors);
+  const results = await settledCompetitors;
   for (const result of results) {
     expectDomainError(result, 'IDEMPOTENCY_CONFLICT');
   }
@@ -218,9 +232,11 @@ async function testWinnerRollback(workers) {
     }),
   );
 
+  const settledCompetitors = Promise.allSettled(competitors);
+
   await delay(250);
   await firstWinner.query('rollback');
-  const results = await Promise.all(competitors);
+  const results = expectFulfilled(await settledCompetitors);
 
   assert.equal(results.filter((result) => result.acquired).length, 1);
   assert.equal(results.filter((result) => !result.acquired).length, workerCount - 2);
@@ -282,9 +298,11 @@ async function testConnectionLoss(workers, connectionString) {
     }),
   );
 
+  const settledCompetitors = Promise.allSettled(competitors);
+
   await delay(250);
   await failedWinner.end();
-  const results = await Promise.all(competitors);
+  const results = expectFulfilled(await settledCompetitors);
 
   assert.equal(results.filter((result) => result.acquired).length, 1);
   assert.equal(results.filter((result) => !result.acquired).length, workerCount - 2);
