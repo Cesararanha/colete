@@ -108,6 +108,7 @@ incremental por marco, e não muda a ordem de locks nem relaxa os critérios de 
 | M1-A, antecipação da fatia 10 | catálogo de políticas, dispatcher interno e RPCs `accept_policies`, `complete_profile`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
 | M1-A, retenção antecipada da fatia 7 | expurgo de outcomes e tombstones nos prazos normativos | `0007_idempotency_retention.sql` |
 | M1-B, antecipação de identidade/privacidade da fatia 10 | worker e jobs de identidade; saga de exclusão; export governado, bucket `data-exports` e download Edge | `0011_worker_foundation.sql` → `0012_account_deletion.sql` → `0013_data_export_delivery.sql`, conforme o plano normativo `22` |
+| M2, fatia 3 e antecipação de grupos/convites da fatia 10 | fundação, isolamento e extensão da exclusão; membership e titularidade; convites/HMAC e `create_group`; UI-A (telas 10, 11, 16 e 24) e UI-B (telas 12, 17 e 25), sem migration | `0015_group_foundation.sql` → `0016_group_membership_rpcs.sql` → `0017_group_invites.sql` → UI-A → UI-B, conforme o plano normativo `25` |
 | B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
 
 Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separado,
@@ -293,8 +294,9 @@ Antes de cobrar ou operar além do círculo pessoal:
 ## 8. Próximo passo objetivo
 
 Executar o plano do M2 em `25-plano-m2.md`: fundação/isolamento e extensão da exclusão na
-`0015`, membership/titularidade na `0016` e convites/reentrada/HMAC na `0017`. As telas
-10–12 entram somente depois desses contratos, sem migration artificial. Os gates de beta
+`0015`, membership/titularidade na `0016` e convites/reentrada/HMAC e `create_group` na
+`0017`. As telas 10, 11, 16 e 24 (UI-A) e 12, 17 e 25 (UI-B) entram somente depois desses
+contratos, sem migration artificial. Os gates de beta
 podem avançar em paralelo, mas precisam estar concluídos antes do primeiro convite. Não
 começar pelas telas: sem locks, RLS, capacidade e protocolo criptográfico provados, a
 interface apenas esconderia dívidas técnicas mais caras.
