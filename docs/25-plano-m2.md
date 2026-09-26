@@ -16,8 +16,11 @@ humanas M2-D8 a M2-D11 do §8 e corrige a prova de vaga liberada da `0015` no
 2026-09-26, delimita o que a `0016` prova sobre remoção (§2 e §4.3), declara no
 §4.2 que as regras de reentrada são executadas pelo resgate da `0017`, dá a cada
 uma prova própria no §5.4 e registra no §8.2 os comportamentos que elas deixam
-indefinidos; ela também altera somente este documento. Nenhuma das cinco cria
-migration, função, bucket, tela ou configuração Supabase.
+indefinidos; ela também altera somente este documento. A quinta emenda, também
+de 2026-09-26, aplica a decisão humana M2-D12 do §8, que fixa a semeadura do
+cenário “último uso” da UI-A no §6.3, e os achados R1, R3, R4 e R5 da revisão
+curta das emendas 2 a 4; ela também altera somente este documento. Nenhuma das
+seis cria migration, função, bucket, tela ou configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -60,9 +63,9 @@ permanentes: são os dois pontos de extensão obrigatórios da primeira fatia.
 | Ordem | Fatia | Migration | Entrega que precisa ser provável | O que destrava | Revisão independente esperada |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Fundação, isolamento e extensão da exclusão | `0015_group_foundation.sql` | tabelas/constraints, RLS default-deny, owner derivado, trigger diferido, limites canônicos, extensão da exclusão (§3.3), fence de Storage da foto de grupo por `delete_storage_object` com `resource_type='group_photo'` e extensão do `colete-export-v1` com `groups.json` | um domínio de grupos seguro para as RPCs; a saga não pode apagar Auth deixando ownership, membership ou foto de grupo para trás | **4 rodadas:** schema/constraints; RLS e privilégios com papel-sonda; saga/Storage/export e crashes; locks/commit real/privacidade |
-| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership serializada pelo perfil; a recontagem de capacidade em `approve_member` é defesa, sem corrida própria; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/capacidade; owner/remoção e estado `removed`/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
+| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership serializada pelo perfil; a recontagem de capacidade em `approve_member` é defesa, sem corrida própria; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/cota; owner/remoção e estado `removed`/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
 | 3 | Convites, reentrada, HMAC e criação | `0017_group_invites.sql` | material, cofre, código, link, compartilhamento, revogação, expiração, esgotamento, rotação, resgate e `create_group` com convite inicial | entrada pendente, reentrada explícita, criação real de grupo e critério de saída criptográfico do M2 | **6 rodadas:** formato/vetores; cofre/rotação/instrumentos de vazamento; locks/capacidade; HTTP/log/referrer/rate limit; RLS/projeções/preview e abuso; `create_group` e convite inicial |
-| 4 | UI-A (entrada e convite) | —, sem migration | telas 10 (lista), 11 (detalhe), 12 (entrar por código/link), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação, convite, preview e entrada pendente visíveis sobre contratos reais, somente com estados alcançáveis sem aprovação | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E pelo gateway produtivo, resgate/preview e segurança de link/token; regressões M0–M1 e privacidade |
+| 4 | UI-A (entrada e convite) | —, sem migration | telas 10 (lista), 11 (detalhe), 12 (entrar por código/link), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação, convite, preview e entrada pendente visíveis sobre contratos reais, somente com estados alcançáveis sem depender das telas da UI-B; o estado que exige aprovação é preparado pela Edge real (M2-D12) | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E pelo gateway produtivo, resgate/preview e segurança de link/token; regressões M0–M1 e privacidade |
 | 5 | UI-B (decisão e titularidade) | —, sem migration | telas 17 (aprovar e gerir) e 25 (configurações e transferência) | aprovação, gestão de membros e titularidade visíveis sobre contratos reais | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E de aprovação/remoção/transferência e segurança de token; regressões M0–M1, UI-A e privacidade |
 
 Depois da fatia 5, o M2 só fecha após **uma rodada integral pós-marco**,
@@ -79,9 +82,10 @@ convites e a criação de grupo, permitindo revisar HMAC, URL e logs sem esconde
 defeito de capacidade dentro do mesmo diff. A interface vem por último, em duas
 fatias, e não recebe migration artificial. A divisão entre elas segue a
 alcançabilidade do estado de domínio (M2-D5): a UI-A (entrada e convite) só
-depende de estados que nascem sem aprovação — dono sozinho, `OWNER_MUST_TRANSFER`,
-preview e pedido próprio pendente —, e a UI-B (decisão e titularidade) reúne as
-provas que exigem aprovação.
+exercita estados alcançáveis sem depender das telas da UI-B — dono sozinho,
+`OWNER_MUST_TRANSFER`, preview e pedido próprio pendente —; o estado que exige
+aprovação é preparado pela Edge real (M2-D11, M2-D12), e a UI-B (decisão e
+titularidade) reúne as provas que exercitam a aprovação pela interface.
 
 `create_group` mora na `0017`, não na `0016`: `13` §5 obriga a função a devolver
 `{ group_id, invite_id }` e `group_invites.token_digest` é `not null` em `10` §3.
@@ -365,7 +369,9 @@ usa a barreira do §2: duas conexões dedicadas com `application_name` distinto,
 ordens A→B e B→A, liberação somente depois de observar `wait_event_type='Lock'`;
 `setTimeout` não é barreira. A capacidade sob 25 conexões **não** é prova desta
 fatia: os limites vivem nas RPCs, que ainda não existem, e a prova passaria por
-SQL do próprio harness, verde pela razão errada. Ela pertence à `0016` e à `0017`.
+SQL do próprio harness, verde pela razão errada. Ela pertence à `0017` (§5.4);
+na `0016`, as 25 conexões provam somente a cota pessoal (quinta e sexta
+membership).
 
 ## 4. Fatia 2 — `0016_group_membership_rpcs.sql`
 
@@ -452,7 +458,7 @@ e qual resposta recebe, são indefinidos do §8.2, antes da `0017`.
 
 ### 4.3 Provas de saída e orçamento
 
-As cinco rodadas cobrem: envelope/grants; concorrência/capacidade;
+As cinco rodadas cobrem: envelope/grants; concorrência/cota;
 titularidade/remoção e estado `removed`/suspensão; exclusão × membership e
 retenção; e HTTP real com contraprovas. A parte “remoção e estado `removed`” da
 terceira rodada prova que `active → removed`, por `remove_member` e por
@@ -798,10 +804,38 @@ declarado teste a teste (M2-D11). Semear pela Edge real não é adaptador: a
 chamada passa pelo envelope, pela capacidade e pela cota de produção. A UI-A
 exercita criação no limite, convite inicial, compartilhamento por autoridade,
 `OWNER_MUST_TRANSFER` do dono sozinho, preview sem consumo, resgate com pedido
-próprio pendente, membro de outro grupo, último uso e grupo cheio, todos
-alcançáveis sem aprovação. Nos cenários “grupo cheio” e “último uso”, as
-entradas anteriores à que a UI exercita são semeadas pela Edge real, com
-usuários criados pela API admin local de Auth. A UI-B exercita aprovação e
+próprio pendente, membro de outro grupo, grupo cheio e último uso, todos
+alcançáveis sem depender das telas da UI-B; o estado que exige aprovação é
+preparado pela Edge real (M2-D12). Os usuários semeados são criados pela API
+admin local de Auth, e cada resgate, aprovação ou remoção semeada é uma chamada
+HTTP à Edge real com o JWT de quem age; a convivência dessa semeadura com o
+rate limit é o gate 1 do §8.2.
+
+“Grupo cheio” e “último uso” são cenários distintos. O dono ocupa uma das 100
+vagas de `pending + active` e o convite inicial tem `max_uses=100`; por isso 99
+resgates enchem o grupo com `used_count=99`, e o 100º uso não acontece sem
+liberar vaga, porque o passo 3 do §5.3 reconta a capacidade antes do incremento
+do passo 4. A vaga é liberada aprovando e removendo um pendente semeado, não pela
+recusa, cujo estado resultante é indefinido do §8.2. Partindo do grupo criado
+pelo dono D, com o convite inicial C:
+
+- **grupo cheio:** 99 usuários semeados resgatam C pela Edge, e o grupo fica
+  com D `active` e 99 `pending`, com `used_count=99`. A tentativa pela tela 12
+  recebe `GROUP_FULL`, embora C ainda tenha um uso;
+- **último uso, (a) sucesso:** depois do mesmo preparo de 99 resgates, D aprova
+  pela Edge um pendente semeado com `approve_member` e o remove com
+  `remove_member`. O grupo cai para 99 `pending + active`, e `used_count`
+  continua 99. A tentativa pela tela 12 consome o 100º uso e mostra o pedido
+  como **aguardando aprovação**; o grupo volta a 100, e `used_count` chega a 100;
+- **último uso, (b) `INVITE_USED`:** D aprova e remove pela Edge outro pendente
+  semeado, e o grupo volta a ter uma vaga livre, com `used_count=100`. A
+  tentativa seguinte pela tela 12 recebe `INVITE_USED`. Para chegar a esse erro
+  a vaga não é necessária, porque o passo 2 do §5.3 revalida
+  `used_count < max_uses` antes da recontagem do passo 3. Ela é liberada para
+  que a recusa só possa ser atribuída ao convite esgotado, e não à capacidade:
+  a prova mostra que o 101º uso é recusado mesmo com vaga no grupo.
+
+A UI-B exercita aprovação e
 recusa, lista com mais de um ativo, saída de jogador, reentrada, negação a
 criador rebaixado, transferência antes da saída e grupo suspenso. Nenhum harness
 implementa parser, classificador de erro ou adapter próprio: importa o mesmo
@@ -918,8 +952,19 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   ou pela Edge real por HTTP, com usuários criados pela API admin local de Auth;
   nenhum insert como postgres no E2E, exceto suspended_at, declarado teste a
   teste.” Os cenários “grupo cheio” e “último uso” da UI-A semeiam as entradas
-  dessa forma (§6.3). Semear pela Edge real não é adaptador: a chamada passa
-  pelo envelope, pela capacidade e pela cota de produção.
+  dessa forma (§6.3) e são alcançáveis sem depender das telas da UI-B; o estado
+  que exige aprovação é preparado pela Edge real (M2-D12). Semear pela Edge real
+  não é adaptador: a chamada passa pelo envelope, pela capacidade e pela cota de
+  produção.
+- **M2-D12 (decidida em 2026-09-26).** O cenário “último uso” fica na UI-A. O
+  estado que exige aprovação é preparado pela Edge real por HTTP, chamando
+  `approve_member` e `remove_member`, que existem desde a `0016`; isso é
+  permitido pela M2-D11. Como o dono ocupa uma vaga e o convite inicial tem 100
+  usos, 99 resgates enchem o grupo antes de esgotar o convite. A semeadura libera
+  uma vaga, aprovando e removendo um pendente pela Edge, antes de cada uma das
+  duas tentativas: a do último uso bem-sucedido e a seguinte, que recebe
+  `INVITE_USED`. A sequência exata está no §6.3, que também deixa explícito que
+  “grupo cheio” e “último uso” são cenários distintos.
 
 ### 8.2 Gates humanos
 
@@ -927,7 +972,10 @@ A implementação não pode preencher estas respostas:
 
 1. Qual armazenamento e quais limites iniciais aprovados serão usados para o
    rate limit por perfil/IP dos resgates? A escolha precisa de retenção,
-   privacidade e comportamento de fallback definidos antes da `0017`.
+   privacidade e comportamento de fallback definidos antes da `0017`. A decisão
+   também precisa dizer como o E2E local semeia os resgates e as aprovações pela
+   Edge a partir do mesmo IP (§6.3, M2-D12) sem desligar o limite do código
+   produtivo, por exemplo com valor por ambiente.
 2. Quem executa a cerimônia de rotação, guarda as versões antigas e aprova sua
    remoção? A CI pode provar nomes e cobertura, mas não custódia operacional.
    Precisa estar decidido antes do primeiro deploy.
@@ -940,6 +988,7 @@ A implementação não pode preencher estas respostas:
    mas não convidar o beta.
 5. Quem é o responsável operacional e o canal para abuso de convite, efeito
    `dead`, grupo suspenso e exclusão bloqueada? Sentry não define plantão.
+   Precisa estar decidido antes do beta.
 6. Qual é a validade do convite inicial de `create_group`? `expires_at` é
    `not null` e nenhum normativo fixa o valor. Precisa estar decidida antes da
    `0017`.
@@ -994,14 +1043,20 @@ implementa, sem que o implementador escolha:
 - o que um membro já `active` recebe ao resgatar convite do próprio grupo, dado
   que `13` §5 só prevê `{ status: 'pending', reentry }`, e se esse resgate
   consome uso do convite, antes da `0017`. O §4.2 só fixa que a membership
-  ativa não é rebaixada e que a resposta não revela a terceiros a membership;
+  ativa não é rebaixada e que a resposta não revela a terceiros a membership.
+  Insumo da decisão, sem decidi-la: se esse resgate consumir uso, um único
+  perfil esgota os 100 usos do convite trocando o `request_id`, limitado
+  somente pelo rate limit;
 - o que acontece quando perfil já `pending` no grupo resgata de novo com
   `request_id` novo, pelo mesmo convite ou por outro convite do mesmo grupo,
   antes da `0017`: se consome uso do convite, se atualiza `last_requested_at` e
   qual `reentry` devolve. O §4.2 diz “sem nova membership nem consumo
   duplicado”, mas não diz se “duplicado” cobre só o replay idempotente, que o
   envelope já resolve, ou também o resgate novo; e o passo 4 do §5.3 incrementa
-  `used_count` antes do passo 5, sem ramo para membership já `pending`.
+  `used_count` antes do passo 5, sem ramo para membership já `pending`. Insumo
+  da decisão, sem decidi-la: se esse resgate consumir uso, um único perfil
+  esgota os 100 usos do convite trocando o `request_id`, limitado somente pelo
+  rate limit.
 
 Continuam valendo os gates herdados: textos/digests legais efetivos, restore
 isolado, RPO/RTO aceitos e evidência em hardware real antes do beta. Nenhuma
