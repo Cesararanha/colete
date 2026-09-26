@@ -17,7 +17,13 @@ gh pr list --state open
 Depois leia, nesta ordem:
 
 - `docs/16-roadmap.md` §3 — o mapa fatia→migration. É a fila de trabalho.
-- `docs/21-operacao-m1-a.md` — o que o marco atual já entregou de fato.
+- `docs/25-plano-m2.md` — o plano normativo do M2: fatias, ordem de locks,
+  critérios de saída, decisões M2-D* e gates humanos.
+- `docs/23-operacao-m1-b.md` — o que o M1-B entregou de fato, com os defeitos
+  achados depois de cada fatia.
+- `docs/22-plano-m1-b.md` — o plano normativo do M1-B, base da saga de exclusão,
+  do worker e do export que o M2 estende.
+- `docs/21-operacao-m1-a.md` — o que o M1-A entregou de fato.
 - `docs/19-operacao-m0-a.md` e `docs/20-operacao-m0-b.md` — marcos anteriores.
 
 A verdade sobre o estado está no git e nesses documentos, nunca na memória de

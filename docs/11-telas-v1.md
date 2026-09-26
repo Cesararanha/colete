@@ -423,4 +423,4 @@ decidíveis só para resolver pagamento/estorno → recorrência **continua** (D
 
 A tela 5 (Rachas — vazio) saiu do M2 para o M3 por decisão humana M2-D1, de 2026-09-25,
 registrada em `25-plano-m2.md` §8: o domínio de rachas não existe no M2, e `16-roadmap.md`
-(linha 229, “Fronteira da área autenticada no M1-A”) põe Rachas no M3.
+§5 (“Fronteira da área autenticada no M1-A”) põe Rachas no M3.

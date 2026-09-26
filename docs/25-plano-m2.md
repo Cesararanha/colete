@@ -7,8 +7,11 @@ e a fatia para. Este plano também não autoriza deploy, configuração do proje
 remoto nem criação de segredo real. A fatia que o criou trouxe somente este
 documento, seu ponteiro no roadmap e sua entrada no manifesto. A emenda de
 2026-09-25 aplica as decisões humanas M2-D1 a M2-D3 do §8 e, por elas, altera
-também `01`, `11` §6, `16` §3 e `AGENTS.md`. Nenhuma das duas cria migration,
-função, bucket, tela ou configuração Supabase.
+também `01`, `11` §6, `16` §3 e `AGENTS.md`. A emenda de 2026-09-26 aplica as
+decisões humanas M2-D4 a M2-D7 do §8 e os achados A1 a A16 da terceira revisão
+independente e, por elas, altera também `10` §11, `11` §6, `13` §5, `16` §3 e
+§8 e `AGENTS.md`. Nenhuma das três cria migration, função, bucket, tela ou
+configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -33,8 +36,9 @@ O M2 começa em `main` depois da `0014`, não num schema hipotético:
   lista fechada atual conhece apenas `build_data_export`, `delete_data_export`
   e `delete_storage_object`, e este último somente com
   `resource_type='profile_avatar'`;
-- a `0013` também fixou a ordem real perfil → export e provou com duas conexões
-  que build concorrendo com exclusão não produz `SQLSTATE 40P01`;
+- a `0013` também fixou a ordem real perfil → export e trouxe, com duas conexões,
+  evidência com espera temporizada de que build concorrendo com exclusão não
+  produz `SQLSTATE 40P01`; a `0015` refaz a prova com a barreira do §2;
 - a `0014` unificou os slots UTC do worker e fez efeito Auth vencido convergir
   depois de a saga já estar concluída.
 
@@ -50,10 +54,10 @@ permanentes: são os dois pontos de extensão obrigatórios da primeira fatia.
 | Ordem | Fatia | Migration | Entrega que precisa ser provável | O que destrava | Revisão independente esperada |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Fundação, isolamento e extensão da exclusão | `0015_group_foundation.sql` | tabelas/constraints, RLS default-deny, owner derivado, trigger diferido, limites canônicos, extensão da exclusão (§3.3), fence de Storage da foto de grupo por `delete_storage_object` com `resource_type='group_photo'` e extensão do `colete-export-v1` com `groups.json` | um domínio de grupos seguro para as RPCs; a saga não pode apagar Auth deixando ownership, membership ou foto de grupo para trás | **4 rodadas:** schema/constraints; RLS e privilégios com papel-sonda; saga/Storage/export e crashes; locks/commit real/privacidade |
-| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership e 100º/101º membro serializados; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/capacidade; owner/reentrada preparada/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
+| 2 | Membership, papéis e titularidade | `0016_group_membership_rpcs.sql` | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group`, **sem `create_group`**, operando sobre grupos de fixture; quinta/sexta membership serializada pelo perfil; a recontagem de capacidade em `approve_member` é defesa, sem corrida própria; suspensão fail-closed | administração transacional do grupo sem convite e extensão segura futura para rachas/finanças | **5 rodadas:** envelope e grants; concorrência/capacidade; owner/reentrada preparada/suspensão; exclusão × membership e retenção; caminho HTTP real e contraprovas |
 | 3 | Convites, reentrada, HMAC e criação | `0017_group_invites.sql` | material, cofre, código, link, compartilhamento, revogação, expiração, esgotamento, rotação, resgate e `create_group` com convite inicial | entrada pendente, reentrada explícita, criação real de grupo e critério de saída criptográfico do M2 | **6 rodadas:** formato/vetores; cofre/rotação/instrumentos de vazamento; locks/capacidade; HTTP/log/referrer/rate limit; RLS/projeções/preview e abuso; `create_group` e convite inicial |
-| 4 | UI-A | —, sem migration | telas 10 (lista), 11 (detalhe), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação e convite visíveis sobre contratos reais | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E pelo gateway produtivo e segurança de link/token; regressões M0–M1 e privacidade |
-| 5 | UI-B | —, sem migration | telas 12 (entrar por código/link), 17 (aprovar e gerir) e 25 (configurações e transferência) | entrada, aprovação e titularidade visíveis sobre contratos reais | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E de resgate/aprovação/transferência e segurança de token; regressões M0–M1, UI-A e privacidade |
+| 4 | UI-A (entrada e convite) | —, sem migration | telas 10 (lista), 11 (detalhe), 12 (entrar por código/link), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação, convite, preview e entrada pendente visíveis sobre contratos reais, somente com estados alcançáveis sem aprovação | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E pelo gateway produtivo, resgate/preview e segurança de link/token; regressões M0–M1 e privacidade |
+| 5 | UI-B (decisão e titularidade) | —, sem migration | telas 17 (aprovar e gerir) e 25 (configurações e transferência) | aprovação, gestão de membros e titularidade visíveis sobre contratos reais | **5 rodadas:** estados/requests e ausência de controle sem RPC; lista integral de `15` §1 e reflow; passada manual com leitor de tela e teclado; E2E de aprovação/remoção/transferência e segurança de token; regressões M0–M1, UI-A e privacidade |
 
 Depois da fatia 5, o M2 só fecha após **uma rodada integral pós-marco**,
 equivalente à que produziu o PR #30 no M1-B: revisão independente do marco
@@ -67,7 +71,11 @@ concentra as corridas de membership/titularidade sobre grupos criados por
 fixture. A `0017` só então adiciona a fronteira criptográfica, o consumo de
 convites e a criação de grupo, permitindo revisar HMAC, URL e logs sem esconder
 defeito de capacidade dentro do mesmo diff. A interface vem por último, em duas
-fatias, e não recebe migration artificial.
+fatias, e não recebe migration artificial. A divisão entre elas segue a
+alcançabilidade do estado de domínio (M2-D5): a UI-A (entrada e convite) só
+depende de estados que nascem sem aprovação — dono sozinho, `OWNER_MUST_TRANSFER`,
+preview e pedido próprio pendente —, e a UI-B (decisão e titularidade) reúne as
+provas que exigem aprovação.
 
 `create_group` mora na `0017`, não na `0016`: `13` §5 obriga a função a devolver
 `{ group_id, invite_id }` e `group_invites.token_digest` é `not null` em `10` §3.
@@ -106,9 +114,10 @@ titularidade são revalidadas sob lock.
 
 Handlers do worker podem travar a própria linha de efeito antes do domínio,
 desde que nenhum caminho trave uma linha de efeito já existente depois de
-perfil/grupo/export/pedido. `external_effects` fica fora da ordem total por essa
-assimetria, e todo handler novo prova isso com harness nas duas ordens. O
-precedente é `worker_get_data_export_build_target` na `0013` (linhas 988–999),
+perfil/grupo/export/pedido, exceto aquisição com `SKIP LOCKED`, que nunca espera,
+e `insert … on conflict do nothing` de chave nova. `external_effects` fica fora
+da ordem total por essa assimetria, e todo handler novo prova isso com harness
+nas duas ordens. O precedente é `worker_get_data_export_build_target` na `0013` (linhas 988–999),
 que trava o efeito `for update` e só depois o perfil. Aquisição e conclusão do
 lease continuam transações curtas.
 
@@ -124,6 +133,23 @@ segunda só é liberada depois de o harness OBSERVAR `wait_event_type='Lock'` do
 backend concorrente em `pg_stat_activity`, e a asserção falha se a espera não
 for observada. Nas provas N-way, o harness afirma que ao menos N−1 transações
 esperaram lock. `setTimeout` não é barreira.
+
+Toda promessa de competidor recebe tratador na mesma instrução síncrona que a
+cria, antes de qualquer `await` (`Promise.allSettled` sobre o conjunto ou
+`.then(valor, erro)`), e a asserção sobre o resultado vem depois, explícita. A
+espera pela barreira é um laço com prazo que, a cada volta, consulta
+`pg_stat_activity` e o estado das promessas: competidor que termina antes de a
+espera ser observada reprova a prova com a causa, sem derrubar o processo; prazo
+excedido reprova com o retrato de `pg_stat_activity`. A espera observada é a do
+`pid` do competidor e precisa ter o `pid` do detentor esperado em
+`pg_blocking_pids`. Para provar ausência de `40P01`, o detentor segura o segundo
+recurso da transação A, de modo que A fique parada entre duas aquisições, e só
+então B começa. As conexões fecham em `finally` com `Promise.allSettled`, e o
+harness registra `process.on('unhandledRejection')` que falha o teste. O
+tratador existe para reprovar com a causa, nunca para engolir a rejeição.
+Engolir continua proibido. Provas de concorrência chamam a RPC interna em
+conexões dedicadas, sob `set local role service_role` e com commit real; o
+caminho HTTP pela Edge é provado em harness separado.
 
 ## 3. Fatia 1 — `0015_group_foundation.sql`
 
@@ -158,7 +184,11 @@ somente `organizer|player`; não existe `owner`. Trigger constraint diferido
 exige no commit que todo grupo não arquivado tenha uma membership `active` para
 `owner_id`. Grupo arquivado preserva o vínculo histórico sem conferir autoridade
 ativa. A prova usa commit real sob o papel relevante; rollback automático de
-pgTAP não basta.
+pgTAP não basta. O trigger é `DEFERRABLE INITIALLY DEFERRED`, dispara em
+`groups` (insert e update de `owner_id` e `archived_at`) e em `group_members`
+(update de `status` e delete), e relê o estado corrente pelo `group_id`.
+Contraprova: commit real que só altera `group_members` para retirar o dono de
+grupo não arquivado precisa ser recusado.
 
 Índices cobrem `owner_id`, memberships por perfil/status e contagens de
 `pending|active`; índice não substitui os locks. `group_invites.token_digest` é
@@ -195,11 +225,17 @@ Na mesma migration que cria `groups`,
 `private.require_financial_deletion_substitute(profile_id)` deixa de operar
 sobre conjunto vazio:
 
-1. com o perfil já travado, trava em UUID crescente todos os grupos em que ele é
-   owner e as memberships correspondentes, na ordem do §2;
+1. `delete_account`, e não o guard, resolve sem lock os candidatos e trava em
+   bytes crescentes os perfis do titular e dos candidatos antes do primeiro
+   grupo (§2); o guard recebe os grupos já travados. Se a revalidação sob lock
+   encontra candidato inelegível ou grupo próprio que não estava no conjunto
+   resolvido, a transação aborta com `CONCURRENT_CHANGE`, nunca trava perfil
+   depois de grupo e nunca deixa o trigger decidir;
 2. grupo com organizador ativo elegível: a transação inicial o escolhe e
    transfere `groups.owner_id` antes de desidentificar, como `13` §2.11
-   descreve; a membership do antigo owner passa a `removed` no mesmo commit;
+   descreve; a membership do antigo owner passa a `removed` no mesmo commit.
+   No M2 essa transferência não emite N28 nem trilha, porque auditoria e outbox
+   ainda não existem (M2-D7, §8.1);
 3. grupo com outro membro ativo, mas sem organizador ativo elegível, retorna
    `FINANCIAL_SUBSTITUTE_REQUIRED` sem iniciar a saga; o dono promove alguém ou
    transfere à mão antes de repetir o pedido;
@@ -317,11 +353,16 @@ fixture, criada como `postgres` somente no setup do harness.
 | --- | --- | --- |
 | `approve_member` | perfil alvo → grupo → membership; owner/organizer ativo, capacidade e cota recontadas; recusa não fabrica outra linha | `MEMBERSHIP_ALREADY_DECIDED`, `GROUP_LIMIT`, `GROUP_FULL` |
 | `remove_member` | perfis afetados em ordem → grupo → memberships; owner é recusado; no M2 o conjunto de rachas/provas é vazio e a primitiva fica preparada para extensão atômica no M3/M5 | `IS_OWNER`, `PROOFS_PENDING` |
-| `set_role` | perfil alvo → grupo → membership; somente owner; owner continua derivado de `owner_id` | `OWNER_ONLY`, `NOT_ACTIVE_MEMBER` |
-| `set_monthly` | perfil alvo → grupo → membership; somente autoridade permitida; `is_monthly=true` exige `monthly_enabled`, que no M2 só nasce ligado por fixture porque `13` não tem setter (§8) | `MONTHLY_DISABLED`, `NOT_ACTIVE_MEMBER` |
+| `set_role` | perfil alvo → grupo → membership; somente owner; owner continua derivado de `owner_id` | `OWNER_ONLY` |
+| `set_monthly` | perfil alvo → grupo → membership; somente autoridade permitida; `is_monthly=true` exige `monthly_enabled`, que no M2 só nasce ligado por fixture: o setter e o toggle da tela 25 entram no M3 (M2-D6) | `MONTHLY_DISABLED` |
 | `set_ratings_visibility` | perfil ator → grupo; confirmação explícita para `members`; owner only | `OWNER_ONLY`, `VISIBILITY_CONFIRMATION_REQUIRED` |
 | `transfer_ownership` | perfis antigo/novo por bytes → grupo → memberships; novo owner precisa estar ativo; altera somente `groups.owner_id` | `NOT_ACTIVE_MEMBER` |
 | `leave_group` | perfil → grupo → própria membership; owner recebe erro antes de qualquer efeito; membership muda por último | `OWNER_MUST_TRANSFER`, `PROOFS_PENDING` |
+
+Os erros específicos da tabela são exatamente os de `13` §5. Para `set_role` e
+`set_monthly` sobre alvo sem membership `active`, `13` §5 não prevê erro
+específico, embora `NOT_ACTIVE_MEMBER` exista no catálogo de `13` §8; o código a
+devolver é indefinido do §8.2 e precisa estar registrado em `13` antes da `0016`.
 
 As operações revalidam `account_status`, aceite pendente, sessão revogada,
 membership e `suspended_at` depois dos locks. Grupo arquivado retorna
@@ -339,7 +380,7 @@ Transferência e saída geram as trilhas/notificações somente quando os objeto
 de auditoria/outbox chegarem na fatia B2 correspondente; o M2 não inventa uma
 tabela parcial para antecipá-los. A ausência atual desses objetos não autoriza
 log livre nem resposta com PII, e mutações de grupo sem trilha e sem as
-notificações de `13` §5 não chegam ao beta (gate do §8).
+notificações de `13` §5 não chegam ao beta (M2-D7, §8.1).
 
 A fatia também publica `purge_removed_memberships`, o job de `17` §4 que aplica
 a retenção de 12 meses de `17` §2 à membership removida, com prova de expurgo no
@@ -370,24 +411,25 @@ não revela a terceiros se o perfil já pertence ao grupo.
 
 As cinco rodadas cobrem: envelope/grants; concorrência/capacidade;
 titularidade/reentrada preparada/suspensão; exclusão × membership e retenção; e
-HTTP real com contraprovas. O harness de 25 conexões prova duas aprovações contra
-a quinta e a sexta membership do mesmo perfil, duas aprovações contra a 100ª
-vaga, transferência × saída, exclusão × transferência e exclusão do dono ×
-exclusão do organizador escolhido, sempre nas duas ordens. Criação contra a
-quinta vaga pertence à `0017`, onde `create_group` existe. Todo par concorrente
-usa a barreira do §2: duas conexões dedicadas com `application_name` distinto,
-ordens A→B e B→A, liberação somente depois de observar `wait_event_type='Lock'`
-em `pg_stat_activity`; nas provas N-way, ao menos N−1 transações esperaram lock.
-`setTimeout` não é barreira.
+HTTP real com contraprovas. O harness de 25 conexões prova duas aprovações
+contra a quinta e a sexta membership do mesmo perfil, transferência × saída,
+exclusão × transferência e exclusão do dono × exclusão do organizador escolhido,
+sempre nas duas ordens. Criação contra a quinta vaga pertence à `0017`, onde
+`create_group` existe. Todo par concorrente usa a barreira do §2: duas conexões
+dedicadas com `application_name` distinto, ordens A→B e B→A, liberação somente
+depois de observar `wait_event_type='Lock'` em `pg_stat_activity`; nas provas
+N-way, ao menos N−1 transações esperaram lock. `setTimeout` não é barreira.
 
-Contraprovas removem cada lock-pai e precisam produzir sexta membership ou 101º
-membro. A contraprova de estado de owner inválido declara o que remove, porque
-o trigger diferido a barra: sem o lock-pai, o trigger precisa recusar o commit;
-sem o trigger, o lock precisa serializar; somente sem os dois o estado inválido
-aparece, e só essa terceira execução prova que o harness enxerga o defeito. Toda
-rota Edge é chamada por HTTP real com JWT GoTrue; o harness não possui
-switch/adaptador próprio diferente do gateway produtivo. O commit como
-`service_role` prova o trigger diferido e a idempotência concluída.
+Contraprovas removem cada lock-pai e precisam produzir sexta membership ou
+estado de owner inválido. A corrida de capacidade 99º/100º/101º é prova da
+`0017`, onde o resgate cria `pending` (§5.4). A contraprova de estado de owner
+inválido declara o que remove, porque o trigger diferido a barra: sem o
+lock-pai, o trigger precisa recusar o commit; sem o trigger, o lock precisa
+serializar; somente sem os dois o estado inválido aparece, e só essa terceira
+execução prova que o harness enxerga o defeito. Toda rota Edge é chamada por
+HTTP real com JWT GoTrue; o harness não possui switch/adaptador próprio
+diferente do gateway produtivo. O commit como `service_role` prova o trigger
+diferido e a idempotência concluída.
 
 ## 5. Fatia 3 — `0017_group_invites.sql`
 
@@ -406,8 +448,11 @@ O token de link contém exatamente
 padding. O MAC é
 `HMAC-SHA-256(key_v, "colete/invite/v1\0" || bytes_anteriores)`. Vetores dourados
 literais rodam em TypeScript e SQL de teste; produção nunca calcula MAC no banco.
-Código humano usa alfabeto sem caracteres ambíguos, entropia/versionamento
-fechados e digest HMAC separado. Token e código completos chegam à Edge, são
+Código humano usa alfabeto sem caracteres ambíguos, entropia mínima versionada e
+digest HMAC separado. `10` §3 exige entropia mínima versionada, mas nenhum
+normativo fixa o número: alfabeto, comprimento e piso de entropia são o gate 13
+do §8.2, e a derivação e a entrega do código são o gate 14. Token e código
+completos chegam à Edge, são
 normalizados e viram apenas IDs, versão e digest na chamada interna: **o token
 nunca chega ao PostgreSQL**.
 
@@ -525,10 +570,19 @@ não volta; confirmar depois do resgate faria um código digitado errado ou uma
 desistência consumir uso e vaga do grupo alheio até alguém recusar, e mudaria o
 fluxo de `11` §3. A projeção de preview recebe o mesmo material do resgate, está
 sob o mesmo rate limit, devolve somente o nome do grupo, não consome uso, não
-cria linha, não devolve foto, membros, dono nem contagem, e usa o mesmo mapa de
-erros do resgate, sem revelar membership prévia. O pedido próprio pendente de
+cria linha, não devolve foto, membros, dono nem contagem e, pela regra do
+parágrafo seguinte, responde com um único erro genérico a tudo que não seja
+resgatável agora, sem revelar membership prévia. O pedido próprio pendente de
 tela 10 recebe pela projeção de memberships do titular somente `group_id`, nome
 do grupo e status. As duas exigem emenda a `13` antes da `0017` (§8).
+
+O preview e o resgate debitam **o mesmo orçamento de falhas** por perfil e por IP
+derivado; falha de preview conta como falha de resgate. O preview **não
+distingue** código inexistente de código revogado, expirado, esgotado, de grupo
+arquivado, suspenso ou cheio, nem de limite pessoal: toda resposta que não seja
+'resgatável agora' é um único erro genérico, e as mensagens específicas da tela
+12 só aparecem no resgate. A taxa global de falhas de preview e resgate tem
+alarme operacional.
 
 A fatia também publica o expurgo de convite de `17` §2 — revogação ou expiração
 mais 30 dias —, com prova de expurgo no prazo, preservação antes dele e
@@ -578,47 +632,53 @@ larga a mesma navegação vira lateral, conforme `11` §0. Cada tela renderiza
 somente os controles que têm RPC publicada atrás; o que `11` descreve e ainda não
 tem contrato em `13` fica ausente, não desabilitado, até a fatia que o publicar.
 
-### 6.1 UI-A — telas 10, 11, 16 e 24
+### 6.1 UI-A — telas 10, 11, 12, 16 e 24
 
 - **Tela 10 — Grupos:** carregamento por esqueleto, erro honesto com retry,
   vazio com ação, lista de memberships autorizadas, pedido próprio pendente pela
-  projeção do §5.3 e selos derivados da projeção. “Criar grupo” leva à tela 16;
-  “Entrar com código” só aparece quando a tela 12 existir, na UI-B;
+  projeção do §5.3 e selo do próprio papel derivado da projeção; o selo
+  mensalista fica fora da interface do M2 (M2-D6). “Criar grupo” leva à tela 16
+  e “Entrar com código” leva à tela 12, entregue na mesma fatia;
 - **Tela 11 — Detalhe:** nome pela projeção segura, membros e papéis conforme
-  RLS, selo mensalista somente quando habilitado e saída por `leave_group` com
+  RLS, sem selo mensalista (M2-D6), e saída por `leave_group` com
   `OWNER_MUST_TRANSFER` explicada como “transfira a titularidade primeiro”. Sem
   produtor nem rota de leitura no M2, não há foto de grupo a exibir. Histórico de
   rachas e notas não são placeholders: entram nos marcos que criam esses
   contratos. Blocos de organizador aparecem somente para telas já entregues;
-- **Tela 16 — Criar grupo:** somente nome, porque não há produtor de foto no M2.
-  Usa `create_group` pelo gateway, conserva o mesmo `request_id` em retry, mostra
-  `GROUP_LIMIT` com mensagem clara e abre a tela 24 com o convite inicial. Não
-  escreve tabela nem cria token no cliente;
-- **Tela 24 — Convites:** código para copiar e link para compartilhar por
-  `get_invite_share_link`, somente para a autoridade de convite do §5.2.
-  Revogar e regenerar aparecem apenas se seus contratos entrarem em `13` (§8).
-  Link de convidado avulso por racha fica ausente até o marco que cria rachas. O
-  link não é persistido no cliente, em cache ou em histórico.
-
-### 6.2 UI-B — telas 12, 17 e 25
-
 - **Tela 12 — Código/link:** somente convite de grupo; convite avulso de racha
   fica ausente até seu contrato. Código e fragmento nunca se confundem; a tela
   confirma o grupo pela projeção de preview do §5.3, chama a Edge uma vez e
   mostra `pending` como **aguardando aprovação**. Revogado, expirado, esgotado,
   arquivado, suspenso, cheio, limite pessoal e rate limit têm mensagens estáveis
-  sem revelar membership prévia. Sem a projeção de preview registrada em `13`, a
-  UI-B não começa;
+  no resgate, sem revelar membership prévia; o preview responde com o erro
+  genérico do §5.3. Sem a projeção de preview registrada em `13`, a UI-A não
+  começa;
+- **Tela 16 — Criar grupo:** somente nome, porque não há produtor de foto no M2.
+  Usa `create_group` pelo gateway, conserva o mesmo `request_id` em retry, mostra
+  `GROUP_LIMIT` com mensagem clara e abre a tela 24 com o convite inicial. Não
+  escreve tabela nem cria token no cliente;
+- **Tela 24 — Convites:** código para copiar e link para compartilhar por
+  `get_invite_share_link`, somente para a autoridade de convite do §5.2. De onde
+  a tela obtém o código é o gate 14 do §8.2; sem ele, o código não é exibido.
+  Revogar e regenerar aparecem apenas se seus contratos entrarem em `13` (§8).
+  Link de convidado avulso por racha fica ausente até o marco que cria rachas. O
+  link não é persistido no cliente, em cache ou em histórico.
+
+### 6.2 UI-B — telas 17 e 25
+
 - **Tela 17 — Gestão de membros:** pendentes com aprovar/recusar por
   `approve_member`; membros com promover/rebaixar por `set_role` (somente o dono);
   expulsar por `remove_member`, com confirmação cujo aviso descreve apenas efeitos
-  que existem no M2; selo mensalista por `set_monthly` somente em grupo com
-  mensalista habilitado. Convidados avulsos ficam ausentes até o marco de rachas;
+  que existem no M2. O selo mensalista por `set_monthly` fica fora da interface
+  do M2 (M2-D6): a RPC existe na `0016` e é provada no banco com
+  `monthly_enabled` preparado por fixture. Convidados avulsos ficam ausentes até
+  o marco de rachas;
 - **Tela 25 — Configurações:** visibilidade das notas por
   `set_ratings_visibility`, com a confirmação explicada que o contrato exige, e
   transferência de titularidade por `transfer_ownership`, com dupla confirmação,
-  ambas somente para o dono. Nome/foto, toggle de mensalista e arquivar grupo não
-  têm contrato em `13` e ficam ausentes (§8).
+  ambas somente para o dono. Nome/foto e arquivar grupo não têm contrato em `13`
+  e ficam ausentes (§8); o toggle de mensalista entra no M3 com o setter de
+  `monthly_enabled` (M2-D6, §7).
 
 ### 6.3 Acessibilidade e E2E das duas fatias
 
@@ -628,19 +688,26 @@ cor**, texto 200%, **nada de texto em imagem**, 44×44, teclado, foco,
 rótulos/estados, **desabilitado com motivo**, associação e anúncio de erros,
 **imagens decorativas ocultas e fotos com o nome como alternativa**,
 headings/título por rota, validação no blur e em tempo real depois do primeiro
-erro, botão focável com foco no primeiro campo inválido, redução de movimento,
-horários absolutos, linguagem simples, prevenção de erro, passada manual de
-`15` §3 e as exceções declaradas. Axe é camada adicional, não substitui leitor de
-tela. O formato de evidência da passada manual com leitor de tela ainda não está
-definido e é gate do §8: sem ele, nenhuma das duas fatias fecha.
+erro, botão **sempre habilitado** e, com erro, foco no primeiro campo inválido,
+mensagem que diz **o que fazer**, não o que está errado, redução de movimento,
+nenhuma informação importante que desapareça sozinha, horários absolutos,
+linguagem simples, prevenção de erro, passada manual de `15` §3 e as exceções
+declaradas. Axe é camada adicional, não substitui leitor de tela. O formato de
+evidência da passada manual com leitor de tela ainda não está definido e é gate
+do §8: sem ele, nenhuma das duas fatias fecha.
 
 O E2E usa Auth, Edge e Postgres locais reais. Inspeciona URL, corpo, headers,
 Cache API, storage persistente e Sentry fake para provar ausência de token/HMAC/
-ator. A UI-A exercita criação no limite, convite inicial, compartilhamento por
-autoridade e negação a criador rebaixado. A UI-B exercita membro de outro grupo,
-reentrada, último uso, grupo cheio, aprovação e recusa, transferência antes da
-saída e grupo suspenso. Nenhum harness implementa parser, classificador de erro
-ou adapter próprio: importa o mesmo código produtivo.
+ator. Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia
+anterior; nenhum `insert` como `postgres` no E2E, exceto `suspended_at`,
+declarado teste a teste. A UI-A exercita criação no limite, convite inicial,
+compartilhamento por autoridade, `OWNER_MUST_TRANSFER` do dono sozinho, preview
+sem consumo, resgate com pedido próprio pendente, membro de outro grupo, último
+uso e grupo cheio, todos alcançáveis sem aprovação. A UI-B exercita aprovação e
+recusa, lista com mais de um ativo, saída de jogador, reentrada, negação a
+criador rebaixado, transferência antes da saída e grupo suspenso. Nenhum harness
+implementa parser, classificador de erro ou adapter próprio: importa o mesmo
+código produtivo.
 
 ## 7. O que fica fora do M2
 
@@ -659,11 +726,16 @@ ou adapter próprio: importa o mesmo código produtivo.
   contrato em `13`; a futura fatia de upload publica os dois e estende export,
   backup e testes HTTP no mesmo commit;
 - controles das telas 11, 24 e 25 sem contrato em `13` (§6);
+- mensalista na interface: o selo das telas 10 e 11, `set_monthly` na tela 17, o
+  setter de `monthly_enabled` e o toggle da tela 25 entram no M3, junto com os
+  rachas (M2-D6). A RPC `set_monthly` continua na `0016`, provada no banco com
+  `monthly_enabled` preparado por fixture;
 - textos/digests legais, Google OAuth, rate limit geral do gateway, deploy,
   secrets reais, projeto Supabase remoto, app nativo, Apple Sign In e push;
 - mudança em `09`, `10`, `11`, `13`, `14`, `15`, `17`, `18` ou `22` além das
   emendas decididas no §8 (M2-D1 em `11` §6; M2-D2 em `01`; M2-D3 em `10` §3 no
-  commit da `0017`) e das emendas a `13` que o §8 exige antes da `0017`.
+  commit da `0017`; M2-D4 em `13` §5 (linha 611) e `10` §11 (linha 1542)) e das
+  emendas a `13` que o §8 exige antes da `0017`.
   Divergência com qualquer um deles é bloqueio, não licença para o plano
   prevalecer.
 
@@ -675,8 +747,8 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 
 - **M2-D1 (decidida em 2026-09-25).** O M2 entrega as oito telas de `11` §6,
   exceto a tela 5. A tela 5 (Rachas) vai para o M3: o domínio de rachas não existe
-  no M2, e `16` (linha 229, “Fronteira da área autenticada no M1-A”) põe Rachas no
-  M3. `11` §6 foi emendado somente para mover a tela 5.
+  no M2, e `16` §5 (“Fronteira da área autenticada no M1-A”) põe Rachas no M3.
+  `11` §6 foi emendado somente para mover a tela 5.
 - **M2-D2 (decidida em 2026-09-25).** Exclusão da conta do dono segue `13` §2.11:
   a transação inicial escolhe organizador ativo elegível e transfere;
   `FINANCIAL_SUBSTITUTE_REQUIRED` só quando não existe organizador ativo
@@ -690,6 +762,37 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 - **M2-D3 (decidida em 2026-09-25).** `10` §3 é emendado no mesmo commit da
   `0017`, pelo precedente de `22` §4 (linhas 278–282). A emenda é somente
   `code_digest text unique` (§5.1 (c)).
+- **M2-D4 (decidida em 2026-09-26).** A autoridade de convite é somente do dono ou
+  do organizador com membership `active` no momento da chamada; `created_by` é
+  registro histórico, sem autoridade. `13` §5 (linha 611, `get_invite_share_link`)
+  foi emendado para essa autoridade. Em `10` §11 (linha 1542), a linha que reunia
+  `group_invites` e `match_invites` foi separada: `group_invites` segue a M2-D4, e
+  `match_invites` fica como estava até o marco que a criar. A M2-D4 não conflita
+  com a M2-D3: esta trata da coluna `code_digest` em `10` §3, que continua para o
+  commit da `0017`; a M2-D4 emenda `10` §11.
+- **M2-D5 (decidida em 2026-09-26).** A interface se divide pela alcançabilidade
+  do estado de domínio: UI-A (entrada e convite) = telas 10, 11, 12, 16 e 24;
+  UI-B (decisão e titularidade) = telas 17 e 25. Estado de domínio do E2E nasce
+  pela UI da própria fatia ou de fatia anterior; nenhum `insert` como `postgres`
+  no E2E, exceto `suspended_at`, declarado teste a teste. O gate 8 passa a
+  bloquear a UI-A. `16` §3 (linha da tabela do M2) e §8 foram emendados para a
+  nova divisão. Razão: a divisão anterior deixava na UI-A provas que só a UI-B
+  produzia — o pedido próprio pendente exige a tela 12, e a lista com mais de um
+  ativo e a negação a criador rebaixado exigem as telas 17 e 25.
+- **M2-D6 (decidida em 2026-09-26).** Mensalista fica fora da interface do M2: o
+  selo das telas 10 e 11 e `set_monthly` na tela 17 saem do §6. A RPC
+  `set_monthly` continua na `0016`, provada no banco com `monthly_enabled`
+  preparado por fixture. O setter de `monthly_enabled` e o toggle da tela 25
+  entram no M3, junto com os rachas (§7).
+- **M2-D7 (decidida em 2026-09-26).** Aceite do antigo item 10 do §8.2:
+  mutações de grupo sem trilha e sem N16/N17/N19/N24/N25 — e sem N28 na
+  transferência por exclusão, `13` §2.11 — não chegam ao beta. `13` §0 (linha 42)
+  e §5 as exigem na mesma transação, e este plano as adia para as fatias B2 de
+  auditoria e outbox. A `0015` faz a transferência de titularidade por exclusão
+  sem N28 e sem trilha, porque auditoria e outbox ainda não existem; o M2 roda
+  localmente, mas não convida o beta antes das fatias B2 de auditoria e outbox.
+  Com este aceite, a pré-condição da `0015` apontada pela terceira revisão
+  independente (achado A8) está satisfeita: a `0015` pode começar.
 
 ### 8.2 Gates humanos
 
@@ -700,9 +803,11 @@ A implementação não pode preencher estas respostas:
    privacidade e comportamento de fallback definidos antes da `0017`.
 2. Quem executa a cerimônia de rotação, guarda as versões antigas e aprova sua
    remoção? A CI pode provar nomes e cobertura, mas não custódia operacional.
+   Precisa estar decidido antes do primeiro deploy.
 3. Qual é a origem pública por ambiente usada no link compartilhável? A migration
    não grava domínio de produção e a Edge não inventa URL a partir de header não
-   confiável.
+   confiável. O mecanismo entra na `0017`; o valor precisa estar decidido antes
+   do deploy.
 4. A validação jurídica aprova papéis, bases legais e retenção de memberships,
    convites, IP derivado e fotos? Sem aprovação, o M2 pode ser testado localmente,
    mas não convidar o beta.
@@ -716,21 +821,31 @@ A implementação não pode preencher estas respostas:
    prova do §5.3.
 8. A projeção de preview do nome do grupo e o nome do grupo na projeção do
    pedido próprio pendente (§5.3) exigem emenda a `13` antes da `0017`. Sem ela, a
-   UI-B não começa.
-9. Os contratos cliente de revogar e regenerar convite (tela 24) e de nome/foto,
-   mensalista habilitado e arquivamento (tela 25) não existem em `13`. Enquanto não
-   forem registrados, as telas não renderizam esses controles; revogar e
-   regenerar só entram na tela 24 do M2 se forem registrados antes da `0017`.
-10. Aceite explícito: mutações de grupo sem trilha e sem N16/N17/N19/N24/N25 —
-    e sem N28 na transferência por exclusão, `13` §2.11 — não chegam ao beta.
-    `13` §0 (linha 42) e §5 as exigem na mesma transação, e este plano as adia
-    para as fatias B2 de auditoria/outbox. O M2 pode ser testado localmente, mas
-    não convidar o beta, antes dessas fatias.
+   UI-A não começa (M2-D5), e a UI-B, que vem depois dela, também não.
+9. Os contratos cliente de revogar e regenerar convite (tela 24) e de nome/foto e
+   arquivamento (tela 25) não existem em `13`. Enquanto não forem registrados, as
+   telas não renderizam esses controles; revogar e regenerar só entram na tela 24
+   do M2 se forem registrados antes da `0017`. O setter de mensalista habilitado
+   da tela 25 saiu deste gate: entra no M3 (M2-D6).
+10. Decidido como M2-D7 (§8.1). O número fica reservado para que as referências
+    aos demais itens não mudem.
 11. Qual é o critério de escolha entre vários organizadores ativos elegíveis na
     transferência por exclusão (§3.3)? `13` §2.11 manda escolher, mas não diz
     qual. Precisa estar decidido antes da `0015`.
 12. Qual é o formato de evidência da passada manual com leitor de tela de `15`
     §3? Sem ele, UI-A e UI-B não fecham.
+13. Alfabeto, comprimento e piso de entropia do código humano, com o cálculo que
+    os justifica a partir do rate limit do item 1 e do número esperado de
+    convites vivos. Precisa estar decidido antes da `0017`. `10` §3 exige entropia
+    mínima versionada, mas não fixa o número. Recomendação da revisão: nenhum piso
+    abaixo de 40 bits.
+14. Derivação e entrega do código humano: de onde a tela 24 obtém o código
+    (emenda a `13`, projeção da autoridade de convite), e o efeito de rotação e
+    regeneração sobre `code_digest`. Precisa estar decidido antes da `0017`.
+    Recomendação da revisão: código derivado de
+    `HMAC(key_v, "colete/invite-code/v1\0" || invite_id || public_nonce)`,
+    truncado ao formato do item 13; `code_digest` recalculado na rotação e na
+    regeneração; nonce refeito em caso de colisão do `unique`.
 
 Decisões de escopo do plano, sem gate humano:
 
@@ -744,14 +859,22 @@ Decisões de escopo do plano, sem gate humano:
 Continuam indefinidos, e cada um precisa de resposta antes da fatia que o
 implementa, sem que o implementador escolha:
 
-- o estado resultante da recusa em `approve_member` e do cancelamento de pedido
-  pendente por arquivamento, e seu efeito em `removal_count`;
-- o que um membro já `active` recebe ao resgatar convite do próprio grupo, dado
-  que `13` §5 só prevê `{ status: 'pending', reentry }`;
+- o estado resultante do cancelamento de pedido pendente por arquivamento e seu
+  efeito em `removal_count`, antes da `0015`, que faz esse cancelamento (§3.3,
+  caso 4);
+- se a transferência por exclusão (§3.3, caso 2) é permitida em grupo suspenso,
+  antes da `0015`. O §4.1 só bloqueia a transferência comum, e `13` §5.4 diz que
+  grupo suspenso bloqueia “novas inscrições, convites, edição, draw e
+  publicação” e que a exclusão pode ser bloqueada pelo contrato 2.11, sem tratar
+  a transferência por exclusão;
+- o estado resultante da recusa em `approve_member` e seu efeito em
+  `removal_count`, antes da `0016`;
+- o erro de `set_role` e `set_monthly` sobre alvo sem membership `active`, que
+  `13` §5 não prevê (§4.1), antes da `0016`;
 - o destino do `reason` de `remove_member`, que não pode ir para coluna
-  operacional, log nem erro;
-- a ausência de setter de `monthly_enabled` em `13`: no M2 ele só nasce ligado
-  por fixture.
+  operacional, log nem erro, antes da `0016`;
+- o que um membro já `active` recebe ao resgatar convite do próprio grupo, dado
+  que `13` §5 só prevê `{ status: 'pending', reentry }`, antes da `0017`.
 
 Continuam valendo os gates herdados: textos/digests legais efetivos, restore
 isolado, RPO/RTO aceitos e evidência em hardware real antes do beta. Nenhuma
