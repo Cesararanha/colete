@@ -896,6 +896,79 @@ idênticas.
 Nenhum documento normativo mudou e o manifesto não foi tocado. Nenhum projeto
 Supabase remoto, deploy, Vault hospedado ou segredo real foi acessado.
 
+## Correção pós-marco: `PGRST303` intermitente e Supabase CLI 2.118.0
+
+### Achado
+
+O run `36212852999` da CI reprovou um teste de browser com um 401 rápido numa
+leitura do PostgREST, e a investigação de 2026-09-27 reproduziu localmente
+recusas `PGRST303` (“JWT issued at future”) de tokens recém-emitidos. A pilha
+local e a CI usavam o PostgREST 16.1, trazido pela Supabase CLI 2.116.0; o log
+da CI `36299157833` baixa `postgrest:v16.1`. Que o 401 do run `36212852999`
+seja esse mesmo `PGRST303` é inferência: o log não guardou o corpo da resposta.
+
+### Mecanismo
+
+No PostgREST 16.1 (`src/library/PostgREST/Auth/Jwt.hs`, linhas 56–72), o
+`iat` é recusado quando passa de “agora” mais uma tolerância fixa de 30 s, sem
+configuração. O “agora” vinha de um relógio em cache (`mkAutoUpdate`,
+`src/library/PostgREST/AppState.hs`, linha 81), que fica velho depois de um
+período sem tráfego: a primeira requisição depois da pausa compara o `iat` com
+um instante antigo e o recusa. A correção da 16.1 (PR #5159) não bastou; a
+issue #5196 registrou o sintoma, e o PR #5208, entregue na 16.3, removeu o
+cache e passou a ler o relógio a cada requisição (`AppState.hs`, linha 79, na
+tag `v16.3`). A tolerância de 30 s é a mesma nas duas versões. A CLI 2.117.0
+traz o PostgREST 16.2, e a 2.118.0, o 16.3.
+
+### Decisão
+
+Decisão humana de 2026-09-27: fixar a Supabase CLI em `2.118.0` exata, e não
+“a mais nova”, e não acrescentar nova tentativa de 401 no app. A branch
+`fix/jwt-issued-at-future` faz a troca em `package.json` e `package-lock.json`,
+e o `19-operacao-m0-a.md` registra a versão nova.
+
+### Números
+
+Medidos em 2026-09-27 na pilha local, com uma sonda que assina tokens HS256
+com o segredo local, `role=authenticated` e `sub` aleatório, e lê
+`GET /rest/v1/profiles` pelo Kong. Cada execução são 16 ciclos de 35 s sem
+tráfego seguidos de uma rajada de 16 requisições com `iat` igual ao instante do
+host: 256 requisições.
+
+| PostgREST (CLI) | Execuções | `PGRST303` | Forma |
+| --- | --- | --- | --- |
+| 16.1 (2.116.0) | 3 | **16**, **14** e **16** de 256 | 1 ou 2 recusas por ciclo, nas primeiras requisições depois da pausa |
+| 16.3 (2.118.0) | 6 | **0**, **0**, **16**, **0**, **0** e **0** de 256 | as 16 da terceira execução num único ciclo, a rajada inteira no mesmo segundo |
+
+As 16 recusas da 16.3 não têm a forma do defeito corrigido: recusar a rajada
+inteira exige que o relógio do contêiner estivesse mais de 30 s atrás do host
+naquele instante, e a 16.3 lê o relógio a cada requisição. Um amostrador do
+relógio da VM do Docker contra o do host, uma vez por segundo, não registrou
+desvio acima de 0,028 s nas três execuções seguintes da 16.3 nem acima de 2 s
+nas três da 16.1; a causa daquele ciclo não foi identificada.
+
+Deslocamento do `iat`, três vezes cada: na 16.3, +29 s e +30 s dão 200 e +31 s
+dá 401 `PGRST303`; na 16.1, +29 s dá 200, +30 s dá 401 em duas de três e +31 s
+dá 401. A tolerância é a mesma; na 16.1 o relógio em cache come parte dela.
+
+Com a 2.118.0, a validação completa do `AGENTS.md` §5 passou, e as três suítes
+de browser rodaram 10 vezes seguidas cada, todas verdes e sem `PGRST303` nos
+logs: `test:auth:web` 8 testes, 9,8–10,2 s; `test:privacy:web` 4, 13,6–13,8 s;
+`test:smoke:web` 6, 1,7–1,9 s.
+
+O observador do `profiles` em `waitForProfileGate`
+(`e2e/m1-a-auth.spec.ts`) esperava só uma resposta ok e ficava cego a uma
+recusa. Ele passou a capturar a primeira resposta, como o da exclusão, e a
+afirmá-la na chegada com status e corpo, token redigido. Contraprova com
+`page.route` devolvendo uma vez `401 PGRST303` no primeiro `profiles`: o
+observador antigo esperou até o timeout de 60 s, sem corpo; o novo falhou em
+2 s com `GET /rest/v1/profiles returned 401: {"code":"PGRST303",…}`.
+
+### Checagem antes do deploy
+
+- [ ] O projeto hospedado roda PostgREST ≥ 16.3.
+
+
 ## Manifesto de especificação
 
 Este documento fica fora de `docs/spec-manifest.sha256`, pelo mesmo precedente
