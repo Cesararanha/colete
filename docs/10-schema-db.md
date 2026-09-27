@@ -1361,11 +1361,11 @@ não recebe evento antigo nem lê histórico da conta anterior.
 
 Todas conquistam a chave idempotente não commitada da seção 9 antes dos locks de domínio.
 Depois, IDs necessários são resolvidos sem lock e linhas são travadas nesta ordem, sempre
-`FOR UPDATE`: perfis, grupos, memberships, recorrências, rachas, convites, participantes,
-claims, ciclos, sessões/provas,
-resoluções/estornos/contestações/casos. Se houver mais de um ID no mesmo nível, ordena-se
-pelos 16 bytes do UUID em ordem crescente; não pela ordem do payload. A função nunca espera
-em nível anterior depois de adquirir um posterior.
+`FOR NO KEY UPDATE`; `FOR UPDATE` somente quando a transação apaga a linha ou altera sua
+chave: perfis, grupos, memberships, recorrências, rachas, convites, participantes, claims,
+ciclos, sessões/provas, resoluções/estornos/contestações/casos. Se houver mais de um ID no
+mesmo nível, ordena-se pelos 16 bytes do UUID em ordem crescente; não pela ordem do
+payload. A função nunca espera em nível anterior depois de adquirir um posterior.
 
 `create_group` trava o perfil e reconta seus cinco grupos. `approve_member` trava perfil,
 grupo e membership; o grupo serializa `pending+active <= 100`. Resgate trava perfil, grupo e
