@@ -19,8 +19,12 @@ uma prova própria no §5.4 e registra no §8.2 os comportamentos que elas deixa
 indefinidos; ela também altera somente este documento. A quinta emenda, também
 de 2026-09-26, aplica a decisão humana M2-D12 do §8, que fixa a semeadura do
 cenário “último uso” da UI-A no §6.3, e os achados R1, R3, R4 e R5 da revisão
-curta das emendas 2 a 4; ela também altera somente este documento. Nenhuma das
-seis cria migration, função, bucket, tela ou configuração Supabase.
+curta das emendas 2 a 4; ela também altera somente este documento. A sexta
+emenda, de 2026-09-27, aplica a decisão humana M2-D13 do §8, que fixa no §2 o
+modo de lock das travas de domínio e o par cruzado que o prova, a partir do achado
+P1 da revisão do PR #36, e corrige no §3.3 a descrição da prova do guard; por ela,
+altera também `10` §10. Nenhuma das sete cria migration, função, bucket, tela ou
+configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -136,6 +140,58 @@ domínio de grupos antes dele. Harness com conexões independentes executa, nas
 duas ordens, exclusão × transferência, exclusão do dono × exclusão do
 organizador escolhido, exclusão × criação/entrada, rotação × resgate e aprovação
 × saída; `40P01` reprova a fatia, não é retry normal.
+
+**Modo de lock (M2-D13).** Travas de domínio usam `FOR NO KEY UPDATE`, como
+`10` §10 exige. `FOR UPDATE` só é usado quando a transação apaga a linha ou altera
+a chave dela, o que o domínio do M2 não faz: perfis são desidentificados e grupos
+são arquivados. O motivo é um lock implícito anterior à ordem acima. Todo registro
+de idempotência tem FK `actor_id → profiles` (`0004`, linha 28), e inseri-lo trava
+o perfil do ator em `FOR KEY SHARE` até o commit, **antes** dos locks ordenados
+desta seção. `FOR UPDATE` conflita com `FOR KEY SHARE`: se cada uma de duas
+transações trava o perfil da outra, cada uma espera pelo `KEY SHARE` que a outra
+tomou na idempotência, e o ciclo termina em `40P01`, como o achado P1 da revisão
+do PR #36 reproduziu em `delete_account`. `FOR NO KEY UPDATE` não conflita com
+`FOR KEY SHARE`, mas conflita consigo mesmo, com `FOR UPDATE` e com `UPDATE`;
+por isso a serialização entre transações de domínio continua.
+
+O ciclo não precisa de dois perfis alheios por transação: basta um. Em
+`approve_member`, A aprova o pedido de B no grupo G1 enquanto B aprova o pedido de
+A no grupo G2; cada transação segura o `KEY SHARE` do próprio perfil e pede o
+perfil da outra, e com `FOR UPDATE` isso já produz `40P01`.
+
+Toda operação cuja ordem de locks (§3.3, §4.1, §5) inclui o perfil de uma pessoa
+diferente do ator prova, pela barreira abaixo, um par cruzado em que cada
+transação trava o perfil da outra, nas duas ordens, sem `40P01`. O detentor
+segura `FOR NO KEY UPDATE` no perfil alheio que A trava: A fica em espera, e a
+idempotência de B, que toma `FOR KEY SHARE` nesse mesmo perfil, não é
+bloqueada. A contraprova troca o modo por `FOR UPDATE` e precisa reproduzir o
+`40P01`. Conferidas na ordem de locks deste plano, enquadram-se:
+
+- `0015`: `delete_account`, que trava os perfis dos organizadores candidatos
+  (§3.3);
+- `0016`: `approve_member`, `remove_member` e `set_role`, que travam o perfil
+  alvo; `set_monthly`, quando o alvo não é o ator; e `transfer_ownership`, que
+  trava o perfil do novo owner (§4.1). `set_ratings_visibility` e `leave_group`
+  travam somente o perfil do ator e ficam fora;
+- `0017`: nenhuma pela ordem declarada no §5. `create_group`, `join_by_code` e
+  `join_by_invite` travam somente o perfil do ator, e a rotação trava somente
+  convites. `get_invite_share_link`, revogar e regenerar ainda não têm ordem
+  fixada no §5.2; entram na regra se a ordem deles vier a incluir perfil de outra
+  pessoa.
+
+Os pares do parágrafo anterior entre duas operações enquadradas, como exclusão ×
+transferência, também rodam na forma cruzada quando a topologia permite.
+
+O código do M1-B conserva `FOR UPDATE` nas funções que travam somente o perfil do
+próprio titular ou são do worker, sem ator de idempotência: `update_profile`
+(`0006`, linha 613), `request_data_export` (`0013`, linha 823),
+`worker_get_data_export_build_target` (`0013`, linha 998) e `finalize_deletion`
+(`0013`, linha 1132, que substituiu o corpo da `0012`, linha 785). Elas passam à
+regra quando alguma migration as reescrever. Nenhuma trava perfil de outra
+pessoa, e a serialização com as funções do M2 continua, porque `FOR UPDATE`
+conflita com `FOR NO KEY UPDATE`. `delete_account` não está nessa lista: a `0015`
+a reescreve e aplica o modo a todas as suas travas de domínio, inclusive às do
+guard.
 
 **Barreira de concorrência, obrigatória em toda fatia.** Cada par roda em duas
 conexões dedicadas, com `application_name` distinto, nas ordens A→B e B→A. A
@@ -285,10 +341,27 @@ elegíveis é o da M2-D8 (caso 2). Exceção Admin usa o contrato já definido e
 
 `private.require_financial_deletion_substitute` é hoje `stable` (`0012`, linha
 430). Em função não-volátil o plpgsql executa por SPI em modo read-only, e
-`select … for update` ABORTA em execução. A `0015` muda a função para
-`volatile`. A prova negativa é o guard travando o grupo sob concorrência: a
-conexão concorrente fica observada em `wait_event_type='Lock'` pela barreira do
-§2, o que seria impossível com a função ainda `stable`.
+`select … for update` e `update` ABORTAM em execução. O guard da `0015` escreve e
+trava: transfere `groups.owner_id` no caso 2, arquiva o grupo no caso 4, passa
+memberships a `removed` nos dois casos e trava de novo, antes de revalidá-los, os
+grupos que recebe. Por isso a `0015` muda a função para `volatile`, e a
+contraprova de volatilidade continua: com a função `stable`, a exclusão precisa
+reprovar com `SQLSTATE 0A000`.
+
+A aquisição de grupos do próprio guard não é observável sob concorrência:
+`delete_account` travou os mesmos grupos antes de chamá-lo, e a nova aquisição,
+na mesma transação, não espera. A prova de concorrência observa, portanto, a
+espera pelo lock de grupo que `delete_account` toma: com o grupo seguro pelo
+detentor, a exclusão fica em `wait_event_type='Lock'` pela barreira do §2, com o
+`pid` do detentor em `pg_blocking_pids`. A contraprova retira da transação a
+aquisição desses grupos e precisa reprovar a prova; ela declara o que remove, no
+padrão do §4.3. A aquisição repetida do guard também espera pelo detentor; por
+isso, retirar somente o lock de `delete_account` não reprova a prova: a espera
+observada passa a ser a do guard, com memberships travadas antes de grupos, fora
+da ordem do §2, e a espera sozinha não distingue qual das duas aquisições
+esperou. Retirar somente o lock do guard também não reprova, como a revisão do
+PR #36 mostrou (achado 2). A contraprova retira os dois, e só essa execução
+prova que o harness enxerga o defeito.
 
 `groups.photo_url` representa objeto de Storage e, portanto, nasce já coberto
 pela regra geral: **toda fatia que introduzir um novo objeto de Storage acrescenta
@@ -352,26 +425,30 @@ cruzada por tabela; zero DML administrativo; transferência automática ao
 organizador elegível; com vários organizadores elegíveis, escolha do de
 `joined_at` mais antigo, em fixture na qual ele foi inserido por último e tem o
 maior `profile_id`, para que escolha por ordem física ou só por `profile_id`
-reprove, e, com `joined_at` empatado, escolha do menor `profile_id` em bytes,
-em fixture inserida na ordem inversa dos bytes (M2-D8); transferência por
-exclusão em grupo suspenso, com `suspended_at` inalterado depois do commit
-(M2-D10); `FINANCIAL_SUBSTITUTE_REQUIRED` sem organizador elegível; grupo solo
-com pendente arquivado e cada pedido pendente em `removed`, com `removed_at`
+reprove, e, com `joined_at` empatado, escolha do menor `profile_id` em bytes, em
+fixture inserida na ordem inversa dos bytes (M2-D8); transferência por exclusão
+em grupo suspenso, com `suspended_at` inalterado depois do commit (M2-D10);
+`FINANCIAL_SUBSTITUTE_REQUIRED` sem organizador elegível; grupo solo com
+pendente arquivado e cada pedido pendente em `removed`, com `removed_at`
 preenchido e `removal_count` inalterado (M2-D9); memberships não-donas do
 titular em `removed` e contagem `pending + active` do grupo caindo exatamente em
-um, medida no banco (§3.3); guard `volatile` travando sob concorrência;
-foto pendente impedindo Auth; crash e retry do `delete_storage_object` de
-`group_photo`; `groups.json` byte a byte e allowlist negativa; censo pgTAP por
-valor de path/token/PII de fixture em todas as tabelas novas e nos livros de
-idempotência e efeito, no padrão do teste da `0012` (linha 496 em diante); e
-ausência de linha ou objeto residual no fim dos harnesses. Todo par concorrente
-usa a barreira do §2: duas conexões dedicadas com `application_name` distinto,
-ordens A→B e B→A, liberação somente depois de observar `wait_event_type='Lock'`;
-`setTimeout` não é barreira. A capacidade sob 25 conexões **não** é prova desta
-fatia: os limites vivem nas RPCs, que ainda não existem, e a prova passaria por
-SQL do próprio harness, verde pela razão errada. Ela pertence à `0017` (§5.4);
-na `0016`, as 25 conexões provam somente a cota pessoal (quinta e sexta
-membership).
+um, medida no banco (§3.3); guard `volatile`, com a contraprova `stable` →
+`0A000`, e espera observada pelo lock de grupo de `delete_account`, com a
+contraprova do §3.3; o par cruzado da M2-D13 (§2): exclusão de dois donos, cada
+um organizador ativo elegível no grupo do outro, nas duas ordens, sem `40P01`, e
+uma repetição sem barreira que reprova com qualquer `40P01`, com a contraprova
+em `FOR UPDATE` reproduzindo o `40P01`; foto pendente impedindo Auth; crash e
+retry do `delete_storage_object` de `group_photo`; `groups.json` byte a byte e
+allowlist negativa; censo pgTAP por valor de path/token/PII de fixture em todas
+as tabelas novas e nos livros de idempotência e efeito, no padrão do teste da
+`0012` (linha 496 em diante); e ausência de linha ou objeto residual no fim dos
+harnesses. Todo par concorrente usa a barreira do §2: duas conexões dedicadas
+com `application_name` distinto, ordens A→B e B→A, liberação somente depois de
+observar `wait_event_type='Lock'`; `setTimeout` não é barreira. A capacidade sob
+25 conexões **não** é prova desta fatia: os limites vivem nas RPCs, que ainda
+não existem, e a prova passaria por SQL do próprio harness, verde pela razão
+errada. Ela pertence à `0017` (§5.4); na `0016`, as 25 conexões provam somente a
+cota pessoal (quinta e sexta membership).
 
 ## 4. Fatia 2 — `0016_group_membership_rpcs.sql`
 
@@ -470,7 +547,15 @@ incremento de `removal_count` não são provas desta fatia: dependem do resgate 
 pertencem à `0017` (§5.4). O harness de 25 conexões prova duas aprovações
 contra a quinta e a sexta membership do mesmo perfil, transferência × saída,
 exclusão × transferência e exclusão do dono × exclusão do organizador escolhido,
-sempre nas duas ordens. Criação contra a quinta vaga pertence à `0017`, onde
+sempre nas duas ordens. O par cruzado da M2-D13 (§2) roda para cada operação
+enquadrada desta fatia, nas duas ordens, sem `40P01` e com a contraprova em
+`FOR UPDATE` reproduzindo o `40P01`: em `approve_member`, A aprova o pedido de B
+em G1 enquanto B aprova o pedido de A em G2, caso em que um único perfil alheio
+por transação basta para o ciclo; em `remove_member`, `set_role`, `set_monthly`
+e `transfer_ownership`, o par análogo, em que cada ator alcança o perfil do outro
+em grupos distintos; e exclusão × transferência na forma cruzada, em que A exclui
+a conta com B entre os candidatos enquanto B transfere a A outro grupo. Criação
+contra a quinta vaga pertence à `0017`, onde
 `create_group` existe. Todo par concorrente usa a barreira do §2: duas conexões
 dedicadas com `application_name` distinto, ordens A→B e B→A, liberação somente
 depois de observar `wait_event_type='Lock'` em `pg_stat_activity`; nas provas
@@ -664,7 +749,11 @@ linha; tentativa N+1 recusada pela Edge sem tocar o banco; expurgo de convite no
 prazo; e objeto/linha residual zero. Todo par concorrente usa a barreira do §2:
 duas conexões dedicadas com `application_name` distinto, ordens A→B e B→A,
 liberação somente depois de observar `wait_event_type='Lock'`; nas provas N-way,
-ao menos N−1 transações esperaram lock. `setTimeout` não é barreira.
+ao menos N−1 transações esperaram lock. `setTimeout` não é barreira. Pela ordem
+de locks do §5, nenhuma operação desta fatia trava perfil de outra pessoa, e o
+par cruzado da M2-D13 (§2) não tem caso aqui. Se `get_invite_share_link`,
+revogar ou regenerar declararem ordem que inclua perfil de outra pessoa, o par
+cruzado e sua contraprova em `FOR UPDATE` entram nesta lista.
 
 As regras de reentrada do §4.2 são executadas por esta fatia e têm, cada uma,
 prova própria. O ponto de partida é a membership `removed` que a `0016` deixa
@@ -866,8 +955,9 @@ código produtivo.
   secrets reais, projeto Supabase remoto, app nativo, Apple Sign In e push;
 - mudança em `09`, `10`, `11`, `13`, `14`, `15`, `17`, `18` ou `22` além das
   emendas decididas no §8 (M2-D1 em `11` §6; M2-D2 em `01`; M2-D3 em `10` §3 no
-  commit da `0017`; M2-D4 em `13` §5 (linha 611) e `10` §11 (linha 1542)) e das
-  emendas a `13` que o §8 exige antes da `0017`.
+  commit da `0017`; M2-D4 em `13` §5 (linha 611) e `10` §11 (linha 1542);
+  M2-D13 em `10` §10 (linhas 1363–1365)) e das emendas a `13` que o §8 exige
+  antes da `0017`.
   Divergência com qualquer um deles é bloqueio, não licença para o plano
   prevalecer.
 
@@ -965,6 +1055,20 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   duas tentativas: a do último uso bem-sucedido e a seguinte, que recebe
   `INVITE_USED`. A sequência exata está no §6.3, que também deixa explícito que
   “grupo cheio” e “último uso” são cenários distintos.
+- **M2-D13 (decidida em 2026-09-27).** Travas de domínio usam
+  `FOR NO KEY UPDATE`; `FOR UPDATE` somente quando a transação apaga a linha ou
+  altera sua chave, o que o domínio do M2 não faz: perfis são desidentificados e
+  grupos são arquivados. `10` §10 (linhas 1363–1365) foi emendado para esse modo,
+  e `25` §2 registra a regra, o motivo, as operações enquadradas da `0015`, da
+  `0016` e da `0017`, o par cruzado que as prova e a nota sobre o M1-B. Razão: o
+  registro de idempotência tem FK `actor_id → profiles` (`0004`, linha 28), e
+  inseri-lo trava o perfil do ator em `FOR KEY SHARE` antes dos locks ordenados
+  do §2. Com `FOR UPDATE`, duas transações que travam o perfil uma da outra fecham
+  um ciclo e terminam em `40P01`. O achado P1 da revisão do PR #36 reproduziu o
+  ciclo em `delete_account`, com dois donos organizadores um no grupo do outro, e
+  o obteve em 18 de 20 disparos simultâneos. `FOR NO KEY UPDATE` não conflita com
+  `FOR KEY SHARE` e continua conflitando consigo mesmo, com `FOR UPDATE` e com
+  `UPDATE`, então a serialização se mantém.
 
 ### 8.2 Gates humanos
 
