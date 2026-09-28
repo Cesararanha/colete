@@ -20,6 +20,7 @@ import {
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
 } from './support/layout';
+import { handledObserver } from './support/observers';
 import { observeRestAuthorization, userJwtSubject } from './support/rest-authorization';
 
 const { Client } = pg;
@@ -1085,8 +1086,10 @@ test.describe('M1-B screen 13 privacy controls', () => {
       const title = card.getByTestId('export-state-title');
       // The request's own success refetches the projection; that read must
       // finish before the failure is armed.
-      const projectionAfterRequest = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === '/rest/v1/rpc/get_own_data_exports',
+      const projectionAfterRequest = handledObserver(
+        page.waitForResponse(
+          (response) => new URL(response.url()).pathname === '/rest/v1/rpc/get_own_data_exports',
+        ),
       );
       await card.getByRole('button', { name: 'Gerar export' }).click();
       await projectionAfterRequest;

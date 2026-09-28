@@ -17,6 +17,7 @@ import {
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
 } from './support/layout';
+import { handledObserver } from './support/observers';
 import { observeRestAuthorization } from './support/rest-authorization';
 
 const { Client } = pg;
@@ -161,10 +162,12 @@ function firstResponseMustBeOk(page: Page, method: string, pathname: string) {
 }
 
 function waitForProfileGate(page: Page) {
-  return Promise.all([
-    firstResponseMustBeOk(page, 'GET', '/rest/v1/profiles'),
-    firstResponseMustBeOk(page, 'POST', '/rest/v1/rpc/get_own_deletion_request'),
-  ]);
+  return handledObserver(
+    Promise.all([
+      firstResponseMustBeOk(page, 'GET', '/rest/v1/profiles'),
+      firstResponseMustBeOk(page, 'POST', '/rest/v1/rpc/get_own_deletion_request'),
+    ]),
+  );
 }
 
 // The body is what tells an anonymous call (42501) from a rejected JWT in the
