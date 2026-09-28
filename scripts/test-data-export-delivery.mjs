@@ -9,6 +9,9 @@ import { buildDataExport } from '../supabase/functions/_shared/data-export.ts';
 import { dataExportBuildHandler } from '../supabase/functions/_shared/data-export.ts';
 import { accountDeletionHandlers } from '../supabase/functions/_shared/deletion.ts';
 import { createDeletionProviders } from '../supabase/functions/_shared/worker-providers.ts';
+import { harnessEmail, installHarnessGuard, sweepMarkedAuthUsers } from './harness-guard.mjs';
+import { localWorkerCronSecret } from './local-worker-test-config.mjs';
+import { outcomeOf, sameActorPair, track } from './lock-barrier.mjs';
 
 const { Client } = pg;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,6 +38,49 @@ const sessionIds = [];
 const userIds = [];
 const userEmails = [];
 const selectedReviewProof = process.env.COLETE_EXPORT_REVIEW_PROOF;
+// Marca dos usuários Auth deste harness (scripts/harness-guard.mjs), criados
+// pela API admin ou por SQL.
+const AUTH_EMAIL_PREFIX = 'export-harness-';
+
+// Toda falha, inclusive a rejeição sem tratador, reprova com a causa, para o
+// trabalho novo, espera o que está em voo e só então limpa
+// (scripts/harness-guard.mjs). Toda conexão leva o prefixo colete_export_.
+const guard = installHarnessGuard('db:test:export', {
+  applicationPrefix: 'colete_export_',
+  authEmailPrefix: AUTH_EMAIL_PREFIX,
+});
+
+// groups.json pelo caminho de produção (docs/25 §3.4): pedido pelo gateway
+// Edge, build pelo worker Edge, download pela Edge de export. O titular tem
+// uma membership própria de dono e uma removida num grupo alheio; o terceiro,
+// o dono alheio, a foto e o convite existem para que a allowlist negativa
+// tenha o que recusar.
+const GROUPS_ACTOR_INDEX = profileIds.length;
+const groupsFixture = {
+  titular: '13a00000-0000-4000-8000-000000000001',
+  third: '13a00000-0000-4000-8000-000000000002',
+  otherOwner: '13a00000-0000-4000-8000-000000000003',
+  ownGroup: '13b00000-0000-4000-8000-000000000001',
+  otherGroup: '13b00000-0000-4000-8000-000000000002',
+  invite: '13b10000-0000-4000-8000-000000000001',
+  photo: 'groups/13b00000-0000-4000-8000-000000000001/export-census-photo.webp',
+  digest: 'export-census-token-digest-0015',
+  nonceHex: 'c0ffee00c0ffee00c0ffee00c0ffee00',
+  thirdName: 'Terceiro do censo do export',
+  otherOwnerName: 'Dono alheio do censo do export',
+};
+const groupsProfiles = [groupsFixture.titular, groupsFixture.third, groupsFixture.otherOwner];
+const groupsIds = [groupsFixture.ownGroup, groupsFixture.otherGroup];
+// Bytes esperados, escritos à mão e não pelo formatador: JCS com chaves em
+// ordem, entradas por group_id, instantes como o PostgreSQL emite timestamptz
+// em jsonb sob UTC, UTF-8 cru e quebra de linha final.
+const EXPECTED_GROUPS_JSON =
+  '[{"group_id":"13b00000-0000-4000-8000-000000000001","group_name":"Pelada da Várzea — sábado",' +
+  '"is_monthly":true,"joined_at":"2026-01-02T03:04:05.123456+00:00","removal_count":0,' +
+  '"removed_at":null,"role":"organizer","status":"active"},' +
+  '{"group_id":"13b00000-0000-4000-8000-000000000002","group_name":"Grupo alheio",' +
+  '"is_monthly":false,"joined_at":"2026-03-01T00:00:00+00:00","removal_count":2,' +
+  '"removed_at":"2026-04-05T06:07:08.654321+00:00","role":"player","status":"removed"}]\n';
 
 function environment() {
   const raw = execFileSync(supabase, ['status', '-o', 'env'], {
@@ -56,7 +102,7 @@ function environment() {
 }
 
 async function createActor(env, index) {
-  const email = `export-harness-${Date.now()}-${index}@colete.test`;
+  const email = harnessEmail(AUTH_EMAIL_PREFIX, `${Date.now()}-${index}`);
   const created = await fetch(`${env.api}/auth/v1/admin/users`, {
     method: 'POST',
     headers: {
@@ -83,6 +129,13 @@ async function createActor(env, index) {
   userEmails[index] = email;
   sessionIds[index] = claims.session_id;
   return session.access_token;
+}
+
+async function allCreated(creations) {
+  const settled = await Promise.allSettled(creations);
+  const failure = settled.find((entry) => entry.status === 'rejected');
+  if (failure) throw failure.reason;
+  return settled.map((entry) => entry.value);
 }
 
 const objectPath = (profileId, exportId) => `exports/${profileId}/${exportId}.zip`;
@@ -344,6 +397,380 @@ async function retryAbortedBuildAndPurge(db, env, index, label, expectedStatus) 
   );
 }
 
+// M2-D14: pedidos concorrentes de export do mesmo titular, com request_id
+// diferentes. Dois atores para a barreira, um por ordem, e vinte para os
+// disparos simultâneos. Os usuários Auth nascem por SQL: a prova é da RPC
+// interna, e o Auth só precisa existir para a FK de profiles.
+const SAME_ACTOR_STORM = 20;
+const sameActorFixture = Array.from({ length: SAME_ACTOR_STORM + 2 }, (_, index) => {
+  const suffix = (index + 1).toString(16).padStart(12, '0');
+  return {
+    profile: `13d00000-0000-4000-8000-${suffix}`,
+    auth: `13d10000-0000-4000-8000-${suffix}`,
+    session: `13d20000-0000-4000-8000-${suffix}`,
+    requests: [`13d30000-0000-4000-8000-${suffix}`, `13d40000-0000-4000-8000-${suffix}`],
+  };
+});
+const sameActorProfiles = sameActorFixture.map((actor) => actor.profile);
+const sameActorAuth = sameActorFixture.map((actor) => actor.auth);
+
+async function requestExportTx(client, actor, requestId, hmac) {
+  await client.query('begin isolation level read committed');
+  try {
+    await client.query('set local role service_role');
+    const result = await client.query(
+      'select public.request_data_export($1,$2,$3,$4,1,1) as response',
+      [actor.auth, actor.session, requestId, hmac],
+    );
+    await client.query('commit');
+    return result.rows[0].response;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  }
+}
+
+function assertOneExportWinner(results, label) {
+  const kinds = results.map(outcomeOf).sort();
+  assert.deepEqual(
+    kinds,
+    ['P0001 EXPORT_ALREADY_PENDING', 'ok'],
+    `${label}: expected one winner and EXPORT_ALREADY_PENDING, got ${kinds}`,
+  );
+}
+
+async function cleanupSameActorFixture(db) {
+  await db
+    .query(
+      `delete from private.external_effects
+        where resource_id in (select id from private.data_exports where profile_id=any($1::uuid[]))`,
+      [sameActorProfiles],
+    )
+    .catch(() => {});
+  await db
+    .query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
+      sameActorProfiles,
+    ])
+    .catch(() => {});
+  await db
+    .query('delete from private.data_exports where profile_id=any($1::uuid[])', [sameActorProfiles])
+    .catch(() => {});
+  await db
+    .query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [
+      sameActorProfiles,
+    ])
+    .catch(() => {});
+  await db
+    .query('delete from public.profiles where id=any($1::uuid[])', [sameActorProfiles])
+    .catch(() => {});
+  await db
+    .query('delete from auth.users where id=any($1::uuid[])', [sameActorAuth])
+    .catch(() => {});
+}
+
+// M2-D14. request_data_export grava a idempotência, que toma FOR KEY SHARE no
+// perfil do titular pela FK actor_id, e depois trava o mesmo perfil. Com FOR
+// UPDATE, dois pedidos do mesmo titular (dois cliques, duas abas) esperam um
+// pelo FOR KEY SHARE do outro: deadlock por upgrade. Com FOR NO KEY UPDATE, um
+// vence e o outro recebe EXPORT_ALREADY_PENDING, o resultado do contrato.
+async function proveSameActorExport(db, env) {
+  await db.query(
+    `insert into auth.users(id,instance_id,aud,role,email)
+     select auth_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',
+            $2 || 'lock-' || ordinality || '@colete.test'
+       from unnest($1::uuid[]) with ordinality as fixture(auth_id,ordinality)`,
+    [sameActorAuth, AUTH_EMAIL_PREFIX],
+  );
+  await db.query(
+    `insert into public.profiles(id,auth_user_id,name)
+     select profile_id,auth_id,'Pedido concorrente de export'
+       from unnest($1::uuid[],$2::uuid[]) as fixture(profile_id,auth_id)`,
+    [sameActorProfiles, sameActorAuth],
+  );
+  const applicationPrefix = 'colete_export_lock_';
+  const clients = Object.fromEntries(
+    ['observer', 'holder', 'first', 'second'].map((role) => [
+      role,
+      new Client({ connectionString: env.db, application_name: `${applicationPrefix}${role}` }),
+    ]),
+  );
+  await Promise.all(Object.values(clients).map((client) => client.connect()));
+  try {
+    const { observer, holder, first, second } = clients;
+    for (const [index, label, a, b] of [
+      [0, 'same-actor export order 1', first, second],
+      [1, 'same-actor export order 2', second, first],
+    ]) {
+      const actor = sameActorFixture[index];
+      const results = await sameActorPair(
+        { observer, holder, first: a, second: b, applicationPrefix },
+        {
+          label,
+          profileId: actor.profile,
+          runFirst: (connection) =>
+            requestExportTx(connection, actor, actor.requests[0], 'a'.repeat(64)),
+          runSecond: (connection) =>
+            requestExportTx(connection, actor, actor.requests[1], 'b'.repeat(64)),
+        },
+      );
+      assertOneExportWinner(results, label);
+      const exports = await db.query(
+        'select count(*)::integer as count from private.data_exports where profile_id=$1',
+        [actor.profile],
+      );
+      assert.equal(exports.rows[0].count, 1, `${label}: the actor must have exactly one export`);
+    }
+    console.log(
+      'ok - same-actor export pair: waits observed in both orders, no 40P01; one winner, the other EXPORT_ALREADY_PENDING',
+    );
+
+    const outcomes = [];
+    for (const actor of sameActorFixture.slice(2)) {
+      const a = track(requestExportTx(first, actor, actor.requests[0], 'a'.repeat(64)));
+      const b = track(requestExportTx(second, actor, actor.requests[1], 'b'.repeat(64)));
+      outcomes.push(await Promise.all([a.settled, b.settled]));
+    }
+    const deadlocks = outcomes.filter((pair) =>
+      pair.some((result) => outcomeOf(result) === '40P01'),
+    ).length;
+    const pending = outcomes
+      .flat()
+      .filter((result) => outcomeOf(result) === 'P0001 EXPORT_ALREADY_PENDING').length;
+    console.log(
+      `same-actor export storm without barrier: ${SAME_ACTOR_STORM} pairs, pairs with 40P01=${deadlocks}, EXPORT_ALREADY_PENDING=${pending}`,
+    );
+    assert.equal(
+      deadlocks,
+      0,
+      `same-actor export storm: ${deadlocks} of ${SAME_ACTOR_STORM} pairs hit 40P01`,
+    );
+    outcomes.forEach((pair, index) =>
+      assertOneExportWinner(pair, `export storm pair ${index + 1}`),
+    );
+    const perActor = await db.query(
+      `select count(*)::integer as count from private.data_exports
+        where profile_id=any($1::uuid[]) group by profile_id having count(*) <> 1`,
+      [sameActorProfiles],
+    );
+    assert.equal(perActor.rowCount, 0, 'an actor ended with more or less than one export');
+    console.log(
+      `ok - same-actor export storm: ${SAME_ACTOR_STORM} simultaneous pairs, zero 40P01, one export per actor`,
+    );
+  } finally {
+    await Promise.allSettled(Object.values(clients).map((client) => client.end()));
+    await cleanupSameActorFixture(db);
+  }
+}
+
+// Leitor mínimo de ZIP stored (método 0), o formato que zipStore escreve.
+function readStoredZip(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const entries = new Map();
+  let offset = 0;
+  while (view.getUint32(offset, true) === 0x04034b50) {
+    assert.equal(view.getUint16(offset + 8, true), 0, 'the export ZIP entry is not stored');
+    const size = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const name = new TextDecoder().decode(bytes.subarray(nameStart, nameStart + nameLength));
+    const dataStart = nameStart + nameLength + extraLength;
+    entries.set(name, bytes.subarray(dataStart, dataStart + size));
+    offset = dataStart + size;
+  }
+  return entries;
+}
+
+async function insertGroupsFixture(db) {
+  await db.query(
+    `insert into public.profiles(id,auth_user_id,name) values
+       ($1,$2,'Titular do censo do export'),($3,$4,$5),($6,$7,$8)`,
+    [
+      groupsFixture.titular,
+      userIds[GROUPS_ACTOR_INDEX],
+      groupsFixture.third,
+      userIds[GROUPS_ACTOR_INDEX + 1],
+      groupsFixture.thirdName,
+      groupsFixture.otherOwner,
+      userIds[GROUPS_ACTOR_INDEX + 2],
+      groupsFixture.otherOwnerName,
+    ],
+  );
+  // Um grafo por transação: o trigger diferido de owner julga cada commit.
+  await db.query('begin');
+  try {
+    await db.query(
+      `insert into public.groups(id,name,owner_id,photo_url,monthly_enabled)
+       values($1,'Pelada da Várzea — sábado',$2,$3,true)`,
+      [groupsFixture.ownGroup, groupsFixture.titular, groupsFixture.photo],
+    );
+    await db.query(
+      `insert into public.group_members(group_id,profile_id,role,status,is_monthly,joined_at)
+       values($1,$2,'organizer','active',true,'2026-01-02T03:04:05.123456Z'),
+             ($1,$3,'player','active',false,'2025-12-01T00:00:00Z')`,
+      [groupsFixture.ownGroup, groupsFixture.titular, groupsFixture.third],
+    );
+    await db.query(
+      `insert into public.group_invites(id,group_id,public_nonce,token_digest,created_by,expires_at)
+       values($1,$2,decode($3,'hex'),$4,$5,now()+interval '1 day')`,
+      [
+        groupsFixture.invite,
+        groupsFixture.ownGroup,
+        groupsFixture.nonceHex,
+        groupsFixture.digest,
+        groupsFixture.titular,
+      ],
+    );
+    await db.query('commit');
+  } catch (error) {
+    await db.query('rollback').catch(() => {});
+    throw error;
+  }
+  await db.query('begin');
+  try {
+    await db.query(`insert into public.groups(id,name,owner_id) values($1,'Grupo alheio',$2)`, [
+      groupsFixture.otherGroup,
+      groupsFixture.otherOwner,
+    ]);
+    await db.query(
+      `insert into public.group_members
+         (group_id,profile_id,role,status,is_monthly,joined_at,removed_at,removal_count)
+       values($1,$2,'organizer','active',false,'2026-01-01T00:00:00Z',null,0),
+             ($1,$3,'player','removed',false,'2026-03-01T00:00:00Z','2026-04-05T06:07:08.654321Z',2),
+             ($1,$4,'player','active',false,'2026-02-01T00:00:00Z',null,0)`,
+      [
+        groupsFixture.otherGroup,
+        groupsFixture.otherOwner,
+        groupsFixture.titular,
+        groupsFixture.third,
+      ],
+    );
+    await db.query('commit');
+  } catch (error) {
+    await db.query('rollback').catch(() => {});
+    throw error;
+  }
+}
+
+async function proveGroupsThroughEdge(db, env, token) {
+  await insertGroupsFixture(db);
+  const queued = await db.query(
+    `select count(*)::integer as count from private.external_effects
+      where status in ('pending','failed_retryable')`,
+  );
+  assert.equal(queued.rows[0].count, 0, 'another pending effect would reach the real worker');
+
+  const requested = await fetch(`${env.functions}/identity/request_data_export`, {
+    method: 'POST',
+    headers: {
+      apikey: env.publishable,
+      Authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ request_id: crypto.randomUUID() }),
+  });
+  assert.equal(requested.status, 200, `request_data_export failed: ${await requested.text()}`);
+  const exportRow = (
+    await db.query('select id from private.data_exports where profile_id=$1', [
+      groupsFixture.titular,
+    ])
+  ).rows[0];
+  assert.ok(exportRow, 'the gateway did not create the export');
+
+  // O slot deste minuto pode ter sido consumido por outro harness.
+  await db.query(
+    `delete from private.job_runs
+      where job_name='process_external_effects'
+        and scheduled_for=date_trunc('minute', clock_timestamp())`,
+  );
+  const worker = await fetch(`${env.functions}/worker/process_external_effects`, {
+    method: 'POST',
+    headers: {
+      apikey: env.publishable,
+      Authorization: `Bearer ${localWorkerCronSecret()}`,
+      'content-type': 'application/json',
+    },
+    body: '{}',
+  });
+  assert.equal(worker.status, 200, `the worker returned ${worker.status}`);
+  const built = await db.query(
+    `select export.status,
+            (select status from private.external_effects
+              where dedupe_key='build_data_export:'||export.id::text) as build_status
+       from private.data_exports export where export.id=$1`,
+    [exportRow.id],
+  );
+  assert.deepEqual(built.rows[0], { status: 'ready', build_status: 'succeeded' });
+
+  const downloaded = await fetch(`${env.functions}/data-exports/${exportRow.id}/content`, {
+    headers: { apikey: env.publishable, Authorization: `Bearer ${token}` },
+    redirect: 'manual',
+  });
+  assert.equal(downloaded.status, 200, 'the real export was not delivered');
+  const zip = new Uint8Array(await downloaded.arrayBuffer());
+  const entries = readStoredZip(zip);
+  const groupsBytes = entries.get('groups.json');
+  assert.ok(groupsBytes, 'the real ZIP has no groups.json');
+  assert.equal(
+    Buffer.from(groupsBytes).toString('hex'),
+    Buffer.from(EXPECTED_GROUPS_JSON, 'utf8').toString('hex'),
+    `groups.json differs byte for byte: ${new TextDecoder().decode(groupsBytes)}`,
+  );
+  const manifest = JSON.parse(new TextDecoder().decode(entries.get('manifest.json')));
+  const listed = manifest.files.find((file) => file.name === 'groups.json');
+  assert.deepEqual(listed, {
+    name: 'groups.json',
+    size: groupsBytes.length,
+    sha256: Buffer.from(await crypto.subtle.digest('SHA-256', groupsBytes)).toString('hex'),
+  });
+  console.log(
+    `ok - real Edge export: groups.json equals the expected ${groupsBytes.length} bytes and matches the manifest`,
+  );
+
+  // Allowlist negativa sobre o ZIP inteiro: nenhum membro terceiro, dono
+  // alheio, localizador de foto, digest, nonce ou chave proibida.
+  const zipText = Buffer.from(zip).toString('latin1');
+  const zipUtf8 = new TextDecoder().decode(zip);
+  for (const forbidden of [
+    groupsFixture.third,
+    groupsFixture.otherOwner,
+    groupsFixture.thirdName,
+    groupsFixture.otherOwnerName,
+    groupsFixture.photo,
+    groupsFixture.digest,
+    groupsFixture.nonceHex,
+    groupsFixture.invite,
+    'photo_url',
+    'owner_id',
+    'profile_id',
+    'token_digest',
+    'public_nonce',
+    'created_by',
+    '"token',
+  ]) {
+    assert.ok(
+      !zipText.includes(forbidden) && !zipUtf8.includes(forbidden),
+      `the real export ZIP carries a forbidden value: ${forbidden}`,
+    );
+  }
+  for (const row of JSON.parse(new TextDecoder().decode(groupsBytes))) {
+    assert.deepEqual(Object.keys(row).sort(), [
+      'group_id',
+      'group_name',
+      'is_monthly',
+      'joined_at',
+      'removal_count',
+      'removed_at',
+      'role',
+      'status',
+    ]);
+  }
+  console.log(
+    'ok - real Edge export: no third member, foreign owner, photo locator, digest, nonce or forbidden key',
+  );
+  await cleanupGroupsFixture(db, env);
+}
+
 async function tableCounts(client, schemas) {
   const tables = await client.query(
     `select table_schema, table_name
@@ -361,7 +788,63 @@ async function tableCounts(client, schemas) {
   return counts;
 }
 
+// Remove o export real, o purge que o download enfileirou, o objeto e o
+// grafo de grupos. Roda ao fim da prova, para que o purge pendente não chegue
+// às aquisições seguintes do harness, e de novo na limpeza final.
+async function cleanupGroupsFixture(db, env) {
+  const groupObjects = await db
+    .query(
+      `select name from storage.objects
+        where bucket_id='data-exports' and name like 'exports/' || $1 || '/%'`,
+      [groupsFixture.titular],
+    )
+    .catch(() => ({ rows: [] }));
+  if (groupObjects.rows.length > 0) {
+    await fetch(`${env.api}/storage/v1/object/data-exports`, {
+      method: 'DELETE',
+      headers: {
+        apikey: env.secret,
+        Authorization: `Bearer ${env.secret}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ prefixes: groupObjects.rows.map((row) => row.name) }),
+    }).catch(() => {});
+  }
+  await db
+    .query(
+      `delete from private.external_effects
+        where resource_id in (select id from private.data_exports where profile_id=any($1::uuid[]))`,
+      [groupsProfiles],
+    )
+    .catch(() => {});
+  await db
+    .query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
+      groupsProfiles,
+    ])
+    .catch(() => {});
+  await db
+    .query('delete from private.data_exports where profile_id=any($1::uuid[])', [groupsProfiles])
+    .catch(() => {});
+  await db
+    .query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [groupsProfiles])
+    .catch(() => {});
+  await db.query('begin').catch(() => {});
+  await db
+    .query('delete from public.group_invites where group_id=any($1::uuid[])', [groupsIds])
+    .catch(() => {});
+  await db
+    .query('delete from public.group_members where group_id=any($1::uuid[])', [groupsIds])
+    .catch(() => {});
+  await db.query('delete from public.groups where id=any($1::uuid[])', [groupsIds]).catch(() => {});
+  await db.query('commit').catch(() => {});
+  await db
+    .query('delete from public.profiles where id=any($1::uuid[])', [groupsProfiles])
+    .catch(() => {});
+}
+
 async function cleanup(db, env) {
+  await cleanupGroupsFixture(db, env);
+  await cleanupSameActorFixture(db);
   for (let index = 0; index < profileIds.length; index += 1) {
     await fetch(`${env.api}/storage/v1/object/data-exports`, {
       method: 'DELETE',
@@ -412,22 +895,56 @@ async function cleanup(db, env) {
         },
       }).catch(() => {});
     }
+  // Usuários com a marca que a API não removeu ou que uma execução
+  // interrompida deixou. Usuário sem a marca nunca é tocado.
+  await sweepMarkedAuthUsers(db, AUTH_EMAIL_PREFIX);
 }
 
 async function main() {
   const env = environment();
-  const db = new Client({ connectionString: env.db });
-  await db.connect();
+  const db = new Client({ connectionString: env.db, application_name: 'colete_export_main' });
   let tableBaseline;
+  let jobBaseline;
+  // A limpeza e o censo rodam pelo guard, numa conexão própria, depois de o
+  // corpo terminar ou de o trabalho em voo assentar. Se o censo reprovar, o
+  // guard o relata à parte, depois da causa original.
+  guard.useDatabase(env.db);
+  guard.onCleanup(async (client) => {
+    await cleanup(client, env);
+    if (jobBaseline !== undefined) {
+      await client.query('delete from private.job_runs where id > $1', [jobBaseline]);
+    }
+  });
+  guard.onCensus(async (client) => {
+    if (tableBaseline === undefined) {
+      console.error('# db:test:export: no baseline was taken; residue census skipped');
+      return;
+    }
+    await assertResidueCensus(client, tableBaseline);
+  });
+  await db.connect();
   try {
+    // Varredura inicial: fixture de IDs fixos e usuários com a marca que uma
+    // execução interrompida tenha deixado.
+    await cleanup(db, env);
     tableBaseline = await tableCounts(db, ['public', 'private', 'auth', 'storage']);
-    const tokens = await Promise.all(profileIds.map((_, index) => createActor(env, index)));
+    jobBaseline = Number(
+      (await db.query('select coalesce(max(id), 0)::text as id from private.job_runs')).rows[0].id,
+    );
+    // Cada lote assenta inteiro antes de uma falha subir: nenhuma criação de
+    // usuário continua em voo durante a limpeza.
+    const tokens = await allCreated(profileIds.map((_, index) => createActor(env, index)));
+    const [groupsToken] = await allCreated(
+      [0, 1, 2].map((offset) => createActor(env, GROUPS_ACTOR_INDEX + offset)),
+    );
+    await proveGroupsThroughEdge(db, env, groupsToken);
+    await proveSameActorExport(db, env);
     await db.query(
       `insert into public.profiles(id,auth_user_id,name)
       select * from unnest($1::uuid[],$2::uuid[],$3::text[])`,
       [
         profileIds,
-        userIds,
+        userIds.slice(0, profileIds.length),
         [
           'Winner',
           'Expired',
@@ -762,11 +1279,11 @@ async function main() {
 
     const deleter = new Client({
       connectionString: env.db,
-      application_name: 'export_deadlock_delete',
+      application_name: 'colete_export_deadlock_delete',
     });
     const builder = new Client({
       connectionString: env.db,
-      application_name: 'export_deadlock_build',
+      application_name: 'colete_export_deadlock_build',
     });
     await Promise.all([deleter.connect(), builder.connect()]);
     let deletionError;
@@ -903,28 +1420,28 @@ async function main() {
       'ok - stream has attachment ZIP/private no-store, no redirect, and stable purge intent',
     );
   } finally {
-    await cleanup(db, env);
-    if (tableBaseline !== undefined) {
-      const tableAfter = await tableCounts(db, ['public', 'private', 'auth', 'storage']);
-      const deltas = [...tableAfter].map(([table, count]) => ({
-        table,
-        before: tableBaseline.get(table) ?? 0,
-        after: count,
-        delta: count - (tableBaseline.get(table) ?? 0),
-      }));
-      const changed = deltas.filter(({ delta }) => delta !== 0);
-      assert.ok(
-        changed.every(({ table }) => table === 'auth.audit_log_entries'),
-        `an undeclared table changed across the export harness: ${JSON.stringify(changed)}`,
-      );
-      const audit = deltas.find(({ table }) => table === 'auth.audit_log_entries');
-      console.log(`ok - dynamic residue census by table: ${JSON.stringify(deltas)}`);
-      console.log(
-        `ok - accepted GoTrue auth.audit_log_entries residue: total=${audit?.after ?? 0}, added=${audit?.delta ?? 0}; every other table matches its baseline`,
-      );
-    }
     await db.end();
   }
 }
 
-await main();
+async function assertResidueCensus(db, tableBaseline) {
+  const tableAfter = await tableCounts(db, ['public', 'private', 'auth', 'storage']);
+  const deltas = [...tableAfter].map(([table, count]) => ({
+    table,
+    before: tableBaseline.get(table) ?? 0,
+    after: count,
+    delta: count - (tableBaseline.get(table) ?? 0),
+  }));
+  const changed = deltas.filter(({ delta }) => delta !== 0);
+  assert.ok(
+    changed.every(({ table }) => table === 'auth.audit_log_entries'),
+    `an undeclared table changed across the export harness: ${JSON.stringify(changed)}`,
+  );
+  const audit = deltas.find(({ table }) => table === 'auth.audit_log_entries');
+  console.log(`ok - dynamic residue census by table: ${JSON.stringify(deltas)}`);
+  console.log(
+    `ok - accepted GoTrue auth.audit_log_entries residue: total=${audit?.after ?? 0}, added=${audit?.delta ?? 0}; every other table matches its baseline`,
+  );
+}
+
+await guard.run(main);

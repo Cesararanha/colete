@@ -580,8 +580,10 @@ select is(
   'retention observability records only the purge count'
 );
 
-create or replace function private.require_financial_deletion_substitute(p_profile_id uuid)
-returns void language plpgsql stable set search_path = '' as $blocked$
+-- A 0015 mudou a assinatura do guard; o ponto de extensão continua o mesmo.
+create or replace function private.require_financial_deletion_substitute(
+  p_profile_id uuid, p_group_ids uuid[], p_candidate_ids uuid[])
+returns void language plpgsql volatile set search_path = '' as $blocked$
 begin
   raise exception using errcode = 'P0001', message = 'FINANCIAL_SUBSTITUTE_REQUIRED';
 end;

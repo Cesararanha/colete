@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
+import { harnessEmail, harnessEmailPattern, sweepMarkedAuthUsers } from './harness-guard.mjs';
+
 const { Client } = pg;
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..');
@@ -27,7 +29,9 @@ const supabaseBinary = path.join(
 );
 
 const PASSWORD = 'colete-local-gateway-test-password';
-const EMAIL = `gateway-${Date.now()}@colete.test`;
+// Marca dos usuários Auth deste harness (scripts/harness-guard.mjs).
+const AUTH_EMAIL_PREFIX = 'gateway-';
+const EMAIL = harnessEmail(AUTH_EMAIL_PREFIX, `${Date.now()}`);
 
 function localEnvironment() {
   let raw;
@@ -97,6 +101,29 @@ async function call(env, operation, body, token) {
   return { status: response.status, body: await response.json() };
 }
 
+// Remove o que pertence a usuários com a marca do harness: idempotência,
+// revogações e perfis ligados a eles, depois os próprios usuários. Roda no
+// início, para o que uma execução interrompida deixou, e no fim. Usuário sem a
+// marca nunca é tocado.
+async function cleanupMarked(db) {
+  const markedProfiles = `select profile.id from public.profiles profile
+      join auth.users account on account.id = profile.auth_user_id
+     where account.email like $1 escape '\\'`;
+  const pattern = harnessEmailPattern(AUTH_EMAIL_PREFIX);
+  await db.query(`delete from private.idempotency_records where actor_id in (${markedProfiles})`, [
+    pattern,
+  ]);
+  await db.query('delete from private.idempotency_records where actor_key like $1', [
+    'bootstrap:%',
+  ]);
+  await db.query(
+    `delete from private.revoked_auth_sessions where profile_id in (${markedProfiles})`,
+    [pattern],
+  );
+  await db.query(`delete from public.profiles where id in (${markedProfiles})`, [pattern]);
+  await sweepMarkedAuthUsers(db, AUTH_EMAIL_PREFIX);
+}
+
 async function main() {
   const env = localEnvironment();
   const db = new Client({ connectionString: env.dbUrl });
@@ -104,6 +131,7 @@ async function main() {
 
   let actor = null;
   try {
+    await cleanupMarked(db);
     actor = await createUserAndSignIn(env);
     const { token } = actor;
 
@@ -328,27 +356,10 @@ async function main() {
 
     console.log('Identity gateway end-to-end checks passed against the local stack.');
   } finally {
-    if (actor !== null) {
-      await db
-        .query(
-          'delete from private.idempotency_records where actor_id in (select id from public.profiles where auth_user_id = $1)',
-          [actor.userId],
-        )
-        .catch(() => {});
-      await db
-        .query('delete from private.idempotency_records where actor_key like $1', ['bootstrap:%'])
-        .catch(() => {});
-      await db
-        .query(
-          'delete from private.revoked_auth_sessions where profile_id in (select id from public.profiles where auth_user_id = $1)',
-          [actor.userId],
-        )
-        .catch(() => {});
-      await db
-        .query('delete from public.profiles where auth_user_id = $1', [actor.userId])
-        .catch(() => {});
-      await db.query('delete from auth.users where id = $1', [actor.userId]).catch(() => {});
-    }
+    await cleanupMarked(db).catch((error) => {
+      process.exitCode = 1;
+      console.error('gateway cleanup failed', error);
+    });
     await db.end();
   }
 }

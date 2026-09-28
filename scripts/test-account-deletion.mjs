@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
+import { harnessEmail, sweepMarkedAuthUsers } from './harness-guard.mjs';
 import { localWorkerCronSecret } from './local-worker-test-config.mjs';
 
 const { Client } = pg;
@@ -24,6 +25,8 @@ const profileIds = Array.from(
 const authIds = [];
 const authEmails = [];
 const PASSWORD = 'colete-local-account-deletion-password';
+// Marca dos usuários Auth deste harness (scripts/harness-guard.mjs).
+const AUTH_EMAIL_PREFIX = 'account-deletion-';
 
 function localStatus() {
   let output;
@@ -84,7 +87,7 @@ async function deleteAccount(client, profileIndex, requestId, hmac) {
 async function setup(admin, status) {
   const created = await Promise.all(
     profileIds.map(async (_, index) => {
-      const email = `account-deletion-${Date.now()}-${index}@colete.test`;
+      const email = harnessEmail(AUTH_EMAIL_PREFIX, `${Date.now()}-${index}`);
       const response = await fetch(`${status.apiUrl}/auth/v1/admin/users`, {
         method: 'POST',
         headers: {
@@ -176,6 +179,9 @@ async function cleanup(admin) {
   ]);
   await admin.query('delete from public.profiles where id = any($1::uuid[])', [profileIds]);
   await admin.query('delete from auth.users where id = any($1::uuid[])', [authIds]);
+  // Também os usuários com a marca que uma execução interrompida deixou;
+  // usuário sem a marca nunca é tocado.
+  await sweepMarkedAuthUsers(admin, AUTH_EMAIL_PREFIX);
 }
 
 async function invokeDeletionWorker(admin, functionsUrl, publishableKey) {

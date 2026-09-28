@@ -14,6 +14,7 @@ export interface ExportSnapshot {
   policy_acceptances: Array<Record<string, unknown>>;
   privacy_requests: Array<Record<string, unknown>>;
   data_exports: Array<Record<string, unknown>>;
+  groups: Array<Record<string, unknown>>;
 }
 
 export type ExportBuildTarget =
@@ -52,7 +53,15 @@ function exactKeys(value: Record<string, unknown>, allowed: readonly string[], s
 export function validateExportSnapshot(snapshot: ExportSnapshot): void {
   exactKeys(
     snapshot as unknown as Record<string, unknown>,
-    ['snapshot_at', 'profile', 'auth', 'policy_acceptances', 'privacy_requests', 'data_exports'],
+    [
+      'snapshot_at',
+      'profile',
+      'auth',
+      'policy_acceptances',
+      'privacy_requests',
+      'data_exports',
+      'groups',
+    ],
     'EXPORT',
   );
   exactKeys(
@@ -81,6 +90,24 @@ export function validateExportSnapshot(snapshot: ExportSnapshot): void {
       row,
       ['id', 'status', 'created_at', 'ready_at', 'expires_at', 'downloaded_at', 'purged_at'],
       'DATA_EXPORT',
+    );
+  }
+  // docs/25 §3.4: uma entrada por membership própria. Membros terceiros,
+  // digest, nonce, token e localizador de foto não têm chave aqui.
+  for (const row of snapshot.groups) {
+    exactKeys(
+      row,
+      [
+        'group_id',
+        'group_name',
+        'role',
+        'status',
+        'is_monthly',
+        'joined_at',
+        'removed_at',
+        'removal_count',
+      ],
+      'GROUP',
     );
   }
 }
@@ -207,6 +234,7 @@ export async function buildDataExport(snapshot: ExportSnapshot): Promise<{
     },
     { name: 'auth.json', bytes: json(snapshot.auth) },
     { name: 'data-exports.json', bytes: json(snapshot.data_exports) },
+    { name: 'groups.json', bytes: json(snapshot.groups) },
     { name: 'policy-acceptances.json', bytes: json(snapshot.policy_acceptances) },
     { name: 'privacy-requests.json', bytes: json(snapshot.privacy_requests) },
     { name: 'profile.json', bytes: json(snapshot.profile) },

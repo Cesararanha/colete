@@ -28,6 +28,158 @@ export type Database = {
   };
   public: {
     Tables: {
+      group_invites: {
+        Row: {
+          created_at: string;
+          created_by: string;
+          expires_at: string;
+          group_id: string;
+          id: string;
+          max_uses: number;
+          public_nonce: string;
+          revoked_at: string | null;
+          token_digest: string;
+          token_version: number;
+          used_count: number;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          expires_at: string;
+          group_id: string;
+          id?: string;
+          max_uses?: number;
+          public_nonce: string;
+          revoked_at?: string | null;
+          token_digest: string;
+          token_version?: number;
+          used_count?: number;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          expires_at?: string;
+          group_id?: string;
+          id?: string;
+          max_uses?: number;
+          public_nonce?: string;
+          revoked_at?: string | null;
+          token_digest?: string;
+          token_version?: number;
+          used_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'group_invites_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'group_invites_group_id_fkey';
+            columns: ['group_id'];
+            isOneToOne: false;
+            referencedRelation: 'groups';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      group_members: {
+        Row: {
+          group_id: string;
+          is_monthly: boolean;
+          joined_at: string;
+          last_requested_at: string;
+          profile_id: string;
+          removal_count: number;
+          removed_at: string | null;
+          role: string;
+          status: string;
+        };
+        Insert: {
+          group_id: string;
+          is_monthly?: boolean;
+          joined_at?: string;
+          last_requested_at?: string;
+          profile_id: string;
+          removal_count?: number;
+          removed_at?: string | null;
+          role?: string;
+          status?: string;
+        };
+        Update: {
+          group_id?: string;
+          is_monthly?: boolean;
+          joined_at?: string;
+          last_requested_at?: string;
+          profile_id?: string;
+          removal_count?: number;
+          removed_at?: string | null;
+          role?: string;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'group_members_group_id_fkey';
+            columns: ['group_id'];
+            isOneToOne: false;
+            referencedRelation: 'groups';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'group_members_profile_id_fkey';
+            columns: ['profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      groups: {
+        Row: {
+          archived_at: string | null;
+          created_at: string;
+          id: string;
+          monthly_enabled: boolean;
+          name: string;
+          owner_id: string;
+          photo_url: string | null;
+          ratings_visibility: string;
+          suspended_at: string | null;
+        };
+        Insert: {
+          archived_at?: string | null;
+          created_at?: string;
+          id?: string;
+          monthly_enabled?: boolean;
+          name: string;
+          owner_id: string;
+          photo_url?: string | null;
+          ratings_visibility?: string;
+          suspended_at?: string | null;
+        };
+        Update: {
+          archived_at?: string | null;
+          created_at?: string;
+          id?: string;
+          monthly_enabled?: boolean;
+          name?: string;
+          owner_id?: string;
+          photo_url?: string | null;
+          ratings_visibility?: string;
+          suspended_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'groups_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       policy_acceptances: {
         Row: {
           accepted_at: string;
