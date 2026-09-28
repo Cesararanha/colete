@@ -23,8 +23,15 @@ curta das emendas 2 a 4; ela também altera somente este documento. A sexta
 emenda, de 2026-09-27, aplica a decisão humana M2-D13 do §8, que fixa no §2 o
 modo de lock das travas de domínio e o par cruzado que o prova, a partir do achado
 P1 da revisão do PR #36, e corrige no §3.3 a descrição da prova do guard; por ela,
-altera também `10` §10. Nenhuma das sete cria migration, função, bucket, tela ou
-configuração Supabase.
+altera também `10` §10. A sétima emenda, também de 2026-09-27, aplica a decisão
+humana M2-D14 do §8, que corrige no §2 a nota sobre o M1-B e manda a `0015`
+redefinir as funções que gravam idempotência e travam o perfil do próprio ator;
+ela altera somente este documento. A oitava emenda, também de 2026-09-27, aplica
+a decisão humana M2-D15 do §8, que registra no §8.2, com prazo, as nove travas
+`FOR UPDATE` do M1-B fora da regra da M2-D13, e substitui no §3.3 a descrição da
+prova do guard pelas duas provas que a fatia entrega, a partir da segunda
+revisão do PR #36; ela também altera somente este documento. Nenhuma das nove
+cria migration, função, bucket, tela ou configuração Supabase.
 
 ## 1. Ponto de partida comprovado
 
@@ -182,16 +189,42 @@ bloqueada. A contraprova troca o modo por `FOR UPDATE` e precisa reproduzir o
 Os pares do parágrafo anterior entre duas operações enquadradas, como exclusão ×
 transferência, também rodam na forma cruzada quando a topologia permite.
 
-O código do M1-B conserva `FOR UPDATE` nas funções que travam somente o perfil do
-próprio titular ou são do worker, sem ator de idempotência: `update_profile`
-(`0006`, linha 613), `request_data_export` (`0013`, linha 823),
-`worker_get_data_export_build_target` (`0013`, linha 998) e `finalize_deletion`
-(`0013`, linha 1132, que substituiu o corpo da `0012`, linha 785). Elas passam à
-regra quando alguma migration as reescrever. Nenhuma trava perfil de outra
-pessoa, e a serialização com as funções do M2 continua, porque `FOR UPDATE`
-conflita com `FOR NO KEY UPDATE`. `delete_account` não está nessa lista: a `0015`
-a reescreve e aplica o modo a todas as suas travas de domínio, inclusive às do
-guard.
+**Mesmo ator (M2-D14).** `FOR UPDATE` no perfil do próprio ator também fecha
+ciclo. Duas chamadas concorrentes da mesma pessoa com `request_id` diferentes
+(dois cliques, duas abas) inserem cada uma o próprio registro de idempotência e
+seguram, pela FK, `FOR KEY SHARE` no mesmo perfil. Quando as duas pedem
+`FOR UPDATE` nesse perfil, cada uma espera o `FOR KEY SHARE` da outra: é um
+upgrade que nenhuma consegue completar, e o ciclo termina em `40P01`. A
+serialização que `FOR UPDATE` oferece só existe entre transações que ainda não
+seguram lock na linha; para o mesmo ator, depois da idempotência, ela não existe.
+
+Por isso a `0015` redefine com `FOR NO KEY UPDATE`, além de `delete_account`,
+toda função do M1-B que grava idempotência e depois trava o perfil do próprio
+ator: `update_profile` (`0006`, linha 613) e `request_data_export` (`0013`,
+linha 823). A auditoria pelo banco vivo depois do `db:reset` não encontrou outra:
+`accept_policies`, `complete_profile` e `revoke_current_session` gravam
+idempotência sem travar o perfil. A `0015` também redefine, pela extensão da
+exclusão e do export, `worker_get_deletion_effect_target`,
+`worker_confirm_deletion_effect` e `worker_get_data_export_build_target`, e
+aplica a regra às travas delas; `worker_confirm_deletion_effect` mantém
+`FOR UPDATE` no export porque zera `storage_path`, coluna única. Do M1-B,
+continua em `FOR UPDATE` no perfil somente `finalize_deletion` (`0013`, linha
+1132, que substituiu o corpo da `0012`, linha 785): é do worker, não grava
+idempotência e altera a chave do perfil ao zerar `auth_user_id`, o caso em que a
+regra manda `FOR UPDATE`. As demais travas `FOR UPDATE` do M1-B recaem sobre
+efeitos, exports, pedidos de exclusão e execuções de job, não sobre perfil, e
+passam à regra quando alguma migration as reescrever.
+
+Cada função redefinida pela M2-D14 prova, no harness do seu domínio, o par do
+mesmo ator com `request_id` diferentes pela barreira abaixo, nas duas ordens,
+com a contraprova em `FOR UPDATE` reproduzindo o `40P01`, e uma repetição de 20
+pares sem barreira que reprova com qualquer `40P01`. O resultado exigido é o do
+contrato: em `request_data_export`, um pedido vence e o outro recebe
+`EXPORT_ALREADY_PENDING`; em `update_profile`, as duas chamadas são serializadas
+e as duas mutações sobrevivem. No par do mesmo ator, o detentor segura o perfil
+em `FOR NO KEY UPDATE`, compatível com os dois `FOR KEY SHARE`; como cada
+transação já segura lock na linha, o PostgreSQL não enfileira a segunda atrás da
+primeira, e o detentor esperado da espera de B é o próprio detentor.
 
 **Barreira de concorrência, obrigatória em toda fatia.** Cada par roda em duas
 conexões dedicadas, com `application_name` distinto, nas ordens A→B e B→A. A
@@ -348,20 +381,22 @@ grupos que recebe. Por isso a `0015` muda a função para `volatile`, e a
 contraprova de volatilidade continua: com a função `stable`, a exclusão precisa
 reprovar com `SQLSTATE 0A000`.
 
-A aquisição de grupos do próprio guard não é observável sob concorrência:
-`delete_account` travou os mesmos grupos antes de chamá-lo, e a nova aquisição,
-na mesma transação, não espera. A prova de concorrência observa, portanto, a
-espera pelo lock de grupo que `delete_account` toma: com o grupo seguro pelo
-detentor, a exclusão fica em `wait_event_type='Lock'` pela barreira do §2, com o
-`pid` do detentor em `pg_blocking_pids`. A contraprova retira da transação a
-aquisição desses grupos e precisa reprovar a prova; ela declara o que remove, no
-padrão do §4.3. A aquisição repetida do guard também espera pelo detentor; por
-isso, retirar somente o lock de `delete_account` não reprova a prova: a espera
-observada passa a ser a do guard, com memberships travadas antes de grupos, fora
-da ordem do §2, e a espera sozinha não distingue qual das duas aquisições
-esperou. Retirar somente o lock do guard também não reprova, como a revisão do
-PR #36 mostrou (achado 2). A contraprova retira os dois, e só essa execução
-prova que o harness enxerga o defeito.
+A aquisição de grupos do próprio guard não é observável pelo caminho de `delete_account`:
+`delete_account` travou os mesmos grupos antes de chamá-lo, e a nova aquisição, na mesma
+transação, não espera. Por isso a fatia prova as duas aquisições separadamente, cada uma com a
+contraprova que a reprova e que declara o que remove, no padrão do §4.3:
+
+1. **Lock de grupos de `delete_account`.** Com o grupo seguro pelo detentor, a exclusão fica em
+   `wait_event_type='Lock'` pela barreira do §2, com o `pid` do detentor em `pg_blocking_pids`, e a
+   prova fixa em que passo ela espera: o perfil do titular já está travado e a membership do dono
+   ainda está livre, as duas sondadas com `for no key update skip locked`. A contraprova retira
+   somente a aquisição de grupos de `delete_account`: a espera passa a acontecer dentro do guard,
+   com a membership já travada, e a prova reprova.
+2. **Lock do próprio guard.** O guard é chamado diretamente, em conexão dedicada, sobre um grupo do
+   caso 3, que não faz `UPDATE`, enquanto o detentor segura o grupo; a prova exige a espera pela
+   barreira do §2, com o `pid` do detentor em `pg_blocking_pids`, e depois
+   `FINANCIAL_SUBSTITUTE_REQUIRED`. A contraprova retira somente a aquisição de grupos do guard: a
+   chamada responde sem esperar, e a prova reprova.
 
 `groups.photo_url` representa objeto de Storage e, portanto, nasce já coberto
 pela regra geral: **toda fatia que introduzir um novo objeto de Storage acrescenta
@@ -1069,6 +1104,25 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   o obteve em 18 de 20 disparos simultâneos. `FOR NO KEY UPDATE` não conflita com
   `FOR KEY SHARE` e continua conflitando consigo mesmo, com `FOR UPDATE` e com
   `UPDATE`, então a serialização se mantém.
+- **M2-D14 (decidida em 2026-09-27).** A `0015` redefine também, com
+  `FOR NO KEY UPDATE`, toda função do M1-B que grava idempotência e depois trava
+  com `FOR UPDATE` o perfil do próprio ator: `update_profile` (`0006`, linha 613)
+  e `request_data_export` (`0013`, linha 823), as duas únicas que a auditoria
+  pelo banco vivo encontrou. Razão: duas chamadas concorrentes da mesma pessoa
+  seguram cada uma o `FOR KEY SHARE` da FK da idempotência e pedem `FOR UPDATE`
+  no mesmo perfil, deadlock por upgrade. A nota da M2-D13 sobre o M1-B, segundo
+  a qual a serialização continuava, era falsa para o mesmo ator e foi reescrita
+  no §2. Medido antes da correção, em três execuções de 20 pares simultâneos do
+  mesmo ator: 8, 12 e 9 pares com `40P01` em `request_data_export` e 20 nas três
+  em `update_profile`.
+- **M2-D15 (decidida em 2026-09-27).** As nove travas `FOR UPDATE` do M1-B que a
+  segunda revisão independente do PR #36 encontrou fora da regra da M2-D13, em
+  funções que a `0015` não redefine, não são corrigidas na `0015`. Ficam
+  registradas no §8.2 com prazo: uma migration própria as alinha à M2-D13 antes
+  de o M2 fechar. Nenhuma recai sobre tabela referenciada por chave estrangeira:
+  nenhuma FK aponta para `deletion_requests`, `data_exports`, `external_effects`
+  ou `job_runs`, então o deadlock por upgrade que a M2-D13 corrige, causado pelo
+  `FOR KEY SHARE` que a verificação de FK toma, não se aplica a elas.
 
 ### 8.2 Gates humanos
 
@@ -1134,6 +1188,21 @@ Decisões de escopo do plano, sem gate humano:
 - **Retenção de `17` §2:** `purge_removed_memberships` (12 meses) entra na
   `0016` e o expurgo de convite em revogação ou expiração + 30 dias entra na
   `0017`, cada um com prova. O agendamento segue o estado dos demais jobs.
+
+Pendência registrada, com prazo:
+
+- **Travas do M1-B fora da M2-D13 (M2-D15, §8.1).** Prazo: uma migration própria,
+  antes de fechar o M2, as alinha à M2-D13. São nove, citadas pela função e pela
+  linha no `pg_get_functiondef` vivo depois da `0015`, como a segunda revisão do
+  PR #36 as listou: `private.reconcile_deletion_request`, linha 13
+  (`deletion_requests`); `public.consume_data_export`, linha 21 (`data_exports`);
+  `public.enqueue_data_export_purge`, linha 9 (`data_exports`);
+  `public.finalize_deletion`, linha 19 (`deletion_requests`);
+  `public.worker_acquire_external_effect`, linha 67 (`external_effects`,
+  `FOR UPDATE SKIP LOCKED`); `public.worker_complete_external_effect`, linha 26
+  (`external_effects`); `public.worker_execute_database_job`, linha 10
+  (`job_runs`); `public.worker_finish_job`, linha 24 (`job_runs`); e
+  `public.worker_publish_data_export`, linha 9 (`external_effects`).
 
 Continuam indefinidos, e cada um precisa de resposta antes da fatia que o
 implementa, sem que o implementador escolha:

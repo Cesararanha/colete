@@ -40,6 +40,8 @@ select is(
 -- docs/14-convencoes-app.md section 5.2: public + enable/force + policy is for
 -- tables with an authorised direct reader. Those four keep exactly what they
 -- had, and no private table has RLS any more.
+-- A 0015 acrescenta groups, group_members e group_invites: nascem em public
+-- com RLS forçada porque têm leitor direto autorizado (docs/25 §3.2).
 
 select set_eq(
   $$select n.nspname || '.' || c.relname
@@ -51,7 +53,10 @@ select set_eq(
   $$select * from (values
       ('public.profiles'::text),
       ('public.policy_acceptances'),
-      ('public.privacy_requests')) as still_protected(name)$$,
+      ('public.privacy_requests'),
+      ('public.groups'),
+      ('public.group_members'),
+      ('public.group_invites')) as still_protected(name)$$,
   'RLS covers exactly the public tables that still have an authorised direct reader'
 );
 select is(

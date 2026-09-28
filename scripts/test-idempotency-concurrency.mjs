@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 import pg from 'pg';
 
+import {
+  countMarkedAuthUsers,
+  harnessEmail,
+  installHarnessGuard,
+  sweepMarkedAuthUsers,
+} from './harness-guard.mjs';
+import { outcomeOf, sameActorPair, track } from './lock-barrier.mjs';
+
 const { Client } = pg;
 const workerCount = 25;
 const actorKey = 'system:concurrency_test';
@@ -19,6 +27,16 @@ const supabaseBinary = path.join(
   '.bin',
   process.platform === 'win32' ? 'supabase.cmd' : 'supabase',
 );
+// Marca dos usuários Auth deste harness (scripts/harness-guard.mjs).
+const AUTH_EMAIL_PREFIX = 'idempotency-harness-';
+
+// Toda falha, inclusive a rejeição sem tratador, reprova com a causa, para o
+// trabalho novo, espera o que está em voo e só então limpa
+// (scripts/harness-guard.mjs). Toda conexão leva o prefixo colete_idempotency_.
+const guard = installHarnessGuard('db:test:idempotency', {
+  applicationPrefix: 'colete_idempotency_',
+  authEmailPrefix: AUTH_EMAIL_PREFIX,
+});
 
 function localDatabaseUrl() {
   if (process.env.COLETE_TEST_DATABASE_URL) {
@@ -49,7 +67,7 @@ function localDatabaseUrl() {
 
 function newClient(connectionString) {
   return new Client({
-    application_name: 'colete_idempotency_concurrency_test',
+    application_name: 'colete_idempotency_worker',
     connectionString,
     connectionTimeoutMillis: 5_000,
   });
@@ -314,11 +332,163 @@ async function testConnectionLoss(workers, connectionString) {
   workers[0] = replacement;
 }
 
+// M2-D14: update_profile do mesmo ator, com request_id diferentes. O ator
+// nasce por SQL: a prova é da RPC interna, e o Auth só precisa existir para a
+// FK de profiles. O catálogo de políticas vazio não deixa versão pendente.
+const SAME_ACTOR_STORM = 20;
+const sameActor = {
+  profile: '13e00000-0000-4000-8000-000000000001',
+  auth: '13e10000-0000-4000-8000-000000000001',
+  session: '13e20000-0000-4000-8000-000000000001',
+};
+const requestFor = (pair, side) =>
+  `13e3${side}000-0000-4000-8000-${pair.toString(16).padStart(12, '0')}`;
+
+async function updateProfileTx(client, requestId, patch) {
+  await client.query('begin isolation level read committed');
+  try {
+    await client.query('set local role service_role');
+    const result = await client.query(
+      'select public.update_profile($1, $2, $3, $4, 1, 1, $5) as response',
+      [sameActor.auth, sameActor.session, requestId, 'c'.repeat(64), patch],
+    );
+    await client.query('commit');
+    return result.rows[0].response;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  }
+}
+
+// Remove a fixture do mesmo ator e os usuários com a marca do harness. Roda
+// no início e na limpeza final do guard, depois de o trabalho em voo
+// assentar; nunca toca usuário sem a marca.
+async function cleanupSameActor(client) {
+  await client.query('delete from private.idempotency_records where actor_id = $1', [
+    sameActor.profile,
+  ]);
+  await client.query('delete from public.profiles where id = $1', [sameActor.profile]);
+  await client.query('delete from auth.users where id = $1', [sameActor.auth]);
+  await sweepMarkedAuthUsers(client, AUTH_EMAIL_PREFIX);
+}
+
+async function assertNoSameActorResidue(client) {
+  const residue = await client.query(
+    `select (select count(*)::integer from public.profiles where id = $1)
+          + (select count(*)::integer from auth.users where id = $2)
+          + (select count(*)::integer from private.idempotency_records where actor_id = $1)
+            as count`,
+    [sameActor.profile, sameActor.auth],
+  );
+  assert.equal(residue.rows[0].count, 0, 'the same-actor fixture left residue');
+  assert.equal(
+    await countMarkedAuthUsers(client, AUTH_EMAIL_PREFIX),
+    0,
+    'a marked Auth user of this harness survived the cleanup',
+  );
+}
+
+// update_profile grava a idempotência, que toma FOR KEY SHARE no perfil do
+// ator pela FK actor_id, e depois trava o mesmo perfil. Com FOR UPDATE, duas
+// chamadas do mesmo ator esperam uma pelo FOR KEY SHARE da outra: deadlock por
+// upgrade. Com FOR NO KEY UPDATE, as duas são serializadas e as duas mutações
+// sobrevivem: cada patch toca um campo diferente, e o perfil final tem os dois.
+async function proveSameActorUpdateProfile(connectionString) {
+  const admin = newClient(connectionString);
+  const applicationPrefix = 'colete_idempotency_lock_';
+  const clients = Object.fromEntries(
+    ['observer', 'holder', 'first', 'second'].map((role) => [
+      role,
+      new Client({
+        application_name: `${applicationPrefix}${role}`,
+        connectionString,
+        connectionTimeoutMillis: 5_000,
+      }),
+    ]),
+  );
+  await Promise.all([admin, ...Object.values(clients)].map((client) => client.connect()));
+  try {
+    await cleanupSameActor(admin);
+    await admin.query(
+      `insert into auth.users (id, instance_id, aud, role, email)
+       values ($1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', $2)`,
+      [sameActor.auth, harnessEmail(AUTH_EMAIL_PREFIX, 'profile-lock')],
+    );
+    await admin.query(
+      `insert into public.profiles (id, auth_user_id, name) values ($1, $2, 'Perfil concorrente')`,
+      [sameActor.profile, sameActor.auth],
+    );
+    const profileFields = async () =>
+      (
+        await admin.query('select nickname, shirt_number from public.profiles where id = $1', [
+          sameActor.profile,
+        ])
+      ).rows[0];
+
+    const { observer, holder, first, second } = clients;
+    for (const [pair, label, a, b] of [
+      [1, 'same-actor update_profile order 1', first, second],
+      [2, 'same-actor update_profile order 2', second, first],
+    ]) {
+      const results = await sameActorPair(
+        { observer, holder, first: a, second: b, applicationPrefix },
+        {
+          label,
+          profileId: sameActor.profile,
+          runFirst: (connection) =>
+            updateProfileTx(connection, requestFor(pair, 'a'), { nickname: `Ordem ${pair}` }),
+          runSecond: (connection) =>
+            updateProfileTx(connection, requestFor(pair, 'b'), { shirt_number: pair }),
+        },
+      );
+      assert.deepEqual(results.map(outcomeOf), ['ok', 'ok'], `${label}: both must commit`);
+      assert.deepEqual(await profileFields(), { nickname: `Ordem ${pair}`, shirt_number: pair });
+    }
+    console.log(
+      'ok - same-actor update_profile pair: waits observed in both orders, no 40P01; both serialized, no lost update',
+    );
+
+    const outcomes = [];
+    for (let pair = 3; pair < SAME_ACTOR_STORM + 3; pair += 1) {
+      const a = track(
+        updateProfileTx(first, requestFor(pair, 'a'), { nickname: `Disparo ${pair}` }),
+      );
+      const b = track(updateProfileTx(second, requestFor(pair, 'b'), { shirt_number: pair }));
+      const results = await Promise.all([a.settled, b.settled]);
+      outcomes.push({ pair, results, fields: await profileFields() });
+    }
+    const deadlocks = outcomes.filter(({ results }) =>
+      results.some((result) => outcomeOf(result) === '40P01'),
+    ).length;
+    console.log(
+      `same-actor update_profile storm without barrier: ${SAME_ACTOR_STORM} pairs, pairs with 40P01=${deadlocks}`,
+    );
+    assert.equal(
+      deadlocks,
+      0,
+      `same-actor update_profile storm: ${deadlocks} of ${SAME_ACTOR_STORM} pairs hit 40P01`,
+    );
+    for (const { pair, results, fields } of outcomes) {
+      assert.deepEqual(results.map(outcomeOf), ['ok', 'ok'], `storm pair ${pair}`);
+      assert.deepEqual(fields, { nickname: `Disparo ${pair}`, shirt_number: pair });
+    }
+    console.log(
+      `ok - same-actor update_profile storm: ${SAME_ACTOR_STORM} simultaneous pairs, zero 40P01, both mutations kept`,
+    );
+  } finally {
+    // Só fecha conexões. A fixture sai na limpeza final do guard, depois de o
+    // trabalho em voo assentar, e o resíduo é afirmado no censo.
+    await Promise.allSettled([admin, ...Object.values(clients)].map((client) => client.end()));
+  }
+}
+
 async function prepare(connectionString) {
   const client = newClient(connectionString);
   await client.connect();
   try {
     await client.query('delete from private.idempotency_records where actor_key = $1', [actorKey]);
+    // Varredura inicial: o que uma execução interrompida tenha deixado.
+    await cleanupSameActor(client);
     await client.query('drop schema if exists idempotency_concurrency_test cascade');
     await client.query('create schema idempotency_concurrency_test');
     await client.query(`
@@ -334,27 +504,23 @@ async function prepare(connectionString) {
   }
 }
 
-async function cleanup(connectionString, workers) {
-  await Promise.allSettled(workers.map((client) => client.end()));
-
-  const client = newClient(connectionString);
-  await client.connect();
-  try {
-    await client.query('delete from private.idempotency_records where actor_key = $1', [actorKey]);
-    await client.query('drop schema if exists idempotency_concurrency_test cascade');
-  } finally {
-    await client.end();
-  }
+async function cleanup(client) {
+  await client.query('delete from private.idempotency_records where actor_key = $1', [actorKey]);
+  await client.query('drop schema if exists idempotency_concurrency_test cascade');
+  await cleanupSameActor(client);
 }
 
 async function main() {
   const connectionString = localDatabaseUrl();
   const workers = [];
-  let prepared = false;
+  // A limpeza e o censo rodam pelo guard, numa conexão própria, depois de o
+  // corpo terminar ou de o trabalho em voo assentar.
+  guard.useDatabase(connectionString);
+  guard.onCleanup(cleanup);
+  guard.onCensus(assertNoSameActorResidue);
 
   try {
     await prepare(connectionString);
-    prepared = true;
 
     for (let index = 0; index < workerCount; index += 1) {
       const client = newClient(connectionString);
@@ -389,14 +555,12 @@ async function main() {
     console.log('ok - an in-flight winner is never taken over after 3000ms');
     await testConnectionLoss(workers, connectionString);
     console.log('ok - connection loss rolls back and a retry executes exactly once');
-    console.log('Idempotency concurrency harness passed with 25 independent connections.');
+    await proveSameActorUpdateProfile(connectionString);
   } finally {
-    if (prepared) {
-      await cleanup(connectionString, workers);
-    } else {
-      await Promise.allSettled(workers.map((client) => client.end()));
-    }
+    await Promise.allSettled(workers.map((client) => client.end()));
   }
 }
 
-await main();
+if (await guard.run(main)) {
+  console.log('Idempotency concurrency harness passed with 25 independent connections.');
+}

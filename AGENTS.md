@@ -19,6 +19,8 @@ Depois leia, nesta ordem:
 - `docs/16-roadmap.md` §3 — o mapa fatia→migration. É a fila de trabalho.
 - `docs/25-plano-m2.md` — o plano normativo do M2: fatias, ordem de locks,
   critérios de saída, decisões M2-D* e gates humanos.
+- `docs/26-operacao-m2.md` — o que cada fatia do M2 entregou de fato, com os
+  números medidos e as contraprovas.
 - `docs/23-operacao-m1-b.md` — o que o M1-B entregou de fato, com os defeitos
   achados depois de cada fatia.
 - `docs/22-plano-m1-b.md` — o plano normativo do M1-B, base da saga de exclusão,
@@ -75,9 +77,9 @@ uma conversa anterior.
   normativos `docs/01` a `docs/18`, os planos normativos `docs/22` e `docs/25`,
   `docs/99-prompt-review.md` e `docs/99-prompt-review-externo.md`.
 - **Ficam de fora, por decisão registrada:** os documentos operacionais
-  `docs/19`, `docs/20`, `docs/21` e `docs/23`, porque são registro do que
-  aconteceu, não contrato congelado, e `docs/24`, registro de entrega acadêmica
-  que vive fora de `main`.
+  `docs/19`, `docs/20`, `docs/21`, `docs/23` e `docs/26`, porque são registro
+  do que aconteceu, não contrato congelado, e `docs/24`, registro de entrega
+  acadêmica que vive fora de `main`.
 
 Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
 `npm run scan:docs` é o teste disso e precisa passar.
@@ -121,6 +123,7 @@ npm run db:test:gateway
 npm run db:test:worker
 npm run db:test:deletion
 npm run db:test:export
+npm run db:test:groups
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
 npm run build:web:smoke && npm run test:smoke:web
 npm run verify:app
