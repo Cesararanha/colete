@@ -4,6 +4,9 @@
 passar nesta lista.** Não é etapa final — é parte da definição de pronto de cada marco
 (`16-roadmap.md`, M0–M8).
 
+Emendas documentais de 28–29/09/2026 (M2-D23/M2-D27/M2-D37/M2-D40): código humano e espera por
+quota seguem os critérios abaixo; confirmação de arquivamento por RPC é pós-piloto; a evidência manual continua no gate 12 de `25`.
+
 ## 1. Checklist por tela (o critério de aceite)
 
 ### Visual
@@ -51,6 +54,10 @@ passar nesta lista.** Não é etapa final — é parte da definição de pronto 
 - [ ] OTP aceita colar o código inteiro; reenviar informa o horário, não depende só de
       uma animação regressiva
 
+- [ ] Quota de convite anuncia o erro e o instante absoluto de liberação calculado
+      pelo servidor (`13` §8), sem depender só de cronômetro nem revelar o contador;
+      indisponibilidade orienta nova tentativa sem prometer prazo inventado
+
 ### Cognição, atenção e prevenção de erro
 - [ ] Uma ação principal por estado; texto pós-T1 diz **"reserve antes de pagar"**, sem
       linguagem ambígua como "quem pagar primeiro"
@@ -92,6 +99,21 @@ passar nesta lista.** Não é etapa final — é parte da definição de pronto 
 | No fim de cada marco | Passada manual no alvo disponível: leitor de tela + teclado no PWA; VoiceOver/TalkBack nos builds nativos quando eles entrarem no roadmap |
 | No M8 (polish) | Auditoria completa: axe DevTools no alvo web, zoom 400% com reflow, revisão da lista inteira tela a tela |
 | No beta | Perguntar ao grupo, de verdade, se alguém precisa de ajuste (tamanho de fonte, movimento, notificação) — acessibilidade também se pesquisa |
+
+Na UI-A, a passada manual também verifica leitura e cópia dos 10 símbolos
+do alfabeto `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, agrupados `XXXXX-XXXXX`, e
+a digitação com maiúsculas/minúsculas, espaço e hífen normalizados (M2-D23).
+O teste registra o alfabeto efetivo, leitor/plataforma, ação e resultado no
+formato de evidência que o gate 12 de `25` ainda exige aprovar; axe não encerra
+esse gate nem prova legibilidade do código.
+
+Na etapa pós-piloto, a tela 25 exige confirmação acessível antes de `archive_group`: título e
+texto anunciam que o grupo ficará somente leitura, que pedidos pendentes
+serão removidos sem punição, que ativos conservarão leitura histórica e que
+convites deixarão de valer pelo estado do grupo. A ação destrutiva tem nome
+inequívoco, foco inicial e retorno de foco previsíveis; cancelar não altera
+estado. A UI só confirma sucesso depois do commit (M2-D37/M2-D40).
+O controle não aparece na UI-B de piloto.
 
 ## 4. Fora do escopo v1 (explícito, não esquecido)
 

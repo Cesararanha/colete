@@ -8,6 +8,9 @@ no histórico do projeto). Fonte das regras: `01-requisitos.md` · `10-schema-db
 
 ---
 
+Emendas documentais de 28–29/09/2026: M2-D22 a M2-D42 em convites e nome; arquivamento por RPC
+é pós-piloto. Contratos em `13` §5.0; controles aguardam RPC publicada.
+
 ## 0. Regras globais (valem para toda tela — não se repetem abaixo)
 
 **Estados assíncronos obrigatórios:** toda tela tem *carregando* (esqueleto, nunca spinner
@@ -198,7 +201,16 @@ Dois estados que não se confundem:
   só neste racha" → autenticação, se necessária → confirmação → consumo atômico e detalhe
   do racha; não cria membership nem entra em espera.
 
-Erros: código inválido · convite revogado/expirado/já usado · racha sem vaga/cancelado.
+No convite de grupo, preview autenticado mostra só o nome, sem uso ou pedido;
+código inexistente retorna `CODE_INVALID`; convite existente revogado,
+expirado ou esgotado retorna o erro específico (M2-D42). Quota retorna 429 com
+horário absoluto, qualquer que seja o código; falha do contador tem erro próprio
+de indisponibilidade. Resgate novo de `active` no próprio grupo mostra seu estado
+sem pedido/uso; `pending` repetido continua aguardando, sem uso nem mudança da
+data do pedido. Código normaliza maiúsculas, espaço e hífen (`13` §5.0).
+Os erros próprios de convite terminal, grupo arquivado/suspenso, cheio e
+cota pessoal aparecem no preview e no resgate conforme `13` §5.0.2/§5.0.3. O fluxo avulso continua
+com seus erros de racha sem vaga/cancelado.
 O token não entra em analytics, Sentry, título da página nem storage persistente do app.
 
 ### 13 · Perfil — meus dados
@@ -345,12 +357,35 @@ uma contagem de até 30 min; antes de
 T1, mostra o prazo geral. É a única autorização de autoatendimento que pode sobreviver a
 T2; convite vencido, revogado, consumido, times atuais publicados ou racha cheio não revela Pix.
 
+No M2, `0017` publica o convite de grupo: validade de 30 dias, código humano
+v1 de 10 símbolos/50 bits em `XXXXX-XXXXX`, sem guardar material no cliente.
+Regenerar convite vivo invalida código/link anterior, conservando versão,
+prazo e contagem; revogar encerra aquele material. Convite terminal oferece emissão de outra linha/ID, sempre com 100 usos e
+30 dias; um grupo tem só um convite vivo, e tentativa de emitir com outro vivo
+recebe `INVITE_ALREADY_ACTIVE` (409). Retenção da ocasião anterior permanece.
+`get_invite_share_link` entrega link e código/formato sob a mesma autoridade:
+dono ou organizador ativo (M2-D4/M2-D31).
+
 ### 25 · Configurações do grupo
 Nome/foto · **mensalista habilitado?** (toggle — desligado por padrão; ao ligar, explica
 janela e pagamento presumido) · **visibilidade das notas** (privadas, padrão; ou visíveis
 aos membros ativos — nunca públicas na internet; só o dono altera, e tornar visíveis exige confirmação com
 explicação) · **transferir titularidade** (só o dono; escolhe membro, dupla confirmação) ·
-**arquivar grupo** (só o dono).
+**arquivar grupo** (só o dono, controle pós-piloto).
+
+No M2, a `0018` publica **somente renomear**; foto e controle de
+`archive_group` ficam fora (M2-D40).
+Dono ou organizador ativo pode renomear, com a mesma validação da criação
+(M2-D36). Nome confirmado pelo servidor é relido nas projeções, não vai para
+outcome. No pós-piloto, somente o dono poderá arquivar por RPC, depois de
+confirmação acessível: o grupo
+fica somente leitura; pendentes viram `removed` sem incremento de
+`removal_count`; ativos continuam históricos e leem o grupo marcado como
+arquivado. Convites deixam de valer pelo estado do grupo, sem revogação das
+linhas. Não há desarquivar nessa futura RPC. Grupo suspenso recusa
+arquivamento; request novo já arquivado devolve `GROUP_ARCHIVED` (410).
+O arquivamento existente por exclusão de conta e as recusas existentes
+continuam iguais no piloto (M2-D9/M2-D40).
 
 ---
 
@@ -424,3 +459,6 @@ decidíveis só para resolver pagamento/estorno → recorrência **continua** (D
 A tela 5 (Rachas — vazio) saiu do M2 para o M3 por decisão humana M2-D1, de 2026-09-25,
 registrada em `25-plano-m2.md` §8: o domínio de rachas não existe no M2, e `16-roadmap.md`
 §5 (“Fronteira da área autenticada no M1-A”) põe Rachas no M3.
+
+A UI-A (10, 11, 12, 16 e 24) depende da `0017`; a UI-B (17 e 25) usa
+também renomear da `0018`; arquivar por RPC é pós-piloto. Nenhuma tela antecipa operação ainda não publicada. A foto do grupo continua fora do M2 (M2-D24).

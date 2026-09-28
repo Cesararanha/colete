@@ -5,6 +5,10 @@ Este mapa rege tanto as fatias `0001`–`0003` já implementadas quanto as próx
 Ele não é parecer jurídico: as bases legais abaixo são **hipóteses candidatas a validar com
 profissional qualificado antes do beta público**.
 
+Emendas documentais de 28–30/09/2026: M2-D25/M2-D33 classificam tentativas,
+derivado de IP e agregado sem IP **pós-piloto** (M2-D39); M2-D22/M2-D24/M2-D32/M2-D35 esclarecem
+ocasiões, digests e retenção de convite.
+
 Fontes relacionadas: `01-requisitos.md` · `10-schema-db.md` ·
 `13-contratos-funcoes.md` · `14-convencoes-app.md`.
 
@@ -28,7 +32,8 @@ Fontes relacionadas: `01-requisitos.md` · `10-schema-db.md` ·
 |---|---|---|---|---|---|
 | **Auth, sessões revogadas e saga de exclusão:** identificador do provedor, e-mail verificado, credencial gerida, `session_id`, pedido/status/tentativa/erro normalizado | Autenticar, revogar autoridade imediatamente e concluir exclusão externa; execução de contrato, segurança e exercício de direitos, a validar | Papel do Colete a validar / Supabase Auth | Titular vê status mínimo; worker restrito vê Auth ID. `deletion_pending` nega domínio mesmo com JWT antigo | Auth até exclusão. Session denylist até o `expires_at` calculado pela vida máxima da sessão; saga identificável até conclusão + 90 dias operacionais | Worker limpa ownership, apaga Auth e finaliza desidentificação com retry. Redigir Auth ID/erros ao concluir; não exportar credencial |
 | **Perfil:** `id`, nome, apelido, foto, posição, pé, camisa, status | Identificar participantes e operar o racha; execução de contrato, a validar | Grupo e Colete, papéis a validar / Supabase e hospedagem | Membros dos grupos conforme RLS; banco e bucket controlado | Enquanto conta ativa; na exclusão, desidentificação imediata; foto removida | `auth_user_id=null`, nome aleatório não reversível, demais atributos pessoais `null`; `id` técnico permanece sem tabela reversa |
-| **Grupos, memberships e convites:** nome/foto do grupo, papel, estado, mensalista, digests, uso | Administrar acesso e capacidade; execução de contrato e segurança, a validar | Dono do grupo / Colete e Supabase | Membros ou funções autorizadas; digests nunca retornam | Membership ativa; removida por 12 meses. Convite até revogação/expiração + 30 dias | Apagar convite/digest e links de membro removido após prazo; manter contagens agregadas sem perfil |
+| **Grupos, memberships e convites:** nome/foto do grupo, papel, estado, mensalista, nonce público, versão, `token_digest`/`code_digest`, criação, validade, revogação e uso | Administrar acesso e capacidade; execução de contrato e segurança, a validar | Dono do grupo / Colete e Supabase | Membros ou funções autorizadas; digests nunca retornam | Membership ativa; removida por 12 meses. Convite válido por criação + 30 dias; retenção até revogação/expiração + 30 dias. Regeneração/rotação não renovam prazo; emissão terminal preserva a ocasião anterior | Apagar convite/digest e links de membro removido após prazo; manter contagens agregadas sem perfil |
+| **Limitador de convites (piloto):** perfil interno, `attempt_id`, instante e classe de resultado (`failure|success`) de cada tentativa de preview ou resgate | Barreira fechada por perfil (20/h), todas as tentativas, janela deslizante de 1 h; consulta manual da taxa global de falhas com contagens sem PII; alarme automático pós-piloto | Colete / Supabase; sem fornecedor novo | Tabela privada da `0017`, sem RLS nem DML direto; só RPC nominal. Perfil é dado pessoal pseudonimizado; nenhum IP, código ou token é armazenado | Elegível ao expurgo em tentativa + 1 h; apagamento até 1 h + um intervalo do job de minuto | Remover histórico/vínculo no prazo; sem export, cache, idempotência ou logs de sujeito; o job de expurgo registra só contagens/duração. Backup exclui a tabela; depois de restore no piloto, o orçamento começa zerado. Evidência só por contagens/duração; sem legal hold |
 | **Rachas e participação:** agenda, local, capacidades, estado, perfil participante, lista, timestamps | Formar a lista e provar operações; execução de contrato, a validar | Grupo / Colete e Supabase | Grupo; banco | Racha por 24 meses após terminal; composição publicada pode permanecer sem nota/identidade apagada | Apagar convites, claims e detalhes transitórios; desidentificar vínculo quando o perfil for excluído; manter fatos financeiros conforme linha própria |
 | **Convidado avulso:** nome de exibição, vínculo temporário, quem adicionou | Permitir exceção auditada à lista; execução de contrato, a validar | Grupo / Colete e Supabase | Participantes daquele racha | Até 12 meses após o racha terminal | Substituir nome por rótulo aleatório e remover vínculo reversível; composição pode permanecer desidentificada |
 | **Pix de racha/série:** `match_payment_secrets`/`recurrence_payment_secrets`, estado, tipo, cifra, last4, recebedor, versão, `purged_at` | Exibir instrução e materializar ocorrências futuras; execução de contrato, a validar | Organizador / Colete e Supabase | Somente participante com relação ativa e função autorizada; banco cifrado; JSON nunca guarda Pix | Racha: ciclos fechados + 90 dias. Série: enquanto ativa; após desligar e último ciclo fechar + 90 dias | Estado `purged`, anula cifra/nome/cidade e marca data; racha/série continuam íntegros. Last4/tipo apenas no ledger mínimo. Contestação não reabre segredo |
@@ -94,12 +99,26 @@ vetor — são proibidos até atualização explícita deste mapa.
 6. `expire_data_exports`, `purge_removed_memberships`, `purge_ratings` e
    `deidentify_audits` aplicam as linhas acima. Disputa de nota faz anti-join pelo
    `rating_history_id` exato, nunca pelo grupo inteiro.
-7. Cada execução grava somente nome da política, janela, contagens, falhas e duração em
+7. O expurgo do limitador de convites (`0017`, M2-D25/M2-D39) torna cada
+   registro elegível em tentativa + 1 h e o apaga até, no máximo, um intervalo
+   do job depois disso (1 h + 1 min desde a tentativa), sem conservar sujeito
+   em evidência. O job `purge_invite_rate_limits` executa em slot de minuto,
+   remove linhas com `attempted_at <= now() - interval '1 hour'` inclusive de
+   perfis sem nova tentativa e registra somente contagens/duração. Prova com
+   tempo controlado observa a linha antes de 1 h, elegível em 1 h e ausente
+   até 1 h + 1 min, mesmo sem tráfego; atraso além do intervalo é falha
+   operacional. A varredura diária geral não atende o prazo.
+8. Cada execução grava somente nome da política, janela, contagens, falhas e duração em
    `retention_runs`; um alarme dispara quando o item mais atrasado excede 24 h.
 
 `legal_holds` não é uma flag genérica. Exige categoria, registro, caso/disputa, motivo,
 autoridade, início e expiração. Não pode selecionar binário/fingerprint de comprovante,
 sessão de Auth, token ou push. A expiração reentra automaticamente na fila de expurgo.
+
+A classificação e a retenção de derivados de IP versionados e do agregado sem IP,
+incluindo chave somente na Edge, ausência de IP bruto em persistência/log,
+elegibilidade ao expurgo em tentativa + 1 h com tolerância máxima de um intervalo do job, exclusão do backup/export e procedimento fino de restauração do orçamento, depois do piloto, tornam-se obrigatórias **antes da abertura pública**, conforme
+`25` §8.2. Nenhum desses registros é criado pela `0017` de piloto.
 
 ## 5. Backup, restauração e exclusão
 
@@ -110,6 +129,11 @@ sessão de Auth, token ou push. A expiração reentra automaticamente na fila de
   entram. RPO documental de prova é 24 h; perda dentro da janela marca
   `evidence_unavailable` e exige confirmação posterior. Esse RPO/RTO precisa de aceite formal
   antes do beta.
+- O limitador de convites fica fora do backup geral: dump de 30 dias não pode
+  prolongar sua retenção de 1 h. No piloto, depois de restore os contadores
+  começam zerados e não há regra especial de fechamento de preview/resgate.
+  O procedimento fino de restauração do orçamento válido é pós-piloto
+  (`25` §8.2); isso não autoriza guardar contadores no backup geral.
 - Cada backup tem manifesto de tabelas, buckets, objetos, checksums, versão de schema,
   data e exclusões. Chave de criptografia fica fora do snapshot.
 - Pedidos de exclusão posteriores ao snapshot entram num manifesto cumulativo. Antes de
