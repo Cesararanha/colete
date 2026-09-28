@@ -17,7 +17,9 @@
 //     e a varredura de Auth nunca apaga usuário que ainda tem perfil: a ação
 //     ON DELETE SET NULL de profiles.auth_user_id deixaria um perfil active,
 //     suspended ou banned sem auth_user_id, o que profiles_lifecycle_check
-//     recusa. O perfil sai antes, pela limpeza do harness;
+//     recusa. O perfil sai antes, pela limpeza do harness. Nenhuma falha da
+//     limpeza, da varredura ou do encerramento de conexão do guard é
+//     descartada: cada uma sai depois da causa, e o código continua 1;
 // (e) o censo roda depois da limpeza e é relatado à parte, sem substituir a
 //     causa;
 // (f) o processo sai com código 1.
@@ -126,14 +128,27 @@ export function installHarnessGuard(
     refused += 1;
     return Promise.reject(new HarnessAbortedError(name));
   };
+  // Devolve a promessa derivada, nunca a original. Um tratador anexado à
+  // promessa que o harness recebe a tiraria do alcance de unhandledRejection:
+  // uma query ou um fetch sem await que falha passaria em silêncio, com saída
+  // 0. A derivada libera o contador e repassa o valor ou o erro; sem await,
+  // a rejeição dela chega ao tratador do passo (a).
   const counted = (kind, result) => {
     if (typeof result?.then !== 'function' || internal()) return result;
     inFlight[kind] += 1;
     const release = () => {
       inFlight[kind] -= 1;
     };
-    result.then(release, release);
-    return result;
+    return result.then(
+      (value) => {
+        release();
+        return value;
+      },
+      (error) => {
+        release();
+        throw error;
+      },
+    );
   };
 
   // (a) A primeira falha é a causa; as seguintes aparecem depois dela.
@@ -200,6 +215,34 @@ export function installHarnessGuard(
 
   process.on('unhandledRejection', (reason) => fail('unhandled promise rejection:', reason));
 
+  // Falhas do próprio guard depois do corpo: limpeza do harness, varredura de
+  // Auth e encerramento das conexões do guard. Nenhuma é descartada: todas são
+  // relatadas, na ordem em que ocorreram, depois da causa, e o código de saída
+  // continua 1.
+  const guardFailures = [];
+  const recordGuardFailure = (label, error) => {
+    guardFailures.push({ label, error });
+  };
+  // AggregateError, que a limpeza de um harness pode lançar para não trocar
+  // um erro por outro, é relatado erro a erro.
+  const flatten = (error) =>
+    error instanceof AggregateError ? error.errors.flatMap(flatten) : [error];
+  const reportGuardFailures = (stage) => {
+    const pending = guardFailures.splice(0);
+    for (const { label, error } of pending) {
+      for (const single of flatten(error)) {
+        process.exitCode = 1;
+        if (cause === undefined) {
+          cause = single;
+          console.error(`not ok - ${name}: ${stage} failed, ${label}:`, single);
+        } else {
+          console.error(`# ${name}: ${stage} also failed after the cause, ${label}:`, single);
+        }
+      }
+    }
+    return pending.length > 0;
+  };
+
   const withGuardClient = (work) =>
     guardContext.run(true, async () => {
       const client = new Client({
@@ -212,7 +255,11 @@ export function installHarnessGuard(
       try {
         return await work(client);
       } finally {
-        await client.end().catch(() => {});
+        try {
+          await client.end();
+        } catch (error) {
+          recordGuardFailure('closing the guard connection', error);
+        }
       }
     });
 
@@ -312,31 +359,25 @@ export function installHarnessGuard(
         if (cause === undefined) fail('the harness never declared its database', undefined);
         console.error(`# ${name}: no database declared; cleanup and census skipped`);
       } else {
-        // (d) Limpeza do harness, depois a varredura de Auth pela marca.
-        let cleanupError;
+        // (d) Limpeza do harness, depois a varredura de Auth pela marca. Cada
+        // falha é guardada com o passo em que ocorreu; nenhuma substitui outra.
         await withGuardClient(async (client) => {
           try {
             await cleanup(client);
           } catch (error) {
-            cleanupError = error;
+            recordGuardFailure('the harness cleanup', error);
           }
           if (authEmailPrefix !== undefined) {
-            await sweepMarkedAuthUsers(client, authEmailPrefix).catch((error) => {
-              cleanupError ??= error;
-            });
+            try {
+              await sweepMarkedAuthUsers(client, authEmailPrefix);
+            } catch (error) {
+              recordGuardFailure('the marked Auth sweep', error);
+            }
           }
         }).catch((error) => {
-          cleanupError ??= error;
+          recordGuardFailure('the cleanup connection', error);
         });
-        if (cleanupError !== undefined) {
-          process.exitCode = 1;
-          console.error(
-            cause === undefined
-              ? `not ok - ${name}: cleanup failed:`
-              : `# ${name}: cleanup also failed after the cause:`,
-            cleanupError,
-          );
-        } else if (cause !== undefined) {
+        if (!reportGuardFailures('cleanup') && cause !== undefined) {
           console.error(`# ${name}: cleanup ran after the cause`);
         }
 
@@ -347,14 +388,25 @@ export function installHarnessGuard(
         });
         if (censusError !== undefined) {
           process.exitCode = 1;
-          console.error(`not ok - ${name}: residue census after the cleanup:`, censusError);
+          if (cause === undefined) {
+            cause = censusError;
+            console.error(`not ok - ${name}: residue census after the cleanup:`, censusError);
+          } else {
+            console.error(
+              `# ${name}: residue census after the cleanup also failed after the cause:`,
+              censusError,
+            );
+          }
         } else if (cause !== undefined) {
           console.error(`# ${name}: residue census after the cleanup passed`);
         }
+        reportGuardFailures('census');
       }
 
       // (f) Saída com código 1. A causa é repetida no fim para quem lê só a
-      // cauda do log, e um handle esquecido não segura o processo.
+      // cauda do log, e um handle esquecido não segura o processo. Falha de
+      // encerramento de conexão do guard no censo também sai antes disso.
+      reportGuardFailures('shutdown');
       if (cause !== undefined) {
         console.error(`# ${name}: failed; the cause is the first not ok above: ${cause?.message}`);
       }

@@ -183,3 +183,97 @@ describe('accept_policies', () => {
     }
   });
 });
+
+describe('group membership operations (docs/13 section 5, docs/25 section 4)', () => {
+  const GROUP = '15b00001-0000-4000-8000-000000000000';
+  const TARGET = '15a00002-0000-4000-8000-000000000000';
+
+  it('accepts profile_id as the enumerated target, never as the caller', () => {
+    const normalised = normaliseRequest('approve_member', {
+      request_id: REQUEST_ID,
+      group_id: GROUP,
+      profile_id: TARGET,
+      approve: true,
+    });
+    expect(canonicalise(normalised.canonicalInput)).toBe(
+      `{"approve":true,"group_id":"${GROUP}","profile_id":"${TARGET}"}`,
+    );
+    // leave_group has no target: profile_id there is still an internal name.
+    expect(
+      refusal(() =>
+        normaliseRequest('leave_group', {
+          request_id: REQUEST_ID,
+          group_id: GROUP,
+          profile_id: TARGET,
+        }),
+      ).fields?.['profile_id'],
+    ).toContain('internal call');
+  });
+
+  it('lowercases a business UUID and refuses a malformed one', () => {
+    const normalised = normaliseRequest('leave_group', {
+      request_id: REQUEST_ID,
+      group_id: GROUP.toUpperCase(),
+    });
+    expect(normalised.canonicalInput).toEqual({ group_id: GROUP });
+    expect(
+      refusal(() => normaliseRequest('leave_group', { request_id: REQUEST_ID, group_id: 'g1' }))
+        .code,
+    ).toBe('VALIDATION');
+  });
+
+  it('requires every business field and refuses loose types', () => {
+    const cases: Array<[Parameters<typeof normaliseRequest>[0], Record<string, unknown>]> = [
+      ['approve_member', { group_id: GROUP, profile_id: TARGET }],
+      ['approve_member', { group_id: GROUP, profile_id: TARGET, approve: 'true' }],
+      ['set_role', { group_id: GROUP, profile_id: TARGET, role: 'owner' }],
+      ['set_monthly', { group_id: GROUP, profile_id: TARGET, enabled: 1 }],
+      ['set_ratings_visibility', { group_id: GROUP, visibility: 'members' }],
+      [
+        'set_ratings_visibility',
+        { group_id: GROUP, visibility: 'public', confirm_members_visibility: true },
+      ],
+      ['transfer_ownership', { group_id: GROUP }],
+      ['remove_member', { group_id: GROUP, profile_id: TARGET }],
+    ];
+    for (const [operation, fields] of cases) {
+      expect(
+        refusal(() => normaliseRequest(operation, { request_id: REQUEST_ID, ...fields })).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('M2-D18: the reason is required, trimmed, at most 500 characters and never echoed', () => {
+    const marker = 'motivo-privado-M2D18';
+    const trimmed = normaliseRequest('remove_member', {
+      request_id: REQUEST_ID,
+      group_id: GROUP,
+      profile_id: TARGET,
+      reason: `  ${marker}  `,
+    });
+    expect(trimmed.canonicalInput['reason']).toBe(marker);
+    const astral = '\u{1F3C6}'.repeat(500);
+    expect(
+      normaliseRequest('remove_member', {
+        request_id: REQUEST_ID,
+        group_id: GROUP,
+        profile_id: TARGET,
+        reason: astral,
+      }).canonicalInput['reason'],
+    ).toBe(astral);
+    for (const reason of ['', '   ', `${marker}${'x'.repeat(500)}`, null, 7]) {
+      const error = refusal(() =>
+        normaliseRequest('remove_member', {
+          request_id: REQUEST_ID,
+          group_id: GROUP,
+          profile_id: TARGET,
+          reason,
+        }),
+      );
+      expect(error.code).toBe('VALIDATION');
+      expect(JSON.stringify({ message: error.message, fields: error.fields })).not.toContain(
+        marker,
+      );
+    }
+  });
+});

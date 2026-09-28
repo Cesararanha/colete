@@ -617,11 +617,22 @@ async function insertFixture(admin) {
 // transação do banco falha, e nunca um usuário sem a marca.
 async function cleanup(admin, status) {
   await admin.query('rollback').catch(() => {});
+  // A varredura roda mesmo quando a limpeza do banco falha, e a falha da
+  // varredura não substitui a da limpeza: as duas sobem juntas.
+  let databaseError;
   try {
     await cleanupDatabase(admin);
-  } finally {
-    await sweepMarkedAuthUsers(admin, AUTH_EMAIL_PREFIX);
+  } catch (error) {
+    databaseError = error;
   }
+  try {
+    await sweepMarkedAuthUsers(admin, AUTH_EMAIL_PREFIX);
+  } catch (sweepError) {
+    throw databaseError === undefined
+      ? sweepError
+      : new AggregateError([databaseError, sweepError], 'cleanup and Auth sweep failed');
+  }
+  if (databaseError !== undefined) throw databaseError;
   for (const objectPath of Object.values(photoPath)) {
     await removePhoto(status, objectPath);
   }

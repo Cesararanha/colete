@@ -18,6 +18,21 @@ export const ERROR_CODES = [
   'IDEMPOTENCY_EXPIRED',
   'IDEMPOTENCY_WAIT_TIMEOUT',
   'CONCURRENT_CHANGE',
+  // Group membership, roles and ownership (docs/13 sections 0.1, 5 and 8).
+  'NOT_MEMBER',
+  'NOT_ORGANIZER',
+  'OWNER_ONLY',
+  'NOT_ACTIVE_MEMBER',
+  'MEMBERSHIP_ALREADY_DECIDED',
+  'GROUP_LIMIT',
+  'GROUP_FULL',
+  'GROUP_ARCHIVED',
+  'GROUP_SUSPENDED',
+  'IS_OWNER',
+  'PROOFS_PENDING',
+  'MONTHLY_DISABLED',
+  'VISIBILITY_CONFIRMATION_REQUIRED',
+  'OWNER_MUST_TRANSFER',
   'INTERNAL',
 ] as const;
 
@@ -70,6 +85,20 @@ const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_WAIT_TIMEOUT:
     'An identical request is still in flight and nothing was changed. Retryable: retry with the same request_id.',
   CONCURRENT_CHANGE: 'The state changed while the request was being applied. Retry.',
+  NOT_MEMBER: 'This account is not an active member of the group.',
+  NOT_ORGANIZER: 'Only the owner or an organizer of the group can do this.',
+  OWNER_ONLY: 'Only the owner of the group can do this.',
+  NOT_ACTIVE_MEMBER: 'The target is not an active member of the group.',
+  MEMBERSHIP_ALREADY_DECIDED: 'This membership request was already decided.',
+  GROUP_LIMIT: 'The profile already has the maximum number of active groups.',
+  GROUP_FULL: 'The group has no free place.',
+  GROUP_ARCHIVED: 'The group is archived.',
+  GROUP_SUSPENDED: 'The group is suspended and does not accept this change.',
+  IS_OWNER: 'The owner of the group cannot be removed.',
+  PROOFS_PENDING: 'Payment proofs under review must be decided first.',
+  MONTHLY_DISABLED: 'The group does not use monthly members.',
+  VISIBILITY_CONFIRMATION_REQUIRED: 'Showing ratings to members requires an explicit confirmation.',
+  OWNER_MUST_TRANSFER: 'The owner must transfer the group before leaving it.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -91,6 +120,10 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'PROFILE_SUSPENDED':
     case 'FINANCIAL_SUBSTITUTE_REQUIRED':
     case 'RECENT_REAUTH_REQUIRED':
+    case 'NOT_MEMBER':
+    case 'NOT_ORGANIZER':
+    case 'OWNER_ONLY':
+    case 'GROUP_SUSPENDED':
       return 403;
     case 'NOT_FOUND':
       return 404;
@@ -98,15 +131,25 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'DELETION_ALREADY_PENDING':
     case 'EXPORT_ALREADY_PENDING':
     case 'CONCURRENT_CHANGE':
+    case 'NOT_ACTIVE_MEMBER':
+    case 'MEMBERSHIP_ALREADY_DECIDED':
+    case 'GROUP_LIMIT':
+    case 'GROUP_FULL':
+    case 'IS_OWNER':
+    case 'PROOFS_PENDING':
+    case 'MONTHLY_DISABLED':
+    case 'OWNER_MUST_TRANSFER':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
     case 'EXPORT_EXPIRED':
+    case 'GROUP_ARCHIVED':
       return 410;
     case 'IDEMPOTENCY_WAIT_TIMEOUT':
       return 503;
     case 'INTERNAL':
       return 500;
     case 'VALIDATION':
+    case 'VISIBILITY_CONFIRMATION_REQUIRED':
       return 422;
   }
 }

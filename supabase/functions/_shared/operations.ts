@@ -10,7 +10,7 @@
 
 import { GatewayError, validation } from './errors.ts';
 
-export const OPERATIONS = [
+export const IDENTITY_OPERATIONS = [
   'complete_profile',
   'update_profile',
   'accept_policies',
@@ -18,6 +18,20 @@ export const OPERATIONS = [
   'delete_account',
   'request_data_export',
 ] as const;
+
+// docs/13 section 5, delivered by docs/25 section 4. create_group belongs to
+// the invite slice and is not here.
+export const GROUP_OPERATIONS = [
+  'approve_member',
+  'remove_member',
+  'set_role',
+  'set_monthly',
+  'set_ratings_visibility',
+  'transfer_ownership',
+  'leave_group',
+] as const;
+
+export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
 
 export type Operation = (typeof OPERATIONS)[number];
 
@@ -31,10 +45,15 @@ const POSITIONS = ['goalkeeper', 'defender', 'midfielder', 'forward'];
 const FEET = ['left', 'right', 'both'];
 const DOCUMENT_TYPES = ['terms', 'privacy'];
 const VERSION_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const ROLES = ['organizer', 'player'];
+const VISIBILITIES = ['private', 'members'];
 
 // Names that belong only to the internal call. Seeing one in an external body
 // is not a stray key, it is a client trying to supply its own actor or its own
-// HMAC, so it is named explicitly rather than folded into "unknown key".
+// HMAC, so it is named explicitly rather than folded into "unknown key". The
+// one exception is a profile_id that the operation's signature enumerates as
+// the target of the action (docs/13 section 0, rule 7): there it is a business
+// field, never the caller.
 const INTERNAL_ONLY = [
   'input_hmac',
   'hash_key_version',
@@ -60,7 +79,7 @@ function rejectUnknownKeys(
   field: string,
 ): void {
   for (const key of Object.keys(record)) {
-    if (INTERNAL_ONLY.includes(key)) {
+    if (INTERNAL_ONLY.includes(key) && !allowed.includes(key)) {
       throw validation(
         field === '' ? key : `${field}.${key}`,
         'belongs to the internal call and is never accepted from a client',
@@ -118,6 +137,38 @@ function optionalShirtNumber(value: unknown, field: string): number | null {
     throw validation(field, 'must be an integer between 0 and 99, or null');
   }
   return value;
+}
+
+/** A business UUID: normalised to lowercase, then held to the canonical shape. */
+function requiredUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string') throw validation(field, 'must be a UUID string');
+  const lower = value.toLowerCase();
+  if (!CANONICAL_UUID.test(lower)) throw validation(field, 'must be a canonical UUID');
+  return lower;
+}
+
+function requiredBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw validation(field, 'must be a boolean');
+  return value;
+}
+
+function requiredEnum(value: unknown, field: string, allowed: readonly string[]): string {
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw validation(field, `must be one of ${allowed.join(', ')}`);
+  }
+  return value;
+}
+
+// docs/25 M2-D18: the removal reason is required, non-empty after trimming and
+// at most 500 characters, by the precedent of the private note of docs/13
+// section 3.3. It feeds the HMAC and the RPC only; it is never persisted,
+// logged or echoed, including in the validation message below.
+function requiredReason(value: unknown, field: string): string {
+  const text = normaliseText(value, field);
+  if (text.length < 1 || [...text].length > 500) {
+    throw validation(field, 'must be between 1 and 500 characters after trimming');
+  }
+  return text;
 }
 
 const PROFILE_FIELDS = ['name', 'nickname', 'position', 'dominant_foot', 'shirt_number'] as const;
@@ -226,6 +277,13 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     revoke_current_session: ['request_id'],
     delete_account: ['request_id'],
     request_data_export: ['request_id'],
+    approve_member: ['request_id', 'group_id', 'profile_id', 'approve'],
+    remove_member: ['request_id', 'group_id', 'profile_id', 'reason'],
+    set_role: ['request_id', 'group_id', 'profile_id', 'role'],
+    set_monthly: ['request_id', 'group_id', 'profile_id', 'enabled'],
+    set_ratings_visibility: ['request_id', 'group_id', 'visibility', 'confirm_members_visibility'],
+    transfer_ownership: ['request_id', 'group_id', 'new_owner_id'],
+    leave_group: ['request_id', 'group_id'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -273,6 +331,76 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     case 'request_data_export': {
       return { operation, requestId, canonicalInput: {} };
     }
+    // docs/13 section 5. Every business field of these signatures is
+    // required: absence is refused, never defaulted.
+    case 'approve_member':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          approve: requiredBoolean(record['approve'], 'approve'),
+        },
+      };
+    case 'remove_member':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          reason: requiredReason(record['reason'], 'reason'),
+        },
+      };
+    case 'set_role':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          role: requiredEnum(record['role'], 'role', ROLES),
+        },
+      };
+    case 'set_monthly':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          enabled: requiredBoolean(record['enabled'], 'enabled'),
+        },
+      };
+    case 'set_ratings_visibility':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          visibility: requiredEnum(record['visibility'], 'visibility', VISIBILITIES),
+          confirm_members_visibility: requiredBoolean(
+            record['confirm_members_visibility'],
+            'confirm_members_visibility',
+          ),
+        },
+      };
+    case 'transfer_ownership':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          new_owner_id: requiredUuid(record['new_owner_id'], 'new_owner_id'),
+        },
+      };
+    case 'leave_group':
+      return {
+        operation,
+        requestId,
+        canonicalInput: { group_id: requiredUuid(record['group_id'], 'group_id') },
+      };
   }
 }
 

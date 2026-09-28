@@ -6,8 +6,8 @@ as fontes normativas `10`, `13`, `14`, `16`, `17`, `22` e `25`. Continua de
 precedente de `19`–`21` e `23`: registra o que aconteceu, não é contrato
 congelado.
 
-Este documento registra as fatias do M2 à medida que entram. Por enquanto,
-somente a Fatia 1.
+Este documento registra as fatias do M2 à medida que entram: a Fatia 1 e a
+Fatia 2.
 
 ## Fatia 1 — `0015_group_foundation.sql`
 
@@ -612,3 +612,507 @@ de falha e o ignora durante o encerramento.
 - N28 e trilha na transferência por exclusão (M2-D7);
 - a prova de capacidade sob 25 conexões, que pertence à `0017` (`25` §5.4);
 - qualquer UI.
+
+## Fatia 2 — `0016_group_membership_rpcs.sql`
+
+### O que foi entregue
+
+| Objeto | Contrato provado |
+| --- | --- |
+| `public.approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership` e `leave_group` | as sete RPCs de `13` §5 (sem `create_group`, que é da `0017`), `security definer`, `volatile`, `search_path` vazio, `EXECUTE` somente para `service_role`; ordem de locks de `25` §4.1, todas as travas em `FOR NO KEY UPDATE` (M2-D13) |
+| envelope idempotente | allowlists de operação, outcome e resource ampliadas de forma append-only; `private.acquire_group_idempotency` e `private.complete_group_idempotency` no padrão da `0012`; o validador vivo passou a `private.validate_through_data_export_outcome` e o nome público ganhou as sete formas; `private.enforce_idempotency_conclusion` exige resource `group` igual ao `group_id` do outcome |
+| helpers de revalidação | `private.require_group_actor_after_locks` (conta, sessão revogada e aceite, depois dos locks), `private.group_actor_authority` (`NOT_FOUND`, `GROUP_ARCHIVED`, `NOT_MEMBER`, dono derivado de `owner_id`) e `private.require_group_not_suspended` |
+| M2-D16 | recusa em `approve_member`: `pending → removed`, `removed_at = now()`, `removal_count` inalterado, sem linha nova |
+| M2-D17 | `set_role` e `set_monthly` sobre alvo sem membership `active`: `NOT_ACTIVE_MEMBER` |
+| M2-D18 | `reason` de `remove_member`: obrigatório, não vazio depois de trim, até 500 caracteres, senão `VALIDATION`, na Edge e na RPC; não é persistido nem ecoado |
+| `private.purge_removed_memberships` | retenção de 12 meses de `17` §2: apaga membership `removed` com `removed_at <= now() - 12 meses`, grava `retention_runs`; job diário `purge_removed_memberships` às 03:53 UTC em `worker_job_slot`, `worker_execute_database_job`, `cron.job` e `WORKER_JOBS` |
+| Edge `groups` | `supabase/functions/groups/index.ts` serve somente as sete operações; o gateway saiu de `identity/index.ts` para `_shared/edge-gateway.ts`, e `identity` serve somente as suas seis; normalizadores, parâmetros da RPC e os códigos novos do catálogo em `_shared/operations.ts`, `gateway.ts` e `errors.ts` |
+| `scripts/test-group-membership.mjs` (`db:test:membership`) | harness de commit real, barreira, 25 conexões, HTTP real e censo do motivo, sobre `harness-guard.mjs` e `lock-barrier.mjs`; também no job `database-security` |
+| `scripts/harness-guard.mjs` | endurecido antes da fatia (ver “Guarda dos harnesses”) |
+
+### Decisões de implementação
+
+- **Autoridade.** Os códigos vêm dos erros comuns de `13` §0.1: sem membership
+  `active` no grupo, `NOT_MEMBER`; aprovar, remover e mensalista exigem dono ou
+  organizador (`01` §4 e §5, tela 17), senão `NOT_ORGANIZER`; papel,
+  visibilidade e transferência exigem o dono, senão `OWNER_ONLY`. A ordem das
+  verificações é: grupo inexistente (`NOT_FOUND`), arquivado (`GROUP_ARCHIVED`),
+  membership do ator, papel, suspensão (`GROUP_SUSPENDED`) e só então o alvo.
+  Assim um estranho não descobre a suspensão, e o arquivamento continua
+  alcançável, porque ele passa todas as memberships a `removed`.
+- **M2-D19.** As quatro escolhas foram aceitas por decisão humana em
+  2026-09-28 e registradas em `25` §8.1 e `13` §5: `approve_member` sem pedido
+  devolve `NOT_FOUND`; `remove_member` sobre alvo não ativo devolve
+  `NOT_ACTIVE_MEMBER`; `transfer_ownership` exige membership e conta `active`
+  do novo dono; transferir para si mesmo conclui sem `UPDATE` em `groups`.
+  Os dois demais comportamentos da primeira entrega continuam: `leave_group`
+  de quem não é membro ativo devolve `NOT_MEMBER`, e `set_role` aceita o dono
+  como alvo sem alterar a titularidade, derivada de `owner_id`.
+- **Revalidação depois dos locks.** As mutações de domínio em `groups` e em
+  `group_members`, desta fatia e da `0015`, travam antes o grupo. O expurgo
+  `purge_removed_memberships` é exceção: trava somente as memberships `removed`
+  com retenção vencida, por `FOR UPDATE SKIP LOCKED`, e as apaga. Não trava o
+  grupo e nunca espera por linha já travada. Como não toca membership ativa,
+  não altera a autoridade que as RPCs leem com o grupo travado.
+- **Replay (M2-D20).** Nas sete RPCs, o replay passa pelos mesmos locks e pela
+  mesma revalidação de autoridade atual da chamada nova, antes da resposta.
+  Pela emenda de 2026-09-28, negação devolve HTTP 200 com somente o outcome,
+  sem `current`; a chamada nova conserva o erro. Autorização devolve o outcome
+  gravado mais a projeção fresca; não repete o efeito nem a decisão do alvo.
+- **Modo das travas (M2-D13).** Vinte e duas cláusulas, lidas do banco vivo pela
+  prova `lock-modes`: todas `FOR NO KEY UPDATE`, exceto uma, a do expurgo, em
+  `FOR UPDATE SKIP LOCKED`, porque a transação apaga a linha; `SKIP LOCKED` faz
+  o expurgo nunca esperar. `worker_execute_database_job`, reescrita para o
+  despacho do job, teve a trava de `job_runs` alinhada a `FOR NO KEY UPDATE`,
+  como `25` §2 manda para trava do M1-B reescrita; das nove da M2-D15 restam
+  oito.
+- **Auditoria da regra do P1 do #36, pelo banco vivo.** Sequência de escritas e
+  travas de cada função nova, lida de `pg_get_functiondef` depois do
+  `db:reset`. A única escrita com FK seguida de trava da tabela referenciada é o
+  `INSERT` da idempotência (FK `actor_id → profiles`), antes da trava de
+  `profiles`, nas sete RPCs; é o padrão da M2-D13, seguro somente porque a
+  trava é `FOR NO KEY UPDATE`, e os pares abaixo o provam. `update groups set
+  owner_id` em `transfer_ownership` executa a FK para o novo dono depois das
+  travas de perfil, sem trava posterior de perfil. As demais escritas não tocam
+  coluna de FK (`group_members` só muda `status`, `role`, `is_monthly` e
+  `removed_at`; `complete_group_idempotency` não muda `actor_id`), e nenhuma FK
+  aponta para `group_members` ou para `retention_runs`.
+- **Testes antigos ajustados.** `0004_idempotency_foundation.test.sql` passa a
+  listar 25 rotinas no grant nominal de `service_role`, e
+  `0011_worker_foundation.test.sql`, sete agendas. `src/lib/database.types.ts`
+  foi regenerado pelo `generate:db-types` com a CLI fixada em 2.118.0; parte da
+  diferença é só a forma que essa versão emite (`Args: Record<PropertyKey,
+  never>` e quebras de linha).
+
+### Provas e números medidos
+
+Medidos na rodada autora de correção da primeira revisão, em 2026-09-28,
+com banco recriado somente pelas dezesseis migrations. Estes números substituem
+os totais da primeira entrega (`424bc91`, 1.094 asserções e 43 linhas `ok`).
+
+- `npm run db:test`: 15 arquivos, **1.096** asserções, todas verdes;
+  `0016_group_membership_rpcs.test.sql` tem **128** asserções.
+- `npm run db:test:membership`: **57** linhas `ok` por execução, em **3**
+  execuções completas seguidas: **6,362 s**, **7,275 s** e **10,814 s** de parede.
+  Em todas, as catorze tempestades imprimiram zero `40P01`; a prova de 25
+  conexões observou as 25 esperando lock, com 1 `ok`, 24 `GROUP_LIMIT` e cinco
+  memberships ativas. As duas topologias da exclusão × transferência passaram
+  nas duas ordens. Censo: 73 tabelas, quatro corpos, cinco logs de serviços e
+  nove tabelas do analytics, sem motivo; sentinela presente 1/1 nos dois canais.
+  Resíduo aceito do GoTrue: **+30** entradas de auditoria em cada execução.
+- `auth.users`, perfis, grupos e idempotência tinham zero linhas antes e depois
+  das três execuções, também depois de cada uma. Tabelas e gatilhos de sonda:
+  zero objetos depois das provas.
+- Demais harnesses: `db:test:idempotency` 7 `ok`, `db:test:gateway` 9,
+  `db:test:worker` 8, `db:test:deletion` 10, `db:test:export` 16,
+  `db:test:groups` 29; todos com saída 0 nesta rodada.
+- Browser: `test:auth:web` 8 passados e 2 pulados (11,1 s),
+  `test:privacy:web` 4 e 4 (13,9 s), `test:smoke:web` 6 (1,9 s).
+  `verify:app`: 175 testes em 20 arquivos, com lint, formato, tipos, build e
+  verificações PWA/contratos/segredos verdes. `scan:docs`, `scan:secrets`,
+  `audit:high` e `git diff --check`: saída 0. Auditoria: 13 moderadas,
+  nenhuma alta ou crítica. Nenhum `prettier` foi aplicado a `docs/`.
+
+Ocorrências antes da série verde: a substituição inicial para a topologia
+inversa atingiu também `crossFixture` e causou `ReferenceError: inverse is not
+defined`; foi corrigida no harness. Depois, uma execução passou as provas de
+domínio e falhou em 95,315 s no censo, porque o analytics não ingeriu a sentinela
+em 90 s. O Vector local registrava `401 Unauthorized` na ingestão. A pilha foi
+parada e recriada, e a série de três passou com a sentinela presente. A causa
+interna do 401 não foi isolada; a comparação inicial com o `api_key` de
+`_analytics.users` não a provava. Nenhum prazo, asserção ou código de ingestão
+foi alterado; nenhuma nova tentativa automática foi introduzida. As duas falhas
+terminaram com limpeza e censo residual verdes, sem usuário Auth residual.
+
+Pares da barreira de `25` §2: medição da primeira entrega, confirmada pela
+série desta rodada nas duas ordens. A topologia inversa acrescentada está
+registrada na primeira revisão abaixo:
+
+| Par | Ordem 1 | Ordem 2 | 20 pares sem barreira |
+| --- | --- | --- | --- |
+| `approve_member` cruzado | A espera o detentor; B conclui sem esperar | idem | 0 `40P01`; 40 `ok` |
+| `remove_member` cruzado | idem | idem | 0; 40 `ok` |
+| `set_role` cruzado | idem | idem | 0; 40 `ok` |
+| `set_monthly` cruzado | idem | idem | 0; 40 `ok` |
+| `transfer_ownership` cruzado | A espera o detentor; B espera A | idem | 0; 40 `ok` |
+| exclusão × transferência cruzada | exclusão conclui; transferência `NOT_ACTIVE_MEMBER` | transferência conclui; exclusão `CONCURRENT_CHANGE`, retry conclui | 0; 20 `ok`, 20 `CONCURRENT_CHANGE`, todos convergidos |
+| `approve_member`, mesmo ator | as duas esperam; uma `ok`, outra `MEMBERSHIP_ALREADY_DECIDED` | idem | 0 |
+| `remove_member`, mesmo ator | uma `ok`, outra `NOT_ACTIVE_MEMBER` | idem | 0 |
+| `set_role`, mesmo ator | as duas `ok`, serializadas | idem | 0 |
+| `set_monthly`, mesmo ator (alvo é o ator) | as duas `ok` | idem | 0 |
+| `set_ratings_visibility`, mesmo ator | as duas `ok` | idem | 0 |
+| `transfer_ownership`, mesmo ator | uma `ok`, outra `OWNER_ONLY` | idem | 0 |
+| `leave_group`, mesmo ator | uma `ok`, outra `NOT_MEMBER` | idem | 0 |
+
+Provas ordenadas, em que A roda até o fim, fica aberta e B precisa ser
+observada esperando por A: quinta × sexta membership (a segunda recebe
+`GROUP_LIMIT`, cinco ativas, nas duas ordens); transferência × saída (ordem 1:
+saída recebe `OWNER_MUST_TRANSFER`; ordem 2: transferência recebe
+`NOT_ACTIVE_MEMBER`); exclusão × transferência e exclusão do dono × exclusão do
+organizador escolhido, nas duas ordens, com `CONCURRENT_CHANGE` e retry que
+converge onde a revalidação de `25` §3.3 manda.
+
+HTTP real, pela Edge `groups`, com JWT do GoTrue: as sete rotas; replay e
+`IDEMPOTENCY_CONFLICT`; `GROUP_SUSPENDED` com `suspended_at` de fixture;
+`OWNER_ONLY`, `NOT_ACTIVE_MEMBER` (M2-D17), `VISIBILITY_CONFIRMATION_REQUIRED`,
+`IS_OWNER` e `OWNER_MUST_TRANSFER`; o removido deixa de ler o grupo pelo
+PostgREST e recebe `NOT_MEMBER` na chamada seguinte; saída de não-owner de
+grupo suspenso; `identity/approve_member` e `groups/update_profile` respondem
+`NOT_FOUND`. O job de retenção roda pelo worker Edge real.
+
+Censo da M2-D18, com marcador único por execução: 73 tabelas do banco
+`postgres`, `pg_stat_statements`, as quatro respostas e erros (sucesso, `IS_OWNER`
+no banco, `VALIDATION` na Edge, `VALIDATION` na RPC), os logs de
+`supabase_db`, `rest`, `edge_runtime`, `kong` e `auth` e as nove tabelas de log
+do analytics local. Uma sentinela emitida no log do Postgres depois de tudo
+precisa aparecer no `docker logs` do banco e no analytics antes de a ausência
+do motivo valer. Resultado: zero ocorrências em todas as fontes.
+
+### Contraprovas executadas
+
+Cada mutação foi aplicada por `create or replace` a partir do
+`pg_get_functiondef` vivo, a prova rodou isolada (`COLETE_MEMBERSHIP_PROOF` e
+`COLETE_MEMBERSHIP_PART`) e o texto original foi restaurado; no fim, `db:reset`.
+Nenhuma execução deixou resíduo.
+
+| Mutação | Prova | Ordem 1 | Ordem 2 | 20 pares sem barreira |
+| --- | --- | --- | --- | --- |
+| trava do perfil alvo de `approve_member` em `FOR UPDATE` | `cross-approve` | `40P01` | `40P01` | **5** de 20 |
+| idem, `remove_member` | `cross-remove` | `40P01` | `40P01` | **4** |
+| idem, `set_role` | `cross-role` | `40P01` | `40P01` | **5** |
+| idem, `set_monthly` | `cross-monthly` | `40P01` | `40P01` | **12** |
+| travas de perfis de `transfer_ownership` em `FOR UPDATE` | `cross-transfer` | `40P01` | `40P01` | **15** |
+| idem, só a transferência | `cross-deletion-transfer` | passa | reprova por resultado (`NOT_ACTIVE_MEMBER`), sem `40P01` | 0 |
+| transferência e perfis de `delete_account` em `FOR UPDATE` | `cross-deletion-transfer` | `40P01` | `40P01` | **18** |
+| trava do perfil do ator (alvo) de `set_monthly` em `FOR UPDATE` | `same-monthly` | `40P01` | `40P01` | **7** |
+| trava do perfil do ator de `set_ratings_visibility` | `same-visibility` | `40P01` | `40P01` | **15** |
+| travas de perfis de `transfer_ownership` | `same-transfer` | `40P01` | `40P01` | **9** |
+| trava do perfil do ator de `leave_group` | `same-leave` | `40P01` | `40P01` | **15** |
+| trava do perfil alvo em `FOR UPDATE`, `approve_member`, `remove_member`, `set_role` | `same-*` | passa | passa | 0 |
+| sem a trava do perfil alvo, `approve_member`, `remove_member`, `set_role` | `same-*`, ordem 1 | `the competitor finished before its lock wait was observed` | — | — |
+| sem a trava do perfil alvo de `approve_member` (lock-pai da cota) | `quota-pair` | reprova: **6** memberships ativas | — | — |
+| idem | `quota-racers` | reprova: **6** memberships ativas | — | — |
+| sem as três travas de `leave_group` | `owner-race` | `23514 GROUP_OWNER_MEMBERSHIP_REQUIRED` no commit | — | — |
+| sem as travas e sem o trigger de `group_members` | `owner-race` | `invalid owner state` | — | — |
+| sem o trigger, com as travas | `owner-race` | passa | passa | — |
+| `remove_member` gravando o motivo numa coluna temporária | `reason-census` | `the reason was persisted: [["public.group_members",1]]` | — | — |
+
+Duas leituras dessas linhas. Os números originais da exclusão × transferência
+cruzada acima foram medidos somente com quem exclui no UUID menor. Nessa
+topologia, a transferência sozinha em `FOR UPDATE` não fechou ciclo; com as duas
+em `FOR UPDATE`, o ciclo voltou. Isso não se generaliza: com quem exclui no UUID
+maior, só a transferência em `FOR UPDATE` já reproduz `40P01` na ordem 2.
+A correção da primeira revisão abaixo registra as duas topologias. Nos pares do mesmo ator de `approve_member`, `remove_member` e
+`set_role`, `FOR UPDATE` também não fecha ciclo: a linha disputada é o perfil
+alvo, e nenhuma das duas transações segura `FOR KEY SHARE` nele, porque a
+idempotência trava o perfil do ator, que essas funções não travam. A
+contraprova que reprova esses três pares é a retirada da trava do alvo: A
+termina sem esperar, e a barreira acusa.
+
+### Correções da primeira revisão do PR #40
+
+Rodada autora de 2026-09-28, sobre o head conferido `424bc91`, commit único sobre
+`origin/main` (`6f18b1f`). A revisão lida literalmente foi o comentário
+`5871804342`. Nenhum merge. M2-D19 e M2-D20 foram decisões fornecidas pelo
+planejador nesta rodada, não escolhas da implementação. O comportamento de
+replay negado e a leitura normativa da auditoria abaixo são históricos desta
+primeira revisão, substituídos pela M2-D20 emendada e pela M2-D21 na seção
+“Correções da conferência do PR #40”.
+
+| Achado | Correção e prova que acusa o defeito |
+| --- | --- |
+| P2-1 — replay sem autoridade atual | As sete RPCs (`approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership`, `leave_group`) passam pelos mesmos locks e verificações de autoridade da chamada nova antes de retornar. `replay-authority` recusa conta suspensa, sessão revogada, perda de papel quando aplicável e membership removida, com o mesmo erro nas duas chamadas; preserva o registro `completed`. `replay-http`, uma execução de cada lado: antes o organizador removido recebe 200 com `current.enabled=false` do outro membro, enquanto a chamada nova recebe 403 `NOT_MEMBER`; depois ambas recebem 403 `NOT_MEMBER`, sem `data` nem `current`. O dono autorizado recebe o outcome gravado e `enabled=false` fresco. |
+| P2-2 — transferência a si mesmo | Curto-circuito antes do `UPDATE`, com conclusão idempotente. `self-transfer`, commit real sob `service_role`, uma execução de cada lado: antes muda `xmin`, muda o timestamp da sonda e aparecem duas entradas dos gatilhos de linha e statement; depois `xmin`, timestamp, dono e membership ficam intactos, com zero entradas e registro `completed`. A prova positiva de replay autorizado também passa. |
+| P3-1 — topologia inversa | `cross-deletion-transfer-inverse` acrescenta quem exclui no UUID maior, nas duas ordens e em 20 pares simultâneos. A ordem 1 segura o segundo perfil por bytes, conforme `25` §2, para A esperar depois de adquirir o primeiro; a ordem 2 segura o perfil do candidato. A implementação correta passa nas duas ordens, sem `40P01`. Contraprova, somente os locks de perfil da transferência em `FOR UPDATE`, uma execução da ordem 2: `40P01`. As frases que generalizavam a topologia original foram corrigidas aqui e no corpo do PR. |
+| P3-2 — suspensão sem prova em duas RPCs | Duas asserções pgTAP e `suspended-role-remove`, pelo HTTP real. Uma contraprova por RPC, retirando somente sua checagem: `set_role` aceita 200 e promove; `remove_member` aceita 200 e remove. Depois ambas recebem 403 `GROUP_SUSPENDED`, com membership intacta. |
+| P3-3 — expurgo sem lock de grupo | Corrigida a exceção em “Revalidação depois dos locks”: o expurgo trava somente memberships `removed` elegíveis por `FOR UPDATE SKIP LOCKED`, sem travar grupo e sem esperar. Conferência do corpo em `0016` e da prova `lock-modes`; não houve alteração no expurgo. |
+
+**Limite da prova de timestamp.** `public.groups` não tem coluna `updated_at`
+no schema da `0015`. `self-transfer` acrescenta somente no banco local uma coluna
+homônima e um gatilho `BEFORE UPDATE` que a muda em qualquer atualização. Essa
+sonda, os gatilhos de linha e statement, sua função e tabela de contagem são
+removidos no `finally`. Não se afirma ter medido um `updated_at` produtivo e
+nenhuma coluna nova entrou em migration. `xmin` é o da linha real, medido antes
+e depois do commit da RPC.
+
+**Auditoria de replay fora da `0016`.** “Sim” abaixo significa que o ramo de
+replay chega à projeção antes de uma checagem de autoridade que a chamada nova
+executa. As reproduções foram transações sob `service_role`, revertidas no fim;
+nenhuma rotina anterior foi corrigida. Os arquivos e linhas são as definições
+vigentes ou, quando indicado, sua origem no M1-B.
+
+| RPC | Mesmo defeito? | Arquivo:linha e evidência |
+| --- | --- | --- |
+| `request_data_export` | **sim** | `0015_group_foundation.sql:831` (origem `0013_data_export_delivery.sql:818`), antes da denylist em `0015:843`. Reproduzido: pedir export, revogar a sessão, repetir o request; replay devolve sucesso com a projeção do export, chamada nova dá `28000 UNAUTHENTICATED`. |
+| `delete_account` | **sim** | `0015_group_foundation.sql:527` (origem `0012_account_deletion.sql:528`), antes da denylist em `0015:564`. Reproduzido: excluir a conta, que revoga a sessão no mesmo commit lógico, e repetir o request; replay devolve sucesso com cinco campos da saga; chamada nova dá `P0001 DELETION_ALREADY_PENDING`, verificação que antecede a denylist. A projeção própria do shell de exclusão tem uma exceção normativa para sessão revogada (`22` §4); isso não significa que a RPC mutável tenha feito sua checagem. |
+| `update_profile` | não | `0015_group_foundation.sql:742`, `require_actor_context` antes do replay em `:753`. Controle executado com sessão revogada: replay e chamada nova dão `28000 UNAUTHENTICATED`. O gate de políticas posterior ao replay é uma exceção própria do M1-A, não uma checagem de membership/papel; não foi alterado. |
+| `worker_get_deletion_effect_target` | não | `0015_group_foundation.sql:1036`; sem replay por `request_id`, autoridade do lease. |
+| `worker_confirm_deletion_effect` | não | `0015_group_foundation.sql:1118`; sem replay por `request_id`, autoridade do lease. |
+| `worker_get_data_export_build_target` | não | `0015_group_foundation.sql:1181`; sem replay por `request_id`, autoridade do lease. |
+| `worker_acquire_external_effect` | não | `0013_data_export_delivery.sql:267`, com extensão em `0014_worker_slot_and_gate.sql`; aquisição de lease, sem esse caminho de replay. |
+| `worker_complete_external_effect` | não | `0011_worker_foundation.sql:266`; conclusão fenced, sem esse caminho de replay. |
+| `worker_begin_job` | não | `0014_worker_slot_and_gate.sql:51`; deduplicação por slot, sem contexto de usuário ou projeção privada de membro. |
+| `worker_execute_database_job` | não | origem `0013_data_export_delivery.sql:922`, redefinida pela própria `0016` para o expurgo; sem replay por `request_id` de usuário. |
+| `worker_finish_job` | não | `0011_worker_foundation.sql:584`; sem esse caminho de replay. |
+| `worker_publish_data_export` | não | `0013_data_export_delivery.sql:1037`; publicação fenced, sem esse caminho de replay. |
+| `enqueue_data_export_purge` | não | `0013_data_export_delivery.sql:1061`; enqueue governado, sem esse caminho de replay. |
+| `consume_data_export` | não | `0013_data_export_delivery.sql:1082`; denylist e CAS one-shot, sem esse caminho de replay. |
+| `finalize_deletion` | não | `0013_data_export_delivery.sql:1115`; finalização do worker, sem esse caminho de replay. |
+| `get_own_deletion_request` | não | `0013_data_export_delivery.sql:113`; projeção própria, sem replay mutável. |
+| `get_own_data_exports` | não | `0013_data_export_delivery.sql:554`; projeção própria, sem replay mutável. |
+
+Todas as mutações de contraprova foram restauradas antes do reset final.
+A validação completa do AGENTS §5 passou, com membership três vezes, como
+registrado em “Provas e números medidos”. A medição de resíduo após as provas
+isoladas encontrou `auth.users`, perfis,
+grupos, idempotência, tabelas e gatilhos de sonda com zero linhas/objetos.
+
+### Guarda dos harnesses
+
+A terceira conferência do #36 (comentário 5862758465) registrou dois P3 no
+`scripts/harness-guard.mjs`, corrigidos aqui antes de o harness desta fatia
+depender dele:
+
+- `counted()` anexava o tratador de rejeição à própria promessa que devolvia ao
+  harness. Uma query ou um `fetch` sem `await` que falhasse deixava de ser
+  rejeição sem tratador e terminava com saída 0. Agora o guard devolve a
+  promessa derivada. Contraprova, um `fetch` sem `await` para
+  `127.0.0.1:9` injetado uma vez no harness de grupos: antes, `exit=0` e
+  `Group foundation harness passed.`; depois, `exit=1`, com a primeira linha
+  `not ok - db:test:groups: unhandled promise rejection: [TypeError: fetch failed]`.
+- O guard descartava falhas da própria limpeza (`cleanupError ??= error` na
+  varredura e `client.end().catch(() => {})`), e o harness de grupos trocava o
+  erro da limpeza do banco pelo da varredura num `finally`. Agora toda falha da
+  limpeza, da varredura e do encerramento das conexões do guard é guardada com
+  o passo e relatada, depois da causa, com saída 1; `AggregateError` é relatado
+  erro a erro; e a limpeza do harness de grupos sobe as duas falhas juntas.
+  Contraprova, uma falha em `main` e outra na segunda chamada de
+  `cleanupDatabase`: antes, a causa e depois só `96 marked Auth users … still
+  own a profile`, sem o erro injetado da limpeza; depois, a causa, em seguida
+  `the harness cleanup: Error: INJECTED (b): cleanupDatabase failure in the
+  final cleanup` e as duas falhas de varredura.
+
+Depois da mudança, uma execução de cada: `db:test:groups` 29 `ok` em 2,07 s,
+`db:test:export` 16 em 1,84 s e `db:test:idempotency` 7 em 5,12 s, sem resíduo.
+Os demais P3 da conferência (os `.catch` do harness do export, o censo de
+`job_runs` na execução seguinte e as frases do `docs/23`) ficam para um PR de
+faxina posterior.
+
+### O que continua fora
+
+- `create_group`, convites, HMAC, `code_digest`, reentrada `removed → pending`
+  e o incremento de `removal_count` (`0017`, `25` §5.4);
+- trilha e notificações das mutações de grupo (M2-D7) e a persistência do
+  motivo de remoção (M2-D18), nas fatias B2;
+- remoção de rachas futuros, refunds, invalidação de publicação e
+  `PROOFS_PENDING`, que dependem do M3 e do M5;
+- RPC Admin de suspensão e de transferência;
+- qualquer UI.
+
+### Correções da conferência do PR #40
+
+O comportamento de autenticação desta seção é histórico do head `1d5b1fb`.
+O complemento de segurança abaixo o substitui conforme o ajuste humano de
+28/09 à M2-D20; as medições desta seção continuam atribuídas àquela rodada.
+
+Rodada autora de 2026-09-28, sobre `3b31010`, confirmado como commit único sobre
+`origin/main` (`6f18b1f`). Conferência lida literalmente no comentário
+`5873466485`; decisões humanas M2-D20 emendada e M2-D21 fornecidas nesta rodada.
+Nenhum merge.
+
+Nas sete RPCs da `0016`, a resolução inicial identifica o ator, sem conceder
+poder de domínio. A idempotência e os locks conservam sua ordem; a checagem de
+conta, sessão, membership, papel e suspensão continua depois dos locks, antes de
+qualquer projeção. Somente o sub-bloco dessa checagem trata as negações conhecidas:
+replay devolve `outcome` gravado; chamada nova propaga o erro. Falhas de locks,
+envelope, projeção ou efeito não são convertidas em sucesso. `current` ausente
+foi escolhido para distinguir projeção não autorizada de projeção com valor
+`null`. O registro `completed` não muda.
+
+`commit-real` e `replay-authority` foram atualizados para comparar a resposta
+inteira sem `current`; as chamadas novas mantêm as asserções negativas. A nova
+prova `replay-self-revoked-http` usa as mesmas rotas produtivas, GoTrue e
+transporte de `replay-http`, sem rota ou adaptador de teste.
+
+Cada contraprova dirigida e sua prova corrigida rodaram uma vez; a série completa
+obrigatória abaixo volta a cobrir essas garantias, sem repetir a mutação antiga.
+
+| Prova HTTP real | Antes | Depois |
+| --- | --- | --- |
+| Organizador removido repete `set_monthly` | Só `set_monthly` extraída de `424bc91`: 200 com `current.enabled=false` alheio; a asserção reprova por valor. | 200 com `data.outcome` idêntico ao original e `request_id`, sem `current`; nenhum valor `false` atual nem o marcador de perfil `estado-atual-alvo-40c` aparece em qualquer campo. |
+| N2: replay após `leave_group` e `transfer_ownership` | Código de `3b31010`: ambos 403, respectivamente `NOT_MEMBER` e `OWNER_ONLY`; a prova mede os dois antes de reprovar. | Ambos 200, com resposta inteira igual ao desfecho original sem `current`. |
+| Ator continua autorizado | Na contraprova de `424bc91`, dono recebe desfecho original e `current.enabled=false` fresco. | Mesmo resultado autorizado, com outcome gravado e valor fresco posterior à primeira chamada. |
+| Chamada nova sem autoridade | Na contraprova de `424bc91`, organizador removido recebe 403 `NOT_MEMBER`; em `3b31010`, saída/transferência novas recebem 403 `NOT_MEMBER`/`OWNER_ONLY`. | As três chamadas novas conservam exatamente esses erros. |
+
+Limpeza depois das contraprovas e das provas dirigidas: censos passaram, com
+`auth.users` zero após a limpeza. GoTrue acrescentou seis entradas de auditoria
+em cada prova HTTP dirigida; `replay-authority` acrescentou zero. A definição
+antiga de `set_monthly` foi restaurada logo após a contraprova; o reset seguinte
+recriou todas as funções somente pelas migrations.
+
+**Alcance e pendência.** `delete_account` passa a ter a exceção normativa da
+M2-D21: somente desfecho e os cinco campos da própria saga após autorrevogação.
+O achado de `request_data_export` continua divergência temporária, com prazo
+antes de fechar o M2, na mesma migration da M2-D15 (`25` §8.2). Nenhuma RPC fora
+das sete da `0016` foi corrigida nesta rodada. As emendas de `13` §0, §5 e §5.3,
+`25` (cabeçalho, §7, §8.1 e §8.2) e o manifesto refletem as decisões humanas.
+
+**Validação medida desta rodada.** AGENTS §5 completo, todos os comandos com
+saída 0; `db:test:groups` e três séries integrais de `db:test:membership` também
+passaram. Banco recriado somente pelas migrations `0001`–`0016`.
+
+- pgTAP: 15 arquivos, **1.100** asserções, **132** na `0016`.
+- Harnesses: idempotência 7 `ok`, gateway 9, worker 8, exclusão 10, export 16,
+  grupos 29. Membership: **60** `ok` por série, 7,795 s / 5,876 s / 6,913 s de parede.
+- Nas três séries: tempestades sem `40P01`; 25 conexões observadas esperando,
+  uma aprovação e 24 `GROUP_LIMIT`, cinco memberships ativas. As tempestades
+  de transferência e saída usam pedidos novos: continuam com 20 `ok` e 20
+  `OWNER_ONLY`/`NOT_MEMBER`, respectivamente; isso não é replay do mesmo pedido.
+- Censo por série: 73 tabelas, quatro corpos, cinco logs de serviços e nove
+  tabelas do Analytics sem motivo; sentinela 1/1 em Postgres e Analytics.
+  GoTrue conservou somente a auditoria aceita, **+36** entradas por série.
+- `auth.users`, perfis, grupos e idempotência: **zero** antes e depois das três
+  séries, e no começo e no fim da validação completa. Sondas de atualização:
+  zero objetos ao fim, conferido separadamente no banco.
+- Web: Auth 8 passados e 2 pulados; privacidade 4 passados e 4 pulados; smoke 6.
+  `verify:app`: 175 testes em 20 arquivos, lint, formato, tipos, build e PWA verdes.
+- `scan:docs`, `scan:secrets`, `audit:high` e `git diff --check`: saída 0.
+  Auditoria: 13 moderadas, nenhuma alta ou crítica. Scans repetidos depois
+  deste registro final; nenhum `prettier` aplicado a `docs/`.
+
+**Falha local registrada.** Antes das três séries verdes, a primeira tentativa
+integral de membership saiu 1 em **95,736 s**, com 59 `ok`: a sentinela não
+chegou ao Analytics nos 90 s contratados. Vector registrou 30 ocorrências de 401
+na janela de cinco minutos inspecionada. A limpeza passou, com zero em
+`auth.users`, perfis, grupos e idempotência. Reiniciar somente o Analytics da
+única pilha restabeleceu a ingestão; uma sentinela independente chegou uma vez
+às nove tabelas de logs antes da retomada. A credencial sintética estava no
+registro OAuth após o reinício; a comparação inicial com `users.api_key` não
+isolava a causa, pois esse não é o registro usado pela ingestão. O mecanismo
+interno da falha após o reset não foi isolado. Nenhuma asserção ou prazo foi
+alterado; não foram acrescentadas novas tentativas ao produto nem ao harness.
+A falha anterior permanece no progresso e no log, sem ser contada como série
+verde.
+
+Não houve acesso a projeto Supabase remoto, deploy, segredo real ou serviço de
+produção. O worktree contém somente os sete arquivos desta correção sobre o
+head conferido; os demais corpos da `0016` são idênticos aos de `3b31010`.
+
+
+### Complemento de segurança do PR #40 — autenticação antes do replay
+
+Rodada autora de 2026-09-28, head inicial conferido
+`1d5b1fb007ff7be993ce8096acde2f4d30127364`, um commit sobre `origin/main`
+(`6f18b1f`). A decisão humana ajusta a M2-D20 emendada: perda de autenticação
+nega o replay com o mesmo erro da chamada nova, sem desfecho. Perda de
+membership, papel ou titularidade conserva o desfecho gravado sem `current`.
+A exceção de `delete_account` (M2-D21) permanece. Nenhum merge.
+
+Nas sete RPCs, `require_group_actor_after_locks` fica depois dos mesmos locks,
+antes dos ramos de replay e fora do sub-bloco que trata autoridade no grupo.
+Conta não ativa, sessão revogada e aceite pendente propagam o erro normal. O
+tratamento de autoridade deixou de capturar `28000`, `22023` e os erros de
+conta; a checagem de autenticação não pode cair no retorno de sucesso. A mudança
+funcional limita-se às sete RPCs da `0016` e aos comentários que a explicam.
+`13` §0, a M2-D20 emendada e suas referências em `25` foram alinhados; os dois
+checksums foram recalculados. O usuário ampliou expressamente o escopo para os
+testes necessários à nova autenticação, mantendo as provas de autoridade.
+
+**Provas dirigidas.** Uma execução medida de cada lado em (e) e (f), sem rota,
+adaptador, prazo ampliado ou tentativa automática. O JWT usado em (e) foi
+emitido pelo GoTrue local; a revogação passou pela Edge `identity`, e as
+chamadas seguintes passaram pelas sete rotas produtivas de `groups`.
+
+| Prova | `1d5b1fb` | Corrigida |
+| --- | --- | --- |
+| (e) Replay com sessão revogada, sete RPCs | Sete HTTP 200 com `data.outcome`; as sete chamadas novas dão 401 `UNAUTHENTICATED`. A asserção que exige o erro reprova. | Sete replays e sete chamadas novas dão 401 `UNAUTHENTICATED`, com erro inteiro igual salvo `request_id`, sem `data`, desfecho ou projeção. O registro `completed` original fica intacto e nenhuma chamada nova negada deixa registro. |
+| (f) Outro ator reutiliza o mesmo `request_id` | Segundo ator recebe 200 com o desfecho de sua chamada em outro grupo, diferente do primeiro. Terceiro ator sem autoridade recebe 403 `NOT_ORGANIZER`, sem `data`. | Mesmos resultados; exatamente dois registros `completed`, cada um com o ator e o desfecho corretos. Nenhum desfecho do primeiro ator é entregue aos demais. |
+
+(f) já era garantida pelo envelope do M1: a chave primária da `0004`, linha 45,
+é `(actor_key, operation, request_id)`; a aquisição lê pelo mesmo trio nas
+linhas 392–394. A `0016` deriva `actor_key` do perfil resolvido pelo contexto da
+Edge (linha 508 em `approve_member`), sem identidade de chamador vinda do body.
+Não foi necessária mutação de contraprova em (f).
+
+**(g) Chaves medidas no livro, com commit real sob `service_role`.**
+`commit-real` lê o registro concluído de cada RPC, compara exatamente o
+conjunto de chaves e confere os IDs contra os alvos da chamada. O validador da
+`0016`, linhas 84–89, mantém a allowlist fechada; a recusa de `approve_member`
+usa as mesmas chaves da aprovação. Nenhum campo adicional foi encontrado.
+
+| RPC | Chaves do desfecho gravado |
+| --- | --- |
+| `approve_member` | `group_id`, `profile_id`, `logical_result` |
+| `remove_member` | `group_id`, `profile_id`, `logical_result` |
+| `set_role` | `group_id`, `profile_id`, `logical_result` |
+| `set_monthly` | `group_id`, `profile_id`, `logical_result` |
+| `set_ratings_visibility` | `group_id`, `logical_result` |
+| `transfer_ownership` | `group_id`, `new_owner_id`, `logical_result` |
+| `leave_group` | `group_id`, `logical_result` |
+
+**Repetição de (a)–(d), uma vez por prova dirigida nesta rodada.**
+`replay-http` confirmou: (a) organizador removido recebe HTTP 200 com o mesmo
+desfecho, sem `current`, sem o valor atual `enabled=false` nem o marcador de
+perfil em qualquer campo; (c) dono autorizado recebe desfecho original com
+`enabled=false` fresco; (d) chamada nova do removido conserva 403 `NOT_MEMBER`.
+`replay-self-revoked-http` confirmou (b): depois de `leave_group` e
+`transfer_ownership`, ambos os replays dão 200 com somente o desfecho original;
+as chamadas novas conservam 403 `NOT_MEMBER` e `OWNER_ONLY`, respectivamente.
+As séries integrais posteriores também cobrem essas garantias.
+
+`replay-authority` separa agora as asserções: nas sete RPCs, replay e chamada
+nova negam conta `suspended` ou `banned` com `PROFILE_SUSPENDED`, conta
+`deletion_pending` com `FORBIDDEN`, sessão revogada com `UNAUTHENTICATED` e
+aceite obrigatório pendente com `VALIDATION`. As provas de membership, papel e
+titularidade continuam exigindo igualdade da resposta inteira com somente o
+desfecho; o livro concluído é preservado. A fixture de políticas é removida no
+`finally` e na limpeza do harness. O pgTAP acrescenta sete negações de replay
+sob o grant nominal de `service_role`, precedidas da prova de que as sete
+operações já têm registro concluído.
+
+**Falhas de desenvolvimento dos testes.** A primeira preparação de (e) usou um
+nome de campo incorreto na fixture de visibilidade e parou em 422 antes de
+medir o replay. O campo foi corrigido para `confirm_members_visibility`; a
+execução seguinte é a contraprova registrada na tabela. A primeira regressão
+pgTAP copiou chamadas incompletas, parando no fechamento de `repeat()`, e
+acusou sete erros `42601`. Corrigida a cópia da chamada inteira, a suíte passou.
+As limpezas passaram, sem resíduo em `auth.users`. Nenhum prazo ou asserção
+existente foi enfraquecido; essas falhas não são contadas como série verde.
+
+**Validação medida do complemento.** AGENTS §5 completo, com todos os comandos
+encerrados com saída 0 após as correções de desenvolvimento descritas acima;
+`db:test:groups` e três séries integrais de `db:test:membership` também verdes.
+O reset recriou o banco somente pelas migrations `0001`–`0016`.
+
+- pgTAP: 15 arquivos, **1.108** asserções, **140** da `0016`.
+- Harnesses: idempotência 7 `ok`, gateway 9, worker 8, exclusão 10, export 16 e
+  grupos 29. Membership: **68** `ok` em cada série, **7,958 s / 7,950 s / 7,911 s**
+  de parede, medidos pelo processo que executou os comandos.
+- Nas três séries: zero `40P01`; 25 conexões observadas esperando, uma
+  aprovação e 24 `GROUP_LIMIT`, cinco memberships ativas. As duas topologias de
+  exclusão × transferência e as tempestades dos mesmos atores permaneceram
+  verdes. As 17 definições vivas coincidem com o texto canônico; os 22 locks
+  mantêm 21 `FOR NO KEY UPDATE` e o expurgo em `FOR UPDATE SKIP LOCKED`.
+- Censo por série: 73 tabelas, quatro corpos, cinco logs de serviços e nove
+  tabelas do Analytics sem motivo; sentinela **1** nos logs do Postgres e **1**
+  no Analytics. Somente a auditoria aceita do GoTrue ficou: **+48** entradas por
+  série. Não houve falha de ingestão nesta validação.
+- `auth.users`, perfis, grupos e idempotência: **zero** no início e no fim da
+  validação, antes e depois das três séries e depois das provas dirigidas. O
+  censo final encontrou também catálogo de políticas, tabela, funções e
+  gatilhos de sonda com **zero** linhas ou objetos. Nenhum `updated_at` de sonda
+  permanece em `groups`.
+- Web: Auth 8 passados e 2 pulados; privacidade 4 passados e 4 pulados; smoke 6
+  passados. `verify:app`: 175 testes em 20 arquivos, lint, formato, tipos,
+  build, PWA e configuração de Auth verdes.
+- `scan:docs`, `scan:secrets`, `audit:high` e `git diff --check`: saída 0.
+  Auditoria: **13** moderadas, nenhuma alta ou crítica. O primeiro
+  `git diff --check` do driver apontou uma linha extra no fim deste documento,
+  removida antes da conferência final. Scans repetidos após fechar o registro;
+  nenhum `prettier` aplicado a `docs/`.
+
+A comparação textual contra `1d5b1fb` confirmou somente os sete corpos de RPC
+alterados; os outros dez corpos da `0016` são idênticos. O diff do complemento
+contém somente a `0016`, seus testes, `13`, `25`, `26` e os dois checksums no
+manifesto. Nenhum segredo real, projeto Supabase remoto, deploy ou serviço de
+produção foi acessado. O PR continua draft para revisão independente.
