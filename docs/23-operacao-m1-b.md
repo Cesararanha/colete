@@ -925,7 +925,10 @@ traz o PostgREST 16.2, e a 2.118.0, o 16.3.
 Decisão humana de 2026-09-27: fixar a Supabase CLI em `2.118.0` exata, e não
 “a mais nova”, e não acrescentar nova tentativa de 401 no app. A branch
 `fix/jwt-issued-at-future` faz a troca em `package.json` e `package-lock.json`,
-e o `19-operacao-m0-a.md` registra a versão nova.
+e o `19-operacao-m0-a.md` registra a versão nova. No `package-lock.json`, além
+de `version`, `resolved` e `integrity` da CLI e dos oito binários, muda a faixa
+de `jose` declarada pelo pacote `supabase`, de `^6.2.9` para `^6.2.10`; o
+`jose` instalado continua na 6.2.10, que satisfaz as duas faixas.
 
 ### Números
 
@@ -945,7 +948,31 @@ inteira exige que o relógio do contêiner estivesse mais de 30 s atrás do host
 naquele instante, e a 16.3 lê o relógio a cada requisição. Um amostrador do
 relógio da VM do Docker contra o do host, uma vez por segundo, não registrou
 desvio acima de 0,028 s nas três execuções seguintes da 16.3 nem acima de 2 s
-nas três da 16.1; a causa daquele ciclo não foi identificada.
+nas três da 16.1.
+
+A causa daquele ciclo foi verificada pela revisão independente do #38 e está
+no ambiente de medição, não no PostgREST nem no app:
+
+- o log de energia do macOS (`pmset -g log`) registra o Mac entrando em sono
+  às 18:08:22 (-03), por 159 s, até 18:11:01; o ciclo recusado aparece no Kong
+  às 21:08:29 UTC, 18:08:29 em -03, 7 s depois do início do sono. A rajada
+  recusada da tentativa descartada, às 20:31:28 UTC, caiu 5 s depois de outro
+  sono, iniciado às 17:31:23 (-03) e encerrado às 17:39:42. Nenhuma das janelas
+  com 0 recusas, nas duas versões, teve sono;
+- a sonda assina o `iat` com o relógio do host, e o PostgREST o valida com o
+  relógio da VM do Docker. A leitura da revisão é que o relógio da VM, que
+  também dá o horário do Kong, parou durante o sono, e o do host não: ao
+  acordar, os 16 `iat` do ciclo estavam cerca de 159 s no futuro para o
+  PostgREST, bem além da tolerância de 30 s. Esse mecanismo é inferência; a
+  coincidência de horário nos dois casos recusados e a ausência de sono nas
+  janelas sem recusa são medidas;
+- no fluxo real, o token vem do GoTrue, na mesma VM que o PostgREST, e os dois
+  leem o mesmo relógio. Uma sonda da revisão com login por senha no GoTrue
+  local e rajadas de 16 leituras de `profiles` depois de 35 s sem tráfego, em
+  seis execuções de 16 ciclos, teve 0 `PGRST303` em 1536 requisições, com o
+  host de 0,002 s a 0,993 s à frente do `iat`. O Mac não dormiu durante essa
+  série; que o sono também não afete o fluxo real continua inferência, coerente
+  com o mecanismo acima.
 
 Deslocamento do `iat`, três vezes cada: na 16.3, +29 s e +30 s dão 200 e +31 s
 dá 401 `PGRST303`; na 16.1, +29 s dá 200, +30 s dá 401 em duas de três e +31 s
@@ -964,10 +991,29 @@ afirmá-la na chegada com status e corpo, token redigido. Contraprova com
 observador antigo esperou até o timeout de 60 s, sem corpo; o novo falhou em
 2 s com `GET /rest/v1/profiles returned 401: {"code":"PGRST303",…}`.
 
+A revisão do #38 mostrou que o observador novo ainda deixava resíduo: a
+promessa criada antes do clique só recebia tratador no `await`, depois da
+navegação. Quando o primeiro `profiles` chegava recusado, a rejeição ficava sem
+tratador, o Playwright a tomava como falha do teste e fechava as fixtures com
+o corpo ainda rodando, e o `finally` encontrava o `request` fechado. O
+seguimento (`fix/e2e-observer-followup`) anexa o tratador na mesma instrução
+que cria o observador, como o `25` §2 exige das promessas da barreira, por
+`handledObserver` (`e2e/support/observers.ts`): a mesma promessa continua
+rejeitando no `await` do teste, com a própria mensagem. Ele vale para os
+observadores de resposta criados antes da ação que observam e esperados depois
+dela: os dois de `waitForProfileGate` em `e2e/m1-a-auth.spec.ts`
+(`firstProfileGate` e `reloadedProfileGate`) e `projectionAfterRequest` em
+`e2e/m1-b-privacy.spec.ts`. Contraprova, com a mesma injeção de um
+`401 PGRST303` no primeiro `profiles`, no teste “creates a real account…” em
+`mobile-chromium`: em `main`, o comando saiu com código 1 em 2,7 s de parede,
+com o corpo, seguido de `apiRequestContext.get: Target page, context or
+browser has been closed`, e ficou um usuário `auth-e2e-*` em `auth.users`,
+removido à mão; com o tratador, saiu com código 1 em 1,8 s, com a mesma
+mensagem, sem `has been closed`, e `auth.users` terminou com 0 linhas.
+
 ### Checagem antes do deploy
 
 - [ ] O projeto hospedado roda PostgREST ≥ 16.3.
-
 
 ## Manifesto de especificação
 
