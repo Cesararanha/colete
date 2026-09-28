@@ -3,7 +3,8 @@
 Status deste documento: **normativo para sequenciamento e critérios de saída do
 M2**. Ele não cria requisito de produto e não substitui `09`, `10`, `11`, `13`,
 `14`, `15`, `16` ou `17`; quando houver divergência, esses contratos prevalecem
-e a fatia para. Este plano também não autoriza deploy, configuração do projeto
+e a fatia para, ressalvadas as pendências com prazo expressamente decididas no
+§8. Este plano também não autoriza deploy, configuração do projeto
 remoto nem criação de segredo real. A fatia que o criou trouxe somente este
 documento, seu ponteiro no roadmap e sua entrada no manifesto. A emenda de
 2026-09-25 aplica as decisões humanas M2-D1 a M2-D3 do §8 e, por elas, altera
@@ -30,8 +31,26 @@ ela altera somente este documento. A oitava emenda, também de 2026-09-27, aplic
 a decisão humana M2-D15 do §8, que registra no §8.2, com prazo, as nove travas
 `FOR UPDATE` do M1-B fora da regra da M2-D13, e substitui no §3.3 a descrição da
 prova do guard pelas duas provas que a fatia entrega, a partir da segunda
-revisão do PR #36; ela também altera somente este documento. Nenhuma das nove
-cria migration, função, bucket, tela ou configuração Supabase.
+revisão do PR #36; ela também altera somente este documento. A nona emenda, de
+2026-09-28, aplica as decisões humanas M2-D16 a M2-D18 do §8, que fixam a recusa
+em `approve_member`, o erro de `set_role` e `set_monthly` sobre alvo sem
+membership `active` e o destino do `reason` de `remove_member`, e retira do §8.2
+os três indefinidos correspondentes; por elas, altera também `13` §5. Ela chega
+no mesmo commit da `0016`. A décima emenda, também de 2026-09-28, registra
+as decisões humanas M2-D19 e M2-D20 do §8: os quatro comportamentos aceitos na
+primeira revisão do PR #40 e a mesma autoridade atual no replay e na chamada
+nova. Por elas, emenda também `13` §0 e §5. A correção ocorre no commit único
+da `0016`, ainda em draft. A décima primeira emenda, também de 2026-09-28,
+aplica a M2-D20 emendada e a M2-D21: todo replay conserva o desfecho, com
+`current` somente se autorizado agora; a autorrevogação da exclusão tem exceção
+própria, e o replay do export é divergência com prazo na mesma migration da
+M2-D15. Por elas, emenda também `13` §0, §5 e §5.3 no commit único da `0016`.
+O ajuste de segurança de 28/09 à M2-D20 distingue autenticação de autoridade
+no grupo: replay sem autenticação devolve o erro normal, sem desfecho; a
+exceção de `delete_account` permanece. Ele alinha §4.1 e a pendência do §8.2
+ao ajuste registrado no §8.1, sem corrigir RPC fora da `0016`.
+As emendas documentais não criam migration, função,
+bucket, tela ou configuração Supabase por si mesmas.
 
 ## 1. Ponto de partida comprovado
 
@@ -507,10 +526,22 @@ fixture, criada como `postgres` somente no setup do harness.
 | `transfer_ownership` | perfis antigo/novo por bytes → grupo → memberships; novo owner precisa estar ativo; altera somente `groups.owner_id` | `NOT_ACTIVE_MEMBER` |
 | `leave_group` | perfil → grupo → própria membership; owner recebe erro antes de qualquer efeito; membership muda por último | `OWNER_MUST_TRANSFER`, `PROOFS_PENDING` |
 
-Os erros específicos da tabela são exatamente os de `13` §5. Para `set_role` e
-`set_monthly` sobre alvo sem membership `active`, `13` §5 não prevê erro
-específico, embora `NOT_ACTIVE_MEMBER` exista no catálogo de `13` §8; o código a
-devolver é indefinido do §8.2 e precisa estar registrado em `13` antes da `0016`.
+Os erros específicos da tabela são exatamente os de `13` §5. `set_role` e
+`set_monthly` sobre alvo sem membership `active` devolvem `NOT_ACTIVE_MEMBER`, o
+mesmo código de `transfer_ownership` (M2-D17), e `13` §5 foi emendado para isso.
+A recusa em `approve_member` faz `pending → removed` (M2-D16), e o `reason` de
+`remove_member` é validado e não é persistido no M2 (M2-D18); as duas regras
+também estão em `13` §5. As quatro escolhas da M2-D19 e a regra de replay da
+M2-D20 emendada estão registradas no §8.1 e em `13` §0 e §5. Transferir para si mesmo
+conclui o registro idempotente sem executar `UPDATE` em `groups`.
+
+O replay das sete RPCs adquire os mesmos locks e executa as mesmas verificações
+de autenticação e de autoridade no grupo da chamada nova. Autenticação negada
+propaga o erro normal antes do ramo de replay, sem desfecho. Com autenticação
+válida, perda de autoridade no grupo devolve sucesso com o outcome gravado e
+`current` ausente; autoridade válida combina esse outcome com a projeção fresca. A chamada nova conserva o erro normal. A revalidação não repete a mutação nem as condições do alvo já
+decidido: por exemplo, a aprovação gravada pode ser relida pelo organizador
+atual mesmo depois de o alvo deixar de estar `pending`.
 
 As operações revalidam `account_status`, aceite pendente, sessão revogada,
 membership e `suspended_at` depois dos locks. Grupo arquivado retorna
@@ -575,7 +606,8 @@ titularidade/remoção e estado `removed`/suspensão; exclusão × membership e
 retenção; e HTTP real com contraprovas. A parte “remoção e estado `removed`” da
 terceira rodada prova que `active → removed`, por `remove_member` e por
 `leave_group`, grava `removed_at`, desliga `is_monthly` e retira autoridade: RLS
-e RPC negam já na chamada seguinte do perfil removido. Prova também que nenhuma
+e chamada nova à RPC negam já na chamada seguinte do perfil removido; replay
+concluído conserva somente o desfecho, sem `current` (M2-D20 emendada). Prova também que nenhuma
 RPC da `0016` reativa a membership nem a devolve a `pending`, e que a linha
 continua existindo depois da remoção. A transição `removed → pending` e o
 incremento de `removal_count` não são provas desta fatia: dependem do resgate e
@@ -991,10 +1023,12 @@ código produtivo.
 - mudança em `09`, `10`, `11`, `13`, `14`, `15`, `17`, `18` ou `22` além das
   emendas decididas no §8 (M2-D1 em `11` §6; M2-D2 em `01`; M2-D3 em `10` §3 no
   commit da `0017`; M2-D4 em `13` §5 (linha 611) e `10` §11 (linha 1542);
-  M2-D13 em `10` §10 (linhas 1363–1365)) e das emendas a `13` que o §8 exige
-  antes da `0017`.
-  Divergência com qualquer um deles é bloqueio, não licença para o plano
-  prevalecer.
+  M2-D13 em `10` §10 (linhas 1363–1365); M2-D16 a M2-D19 em `13` §5 e M2-D20 emendada em `13` §0 e §5; M2-D21 em `13` §0 e §5.3) e das
+  emendas a `13` que o §8 exige antes da `0017`.
+  Divergência com qualquer um deles é bloqueio, salvo a pendência temporária
+  de `request_data_export` expressamente aceita pela M2-D21 e registrada com
+  prazo no §8.2. A exceção de `delete_account` está escrita em `13` §0 e §5.3;
+  não é divergência nem autorização para o plano prevalecer.
 
 ## 8. Decisões e gates humanos
 
@@ -1123,6 +1157,62 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   nenhuma FK aponta para `deletion_requests`, `data_exports`, `external_effects`
   ou `job_runs`, então o deadlock por upgrade que a M2-D13 corrige, causado pelo
   `FOR KEY SHARE` que a verificação de FK toma, não se aplica a elas.
+- **M2-D16 (decidida em 2026-09-28).** A recusa em `approve_member` faz
+  `pending → removed`, com `removed_at = now()` e `removal_count` inalterado. Um
+  novo resgate válido da `0017` incrementa o contador como qualquer reentrada.
+  Não há mudança de schema. É coerente com a M2-D9, que dá o mesmo estado ao
+  pedido pendente de grupo arquivado por exclusão do dono. `13` §5 (linha de
+  `approve_member`) foi emendado. Resolve o indefinido do §8.2 sobre o estado
+  resultante da recusa e seu efeito em `removal_count`, retirado de lá.
+- **M2-D17 (decidida em 2026-09-28).** `set_role` e `set_monthly` sobre alvo sem
+  membership `active` devolvem `NOT_ACTIVE_MEMBER`, o mesmo código de
+  `transfer_ownership`. `13` §5 (linhas de `set_role` e `set_monthly`) foi
+  emendado. Resolve o indefinido do §8.2 sobre esse erro, retirado de lá.
+- **M2-D18 (decidida em 2026-09-28).** O `reason` de `remove_member` é
+  obrigatório e validado: não vazio depois de trim e com no máximo 500
+  caracteres, pelo precedente da nota privada de `13` §3.3. Fora disso, a
+  chamada devolve `VALIDATION`, o código que `13` §8 já usa para entrada
+  inválida. O motivo não é persistido no M2: não vai para tabela, log, erro nem
+  outcome. Ele passa a ser persistido quando a trilha do grupo chegar (B2). `13`
+  §5 (linha de `remove_member`) foi emendado. Resolve o indefinido do §8.2 sobre
+  o destino do `reason`, retirado de lá.
+
+- **M2-D19 (decidida em 2026-09-28).** Aceitas as quatro escolhas da `0016`
+  apontadas na primeira revisão do PR #40: (1) `approve_member` sobre perfil
+  sem pedido devolve `NOT_FOUND`; (2) `remove_member` sobre alvo sem membership
+  `active` devolve `NOT_ACTIVE_MEMBER`; (3) `transfer_ownership` exige membership
+  `active` e conta `active` do novo dono; (4) transferir para si mesmo conclui
+  sem efeito: o registro idempotente é concluído, sem `UPDATE` em `groups` e sem
+  disparo de gatilho de atualização. `13` §5 foi emendado nas três linhas.
+- **M2-D20 (emendada em 2026-09-28).** Com autenticação válida, o replay
+  devolve o desfecho gravado, somente com IDs estáveis e `logical_result`.
+  Depois dos locks e antes de qualquer projeção, executa a mesma checagem de
+  autoridade no grupo da chamada nova: membership, papel e titularidade atuais.
+  `current` fresco só acompanha a resposta se ela autorizar agora. Se negar, a resposta é HTTP 200 com
+  `{ data: { outcome }, request_id }`, com `current` ausente e nenhum dado atual
+  de grupo, membro ou perfil. Ausência distingue falta de autorização de uma
+  projeção autorizada com valor `null`. A chamada nova conserva o erro normal.
+  Nas sete RPCs da `0016`, isso também permite repetir `leave_group` concluído
+  e `transfer_ownership` pelo antigo dono, sem projeção e sem repetir o efeito.
+  `13` §0 e as sete linhas de §5 foram emendados no commit único da `0016`.
+  **Ajuste humano de 28/09, complemento de segurança do PR #40:** perda de
+  autenticação — sessão revogada, `account_status` diferente de `active` ou
+  aceite obrigatório pendente — devolve o mesmo erro normal da chamada nova,
+  inclusive no replay, sem desfecho nem projeção. Nas sete RPCs da `0016`, a
+  checagem de autenticação ocorre depois dos locks, antes do ramo de replay e
+  fora do tratamento da perda de autoridade no grupo. Membership, papel e
+  titularidade perdidos continuam devolvendo o desfecho gravado sem `current`.
+  A única exceção permanece `delete_account` (M2-D21), sem alteração nesta
+  rodada.
+- **M2-D21 (decidida em 2026-09-28).** A regra de `13` §0 vale para todas as
+  mutações, com uma exceção escrita: o replay de `delete_account` depois da
+  própria autorrevogação devolve os campos da própria exclusão, o canal de nova
+  tentativa de `13` §5.3, `14` §5 (linhas 56–72) e `0012` (linhas 67–68).
+  `current` fica limitado a `id`, `status`, `requested_at`, `completed_at` e
+  `has_operational_failure`, sem restaurar autoridade de domínio. O replay de
+  `request_data_export` com sessão revogada ainda devolve `current` e fica como
+  divergência temporária no §8.2, com prazo **antes de fechar o M2**, na mesma
+  migration da M2-D15. Nenhuma dessas duas RPCs é corrigida nesta fatia.
 
 ### 8.2 Gates humanos
 
@@ -1189,7 +1279,7 @@ Decisões de escopo do plano, sem gate humano:
   `0016` e o expurgo de convite em revogação ou expiração + 30 dias entra na
   `0017`, cada um com prova. O agendamento segue o estado dos demais jobs.
 
-Pendência registrada, com prazo:
+Pendências registradas, com prazo:
 
 - **Travas do M1-B fora da M2-D13 (M2-D15, §8.1).** Prazo: uma migration própria,
   antes de fechar o M2, as alinha à M2-D13. São nove, citadas pela função e pela
@@ -1202,17 +1292,26 @@ Pendência registrada, com prazo:
   `FOR UPDATE SKIP LOCKED`); `public.worker_complete_external_effect`, linha 26
   (`external_effects`); `public.worker_execute_database_job`, linha 10
   (`job_runs`); `public.worker_finish_job`, linha 24 (`job_runs`); e
-  `public.worker_publish_data_export`, linha 9 (`external_effects`).
+  `public.worker_publish_data_export`, linha 9 (`external_effects`). A `0016`
+  reescreve `worker_execute_database_job` para despachar
+  `purge_removed_memberships` e, pela regra do §2, alinha a trava dela a
+  `FOR NO KEY UPDATE`; restam oito.
+
+- **Replay de `request_data_export` sem autoridade atual (M2-D21, §8.1).**
+  Prazo: **antes de fechar o M2**, na mesma migration própria da M2-D15 acima.
+  Em `0015_group_foundation.sql:831` (origem `0013:818`), o replay precede a
+  denylist em `0015:843`; com sessão revogada, ainda devolve desfecho e
+  `current`, enquanto a chamada nova dá `UNAUTHENTICATED`. É divergência
+  temporária de `13` §0: a migration deve revalidar a autenticação antes do
+  replay e, quando negada, devolver o erro normal sem desfecho nem `current`,
+  pelo ajuste de 28/09 à M2-D20 emendada. A projeção atual é somente
+  do titular, sem link, path ou token; download continua exigindo sessão válida
+  e reautenticação recente. Esse prazo é uma decisão expressa, não bloqueio da
+  `0016` nem exceção permanente à denylist. Não corrigir nesta rodada.
 
 Continuam indefinidos, e cada um precisa de resposta antes da fatia que o
 implementa, sem que o implementador escolha:
 
-- o estado resultante da recusa em `approve_member` e seu efeito em
-  `removal_count`, antes da `0016`;
-- o erro de `set_role` e `set_monthly` sobre alvo sem membership `active`, que
-  `13` §5 não prevê (§4.1), antes da `0016`;
-- o destino do `reason` de `remove_member`, que não pode ir para coluna
-  operacional, log nem erro, antes da `0016`;
 - o que um membro já `active` recebe ao resgatar convite do próprio grupo, dado
   que `13` §5 só prevê `{ status: 'pending', reentry }`, e se esse resgate
   consome uso do convite, antes da `0017`. O §4.2 só fixa que a membership

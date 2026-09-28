@@ -57,6 +57,10 @@ async function activitySnapshot(observer, applicationPrefix) {
   return JSON.stringify(snapshot.rows);
 }
 
+// blockerPid é o pid do detentor esperado ou uma lista deles: a espera vale
+// quando pg_blocking_pids do competidor contém ao menos um. A lista existe para
+// o segundo competidor de uma fila, que o PostgreSQL pode pôr à espera de quem
+// chegou antes na mesma linha, e não só do detentor.
 export async function awaitLockWait(
   observer,
   competitor,
@@ -65,6 +69,7 @@ export async function awaitLockWait(
   label,
   applicationPrefix,
 ) {
+  const expected = [].concat(blockerPid);
   const deadline = Date.now() + 15_000;
   for (;;) {
     if (competitor.state.done) {
@@ -80,12 +85,15 @@ export async function awaitLockWait(
       [competitorPid],
     );
     const row = rows[0];
-    if (row?.wait_event_type === 'Lock' && row.blockers.map(Number).includes(blockerPid)) {
+    if (
+      row?.wait_event_type === 'Lock' &&
+      row.blockers.map(Number).some((pid) => expected.includes(pid))
+    ) {
       return;
     }
     if (Date.now() > deadline) {
       throw new Error(
-        `${label}: lock wait on ${blockerPid} was not observed; pg_stat_activity=${await activitySnapshot(
+        `${label}: lock wait on ${expected.join(' or ')} was not observed; pg_stat_activity=${await activitySnapshot(
           observer,
           applicationPrefix,
         )}`,

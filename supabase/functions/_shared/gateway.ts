@@ -98,6 +98,49 @@ function rpcParameters(
     case 'delete_account':
     case 'request_data_export':
       return common;
+    case 'approve_member':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_approve: canonicalInput['approve'],
+      };
+    case 'remove_member':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_reason: canonicalInput['reason'],
+      };
+    case 'set_role':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_role: canonicalInput['role'],
+      };
+    case 'set_monthly':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_enabled: canonicalInput['enabled'],
+      };
+    case 'set_ratings_visibility':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_visibility: canonicalInput['visibility'],
+        p_confirm_members_visibility: canonicalInput['confirm_members_visibility'],
+      };
+    case 'transfer_ownership':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_new_owner_id: canonicalInput['new_owner_id'],
+      };
+    case 'leave_group':
+      return { ...common, p_group_id: canonicalInput['group_id'] };
   }
 }
 

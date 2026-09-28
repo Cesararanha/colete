@@ -423,6 +423,13 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/data-exports/index.ts"
 
+# The same gateway as identity, serving only the group membership mutations
+# (docs/25 section 4), for the same reason verify_jwt is off there.
+[functions.groups]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/groups/index.ts"
+
 [analytics]
 enabled = true
 port = 54327

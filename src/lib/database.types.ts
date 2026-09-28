@@ -10,12 +10,7 @@ export type Database = {
     };
     Functions: {
       graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
+        Args: { extensions?: Json; operationName?: string; query?: string; variables?: Json };
         Returns: Json;
       };
     };
@@ -315,6 +310,20 @@ export type Database = {
         };
         Returns: Json;
       };
+      approve_member: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_approve: boolean;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_profile_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       complete_profile: {
         Args: {
           p_actor_auth_user_id: string;
@@ -328,11 +337,7 @@ export type Database = {
         Returns: Json;
       };
       consume_data_export: {
-        Args: {
-          p_actor_auth_user_id: string;
-          p_actor_session_id: string;
-          p_export_id: string;
-        };
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_export_id: string };
         Returns: Json;
       };
       delete_account: {
@@ -346,13 +351,10 @@ export type Database = {
         };
         Returns: Json;
       };
-      enqueue_data_export_purge: {
-        Args: { p_export_id: string };
-        Returns: Json;
-      };
+      enqueue_data_export_purge: { Args: { p_export_id: string }; Returns: Json };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
       get_own_data_exports: {
-        Args: never;
+        Args: Record<PropertyKey, never>;
         Returns: Database['public']['CompositeTypes']['data_export_projection'][];
         SetofOptions: {
           from: '*';
@@ -362,7 +364,7 @@ export type Database = {
         };
       };
       get_own_deletion_request: {
-        Args: never;
+        Args: Record<PropertyKey, never>;
         Returns: Database['public']['CompositeTypes']['deletion_request_projection'][];
         SetofOptions: {
           from: '*';
@@ -370,6 +372,32 @@ export type Database = {
           isOneToOne: false;
           isSetofReturn: true;
         };
+      };
+      leave_group: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      remove_member: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_profile_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
       };
       request_data_export: {
         Args: {
@@ -393,6 +421,61 @@ export type Database = {
         };
         Returns: Json;
       };
+      set_monthly: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_enabled: boolean;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_profile_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      set_ratings_visibility: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_confirm_members_visibility: boolean;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+          p_visibility: string;
+        };
+        Returns: Json;
+      };
+      set_role: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_profile_id: string;
+          p_request_id: string;
+          p_role: string;
+        };
+        Returns: Json;
+      };
+      transfer_ownership: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_new_owner_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       update_profile: {
         Args: {
           p_actor_auth_user_id: string;
@@ -405,10 +488,7 @@ export type Database = {
         };
         Returns: Json;
       };
-      worker_acquire_external_effect: {
-        Args: { p_supported_kinds: string[] };
-        Returns: Json;
-      };
+      worker_acquire_external_effect: { Args: { p_supported_kinds: string[] }; Returns: Json };
       worker_begin_job: { Args: { p_job_name: string }; Returns: Json };
       worker_complete_external_effect: {
         Args: {
@@ -425,12 +505,7 @@ export type Database = {
       };
       worker_execute_database_job: { Args: { p_run_id: number }; Returns: Json };
       worker_finish_job: {
-        Args: {
-          p_error_code: string;
-          p_run_id: number;
-          p_status: string;
-          p_summary: Json;
-        };
+        Args: { p_error_code: string; p_run_id: number; p_status: string; p_summary: Json };
         Returns: Json;
       };
       worker_get_data_export_build_target: {
@@ -489,9 +564,7 @@ export type Tables<
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
-}
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
       Row: infer R;
@@ -514,9 +587,7 @@ export type TablesInsert<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
-}
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
       Insert: infer I;
     }
@@ -538,9 +609,7 @@ export type TablesUpdate<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
-}
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
       Update: infer U;
     }
@@ -562,9 +631,7 @@ export type Enums<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
     : never) = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
-}
+> = DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
     ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
@@ -578,9 +645,7 @@ export type CompositeTypes<
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
     : never) = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
-}
+> = PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
     ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]

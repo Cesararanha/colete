@@ -123,6 +123,8 @@ jobs:
         run: npm run db:test:export
       - name: Run the group foundation commit, concurrency and Storage fence harness
         run: npm run db:test:groups
+      - name: Run the group membership commit, concurrency, HTTP and reason census harness
+        run: npm run db:test:membership
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build

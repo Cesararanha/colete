@@ -27,7 +27,8 @@ pelo cliente como falha de transporte.
    `executing_uncommitted` antes dos locks de negócio. A unique faz concorrentes aguardarem
    o commit/rollback. O estado intermediário nunca é commitado: trigger diferido exige
    `completed` no mesmo commit do efeito/outbox. Após commit, o concorrente lê em novo
-   statement e reproduz o outcome; após rollback, outro se torna vencedor. Não existe lease
+   statement e, com autenticação válida, reproduz o outcome gravado; a projeção fresca depende da
+   autoridade atual, conforme a regra de replay abaixo. Após rollback, outro se torna vencedor. Não existe lease
    nem takeover de mutação. A calibragem proposta para a espera é
    `idempotency_wait_timeout_ms=3000`, unidade `milliseconds`; espera excedida retorna
    `IDEMPOTENCY_WAIT_TIMEOUT`, retryable e sem efeito, e o retry conserva o mesmo
@@ -53,8 +54,40 @@ Outcome idempotente guarda IDs e `logical_result` do efeito; não guarda estado/
 mutável de claim/sessão, capacidade restante ou estado financeiro atual. Também nunca guarda
 Pix, token/URL/path, nota, prova, fingerprint, input/score privado, motivo livre ou campos de
 perfil.
-A resposta combina `{ outcome, current }`: `outcome` vem do registro e `current` é projeção
-fresca autorizada. Pix por `get_payment_instructions`, upload/leitura de prova pelas Edge
+A resposta autorizada combina `{ outcome, current }`: `outcome` vem do registro e
+`current` é projeção fresca. Em **todas as mutações**, o replay de um registro
+concluído distingue autenticação de autoridade no grupo. Depois dos locks e
+antes do ramo de replay, a checagem de autenticação exige conta ativa, sessão
+não revogada e nenhum aceite obrigatório pendente. Negação devolve o mesmo erro
+normal da chamada nova, inclusive no replay, sem desfecho nem projeção. Com a
+autenticação válida, o replay devolve o desfecho gravado, composto somente de IDs
+estáveis e `logical_result`; a checagem de membership, papel e titularidade atuais
+condiciona a projeção. Se autorizar, acompanha o desfecho com `current` fresco; se
+negar autoridade no grupo, devolve sucesso sem `current` e sem nenhum dado atual
+de grupo, membro ou perfil. A chamada nova, com outro `request_id`, conserva o
+erro normal. A checagem não refaz o efeito nem as condições do alvo já decidido
+(M2-D20 emendada, ajuste da decisão humana de 2026-09-28, `25-plano-m2.md` §8.1).
+
+**Formato sem projeção:** HTTP 200 com
+`{ data: { outcome: { <IDs estáveis>, logical_result } }, request_id }`.
+O campo `current` fica **ausente**, nunca `null`: ausência significa que nenhuma
+projeção foi autorizada; `null` poderia ser um valor de uma projeção autorizada.
+As sete RPCs da `0016` usam exatamente esse formato, inclusive `leave_group`,
+cujo `current` autorizado hoje contém apenas constantes. Conflito de entrada,
+expiração do payload e falhas do envelope continuam sendo erros de idempotência,
+sem criação de um desfecho novo.
+
+**Única exceção de replay:** `delete_account`, depois da própria autorrevogação,
+devolve o desfecho e os cinco campos da própria exclusão em `current`:
+`id`, `status`, `requested_at`, `completed_at` e `has_operational_failure`.
+É o canal de nova tentativa de §5.3, `14` §5 (linhas 56–72) e
+`0012_account_deletion.sql` (linhas 67–68), coerente com o shell de exclusão de
+`22` §4; não restaura autoridade de domínio nem expõe dados de terceiros
+(M2-D21, mesma decisão humana). O replay de `request_data_export` com sessão
+revogada ainda devolve `current`: é divergência temporária registrada com prazo
+em `25` §8.2, não outra exceção permanente.
+
+Pix por `get_payment_instructions`, upload/leitura de prova pelas Edge
 autenticadas, claim/lista por `get_my_match_state` e proposta por
 `get_draw_proposal`. Efeito externo é somente uma linha de outbox/saga com `dedupe_key`; nunca
 é executado dentro da promessa transacional do banco.
@@ -598,15 +631,19 @@ Todas as mutações abaixo também recebem `request_id`.
 |---|---|---|---|
 | `create_group(name, request_id)` | `{ group_id, invite_id }` | `GROUP_LIMIT` | trava perfil; reconta até 5 grupos; `owner_id` = criador; membership `organizer` |
 | `join_by_code(code, request_id)` / `join_by_invite(token, request_id)` | `{ status: 'pending', reentry: boolean }` | `CODE_INVALID` · `INVITE_REVOKED` · `INVITE_EXPIRED` · `INVITE_USED` · `GROUP_FULL` · `GROUP_ARCHIVED` · `GROUP_LIMIT` | trava perfil→grupo→membership→convite; incremento condicional `used_count<max_uses`; `removed` volta somente a `pending`, com novo pedido, `player`, mensalista off e aprovação obrigatória; capacidade pending+active; N19 |
-| `approve_member(group_id, profile_id, approve, request_id)` | `{ status }` | `MEMBERSHIP_ALREADY_DECIDED` · `GROUP_LIMIT` · `GROUP_FULL` | trava perfil→grupo→membership; reconta cota/capacidade; trilha; aprovado → N16 |
-| `remove_member(group_id, profile_id, reason, request_id)` | `{ ok, refunds, invalidated_matches }` | `IS_OWNER` · `PROOFS_PENDING` | sob locks em ordem estável, remove de rachas futuros, invalida publicações atingidas, cria ledger/N14 para restantes, trilha do grupo e N17 para a pessoa; membership muda por último |
-| `set_role(group_id, profile_id, role, request_id)` | `{ role: 'organizer' ou 'player' }` | `OWNER_ONLY` | papel do owner continua definido por `groups.owner_id`; trilha do grupo + N25 ao afetado |
-| `set_monthly(group_id, profile_id, enabled, request_id)` | `{ enabled }` | `MONTHLY_DISABLED` | não altera inscrição já materializada; trilha do grupo |
-| `set_ratings_visibility(group_id, visibility, confirm_members_visibility, request_id)` | `{ visibility: 'private' ou 'members' }` | `OWNER_ONLY` · `VISIBILITY_CONFIRMATION_REQUIRED` | confirmação viaja no contrato e é exigida para `members`; trilha do grupo + N24 a todos os membros ativos |
-| `transfer_ownership(group_id, new_owner_id, request_id)` | `{ owner_id }` | `NOT_ACTIVE_MEMBER` | troca `groups.owner_id` sob um lock; trilha do grupo + N25 ao antigo e novo dono |
-| `leave_group(group_id, request_id)` | `{ ok, refunds, invalidated_matches }` | `OWNER_MUST_TRANSFER` · `PROOFS_PENDING` | mesma remoção atômica dos rachas futuros; publicações atingidas exigem novo sorteio; pagamentos viram `refund_due`; trilha do grupo; membership muda por último |
+| `approve_member(group_id, profile_id, approve, request_id)` | `{ status }` | `MEMBERSHIP_ALREADY_DECIDED` · `GROUP_LIMIT` · `GROUP_FULL` · `NOT_FOUND` (sem pedido, M2-D19) | trava perfil→grupo→membership; reconta cota/capacidade; recusa faz `pending → removed`, com `removed_at = now()` e `removal_count` inalterado, sem linha nova (M2-D16); trilha; aprovado → N16; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `remove_member(group_id, profile_id, reason, request_id)` | `{ ok, refunds, invalidated_matches }` | `IS_OWNER` · `PROOFS_PENDING` · `NOT_ACTIVE_MEMBER` (alvo não ativo, M2-D19) | `reason` obrigatório, não vazio depois de trim e com no máximo 500 caracteres, senão `VALIDATION`; não é persistido no M2 (tabela, log, erro ou outcome) e passa a sê-lo com a trilha do grupo (B2) (M2-D18); sob locks em ordem estável, remove de rachas futuros, invalida publicações atingidas, cria ledger/N14 para restantes, trilha do grupo e N17 para a pessoa; membership muda por último; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `set_role(group_id, profile_id, role, request_id)` | `{ role: 'organizer' ou 'player' }` | `OWNER_ONLY` · `NOT_ACTIVE_MEMBER` (alvo sem membership `active`, M2-D17) | papel do owner continua definido por `groups.owner_id`; trilha do grupo + N25 ao afetado; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `set_monthly(group_id, profile_id, enabled, request_id)` | `{ enabled }` | `MONTHLY_DISABLED` · `NOT_ACTIVE_MEMBER` (alvo sem membership `active`, M2-D17) | não altera inscrição já materializada; trilha do grupo; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `set_ratings_visibility(group_id, visibility, confirm_members_visibility, request_id)` | `{ visibility: 'private' ou 'members' }` | `OWNER_ONLY` · `VISIBILITY_CONFIRMATION_REQUIRED` | confirmação viaja no contrato e é exigida para `members`; trilha do grupo + N24 a todos os membros ativos; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `transfer_ownership(group_id, new_owner_id, request_id)` | `{ owner_id }` | `NOT_ACTIVE_MEMBER` | exige membership `active` e conta `active` do novo dono; transferir para si mesmo conclui a idempotência sem `UPDATE` em `groups` (M2-D19); troca efetiva de `groups.owner_id` sob um lock; trilha do grupo + N25 ao antigo e novo dono; após transferência efetiva, o antigo dono repete o mesmo `request_id` e recebe 200 com o desfecho sem `current`; chamada nova dele recebe `OWNER_ONLY`; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
+| `leave_group(group_id, request_id)` | `{ ok, refunds, invalidated_matches }` | `OWNER_MUST_TRANSFER` · `PROOFS_PENDING` | mesma remoção atômica dos rachas futuros; publicações atingidas exigem novo sorteio; pagamentos viram `refund_due`; trilha do grupo; membership muda por último; após a saída, repetir o mesmo `request_id` recebe 200 com o desfecho sem `current`; chamada nova recebe `NOT_MEMBER`; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
 | `create_match_invite(match_id, expires_at, max_uses, request_id)` | `{ invite_id, expires_at, max_uses }` | `TEAMS_ALREADY_PUBLISHED` · `MATCH_STARTED` | `expires_at <= starts_at`; bloqueia publicação atual; outcome não contém token; banco guarda nonce público + digest |
 | `accept_match_invite(token, request_id)` | `{ outcome: { match_player_id,payment_cycle_id,claim_id?,logical_result:'guest_added' }, current: { status,claim_status?,claim_expires_at? } }` | `INVITE_REVOKED` · `INVITE_EXPIRED` · `INVITE_USED` · `NO_OPEN_SLOT` · `TEAMS_ALREADY_PUBLISHED` · `MATCH_STARTED` | resolve IDs e trava perfil→grupo→racha→convite; consumo/capacidade/ciclo são atômicos; prazo/status só em projeção fresca; nunca devolve Pix; `is_guest`; auditoria |
+
+As regras marcadas M2-D16 a M2-D21 nas linhas acima e no §0 são decisões
+humanas de 2026-09-28, registradas em
+`25-plano-m2.md` §8.1.
 
 `get_invite_share_link(invite_id)` é projeção sensível para dono ou organizador com membership
 `active` no momento da chamada; `created_by` é registro histórico, sem autoridade (decisão
@@ -681,6 +718,10 @@ canonicamente por `document_type` e depois `version`. Esta é toda a entrada ext
   `deletion_pending`, revoga o `session_id` atual e remove toda autoridade de RLS/RPC. Grupo
   solo é arquivado. Sem substituto/canal seguro retorna `FINANCIAL_SUBSTITUTE_REQUIRED` e não
   inicia a saga.
+- O replay de `delete_account` após a autorrevogação mantém o desfecho e somente a
+  projeção da própria saga, com os cinco campos enumerados no §0 (M2-D21).
+  Essa exceção permite repetir o mesmo `request_id` depois de perder a resposta;
+  não autoriza uma chamada nova nem outra leitura de domínio.
 - Worker limpa ownership/objetos/assinaturas, chama `auth.admin.deleteUser` com retry e depois
   `finalize_deletion`. `not found` após tentativa conta como Auth já apagado. O finalize
   desidentifica e conclui; ledger/auditoria necessários permanecem pelo prazo sem depender de
