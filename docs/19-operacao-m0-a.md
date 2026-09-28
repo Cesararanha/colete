@@ -15,7 +15,7 @@ substitui as fontes normativas de `01`, `04` e `09`–`17`.
 | Expo Router | `57.0.17` | roteador oficial compatível com Expo 57 |
 | React Native Web | `0.21.2` | implementação web compatível com a matriz do SDK |
 | TypeScript | `6.0.3` | compilador estrito fixado, sem intervalo flutuante |
-| Supabase CLI | `2.116.0` | dependência de desenvolvimento local fixada; nenhuma instalação global |
+| Supabase CLI | `2.118.0` | dependência de desenvolvimento local fixada; nenhuma instalação global. Era `2.116.0` até a decisão humana de 2026-09-27, que a fixou em `2.118.0` para trazer o PostgREST 16.3 (`23-operacao-m1-b.md`, “Correção pós-marco: `PGRST303` intermitente”) |
 
 As dependências usam versões exatas e o `package-lock.json` é a autoridade da
 instalação. O intervalo em `engines` admite apenas patches compatíveis da linha

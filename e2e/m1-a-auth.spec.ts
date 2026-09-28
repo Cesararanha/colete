@@ -143,30 +143,28 @@ async function assertAccessible(page: Page) {
   expect(results.violations).toEqual([]);
 }
 
-function waitForProfileGate(page: Page) {
-  const ownProfile = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return (
-      response.request().method() === 'GET' && url.pathname === '/rest/v1/profiles' && response.ok()
-    );
-  });
-  const deletionRequest = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return (
-      response.request().method() === 'POST' &&
-      url.pathname === '/rest/v1/rpc/get_own_deletion_request'
-    );
-  });
-  return Promise.all([ownProfile, deletionRequest]).then(async (responses) => {
-    for (const response of responses) {
-      const request = response.request();
+// Each observer captures the FIRST response of its request, ok or not, and
+// asserts it the moment it arrives. Waiting only for an ok response would sit
+// blind on a rejected one (a 401 PGRST303, for example) until the timeout.
+function firstResponseMustBeOk(page: Page, method: string, pathname: string) {
+  return page
+    .waitForResponse(
+      (response) =>
+        response.request().method() === method && new URL(response.url()).pathname === pathname,
+    )
+    .then(async (response) => {
       const body = response.ok() ? '' : `: ${await failedResponseBody(response)}`;
-      expect(
-        response.ok(),
-        `${request.method()} ${new URL(response.url()).pathname} returned ${response.status()}${body}`,
-      ).toBe(true);
-    }
-  });
+      expect(response.ok(), `${method} ${pathname} returned ${response.status()}${body}`).toBe(
+        true,
+      );
+    });
+}
+
+function waitForProfileGate(page: Page) {
+  return Promise.all([
+    firstResponseMustBeOk(page, 'GET', '/rest/v1/profiles'),
+    firstResponseMustBeOk(page, 'POST', '/rest/v1/rpc/get_own_deletion_request'),
+  ]);
 }
 
 // The body is what tells an anonymous call (42501) from a rejected JWT in the
