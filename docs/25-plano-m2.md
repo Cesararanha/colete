@@ -63,6 +63,13 @@ e o tratamento de convites terminais; decisões técnicas do planejador de
 As emendas documentais não criam migration, função,
 bucket, tela ou configuração Supabase por si mesmas.
 
+**Nota de sequenciamento D63 (30/09/2026).** O piloto mínimo, a
+classificação fechada e as especificações pré-marco estão em
+`09-pivo-produto.md` §D63 e no mapa operacional `27-piloto-minimo.md`.
+Este plano preserva os contratos do M2 e a subseção “Pendências pós-piloto”
+do §8.2, obrigatória antes da abertura pública; a D63 posiciona a conclusão
+do M2 antes do staging hospedado e do ciclo do piloto.
+
 ## 1. Ponto de partida comprovado
 
 O M2 começa em `main` depois da `0014`, não num schema hipotético:

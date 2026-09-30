@@ -1,4 +1,4 @@
-# Colete — Pivô de produto e registro de decisões (25/08/2026)
+# Colete — Pivô de produto e registro de decisões (25/08/2026; D63 em 29/09/2026)
 
 **Decisão de César em 25/08:** o projeto deixa de ser entrega de faculdade neste momento.
 Prazos acadêmicos e pesquisa de UX saem do caminho crítico. O objetivo agora é
@@ -94,3 +94,51 @@ jogador, não compensa jogar com uma pessoa a menos. Especificação completa em
 2. Padrões de T1/T2, reserva aberta de 10 min e prazo do promovido — validar no uso real.
 3. Ordem de construção da v1 (mantida): auth → grupos → racha → lista atômica →
    pagamento → estrelas → sorteio.
+
+## D63 — piloto mínimo e evolução incremental (decisão de César em 29/09/2026)
+
+A D63 acrescenta uma decisão de **sequenciamento** às D1–D62, que permanecem
+íntegras. O objetivo é um app funcional que evolui: primeiro um piloto com um
+grupo de amigos; depois, a expansão. O mapa item a item e as perguntas ainda
+abertas estão em `27-piloto-minimo.md`. “Pós-piloto” conserva a especificação;
+não autoriza remover contratos, invariantes de segurança, acessibilidade ou
+proteção de dados das funções que efetivamente entrarem no piloto.
+
+1. **Ciclo do piloto:** criar grupo → convidar por link → criar racha → lista
+   com vaga atômica e fila → organizador marcar à mão quem pagou, pelo contrato
+   `mark_paid` → sortear e publicar os times. O app é a autoridade para vaga e
+   para o registro manual de pagamento; WhatsApp comunica os avisos no piloto.
+2. **Depois do piloto, com especificação preservada:** apelação financeira,
+   caso Admin, contestação de nota, upload de comprovante e notificações
+   externas (push e e-mail). O piloto não transforma pagamento manual em
+   confirmação bancária nem altera o ledger de resolução única por ciclo.
+3. **Revisão por risco, generalizando M2-D41 do plano do M2:** fatia que toca
+   vaga, dinheiro, login ou dado pessoal recebe uma revisão completa e, se
+   necessária, no máximo uma conferência (até duas rodadas); as demais recebem
+   uma revisão. Autor e revisor são pessoas/sessões distintas; o revisor aponta
+   achados e o autor corrige. A cerimônia histórica já executada não é refeita.
+4. **Staging hospedado:** entra depois do M2, antes do primeiro piloto. A
+   decisão não autoriza deploy nem acesso ao projeto Supabase remoto nesta PR.
+5. **Antes do M3:** trocar a cadeia de validadores de idempotência, hoje
+   renomeados e redefinidos a cada fatia com um `CHECK` que enumera operações,
+   por um registro de operações em tabela lido por um validador estável. A
+   fatia própria deve preservar os outcomes fechados, os vetores e a fronteira
+   de privilégios; este documento não especifica migration nem implementação.
+
+Respostas humanas de 30/09/2026, parte da D63:
+
+- **D63-A — sorteio.** No piloto, o organizador atribui uma nota a cada jogador de linha e o app distribui em serpentina: 1º no time A, 2º e 3º no B, 4º e 5º no A, e assim por diante. Goleiros continuam fora do sorteio conforme `01`. O resultado do sorteio é guardado e reproduzível; a sequência A/B ilustra dois times, sem decidir o número de times nem o formato de persistência. A v3 de `04` é evolução preservada. **Antes do marco do sorteio**, especificar empate de notas, número de times, seed, persistência e versão do algoritmo simples; esta decisão não inventa essas regras.
+- **D63-B — comunicação.** Nenhuma notificação dentro do app no piloto. Lista, fila e posição exibem o estado atual; WhatsApp leva os avisos humanos. Sino in-app é evolução.
+- **D63-C — observabilidade.** Sentry sai da promessa do piloto. Instalação com filtro de dados pessoais é obrigatória antes da abertura pública.
+- **D63-D — abertura pública.** Apelação financeira, caso Admin e contestação de nota são obrigatórios antes do público, assim como rotação de chave, limitador por IP e Sentry. Comprovante, push/e-mail, sino, Pix no app, Google, recorrência, mensalistas e v3 são evolução. Gates de segurança, LGPD e M2 já decididos continuam válidos.
+- **D63-D (extensão, decisão do planejador em 30/09/2026).** A primeira instância financeira (`open_financial_dispute`, `respond_financial_dispute`, `resolve_financial_dispute_first_instance`) integra a apelação financeira: pós-piloto e obrigatória antes da abertura pública. As intervenções `set_group_suspension`, `set_profile_access` e `admin_transfer_ownership` integram o caso Admin: pós-piloto e obrigatórias antes da abertura pública. N27 é o aviso de abertura de contestação financeira (`12` §8; `13` §2.10), portanto acompanha a disputa e também é obrigatório antes da abertura pública. Isto fecha as sete perguntas de escopo do mapa `27`; as especificações técnicas pré-marco continuam pendentes.
+- **D63-D (correção em 30/09/2026).** `transfer_financial_authority` integra o piloto no M5 para sustentar a exclusão de conta com pagamentos marcados. N26 e N28 acompanham as funcionalidades Admin e financeiras que os emitem, respectivamente: pós-piloto, obrigatórios antes da abertura pública.
+- **D63-E — racha.** Cancelar e editar racha entram no piloto. Pagamento marcado que deva ser devolvido recebe marcação manual «a devolver» e depois «devolvido», sem alegar confirmação bancária. `13` §§2.6.1–2.9 e 3.2–3.3 governam ledger, estorno, locks e invalidação; recorrência é evolução. Antes do marco de racha/pagamento, especificar qualquer adaptação do fluxo publicado ou com pagamento marcado que `13` não cubra, sem liberar mudança de preço/Pix, reabertura de prazo ou publicação inconsistente por inferência.
+- **D63-F — participantes.** O próprio jogador entra e sai; o organizador adiciona e remove manualmente segundo `13` §1.6. Convite avulso de quem não pertence ao grupo é evolução.
+- **D63-G — pagamento.** O acerto é externo; o app mostra «pague ao organizador» e só registra a declaração manual do organizador por `mark_paid`. Pix no app é evolução.
+- **D63-H — tempo.** O piloto usa T0 (abertura), fila e T2 (fechamento). Não executa T1 automático, pois esquecer de marcar pagamento não pode retirar alguém da lista; TP e mensalistas são evolução. Antes do marco de lista, especificar a adaptação do contrato `13` que hoje exige `TP <= T0 < T1 < T2`, inclusive configuração, claims, transições, alteração de prazo e testes, sem escolher defaults aqui.
+- **D63-I (corrigida em 30/09/2026) — login.** Login como já entregue no M1-A: e-mail e senha, com os códigos de confirmação existentes; login Google é evolução. Esta correção substitui a formulação anterior da pergunta I, sem alterar o fluxo entregue.
+
+A extensão D63-D fecha as sete perguntas de classificação do
+`27-piloto-minimo.md`. As especificações pré-marco exigidas por A, E e H são
+trabalho contratual pendente, não escolhas técnicas já autorizadas.

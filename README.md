@@ -82,7 +82,7 @@ pelo prazo publicado.
 | Navegação | Expo Router |
 | Backend | Supabase — PostgreSQL, Auth, Storage |
 | Acesso a dados | Row Level Security |
-| Observabilidade | Sentry |
+| Observabilidade | Operação e logs sanitizados no piloto; Sentry com filtro de dados pessoais antes da abertura pública (D63-C) |
 
 **Mobile é a versão principal** (iOS e Android). O mesmo código roda na **web** via React
 Native Web — o que também serve de estratégia de distribuição enquanto não há orçamento para
@@ -137,14 +137,22 @@ não prevalecem sobre `01` e `09`–`17`.
 
 ## Status
 
-🧭 **M0-A e M0-B concluídos localmente; M1-A em andamento.** As migrations `0001`–`0003`
-entregam a fundação de segurança, identidade e privacidade descrita em `19`/`20`. A migration
-`0004` entrega a fundação transacional de idempotência e o endurecimento de privilégios do
-papel administrativo, a `0005` entrega as tabelas operacionais de sagas, jobs e retenção, e a
-`0006` entrega o catálogo de políticas e as quatro RPCs internas de identidade e a `0007`
-entrega o expurgo do livro de idempotência; as evidências das quatro estão em `21`. O gateway
-Edge exclusivo, o seed de políticas e o agendamento dos jobs ainda não estão implementados. Os gates de convite ao beta
-permanecem em `16-roadmap.md`.
+🧭 **M0, M1-A e M1-B entregues; M2 em execução.** As migrations `0001`–`0014`,
+o gateway de identidade, o worker, a exportação governada e a saga de exclusão
+estão entregues. No M2, `0015_group_foundation.sql` e
+`0016_group_membership_rpcs.sql` já estão em `main`. Convites/criação de grupo
+(`0017`) e renomeação (`0018`) têm contratos no `main` após o merge do PR #41;
+as migrations e as interfaces UI-A/UI-B seguem pendentes.
+
+A decisão D63 orienta o **piloto mínimo com um grupo de amigos**: criar grupo,
+convidar por link, criar racha, operar vaga atômica e fila, marcar pagamento
+manualmente pelo organizador e sortear/publicar times. O roteiro está em
+`docs/16-roadmap.md` e a classificação detalhada em
+`docs/27-piloto-minimo.md`. As respostas D63-A–I fixam o sorteio simples,
+sem sino, acerto externo e login por e-mail e senha, com os códigos de
+confirmação existentes. Sentry com filtro de
+dados pessoais é obrigatório antes do público; os gates para usuários reais
+continuam abertos.
 
 ---
 

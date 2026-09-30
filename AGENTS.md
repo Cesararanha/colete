@@ -78,8 +78,8 @@ uma conversa anterior.
   `docs/99-prompt-review.md` e `docs/99-prompt-review-externo.md`.
 - **Ficam de fora, por decisão registrada:** os documentos operacionais
   `docs/19`, `docs/20`, `docs/21`, `docs/23` e `docs/26`, porque são registro
-  do que aconteceu, não contrato congelado, e `docs/24`, registro de entrega
-  acadêmica que vive fora de `main`.
+  do que aconteceu, não contrato congelado; `docs/24`, registro de entrega
+  acadêmica que vive fora de `main`; e `docs/27`, mapa operacional da D63.
 
 Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
 `npm run scan:docs` é o teste disso e precisa passar.
@@ -112,6 +112,28 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
     - A separação é deliberada: quem escreve já concluiu que o trabalho está certo, e todos
       os defeitos encontrados neste projeto foram descobertos por uma sessão diferente da
       que escreveu o código.
+
+### 4.12 Cerimônia de revisão por risco (D63, generalização da M2-D41)
+
+Classifique a fatia pelo que ela **toca**, inclusive leitura, escrita, projeção,
+transporte e migração de vaga/capacidade/fila, dinheiro/ledger/Pix,
+login/sessão/credencial ou dado pessoal/LGPD. Segredo é objeto protegido,
+não uma quinta classe de risco. PR só de documentos que altera contratos
+desses domínios recebe a mesma classificação. Essas classes são risco alto. Para qualquer
+uma dessas classes, faça uma revisão completa por sessão independente e, se
+houver correção a conferir, uma conferência no fluxo normal: até duas rodadas.
+Se a conferência encontrar um P1 novo, há uma rodada extra de correção e uma
+conferência restrita a esse P1; P2 e P3 de documento podem ser conferidos pelo
+planejador direto no repositório.
+Fatia que não toca nenhuma dessas classes recebe uma revisão. Achado que
+cruza a fronteira reclassifica a fatia. Quem escreve corrige os achados; quem
+revisa não corrige a própria revisão. Preserve contraprovas, suíte e gates da
+fatia: reduzir rodadas não reduz a prova necessária. Cerimônias de fatias já
+entregues não são refeitas retroativamente.
+
+**Prática recomendada:** Codex como autor e Claude Code como revisor, em
+sessões distintas. Outras combinações independentes são válidas. A separação
+autor/revisor e a política de merge do §4.11 continuam obrigatórias.
 
 ## 5. Validação obrigatória antes de qualquer commit de fatia
 
