@@ -62,6 +62,8 @@ não usa signed URL/token no cliente; Edge autenticada faz upload/stream com `pr
   3. converte o envelope em `AppError { code, message, current? }`, com `ErrorCode`
      gerado/validado contra `13-contratos-funcoes.md`;
   4. loga no Sentry só o inesperado, depois da sanitização descrita abaixo.
+     **D63-C:** esta etapa se aplica após instalar Sentry, obrigatório antes da
+     abertura pública; no piloto, falhas inesperadas ficam em operação sanitizada.
 - A Edge valida o JWT, extrai identidade/sessão das claims verificadas, aplica rate limit,
   normaliza/JCS, calcula o HMAC com chave do cofre e chama somente a RPC interna estreita pelo
   cliente com secret key. Ela não expõe API administrativa genérica nem escreve livremente em
@@ -107,11 +109,11 @@ não usa signed URL/token no cliente; Edge autenticada faz upload/stream com `pr
 | Chaves de API | cliente usa somente publishable key (`sb_publishable_...`) e JWT do usuário; secret key (`sb_secret_...`) fica somente na Edge/worker e nunca em bundle, browser, app, URL ou log. Código novo não embute chaves legacy |
 | Segredos | `.env` local + secrets do GitHub/EAS; nada no repositório |
 | HMAC | chaves versionadas e separadas para idempotência, convites, snapshot e fingerprint; idempotência v1 usa schema+JCS/RFC 8785 e vetor dourado; a Edge calcula, a RPC só valida formato/versão e compara replay; chave nunca fica no cliente/banco/configuração SQL/log; versões antigas ficam no cofre só pela retenção dependente |
-| Auth e e-mail | e-mail/senha + Google no beta; [SMTP próprio](https://supabase.com/docs/guides/auth/auth-smtp) antes de convidar usuários; Apple só no app nativo |
-| Sentry | ligado no M0, com release por commit e `beforeSend` que remove token, e-mail, telefone, chave Pix, comprovante, payload de notificação e nota |
+| Auth e e-mail | e-mail e senha no piloto, com os códigos de confirmação existentes; Google é evolução (D63-I corrigida); [SMTP próprio](https://supabase.com/docs/guides/auth/auth-smtp) antes de convidar usuários; Apple só no app nativo |
+| Sentry | fora do piloto; instalação obrigatória antes da abertura pública (D63-C), com release por commit e `beforeSend` que remove token, e-mail, telefone, chave Pix, comprovante, payload de notificação e nota |
 | Jobs | `job_runs`, markers e alerta de atraso; ação protegida de reconciliação no painel. Cron/ping é redundância, não garantia de disponibilidade |
 | Backup | runbook 5.1 diário para cumprir RPO de prova 24 h: roles/schema/data/histórico/config/Storage separados, manifesto, cifra, rotação de 30 dias e restore trimestral; reaplica exclusões |
-| Service worker | mínimo: shell/versionamento controlado e web push; sem cache agressivo de detalhe, Pix, comprovante ou respostas autenticadas |
+| Service worker | no piloto, shell/versionamento controlado; nenhum cache de Pix, comprovante ou resposta autenticada; web push é evolução (D63-B/D), sem cache agressivo de detalhe |
 | Web security | CSP/headers + `Referrer-Policy: no-referrer`; token de convite em fragmento trocado por POST; allowlist exata de OAuth; rate limit de auth/convite; SPF/DKIM/DMARC |
 
 ### 5.1 Runbook executável de backup e restore

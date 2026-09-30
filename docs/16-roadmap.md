@@ -1,9 +1,11 @@
-# Colete — Roadmap executável (v2, implementação incremental)
+# Colete — Roadmap executável (v2, implementação incremental; D63-A–I em 30/09/2026)
 
-**31/08/2026.** O M0-A/M0-B já entregou localmente as migrations `0001`–`0003` e suas
-evidências em `19`/`20`. O objetivo agora não é continuar redesenhando o produto: é executar
-incrementalmente as decisões fechadas em `01`, `04` e `09`–`17`. O plano do M1-A abaixo ainda
-não é implementação concluída.
+**Atualizado em 30/09/2026 pelas respostas D63-A–I.** M0, M1-A e M1-B foram entregues;
+`0015` e `0016` do M2 estão em `main`. O roteiro agora prioriza o ciclo de um
+piloto com amigos e preserva em `27-piloto-minimo.md` a classificação das
+partes posteriores e das especificações pré-marco. Os documentos `01`, `04` e
+`09`–`17` continuam a especificação; o #41 foi mergeado em `main`
+(`9805ece`), mas `0017`/`0018` ainda não foram implementadas.
 
 Emendas documentais de 28–29/09/2026 (M2-D24/M2-D25/M2-D31–M2-D42):
 `0017` concentra convites e limitador **de piloto**, com uma chave v1 e
@@ -17,9 +19,9 @@ arquivamento por RPC estão em `25` §8.2 “Pendências pós-piloto”,
 
 | Bloco | Artefato | Estado atual |
 |---|---|---|
-| Requisitos e decisões | `01-requisitos.md` · `09-pivo-produto.md` | D1–D62; revisão adversarial incorporada; mudança material exige atualizar ambos |
-| Algoritmo | `04-algoritmo-sorteio.md` | v3 binária: PRNG/encoding/vetores, streaming exato e orçamento heurístico |
-| Schema/RLS | `10-schema-db.md` | fundação `0001`–`0003` criada/testada; idempotência, RPCs e demais fatias seguem como plano incremental |
+| Requisitos e decisões | `01-requisitos.md` · `09-pivo-produto.md` | D1–D62 preservadas; D63-A–I fixam o recorte do piloto |
+| Algoritmo | `04-algoritmo-sorteio.md` | v3 binária preservada como evolução; simples por serpentina exige especificação exata antes de M6 (D63-A) |
+| Schema/RLS | `10-schema-db.md` | `0001`–`0016` aplicadas/testadas em marcos incrementais; `0017`/`0018` e domínios seguintes ainda pendentes |
 | Telas e fluxos | `11-telas-v1.md` | 25 telas e F1–F6 alinhados |
 | Notificações | `12-notificacoes.md` | N1–N28, payloads, canais e semântica de entrega fechados |
 | Contratos | `13-contratos-funcoes.md` | entradas, erros, locks, JCS/HMAC, apelações, recorrência e sagas fechados |
@@ -31,6 +33,8 @@ Questões de calibragem que podem mudar com o piloto — por exemplo T1/T2, dura
 claim e tom dos textos — são configuração ou conteúdo. Elas não justificam enfraquecer
 invariantes: reserva antes do banco, nenhuma ultrapassagem de fila, ledger imutável,
 RLS default-deny e sorteio versionado.
+**D63-H:** TP/T1 e claims associados são evolução; a adaptação do contrato
+T0/fila/T2 precisa ser especificada antes do M4.
 
 ## 2. Gates de início e de convite ao beta
 
@@ -49,6 +53,9 @@ RLS default-deny e sorteio versionado.
       O SMTP padrão do ambiente de desenvolvimento não atende beta com usuários reais.
 - [ ] **Antes de convidar o beta:** registrar `VAPID` e estratégia mínima do service worker; nenhum cache de Pix,
       comprovante ou resposta autenticada.
+      **D63-B/D:** a estratégia mínima e a proibição de cache valem no piloto;
+      `VAPID` é exigido quando push entrar na evolução, sem notificações no app
+      durante o piloto.
 - [x] **Antes da primeira migration:** mapa técnico fechado em `17-mapa-dados-lgpd.md`,
       com finalidade, hipóteses de base legal, papéis, acesso, derivados, retenção e purge.
 - [ ] **Antes de convidar o beta:** validar juridicamente papéis/bases/prazos e registrar
@@ -60,6 +67,9 @@ RLS default-deny e sorteio versionado.
 - [ ] **Antes de convidar o beta:** RPO/RTO de comprovante em 24 h formalmente aceitos;
       ainda falta implementar o export diário por allowlist e provar em restore que
       vencido/órfão não volta.
+      **D63:** a aceitação de RPO/RTO de 24 h permanece gate do piloto e cobre o
+      restore em geral (`14` §5.1; `25` §8.2). A parte específica do comprovante
+      (export por allowlist e prova de vencido/órfão) precede habilitar essa evolução.
 - [ ] **Antes de convidar o beta:** confirmar que o beta é pessoal/não comercial enquanto usar Vercel Hobby; cobrança
       ou uso por terceiros exige revisão de plano/provedor.
 - [ ] **Antes de convidar o beta:** publicar o catálogo de políticas com **pelo menos uma
@@ -125,10 +135,10 @@ fatia 10 permanecem os RPCs e jobs de grupos, rachas, lista, financeiro, times e
 as reconciliações/retention que dependem desses domínios e as demais policies de Storage. O
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
 
-As quatro linhas `0004`–`0007` estão **executadas**: as migrations existem, com evidência
-operacional em `21`. As RPCs internas de identidade, o catálogo, o expurgo do livro de
-idempotência e a Edge Function do gateway já existem; o rate limit produtivo, o seed de
-políticas e o agendamento dos jobs continuam sem implementação. `0001`–`0003` têm evidência
+As linhas `0004`–`0007` estão **executadas**, com evidência em `21`; `0011`–`0014`
+fecharam o M1-B (`23`) e `0015`/`0016` iniciaram o M2. O limitador de convites do #41 está contratado em `main`, ainda sem a
+implementação da `0017`; textos/digests de políticas, rate limit geral do
+gateway e configuração operacional remota seguem pendentes. `0001`–`0003` têm evidência
 operacional em `19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
 existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
 relaxamento permanente. Versões fictícias de políticas ficam em fixtures ou seed local; antes
@@ -201,7 +211,7 @@ o mesmo `request_id`. O piloto valida o número antes de tratá-lo como calibrag
 - contestação de nota concorrendo com saída/purge preserva somente `rating_history_id` alvo;
 - conteúdo de notificação com 91 dias é apagado sem quebrar delivery de 11 meses;
 
-### Algoritmo v3
+### Algoritmo v3 — provas da evolução D63-A
 
 - invariantes de pertencimento, duplicata e diferença máxima de tamanho;
 - todos os vetores dourados literais e força bruta independente para N≤12;
@@ -247,9 +257,22 @@ muda apenas o momento em que a navegação entre abas passa a ter destino.
 No M1-A as quatro telas entregam e-mail/senha, confirmação por OTP, recuperação de senha e
 conclusão do perfil. O bloco de aceite de Termos e Política entra junto da migration pré-beta
 que publica os textos e digests reais; antes disso não existe versão canônica que a interface
-possa apresentar ou aceitar. O Google entra na fatia operacional que configura e verifica o
-provedor e os redirects no projeto remoto, nos três alvos. Até cada contrato estar disponível
-e testado, a interface não renderiza botão oculto ou desabilitado prometendo trabalho futuro.
+possa apresentar ou aceitar. O Google é evolução (D63-I) e entra somente na fatia operacional que
+configura e verifica o provedor e os redirects no projeto remoto, nos três
+alvos. Até cada contrato estar disponível e testado, a interface não renderiza botão oculto ou desabilitado prometendo trabalho futuro.
+
+A D63-A–I (`09-pivo-produto.md` §D63) fixa o recorte; o censo está em
+`27-piloto-minimo.md`. Todas as estimativas abaixo são **INFERÊNCIA em sessões**,
+não prazo, medição ou dispensa de gate. Cada fatia que toca vaga, dinheiro,
+login ou dado pessoal recebe revisão completa por sessão distinta e, se
+necessário, uma conferência. As demais recebem uma revisão. Os marcos são
+menores para entregar e revisar cada contrato antes do próximo.
+
+### Critérios de saída e conteúdo do roteiro original, preservados
+
+O quadro original permanece literalmente abaixo. **D63:** M0/M1 já foram entregues e
+M2 está em execução. Os itens que a D63 adiou mantêm estes critérios quando
+forem implementados; a tabela seguinte detalha as fatias menores do piloto.
 
 | Marco | Conteúdo | Pronto quando |
 |---|---|---|
@@ -264,14 +287,61 @@ e testado, a interface não renderiza botão oculto ou desabilitado prometendo t
 | **M8 — hardening** | temas, tela larga, axe/reflow, performance, recuperação, runbooks e revisão de segurança | checklist `15` completo; teste de restauração; pentest manual de RLS/storage; zero PII nos erros/Sentry |
 | **Beta controlado** | um racha real com WhatsApp apenas como contingência | ciclo inteiro concluído; incidentes e intervenções manuais registrados; retrospectiva decide ajustes |
 
+**D63 por marco:** M0: Sentry é pré-público; M1: Google é evolução; M2:
+arquivamento/rotação/IP seguem `25` §8.2; M3: Pix no app, TP/T1 e recorrência
+são evolução; M4: T0/fila/T2 ficam no piloto e T1/claims de pagamento são
+evolução; M5: acerto externo, marcação e devolução manual ficam no piloto,
+comprovante e apelação seguem o recorte D63-D; M6: serpentina simples fica no
+piloto, v3 e contestação depois; M7: notificações são pós-piloto; M8: segurança,
+acessibilidade e restore valem no piloto, Sentry antes do público; Beta:
+WhatsApp leva os avisos humanos do piloto. Os critérios originais permanecem.
+
+### Fatias menores até o piloto (D63)
+
+| Ordem até o piloto | Fatias previstas | Telas | Risco / cerimônia | Sessões (INFERÊNCIA) | Pronto quando (D63) |
+|---|---|---|---|---|---|
+| M0 e M1-A/M1-B — entregues | `0001`–`0014`, gateway, Auth e privacidade; gates reais seguem abertos | 1–4, 13 | histórico entregue | 0 de implementação já entregue | Evidência histórica conferida; gates abertos identificados. |
+| M2 — terminar grupos | `0015`/`0016` entregues; `0017` convites/criação; `0018` só `rename_group`; UI-A antes da `0018`, UI-B depois e faxina/review; rotação/IP/arquivamento ficam em `25` §8.2 | 10–12, 16, 17, 24, 25 | cheia nas fatias de dado pessoal/login; uma revisão na faxina estrita | `0017` 5–8; `0018` 2–3; UI-A 4–6; UI-B 3–5; faxina 2–3 | Recompartilha na chave v1; dump não forja; RLS impede acesso cruzado; UI-A/UI-B verificadas. |
+| Após M2 — staging | ambiente isolado, configuração/smoke e gates operacionais; acesso remoto/deploy dependem de autorização própria | telas M2 | cheia por login/dado pessoal | 3–5 | Smoke isolado e gates operacionais registrados. |
+| Pré-M3 — registro de operações | migration append-only, validador estável de idempotência, replay/privilégios/outcomes | nenhuma | cheia por dinheiro/login/dado pessoal | 3–5 | Replay, privilégio e outcomes do registro estável provados. |
+| M3a — racha básico | especificar adaptação do `config` sem TP/T1/Pix no app; schema, criação, UI de criar e lista vazia | 5, 18, 6 parcial | cheia por dado pessoal/dinheiro | 4–6 | Racha criado sem duplicar retry; estado inicial coerente. |
+| M3b — editar/cancelar | especificar patches do racha publicado; `update_match`, `cancel_match`, invalidação de publicação, obrigações de devolução; recorrência fica depois | 18, 23 | cheia por dinheiro/dado pessoal | 4–6 | Edição publicada respeita locks e invalidação; cancelamento gera obrigação única de devolução. |
+| M4a — T0, vaga, fila, T2 | especificar contrato sem T1/TP; locks/capacidade, entrada/saída e reconciliação; nenhuma demissão por falta de `mark_paid` | 6, 7 | cheia por vaga | 5–7 | Testes de corrida passam, fila não é ultrapassada e falta de `mark_paid` não remove vaga. |
+| M4b — gestão manual | `add_player`/`remove_player`, fila sem ultrapassagem, posição/estado atual na tela e provas de corrida | 7, 19 parcial | cheia por vaga/dinheiro | 3–4 | Adição e remoção manuais preservam capacidade, fila e posição exibida. |
+| M5a — pagamento externo | texto «pague ao organizador», ledger de resolução única, `mark_paid`, painel e leitura do estado; sem Pix no app | 8, 19 | cheia por dinheiro | 3–5 | Nenhum pagamento é orientado sem reserva válida; `mark_paid` e ledger têm resolução única. |
+| M5b — devolução manual | pagamento conhecido após cancelamento, `refund_due`/`refunded`, correção, transferência de autoridade financeira e trava de preço conforme `13`; primeira instância entra antes do público (D63-D, extensão) | 19, 23 | cheia por dinheiro | 3–4 | Devolução é declarada manualmente; preço travado até conclusão; exclusão transfere autoridade ou retorna `FINANCIAL_SUBSTITUTE_REQUIRED`. |
+| M6 — notas e times | antes da fatia, especificar empates, times, seed, persistência, versão e testes; nota por jogador de linha, serpentina simples guardada/reproduzível, publicação | 9, 21, 22 | cheia por dado pessoal/vaga fechada | 4–6 após especificação | Sorteio simples guardado/reproduzível e publicação válida; sequência A/B é exemplo de dois times, número e formato de persistência definidos antes do marco. |
+| Gate do piloto de amigos | acessibilidade/segurança, restore isolado, políticas/digests reais, SMTP, incidentes e smoke com WhatsApp; sem Sentry no piloto | telas piloto | cheia onde tocar riscos | 3–5, excluídos gates externos de terceiros | Checklist `15`, restore, segurança e políticas reais verificados; gates concluídos antes do primeiro convite. |
+| Piloto | um grupo percorre criar → convidar → racha/edição/cancelamento → vaga/fila → acerto externo/`mark_paid` → devolução manual quando aplicável → sorteio/publicação | jornada acima | operação com critério de interrupção de §6 | duração de campo a decidir; sem sessões de código | Ciclo inteiro concluído; incidentes e intervenções manuais registrados; retrospectiva decide ajustes. |
+
+### Depois do piloto
+
+**Obrigatório antes da abertura pública (D63-C/D):** apelação financeira,
+caso Admin, contestação de nota, rotação/keyring de convite, limitador por IP
+e Sentry com filtro de dados pessoais, além do arquivamento e dos gates M2 já
+marcados em `25` §8.2 pelo #41. **Evolução (D63-A/B/D–I):** comprovante,
+push/e-mail, sino,
+Pix no app, Google, recorrência, mensalistas e v3. A extensão D63-D inclui
+primeira instância financeira e três intervenções Admin de grupo/conta
+entre os obrigatórios pré-público. A correção de 30/09 acrescenta N26 e N28
+ao mesmo gate de N27 e põe `transfer_financial_authority` no M5 do piloto;
+`27-piloto-minimo.md` fica com zero perguntas.
+Nenhum controle aparece sem contrato publicado; gates de
+segurança/LGPD do §2 seguem válidos.
+
 ## 6. Beta e rollback
 
 1. Convidar um grupo pequeno; não importar histórico desnecessário.
 2. Manter canal de contingência, mas declarar qual sistema é autoridade para vaga e
    pagamento. Se o app falhar, o organizador congela novas entradas e usa o painel de
    reconciliação antes de migrar para a lista manual.
+   **D63:** WhatsApp leva avisos humanos; o app é autoridade para vaga e para a
+   declaração manual de pagamento, exibindo lista, fila e posição sem sino.
 3. Registrar tempos de análise, claims expiradas, notificações falhas, reconciliações e
    estornos; não usar nota privada em analytics.
+   **D63:** no piloto, registrar vagas/fila, marcações manuais, devoluções,
+   falhas de reconciliação e incidentes; métricas das partes adiadas entram
+   quando elas forem implementadas.
 4. Se houver perda de integridade (overbooking, fila fora de ordem, RLS ou ledger),
    interromper o piloto. Bug visual isolado não exige apagar dados nem resetar banco.
 5. Duas ou três semanas estáveis autorizam discutir expansão; não autorizam
@@ -301,14 +371,23 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 ## 8. Próximo passo objetivo
 
-Executar o plano do M2 em `25-plano-m2.md`: fundação/isolamento e extensão da exclusão na
-`0015`, membership/titularidade na `0016` e convites/reentrada/HMAC e `create_group` na
-`0017`, incluindo o limitador compartilhado; somente renomear fica na `0018`.
-Arquivamento por RPC é obrigatório pós-piloto (`25` §8.2, M2-D40).
-As telas 10, 11, 12, 16 e 24 (UI-A) usam a `0017`; 17 e 25 (UI-B) usam também
-a `0018`. As interfaces entram somente depois dos contratos e implementações
+Concluir o M2 sem alterar o histórico das `0015` e `0016`: `0017`
+para convites/reentrada, limitador compartilhado e `create_group`; UI-A
+depois da `0017`; `0018` **somente** para `rename_group`; UI-B depois da
+`0018`; e um PR de faxina/review pós-marco. Arquivamento por RPC permanece
+obrigatório antes da abertura pública (`25` §8.2 “Pendências pós-piloto”,
+M2-D40). Depois do M2, preparar staging hospedado com autorização própria.
+Antes do M3, executar a fatia do registro de operações de idempotência
+(D63.5). O roteiro até o piloto e as especificações pré-marco estão na §5 e
+em `27-piloto-minimo.md`.
+
+As interfaces entram somente depois dos contratos e implementações
 correspondentes, sem migration artificial de UI. A fase 1 registra documentos,
 perguntas e checksum, sem criar essas migrations. Os gates de beta
 podem avançar em paralelo, mas precisam estar concluídos antes do primeiro convite. Não
 começar pelas telas: sem locks, RLS, capacidade e protocolo criptográfico provados, a
 interface apenas esconderia dívidas técnicas mais caras.
+
+**D63:** UI-A vem depois da `0017` e UI-B depois da `0018`; os gates se aplicam
+ao primeiro convite do piloto. Nenhuma preparação de staging nesta PR autoriza
+projeto Supabase remoto, deploy ou segredo.
