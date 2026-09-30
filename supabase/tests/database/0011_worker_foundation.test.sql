@@ -284,8 +284,10 @@ select set_eq(
       ('colete_v1_purge_expired_idempotency_outcomes:23 3 * * *'),
       ('colete_v1_purge_completed_deletion_requests:43 3 * * *'),
       ('colete_v1_expire_data_exports:7 * * * *'),
-      ('colete_v1_purge_removed_memberships:53 3 * * *')) as expected(value)$$,
-  'the seven schedules are exact and versioned'
+      ('colete_v1_purge_removed_memberships:53 3 * * *'),
+      ('colete_v1_purge_invite_rate_limits:* * * * *'),
+      ('colete_v1_purge_terminal_group_invites:53 3 * * *')) as expected(value)$$,
+  'the nine schedules are exact and versioned'
 );
 select is(
   (select count(*) from cron.job

@@ -908,7 +908,7 @@ token/MAC/código, concorrência, HTTP/log/rate limit, isolamento/preview e
 mínimas: nonce de 16 bytes; u16 big-endian; `token_version` 32768 recusado;
 base64url sem padding; chave v1 com exatamente 32 bytes, recusando
 comprimento diverso ou padding; domínio exato; vetor nos runtimes; MAC inválido; versão
-desconhecida; fragmento removido; compartilhamento autorizado; outro grupo
+desconhecida; compartilhamento autorizado; outro grupo
 negado; criador removido ou rebaixado negado; revogado, expirado e esgotado;
 regeneração invalidando o anterior sem mudar a
 versão; 25 resgates no último uso; 99º/100º/101º membro; vaga liberada por
@@ -975,7 +975,7 @@ pronta:
   existência de membership de outro perfil.
 
 O censo **único** de “nenhum token, MAC ou código humano em banco, log,
-Sentry ou cache” usa três instrumentos na mesma rodada; sem eles o critério
+resposta ou erro” usa os canais produtivos existentes na mesma rodada; sem eles o critério
 não fecha. Procura código de fixture exibido (`XXXXX-XXXXX`) e normalizado
 (`XXXXXXXXXX`) além de token e MAC. Hoje nenhum deles existe; o precedente é o censo pgTAP de tabelas escolhidas (teste da `0012`, linha 496 em
 diante), não um dump.
@@ -984,9 +984,11 @@ diante), não um dump.
   literal por token, MAC e pelas duas formas do código de fixture;
 - **(b)** `pg_dump --data-only` depois do harness, com busca por tokens,
   MACs, pelas duas formas do código e por paths de fixture;
-- **(c)** Sentry fake com transporte em memória, cujas contraprovas
-  injetam token, MAC e ambas as formas do código separadamente; cada
-  injeção precisa falhar.
+- **(c)** respostas e erros HTTP da Edge. Cada canal lido (tabelas no dump,
+  log do Postgres, demais logs e respostas/erros) tem sentinela positiva que
+  demonstra leitura, além da busca de token, MAC e duas formas do código.
+  A Edge não integra Sentry no piloto; transporte fake não é evidência de
+  caminho produtivo e fica fora do censo.
 
 Toda rota passa pela Edge real. O teste importa o mesmo parser, provider e
 dispatcher de produção; um `case` ausente no gateway ou um status real
@@ -1079,7 +1081,9 @@ tem contrato em `13` fica ausente, não desabilitado, até a fatia que o publica
   no resgate, sem revelar membership de terceiros; `active`/`pending`
   próprio recebe sucesso sem efeito (M2-D29/M2-D30); o preview distingue inexistente, revogado, expirado e esgotado conforme
   M2-D42. Sem a projeção de preview registrada em `13`, a UI-A não
-  começa;
+  começa. A prova E2E captura o fragmento, faz POST com o token e chama
+  `history.replaceState` antes de analytics/observabilidade; verifica que
+  URL, referrer, histórico, cache e logs não conservam o fragmento;
 - **Tela 16 — Criar grupo:** somente nome, porque não há produtor de foto no M2.
   Usa `create_group` pelo gateway, conserva o mesmo `request_id` em retry, mostra
   `GROUP_LIMIT` com mensagem clara e abre a tela 24 com o convite inicial. Não
@@ -1129,7 +1133,9 @@ manual e explicitamente a legibilidade do alfabeto e agrupamento humano
 da M2-D23.
 
 O E2E usa Auth, Edge e Postgres locais reais. Inspeciona URL, corpo, headers,
-Cache API, storage persistente e Sentry fake para provar ausência de token/MAC, código exibido e normalizado e ator. Uma contraprova
+Cache API e storage persistente para provar ausência de token/MAC, código exibido
+e normalizado e ator. Sentry permanece fora enquanto não houver integração
+produtiva no piloto. Uma contraprova
 que injeta o código em cada superfície precisa reprovar o censo. Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia
 anterior, ou pela Edge real por HTTP, com usuários criados pela API admin local
 de Auth; nenhum `insert` como `postgres` no E2E, exceto `suspended_at`,
@@ -1636,6 +1642,18 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 - Expurgo: elegibilidade em tentativa + 1 h, apagamento físico até no máximo
   um intervalo do job de minuto depois. Prova com tempo controlado observa
   esses dois limites e um perfil sem tráfego novo (§5.4; `17` §4).
+- `token_digest` da `0017` é SHA-256 dos 66 bytes binários do token
+  (`invite_id(16) || token_version(u16 BE) || public_nonce(16) || mac(32)`),
+  serializado como hexadecimal minúsculo de 64 caracteres. Não usa outra
+  chave: o próprio token já carrega MAC de 256 bits. A Edge calcula o digest
+  antes da RPC; o banco guarda somente o digest e nunca recebe o token. Um
+  vetor dourado literal em TypeScript e SQL fixa os bytes e a serialização.
+  O código humano continua com HMAC de lookup pela M2-D32, pois tem 50 bits.
+- A `share_url` usa `INVITE_SHARE_URL_BASE` como origem pública por ambiente.
+  Fora do local, a variável é obrigatória e HTTPS; configuração ausente ou
+  inválida falha fechada na Edge. O domínio real será definido no staging.
+- A remoção do fragmento por `history.replaceState`, antes de
+  analytics/observabilidade, pertence à prova E2E da UI-A (§6.1).
 
 ### 8.2 Gates humanos
 
@@ -1647,10 +1665,9 @@ A implementação não pode preencher estas respostas:
    real exige responsável antes do primeiro deploy, inclusive piloto. A
    cerimônia de rotação, versões antigas e remoção também precisam de dono
    antes da etapa pós-piloto; CI prova nomes/cobertura, não custódia.
-3. Qual é a origem pública por ambiente usada no link compartilhável? A migration
-   não grava domínio de produção e a Edge não inventa URL a partir de header não
-   confiável. O mecanismo entra na `0017`; o valor precisa estar decidido antes
-   do deploy.
+3. Mecanismo fechado pela decisão técnica do planejador de 30/09 (§8.1):
+   `INVITE_SHARE_URL_BASE` obrigatória e HTTPS fora do local. O domínio real
+   ainda precisa ser definido no staging antes do deploy.
 4. A validação jurídica aprova papéis, bases legais e retenção de memberships,
    convites e fotos (e, antes da abertura pública, IP derivado)? Sem aprovação,
    o M2 pode ser testado localmente,

@@ -35,8 +35,8 @@ select set_eq(
   $$select column_name::text from information_schema.columns
     where table_schema = 'public' and table_name = 'group_invites'$$,
   array['id', 'group_id', 'token_version', 'public_nonce', 'token_digest', 'created_by',
-        'expires_at', 'revoked_at', 'max_uses', 'used_count', 'created_at'],
-  'group_invites tem exatamente as colunas de docs/10 §3; code_digest é da 0017'
+        'expires_at', 'revoked_at', 'max_uses', 'used_count', 'created_at', 'code_digest'],
+  'group_invites tem exatamente as colunas de docs/10 §3 após a 0017'
 );
 select col_is_pk('public', 'group_members', array['group_id', 'profile_id'],
   'a membership é única por grupo e perfil');

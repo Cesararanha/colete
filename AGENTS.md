@@ -145,6 +145,7 @@ npm run db:test:gateway
 npm run db:test:worker
 npm run db:test:deletion
 npm run db:test:export
+npm run db:test:invites
 npm run db:test:groups
 npm run db:test:membership
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web

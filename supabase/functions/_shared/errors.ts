@@ -33,6 +33,13 @@ export const ERROR_CODES = [
   'MONTHLY_DISABLED',
   'VISIBILITY_CONFIRMATION_REQUIRED',
   'OWNER_MUST_TRANSFER',
+  'CODE_INVALID',
+  'INVITE_REVOKED',
+  'INVITE_EXPIRED',
+  'INVITE_USED',
+  'INVITE_ALREADY_ACTIVE',
+  'RATE_LIMITED',
+  'RATE_LIMIT_UNAVAILABLE',
   'INTERNAL',
 ] as const;
 
@@ -99,6 +106,13 @@ const MESSAGES: Record<ErrorCode, string> = {
   MONTHLY_DISABLED: 'The group does not use monthly members.',
   VISIBILITY_CONFIRMATION_REQUIRED: 'Showing ratings to members requires an explicit confirmation.',
   OWNER_MUST_TRANSFER: 'The owner must transfer the group before leaving it.',
+  CODE_INVALID: 'The invitation code or link is invalid.',
+  INVITE_REVOKED: 'This invitation was revoked.',
+  INVITE_EXPIRED: 'This invitation expired.',
+  INVITE_USED: 'This invitation has no uses left.',
+  INVITE_ALREADY_ACTIVE: 'The group already has an active invitation.',
+  RATE_LIMITED: 'Too many invitation attempts. Wait before trying again.',
+  RATE_LIMIT_UNAVAILABLE: 'Invitation attempts cannot be counted right now.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -139,13 +153,22 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'PROOFS_PENDING':
     case 'MONTHLY_DISABLED':
     case 'OWNER_MUST_TRANSFER':
+    case 'INVITE_REVOKED':
+    case 'INVITE_EXPIRED':
+    case 'INVITE_USED':
+    case 'INVITE_ALREADY_ACTIVE':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
     case 'EXPORT_EXPIRED':
     case 'GROUP_ARCHIVED':
       return 410;
     case 'IDEMPOTENCY_WAIT_TIMEOUT':
+    case 'RATE_LIMIT_UNAVAILABLE':
       return 503;
+    case 'RATE_LIMITED':
+      return 429;
+    case 'CODE_INVALID':
+      return 400;
     case 'INTERNAL':
       return 500;
     case 'VALIDATION':

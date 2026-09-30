@@ -134,8 +134,8 @@ select is(
 select is(
   (select count(*)::integer from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'create_group'),
-  0,
-  'create_group não existe na 0016 (docs/25 §2)'
+  1,
+  'create_group foi entregue na 0017 (docs/25 §2)'
 );
 
 -- ---------------------------------------------------------------------------
