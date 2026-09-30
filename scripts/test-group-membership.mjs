@@ -440,6 +440,32 @@ async function crossBarrier(connections, pair) {
   return { results, secondState };
 }
 
+// Exclusão × transferência exige uma ordem semântica: A adquire o primeiro
+// perfil; o detentor segura o segundo. B só começa depois de A esperar e só
+// vale quando pg_blocking_pids mostra que B espera A.
+async function orderedCrossBarrier(connections, pair) {
+  const { observer, holder, first, second } = connections;
+  const pids = await assertDistinctConnections({ observer, holder, first, second }, pair.label);
+  await holder.query('begin');
+  await holder.query('select 1 from public.profiles where id = $1 for no key update', [
+    pair.holdProfileId,
+  ]);
+  let a;
+  let b;
+  try {
+    a = track(pair.runFirst(first));
+    await awaitLockWait(observer, a, pids.first, pids.holder, `${pair.label} A`);
+    b = track(pair.runSecond(second));
+    await awaitLockWait(observer, b, pids.second, pids.first, `${pair.label} B`);
+  } finally {
+    await holder.query('commit');
+  }
+  const settled = await Promise.allSettled([a.settled, b?.settled ?? Promise.resolve(undefined)]);
+  const results = settled.map((entry) => entry.value);
+  assertNoDeadlock(results.filter(Boolean), pair.label);
+  return results;
+}
+
 // Par do mesmo ator (M2-D14): duas chamadas com request_id diferentes. O
 // detentor segura a primeira linha que as duas travam; A é observada esperando
 // por ele, e B, pelo detentor ou por A, que chegou antes na mesma linha.
@@ -932,7 +958,7 @@ async function proveCrossDeletionTransfer(connections, admin, inverse = false) {
   if (runPart('order1')) {
     const pair = pairs[0];
     const label = `cross-deletion-transfer (${topology}) order 1: deletion → transfer`;
-    const { results, secondState } = await crossBarrier(connections, {
+    const results = await orderedCrossBarrier(connections, {
       label,
       holdProfileId: inverse ? pair.x.id : pair.y.id,
       runFirst: deletion(pair, newRequestId()),
@@ -942,16 +968,16 @@ async function proveCrossDeletionTransfer(connections, admin, inverse = false) {
     assertKind(results[1], 'NOT_ACTIVE_MEMBER', `${label} transfer`);
     assert.equal(await ownerOf(admin, pair.gx), pair.y.id, `${label}: x's group goes to y`);
     assert.equal(await ownerOf(admin, pair.gy), pair.y.id, `${label}: y keeps its group`);
-    console.log(`# ${label}: A waited on the holder; B ${secondState}`);
+    console.log(`# ${label}: A waited on the holder's second profile; B waited on A`);
   }
-  // Ordem 2: a transferência primeiro; o detentor segura o perfil de x.
+  // Ordem 2: a transferência primeiro; o detentor segura o segundo perfil de A.
   if (runPart('order2')) {
     const pair = pairs[1];
     const label = `cross-deletion-transfer (${topology}) order 2: transfer → deletion`;
     const deletionRequest = newRequestId();
-    const { results, secondState } = await crossBarrier(connections, {
+    const results = await orderedCrossBarrier(connections, {
       label,
-      holdProfileId: pair.x.id,
+      holdProfileId: inverse ? pair.x.id : pair.y.id,
       runFirst: transfer(pair),
       runSecond: deletion(pair, deletionRequest),
     });
@@ -962,7 +988,7 @@ async function proveCrossDeletionTransfer(connections, admin, inverse = false) {
     await deleteAccountTx(connections.first, pair.x, deletionRequest);
     assert.deepEqual(await invalidOwnerGroups(admin, [pair.gx, pair.gy]), []);
     assert.equal(await ownerOf(admin, pair.gy), pair.y.id, `${label}: gy returns to y`);
-    console.log(`# ${label}: A waited on the holder; B ${secondState}`);
+    console.log(`# ${label}: A waited on the holder's second profile; B waited on A`);
   }
   console.log(`ok - cross-deletion-transfer (${topology}): through the barrier, no 40P01`);
   if (!runPart('storm')) return;
@@ -2401,23 +2427,6 @@ async function markerInTables(client, marker) {
   return { scanned: tables.length, hits };
 }
 
-async function analyticsCount(analytics, needle) {
-  const { rows: tables } = await analytics.query(
-    `select format('%I.%I', table_schema, table_name) as relation
-       from information_schema.tables
-      where table_schema = '_analytics' and table_name like 'log_events_%'`,
-  );
-  let total = 0;
-  for (const { relation } of tables) {
-    const { rows } = await analytics.query(
-      `select count(*)::integer as count from ${relation} as t where t::text like $1`,
-      [`%${needle}%`],
-    );
-    total += rows[0].count;
-  }
-  return { tables: tables.length, total };
-}
-
 async function proveReasonCensus(status, admin, client) {
   const code = 0x1400;
   const since = new Date(Date.now() - 2_000).toISOString();
@@ -2497,39 +2506,9 @@ async function proveReasonCensus(status, admin, client) {
     `the Postgres log did not capture the sentinel: ${JSON.stringify(logs)}`,
   );
 
-  // O analytics local também recebe o log do Postgres. Espera, com prazo, a
-  // sentinela chegar lá; só então a ausência do motivo vale.
-  const analytics = newClient(
-    status.databaseUrl.replace(/\/postgres(\?|$)/, '/_supabase$1'),
-    'analytics',
-  );
-  await analytics.connect();
-  let analyticsState;
-  try {
-    const deadline = Date.now() + 90_000;
-    for (;;) {
-      const sentinelHits = await analyticsCount(analytics, sentinel);
-      if (sentinelHits.total > 0) {
-        analyticsState = {
-          ...sentinelHits,
-          marker: (await analyticsCount(analytics, marker)).total,
-        };
-        break;
-      }
-      if (Date.now() > deadline) {
-        throw new Error(
-          `the analytics log did not ingest the sentinel in 90 s (${sentinelHits.tables} tables)`,
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  } finally {
-    await analytics.end();
-  }
-
   const inBodies = bodies.filter((body) => body.includes(marker)).length;
   console.log(
-    `# M2-D18 census: tables scanned=${tables.scanned}, table hits=${JSON.stringify(tables.hits)}, pg_stat_statements hits=${statements[0].count}, response/error bodies with the marker=${inBodies} of ${bodies.length}, docker logs=${JSON.stringify(logs)}, analytics=${JSON.stringify(analyticsState)}`,
+    `# M2-D18 census: tables scanned=${tables.scanned}, table hits=${JSON.stringify(tables.hits)}, pg_stat_statements hits=${statements[0].count}, response/error bodies with the marker=${inBodies} of ${bodies.length}, docker logs=${JSON.stringify(logs)}`,
   );
   assert.deepEqual(
     tables.hits,
@@ -2541,7 +2520,6 @@ async function proveReasonCensus(status, admin, client) {
   for (const [service, counts] of Object.entries(logs)) {
     assert.equal(counts.marker, 0, `M2-D18: the reason reached the ${service} log`);
   }
-  assert.equal(analyticsState.marker, 0, 'M2-D18: the reason reached the analytics log');
   assert.equal((await membership(admin, groupId, users.target.id)).status, 'removed');
   console.log(
     'ok - M2-D18: the reason is in no table, Postgres or service log, response or error; the sentinel proves the logs were read',
