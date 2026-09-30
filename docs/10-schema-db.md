@@ -4,6 +4,9 @@
 `04-algoritmo-sorteio.md` v3. Nomes de código em inglês, timestamps em `timestamptz` UTC e
 fuso IANA do racha armazenado à parte.
 
+Emendas documentais de 28–30/09/2026: M2-D3, M2-D22 a M2-D42 e decisões técnicas em §3;
+`code_digest` e limitador são contratos da futura `0017`, não schema já aplicado.
+
 Este documento define invariantes que as migrations precisam implementar. Comentário não é
 garantia: cada regra abaixo vira constraint, trigger, policy, função ou teste negativo.
 
@@ -243,6 +246,7 @@ create table group_invites (
   token_version smallint not null default 1 check (token_version > 0),
   public_nonce bytea not null check (octet_length(public_nonce) = 16),
   token_digest text unique not null,
+  code_digest  text unique, -- adição planejada da 0017 (M2-D3), não da 0015
   created_by   uuid not null references profiles,
   expires_at   timestamptz not null,
   revoked_at   timestamptz,
@@ -258,18 +262,47 @@ create table group_invites (
 - O limite pessoal de 5 conta memberships `active` em grupos não arquivados, inclusive
   grupo próprio. `create_group` e `approve_member` travam `profiles` e revalidam a contagem; pedido
   pendente não consome cota.
-- Resgate de código/link tem rate limit por perfil/IP no gateway e não revela se determinado
-  usuário já pertence ao grupo.
+- Preview/resgate de código/link compartilham o limitador fechado por perfil e
+  a dimensão por IP somente depois do piloto (`25` §8.2, M2-D39). Não revelam membership de terceiros. O próprio titular recebe `active` ou
+  `pending` nos ramos sem efeito: zero uso e `last_requested_at` preservado; repetição
+  `pending` com request novo recebe `reentry=false` (M2-D29/M2-D30). Esses ramos
+  precedem incremento e capacidade de nova entrada, sem aceitar material inválido.
 - Membership `removed` pode voltar apenas a `pending` por novo resgate válido. A mesma linha
   preserva `joined_at`, incrementa `removal_count`, atualiza `last_requested_at`, zera
   `removed_at`, força `role='player'`/`is_monthly=false` e exige nova aprovação. Não há
   banimento permanente implícito nem reativação direta para `active` na v1.
 - Token de link usa bytes `invite_id(16) || token_version(u16 big-endian) || public_nonce(16)
   || HMAC-SHA-256(key_v, "colete/invite/v1\0" || bytes_anteriores)`, em base64url sem padding.
-  `public_nonce` não é segredo; o dump sem a chave do cofre não forja token. Rotação incrementa
-  versão, gera nonce, recalcula digest e revoga material anterior. Código humano usa alfabeto sem caracteres
-  ambíguos, entropia mínima versionada, limite de tentativas e digest com segredo do servidor;
-  não é um UUID ou código sequencial exposto.
+  `public_nonce` não é segredo. `key_v` nesta fórmula é a subchave exclusiva de
+  link MAC derivada por HKDF-SHA-256 de `INVITE_HMAC_KEY_V<n>` (M2-D32); o dump
+  sem a chave do cofre não forja token. A rotação pós-piloto incrementa
+  versão, gera nonce e recalcula `token_digest`/`code_digest`, invalidando material anterior.
+  Código humano v1 tem 10 símbolos de `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` (50 bits),
+  exibição `XXXXX-XXXXX`, normalização em maiúsculas e espaço/hífen ignorados (M2-D23).
+  M2-D32 substitui a fórmula operacional de M2-D26: HKDF-SHA-256 deriva de
+  uma única `INVITE_HMAC_KEY_V<n>` por versão três subchaves com `info` distintos
+  `colete/invite/link-mac/v1`, `colete/invite/code/v1` e
+  `colete/invite/code-lookup/v1`. A Edge usa os primeiros 50 bits big-endian de
+  `HMAC-SHA-256(sub_code, invite_id(16 bytes RFC 4122) || public_nonce(16))`,
+  em 10 índices consecutivos de 5 bits no alfabeto. `code_digest` é
+  `HMAC-SHA-256(sub_lookup, u16be(token_version) || codigo_normalizado_ASCII)`.
+  No piloto, somente `INVITE_HMAC_KEY_V1` está no keyring: lookup usa v1 e
+  aceita apenas `token_version = 1`. Lookup em várias versões é pós-piloto (`25` §8.2). O banco guarda apenas o digest;
+  nenhuma chave ou código completo. Colisão unique refaz nonce e todo o
+  material. Vetores dourados literais em TypeScript e SQL da `0017` provam os
+  mesmos bytes. A chave tem 32 bytes aleatórios em base64url sem padding;
+  HKDF-SHA-256 (RFC 5869) usa salt ASCII `colete/invite/hkdf-salt/v1`,
+  `info` ASCII conforme os três rótulos acima e L=32 bytes; o digest é
+  hexadecimal minúsculo com 64 caracteres (`13` §5.0.4).
+  `token_version` continua nomeando a chave; o formato humano é versionado pelo contrato,
+  sem inventar segunda coluna de versão. `code_digest text unique` chega na `0017`
+  (M2-D3); nullability/backfill não são ampliados por esta emenda.
+  Cada convite vale criação + 30 dias, pelo servidor (M2-D22); regeneração viva troca
+  nonce/digests e conserva versão, prazo e contagem. Há no máximo um convite
+  vivo por grupo sob o lock do grupo. A ausência de convite vivo, inclusive
+  quando o grupo não tem mais linha após expurgo, permite outra linha/ID,
+  sempre com 100 usos e novo prazo de 30 dias, preservando a retenção anterior
+  (M2-D34/M2-D35). Arquivar invalida por estado do grupo sem mudar as linhas.
 - URL leva token no fragmento (não enviado em request/referrer); o app troca por POST,
   remove do endereço e nunca o envia a analytics/log. `Referrer-Policy: no-referrer` é
   defesa adicional.
@@ -280,6 +313,50 @@ create table group_invites (
   não estiver arquivado. Grupo solo arquivado pode apontar historicamente para perfil
   desidentificado/removido, sem conferir autoridade ativa.
 - Grupo é arquivado, nunca apagado pela API.
+
+### 3.1 Limitador privado de convites — contrato da `0017`
+
+Emendas humanas de 2026-09-28/29, M2-D25/M2-D33. A tabela planejada
+`private.invite_rate_limits` armazena somente orçamento de tentativas de preview
+e resgate. É tabela de serviço: nasce sem RLS e sem privilégio direto de
+`service_role`, `authenticated`, `anon` ou `PUBLIC`; a proteção vem do schema
+e de uma RPC nominal com `EXECUTE` estreito (`14` §5.2; AGENTS §2).
+
+| Campo lógico mínimo no piloto | Tipo/condição | Finalidade |
+| --- | --- | --- |
+| perfil interno | UUID resolvido do contexto interno verificado | sujeito do orçamento próprio, nunca ator do body |
+| `attempt_id` | UUID opaco gerado pelo banco | correlaciona somente a conclusão operacional da mesma tentativa |
+| instante da tentativa | `timestamptz` do servidor, uma linha por tentativa | janela deslizante real, não balde civil; elegível ao expurgo em tentativa + 1 h |
+| `result_class` | `success` ou `failure` | consulta manual da taxa global, sem código, token, motivo livre ou IP |
+
+A RPC privada `public.check_and_debit_invite_attempt(profile_id uuid,
+p_actor_auth_user_id uuid, p_actor_session_id uuid)` recebe o mesmo contexto
+interno verificado das RPCs da `0016`, com `EXECUTE` apenas para `service_role`.
+Resolve o perfil pelo Auth ID, revalida a sessão e compara seu ID ao
+`profile_id` antes do débito; divergência não grava linha (`13` §5.0.1).
+Preview e resgate compartilham **20/h por perfil**, contando todas as
+tentativas, inclusive sucessos, erros e retries. O débito atômico é transação
+separada e anterior ao domínio; rollback do domínio não devolve orçamento.
+A RPC devolve `attempt_id`; a linha nasce como `failure`, inclusive na
+quota. Após sucesso do domínio, a Edge chama
+`public.mark_invite_attempt_success(attempt_id uuid, p_actor_auth_user_id uuid,
+p_actor_session_id uuid)`, RPC nominal de `service_role` que confere o titular
+da linha e marca `success` sem alterar o débito. Falha dessa marcação mantém
+`failure` conservadoramente para a consulta manual, sem refazer o domínio.
+Quota é `RATE_LIMITED` (429) com tempo de liberação do servidor; falha do contador
+recusa fechado com `RATE_LIMIT_UNAVAILABLE` (503), antes do domínio. Cada
+registro torna-se elegível ao expurgo em tentativa + 1 h e deve desaparecer
+até 1 h + um intervalo do job de minuto. No piloto, a taxa global de falhas
+é consultada manualmente por contagem agregada dessa tabela, sem PII, com
+consulta e limiar de referência em `25` §5.3; alarme automático é pós-piloto.
+Sem bypass no E2E: configuração local declarada permite semeadura, e teto pequeno prova N+1. A tabela fica
+fora do backup geral e do export; no piloto, após restore, o contador inicia
+zerado, sem fechamento especial de preview/resgate (`17` §2/§5).
+
+A dimensão adicional por IP derivado, a fonte `X-Forwarded-For`, o agregado
+sem IP, as versões e a rotação estão preservados como contrato obrigatório
+pós-piloto em `25` §8.2 (M2-D33/M2-D39). Nenhum desses campos, chaves ou
+contadores é exigido pela `0017`.
 
 ## 4. Recorrência e racha
 
@@ -1538,7 +1615,7 @@ financeiro da seção 2.
 | `policy_documents` | serviço; cliente recebe somente projeção de versão obrigatória | migration/dispatcher interno; sem texto integral |
 | `policy_acceptances`, `privacy_requests`, `data_exports`, `deletion_requests` | próprio por projeção mínima; export só por stream autenticado | RPC própria/sistema; tabelas de saga somente worker |
 | `revoked_auth_sessions` | serviço; próprio vê apenas estado agregado da sessão | RPC de revogação/sistema |
-| `groups`, `group_members` | membros ativos; pendente vê só o pedido | RPC de dono/organizador conforme ação |
+| `groups`, `group_members` | no piloto, membros `active` leem grupo não arquivado; pendente vê só pedido próprio. Leitura da linha arquivada por policy é pós-piloto (M2-D40) | RPC de dono/organizador conforme ação; o arquivamento por exclusão de conta (M2-D9) e `GROUP_ARCHIVED` existentes não mudam |
 | `group_invites` | dono ou organizador com membership `active` no momento da leitura; `created_by` é histórico, não autoridade; token nunca é retornado do banco | RPC |
 | `match_invites` | criador/organizadores; token nunca é retornado do banco | RPC |
 | `recurrences`, `recurrence_payment_secrets` | regra a organizadores; segredo só por função interna | somente RPC/sistema |

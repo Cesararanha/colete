@@ -1,7 +1,7 @@
 # Colete — Contratos das funções (v2, implementação incremental)
 
 **A API do app: entradas, saídas, autorização, erros e efeitos transacionais.**
-31/08/2026. Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
+31/08/2026; emendas documentais de 28–30/09/2026 (M2-D22 a M2-D42 e decisões técnicas). Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
 
 ## 0. Envelope e regras comuns
 
@@ -14,7 +14,8 @@ campos de negócio enumerados na assinatura. Resposta:
 type Result<T> =
   | { data: T; request_id: string }
   | { error: { code: ErrorCode; message: string; fields?: Record<string, string>;
-               current?: unknown }; request_id: string };
+               current?: unknown; retry_after?: number; available_at?: string };
+      request_id: string };
 ```
 
 `INTERNAL` não é erro de negócio. É o fallback 5xx para uma falha inesperada que não pode
@@ -629,8 +630,8 @@ Todas as mutações abaixo também recebem `request_id`.
 
 | Função | Saída principal | Erros específicos | Efeitos |
 |---|---|---|---|
-| `create_group(name, request_id)` | `{ group_id, invite_id }` | `GROUP_LIMIT` | trava perfil; reconta até 5 grupos; `owner_id` = criador; membership `organizer` |
-| `join_by_code(code, request_id)` / `join_by_invite(token, request_id)` | `{ status: 'pending', reentry: boolean }` | `CODE_INVALID` · `INVITE_REVOKED` · `INVITE_EXPIRED` · `INVITE_USED` · `GROUP_FULL` · `GROUP_ARCHIVED` · `GROUP_LIMIT` | trava perfil→grupo→membership→convite; incremento condicional `used_count<max_uses`; `removed` volta somente a `pending`, com novo pedido, `player`, mensalista off e aprovação obrigatória; capacidade pending+active; N19 |
+| `create_group(name, request_id)` | `{ group_id, invite_id }` | `GROUP_LIMIT` | perfil→grupo→membership→convite; reconta até 5 grupos; `owner_id` = criador; membership `organizer/active`; convite inicial com 100 usos e 30 dias por tempo do servidor (M2-D22; §5.0.5) |
+| `join_by_code(code, request_id)` / `join_by_invite(token, request_id)` | projeção própria `pending` ou `active`; `reentry` deriva da intenção, não do estado atual (§5.0.3) | `CODE_INVALID` · `INVITE_REVOKED` · `INVITE_EXPIRED` · `INVITE_USED` · `GROUP_FULL` · `GROUP_ARCHIVED` · `GROUP_SUSPENDED` · `GROUP_LIMIT` · `RATE_LIMITED` · `RATE_LIMIT_UNAVAILABLE` | limitador comum antes da RPC de domínio; perfil→grupo→membership→convite; `active` e `pending` repetido não consomem uso nem mudam `last_requested_at` (M2-D29/M2-D30); entrada nova/reentrada consome uso e ocupa vaga atomicamente; reentrada `player`, mensalista off e aprovação obrigatória; N19 quando houver outbox (M2-D7) |
 | `approve_member(group_id, profile_id, approve, request_id)` | `{ status }` | `MEMBERSHIP_ALREADY_DECIDED` · `GROUP_LIMIT` · `GROUP_FULL` · `NOT_FOUND` (sem pedido, M2-D19) | trava perfil→grupo→membership; reconta cota/capacidade; recusa faz `pending → removed`, com `removed_at = now()` e `removal_count` inalterado, sem linha nova (M2-D16); trilha; aprovado → N16; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
 | `remove_member(group_id, profile_id, reason, request_id)` | `{ ok, refunds, invalidated_matches }` | `IS_OWNER` · `PROOFS_PENDING` · `NOT_ACTIVE_MEMBER` (alvo não ativo, M2-D19) | `reason` obrigatório, não vazio depois de trim e com no máximo 500 caracteres, senão `VALIDATION`; não é persistido no M2 (tabela, log, erro ou outcome) e passa a sê-lo com a trilha do grupo (B2) (M2-D18); sob locks em ordem estável, remove de rachas futuros, invalida publicações atingidas, cria ledger/N14 para restantes, trilha do grupo e N17 para a pessoa; membership muda por último; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
 | `set_role(group_id, profile_id, role, request_id)` | `{ role: 'organizer' ou 'player' }` | `OWNER_ONLY` · `NOT_ACTIVE_MEMBER` (alvo sem membership `active`, M2-D17) | papel do owner continua definido por `groups.owner_id`; trilha do grupo + N25 ao afetado; replay devolve o desfecho gravado; `current` só com a autoridade atual da chamada nova (§0, M2-D20 emendada) |
@@ -645,7 +646,7 @@ As regras marcadas M2-D16 a M2-D21 nas linhas acima e no §0 são decisões
 humanas de 2026-09-28, registradas em
 `25-plano-m2.md` §8.1.
 
-`get_invite_share_link(invite_id)` é projeção sensível para dono ou organizador com membership
+`get_invite_share_link(invite_id)` devolve `code`, `code_format` e link na mesma projeção sensível para dono ou organizador com membership
 `active` no momento da chamada; `created_by` é registro histórico, sem autoridade (decisão
 humana M2-D4, 2026-09-26, registrada em `25-plano-m2.md` §8.1). Reconstitui
 token autenticado a partir de ID + `token_version` + `public_nonce` de 16 bytes e HMAC do
@@ -654,6 +655,386 @@ persiste a URL na idempotência. Token usa fragmento, sai do endereço após a t
 em logs. Bytes são `id(16)||version(u16 BE)||nonce(16)||mac(32)`, base64url sem padding;
 domínio é `colete/invite/v1` ou `colete/match-invite/v1`. Rotação incrementa versão, troca
 nonce/digest e invalida a anterior. Dump sem chave do cofre não forja nem reconstrói MAC.
+
+### 5.0 Contratos de convites e configurações do M2 — fase documental
+
+Emendas humanas de 2026-09-28/29: M2-D22 a M2-D42, em `25` §8.1. Este registro
+antecede a implementação: `0017` publica convites e limitador; `0018` publica
+somente renomear. `archive_group` é pós-piloto (M2-D40). Nomes e quadros abaixo são contratos externos aprovados
+(M2-D31), não afirmação de que RPC ou rota já existe. Nenhum controle aparece
+antes da publicação real. Lacunas novas, não cobertas pelas decisões,
+foram fechadas em 29/09 pelas M2-D39–D42 e decisões técnicas
+registradas em `25` §8.1.
+
+As citações de linhas desta seção usam a base `dc37dbb` (merge do PR #40), antes
+da presente emenda. Assim, permanecem verificáveis mesmo com a inserção destes
+contratos. As referências às decisões M2-D22 a M2-D42 apontam para as emendas de 28–29/09.
+
+#### 5.0.1 Fronteira, tempo, locks, replay e HTTP
+
+O cliente chama somente a Edge autenticada e envia os campos da assinatura;
+identidade, sessão, papel, nonce, versões de chave e digests nunca vêm do body.
+A Edge verifica o JWT, e as RPCs nominais resolvem o perfil e revalidam conta,
+denylist, aceite e autoridade. `public`, `anon` e `authenticated` não executam
+RPC interna mutável; `service_role` só recebe `EXECUTE` nominal, sem DML direto
+(§0, linhas 8–10 e 46–50; `10` §11, linhas 1519–1533).
+
+Toda mutação usa o envelope transacional do §0: chave idempotente antes dos
+locks, conclusão no mesmo commit, conflito para entrada diferente, espera
+concorrente e tombstone nos prazos existentes. O outcome persistido contém somente IDs estáveis e um `logical_result` tipado; não contém nome, status atual, prazo,
+contagem, código, token, URL, nonce, digest ou motivo livre. A resposta externa
+de resgate deriva `reentry` desse resultado e o inclui no `outcome` exposto,
+sem persistir outro fato mutável (M2-D31). Os valores e projeções do quadro
+abaixo são a allowlist contratada. Retry de transporte conserva o `request_id`;
+outra intenção consciente usa outro ID (§0, linhas 26–36 e 52–69).
+O JCS/HMAC da intenção usa a entrada externa normalizada; ID/nonce/digests
+gerados pela Edge para persistência não mudam sua identidade no retry.
+No replay, validação de formato e autenticação não reexecutam a condição
+de material vivo do efeito já decidido.
+
+Depois dos locks e antes do replay, conta não ativa, sessão revogada ou aceite
+obrigatório pendente produzem o erro normal, sem outcome nem `current`.
+Com autenticação válida, o replay não repete efeito, validade do material ou
+condições do alvo já decidido. Revalida somente a autoridade atual para
+projetar: se autorizar, HTTP 200 com `{ outcome, current }`; se negar autoridade
+de grupo, HTTP 200 com `{ outcome }` e `current` ausente. A chamada nova mantém
+o erro normal. Vale a M2-D20 emendada, com o ajuste de autenticação; a exceção
+de `delete_account` não se estende a convites ou configurações (§0, linhas
+57–85). O replay do futuro `archive_group` com leitura histórica está
+preservado em `25` §8.2 (M2-D40). Nunca há token, código, URL, nonce ou
+digest no replay.
+Chamada nova sobre grupo arquivado recusa com `GROUP_ARCHIVED` (410); grupo
+suspenso recusa a mutação nova com `GROUP_SUSPENDED` (403).
+
+Locks de domínio usam `FOR NO KEY UPDATE`, em ordem idempotência → perfis →
+grupos → memberships → convites; UUIDs no mesmo nível em bytes crescentes.
+Leituras para descobrir pais não travam filhos. Exclusão física por retenção e
+alteração de coluna de chave exigem `FOR UPDATE`, pela M2-D13 (`25` §2,
+linhas 138–187). Em regeneração, `token_digest` e `code_digest` têm índices `unique` sem
+predicado; alterar essas colunas-chave exige `FOR UPDATE` na linha do convite.
+Expurgo físico de convites e memberships removidas também usa `FOR UPDATE`
+na linha apagada. As demais travas de domínio usam `FOR NO KEY UPDATE`. A rotação
+operacional pós-piloto trava somente convites, em UUID crescente (`25` §8.2).
+
+No piloto (M2-D39), o limitador comum do preview e do resgate usa a RPC
+estreita `public.check_and_debit_invite_attempt(profile_id uuid,
+p_actor_auth_user_id uuid, p_actor_session_id uuid)`, exposta ao transporte REST
+apenas para `service_role`. A Edge passa os dois campos de ator do mesmo
+contexto interno verificado que alimenta as RPCs da `0016` (§0.1; `25` §4.1),
+nunca do body. Sob lock do perfil, a RPC resolve o perfil de
+`p_actor_auth_user_id`, revalida sessão/conta/aceite e compara o ID resolvido
+com `profile_id` **antes** de inserir. Ausência ou divergência recusa sem
+débito e sem RPC de domínio; `auth.uid()` do cliente administrativo não é
+fonte de autoridade (decisão técnica do planejador de 30/09 em `25` §8.1).
+Em transação separada da RPC de domínio, ela registra e conta **toda** tentativa
+por perfil: preview e resgate, sucessos, erros e retries somados, 20 por janela
+deslizante de 1 h; até a tentativa recusada debita. Retorna
+`{ allowed: boolean, attempt_id: uuid, retry_after: integer | null,
+available_at: timestamptz | null }` com tempos do servidor e ID opaco da linha.
+Falha de admissão recusa fechado com `RATE_LIMIT_UNAVAILABLE` (503) antes do
+domínio; quota dá `RATE_LIMITED` (429). A linha tem `result_class` restrito a
+`failure|success`: nasce `failure` inclusive para quota e demais erros.
+Após sucesso do domínio, a Edge chama
+`public.mark_invite_attempt_success(attempt_id uuid, p_actor_auth_user_id uuid,
+p_actor_session_id uuid)`, RPC nominal só de `service_role` que revalida o
+contexto e o titular da linha, marca `success` sem mudar o débito e é
+idempotente. Se ela falhar, a linha conserva `failure` de forma conservadora
+para a consulta manual; a resposta bem-sucedida não repete o domínio.
+No piloto, a taxa global de falhas é **consultável manualmente** na tabela privada pela consulta
+e limiar de referência de `25` §5.3; o alarme automático é pós-piloto (§8.2).
+Nenhum IP é recebido ou persistido nesta fase. A dimensão adicional de IP,
+seus derivados, rotação e contador agregado sem IP são contrato obrigatório
+**pós-piloto** em `25` §8.2 (M2-D33/M2-D39).
+
+Sucesso é HTTP 200. Aplicam-se a todos os contratos, quando cabíveis:
+
+| Código | HTTP | Significado e orientação |
+| --- | --- | --- |
+| `UNAUTHENTICATED` | 401 | sessão ausente, inválida ou revogada; autenticar novamente |
+| `PROFILE_SUSPENDED` | 403 | conta sem autorização de domínio; usar o canal próprio |
+| `VALIDATION` | 422 | entrada fora do contrato ou aceite obrigatório pendente; corrigir o campo ou concluir o aceite |
+| `NOT_MEMBER`, `NOT_ORGANIZER`, `OWNER_ONLY`, `FORBIDDEN` | 403 | falta de autoridade atual da ação; nunca expor informação de terceiro |
+| `NOT_ACTIVE_MEMBER` | 409 | alvo da operação sem membership `active`; não designa o ator |
+| `NOT_FOUND` | 404 | alvo não encontrado em chamada administrativa autorizada |
+| `CODE_INVALID` | 400 | código inexistente ou material malformado; não confirma convite |
+| `INVITE_REVOKED`, `INVITE_EXPIRED`, `INVITE_USED` | 409 | convite existente revogado, expirado ou esgotado, respectivamente; preview e resgate informam a causa (M2-D42), sem consumir uso |
+| `INVITE_ALREADY_ACTIVE` | 409 | já existe convite vivo no grupo; usar ou encerrar o atual antes de emitir outro |
+| `GROUP_ARCHIVED` | 410 | grupo arquivado não admite a operação |
+| `GROUP_SUSPENDED` | 403 | grupo suspenso não admite a operação |
+| `GROUP_FULL`, `GROUP_LIMIT` | 409 | capacidade/cota atual impede nova entrada |
+| `CONCURRENT_CHANGE` | 409 | conjunto descoberto mudou sob lock; reler antes de outra tentativa |
+| `IDEMPOTENCY_CONFLICT` | 409 | entrada diferente; não refazer efeito |
+| `IDEMPOTENCY_EXPIRED` | 410 | payload já expurgado; não refazer efeito |
+| `IDEMPOTENCY_WAIT_TIMEOUT` | 503 | espera sem efeito; retry conserva o mesmo `request_id` |
+| `RATE_LIMITED` | 429 | orçamento por perfil atingido no piloto; antes de consultar o código, esperar o instante do servidor |
+| `RATE_LIMIT_UNAVAILABLE` | 503 | contador indisponível; não chamar a RPC de domínio |
+| `INTERNAL` | 500 | fallback inesperado, sem detalhe interno; regra do §0 |
+
+Os HTTP dos códigos já implementados conservam o mapeamento vigente na base
+(`supabase/functions/_shared/errors.ts`, linhas 114–157). Os contratos novos de convite, inclusive `INVITE_ALREADY_ACTIVE` e as
+formas de sucesso, seguem as M2-D31–M2-D42 e a nomenclatura técnica
+de `group_created` em `25` §8.1; a publicação
+na aplicação continua para a `0017`/`0018`.
+
+| Operação | `outcome` contratado (somente mutação) | `current`/dados contratados, somente se autorizados |
+| --- | --- | --- |
+| preview | não há | `{ group_name }` |
+| criar grupo | `{ group_id, invite_id, logical_result:'group_created' }` | `{ group_id, group_name }`, sem material de convite |
+| pedidos próprios pendentes | não há | array de `{ group_id, group_name, status:'pending' }` |
+| resgate | `{ group_id, invite_id, logical_result, reentry }`, com `membership_requested`, `membership_reentry_requested`, `membership_request_unchanged` ou `membership_already_active`; `reentry` é derivado na resposta, não armazenado | `{ group_id, group_name, status:'pending'|'active' }` |
+| revogar | `{ group_id, invite_id, logical_result }`, com `invite_revoked` ou `invite_revocation_unchanged` para terminal sem efeito (M2-D35) | `{ invite_id, revoked_at }` |
+| regenerar | `{ group_id, invite_id, logical_result:'invite_regenerated' }` | `{ invite_id, expires_at, remaining_uses }`, sem material |
+| emitir | `{ group_id, invite_id, logical_result:'invite_issued' }` | `{ invite_id, expires_at, max_uses, remaining_uses }`, sem material |
+| renomear | `{ group_id, logical_result:'group_renamed' }` | `{ group_id, group_name }` |
+
+`reentry` é verdadeiro somente para `membership_reentry_requested`; os
+outros três desfechos de resgate produzem falso. Ele acompanha o `outcome`
+externo e é rederivado do `logical_result` em todo replay (M2-D31). O resgate
+não projeta grupo para quem perdeu a leitura própria: membership atual fora
+de `pending|active` implica `current` ausente. A leitura histórica de grupo
+arquivado por `archive_group` é pós-piloto (`25` §8.2). Leitura sensível
+de material nunca entra
+nessas projeções de replay. Erro comum não contém outcome.
+
+#### 5.0.2 Preview e pedido próprio pendente
+
+Assinaturas contratadas: `preview_group_by_code(code)` e
+`preview_group_by_invite(token)`. Não recebem ator nem criam intenção mutável
+de domínio. Cada requisição tem correlação no envelope e debita o limitador,
+inclusive repetição da leitura. Quem chama é o titular autenticado com conta
+ativa e aceite em dia; não precisa ser membro do grupo do convite (M2-D28).
+
+Depois da RPC estreita do limitador, a RPC de preview resolve IDs sem lock e
+trava perfil próprio → grupo → membership própria, se existente → convite
+em `FOR NO KEY UPDATE`; o modo de lock segue a M2-D13.
+Revalida material e estado sob locks. Não incrementa `used_count`, não cria
+membership ou pedido, não atualiza `last_requested_at` e não muda papel.
+A resposta de sucesso é somente `{ group_name: string }`, sem ID do grupo,
+foto, dono, membro, contagem ou causa interna (M2-D28; `25` §5.3, linhas 772–793).
+
+Depois do débito obrigatório, código inexistente ou material malformado
+retorna `CODE_INVALID` (400). Convite existente mas revogado, expirado ou
+esgotado retorna, respectivamente, `INVITE_REVOKED`, `INVITE_EXPIRED` ou
+`INVITE_USED` (409); grupo arquivado/suspenso e capacidade/cota usam seus
+códigos de §5.0.1. Quota sempre precede lookup e devolve `RATE_LIMITED`
+(429) para **qualquer** código; falha do contador devolve
+`RATE_LIMIT_UNAVAILABLE` antes do domínio. Essa distinção de causas e o
+oráculo limitado do resgate são aceitos pela M2-D42. Autenticação negada
+mantém seu erro próprio, sem preview.
+
+Para material válido, membership própria já `active` ou `pending` é resgate
+sem efeito: capacidade/cota de nova entrada não o tornam irrealizável
+(M2-D29/M2-D30). Preview também não revela essa membership. A tela 12 mostra
+o nome para confirmar a intenção; somente o resgate informa o estado próprio.
+
+Assinatura contratada da leitura própria: `get_my_pending_group_requests()`.
+Retorna exclusivamente linhas próprias tipadas
+`{ group_id: uuid, group_name: string, status: 'pending' }`, sem convite nem
+dados de outros membros (M2-D28). É leitura atual, sem livro de idempotência,
+sem consumo de convite e sem débito do orçamento de preview/resgate. Não abre
+`SELECT` de `groups` ao pendente. O vínculo com o titular é resolvido na função
+autorizada; não é um `profile_id` recebido do cliente. A tela 10 mostra
+**Aguardando aprovação**. Não há promessa de linha `pending` depois de recusa
+ou arquivamento: a M2-D9/M2-D16 a transformam em `removed`.
+
+#### 5.0.3 Resgate por código ou link
+
+Assinaturas existentes: `join_by_code(code, request_id)` e
+`join_by_invite(token, request_id)` (§5, linha 633 na base; nomes existentes
+independem dessa referência de linha). Quem chama é o próprio titular
+autenticado com conta ativa e aceite em dia, sem ator no body. Ambas usam a
+mesma primitiva transacional e o mesmo orçamento do preview (M2-D25).
+
+Cada tentativa, inclusive retry com o mesmo `request_id`, passa pelo limitador
+antes da RPC de domínio. Uma recusa de quota ou indisponibilidade não adquire
+idempotência de domínio e não muda grupo, convite, membro ou pedido. O débito
+do contador não é desfeito pelo rollback posterior do resgate.
+
+Depois da idempotência, resolve IDs sem lock: intenção nova pelo material;
+replay pelos IDs estáveis do outcome, mesmo após troca/expurgo do convite.
+Trava perfil próprio → grupo →
+membership própria → convite, revalida autenticação e então distingue replay
+de intenção nova. Replay segue §5.0.1, sem consumir uso de novo, sem repetir
+reentrada e sem exigir que o convite original continue vivo.
+
+Na intenção nova, depois da quota, a ordem técnica de avaliação é
+inexistente/malformado, revogação, validade de 30 dias pelo servidor,
+esgotamento, grupo arquivado/suspenso e capacidade/cota. A M2-D42 decide
+a precedência da quota e a distinção das causas. A sequência restante é
+organização técnica do contrato (`25` §8.1). Material
+inválido nunca serve de atalho para consultar a membership. Antes de recontar
+capacidade de nova entrada ou incrementar uso, trata os dois ramos sem efeito:
+
+- **Já `active`:** sucesso com projeção própria `status='active'`, zero uso,
+  `reentry=false`; preserva papel, mensalista, `joined_at`, `removed_at`,
+  `removal_count` e `last_requested_at`. Funciona com grupo cheio e não cobra
+  novamente a vaga/cota já ocupada (M2-D29).
+- **Já `pending`:** sucesso com projeção própria `status='pending'`, zero uso,
+  `reentry=false`; preserva todos os campos, inclusive `last_requested_at`.
+  Vale com o mesmo convite ou outro convite válido do mesmo grupo e com grupo
+  cheio (M2-D30). Não há novo pedido nem nova linha.
+
+Ausência de membership e reentrada de `removed` recontam capacidade
+`pending + active` sob o grupo e cota sob o perfil, incrementam condicionalmente
+`used_count` exigindo uma linha afetada e criam/atualizam o pedido na mesma
+transação. Pedido pendente não consome a cota de memberships ativas
+(`10` §3, linhas 255–265). A reentrada mantém a linha e `joined_at`, incrementa
+`removal_count` uma vez, atualiza `last_requested_at`, zera `removed_at`, força
+`player` e mensalista desligado. Nunca cria `active` nem restaura autoridade.
+
+A projeção própria de sucesso admite `status: 'pending'|'active'`; `reentry`
+é o desfecho da intenção, não o estado corrente. Replay de reentrada conserva
+`reentry=true`, mesmo após aprovação; chamada nova de quem continua `pending`
+recebe `reentry=false`. O `outcome` externo inclui o `reentry` derivado; o livro nunca congela
+status ou nome. Erros: os comuns,
+`CODE_INVALID`, `INVITE_REVOKED`, `INVITE_EXPIRED`, `INVITE_USED`,
+`GROUP_ARCHIVED`, `GROUP_SUSPENDED`, `GROUP_FULL`, `GROUP_LIMIT`, `RATE_LIMITED`
+e `RATE_LIMIT_UNAVAILABLE`, com HTTP de §5.0.1. Erro de domínio não deixa uso
+ou pedido parcial. A tela 12 mostra **Aguardando aprovação** para `pending`
+e o estado próprio de membro para `active`, sem anunciar novo pedido.
+
+#### 5.0.4 Compartilhamento e material humano
+
+Assinatura existente: `get_invite_share_link(invite_id)`, leitura sensível.
+Quem chama é dono ou organizador com membership `active` agora (M2-D4);
+`created_by` não autoriza. Resolve grupo sem lock e trava perfil próprio →
+grupo → membership própria → convite. Revalida autenticação, autoridade,
+estado do grupo, digest, revogação, expiração e usos sob a linha corrente.
+Não usa livro de idempotência, não consome uso e não troca material.
+
+A saída é `{ invite_id, expires_at, remaining_uses, share_url, code,
+code_format: 'v1' }` (M2-D31; `25` §5.2). Código e link usam a mesma
+autoridade atual M2-D4, os mesmos locks e as mesmas recusas. A Edge reconstitui
+token e código com a chave v1 no piloto, confere digests e só então expõe material.
+Nenhum material completo entra no banco, livro de idempotência ou log.
+
+Código v1: 10 símbolos de `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, 50 bits,
+exibidos `XXXXX-XXXXX`; normalização em maiúsculas, ignorando espaço e hífen
+(M2-D23). M2-D32 refina e substitui a fórmula operacional da M2-D26:
+`INVITE_HMAC_KEY_V<n>` é a única chave secreta de convite por versão.
+HKDF-SHA-256 deriva três subchaves separadas usando os rótulos de `info`
+`colete/invite/link-mac/v1`, `colete/invite/code/v1` e
+`colete/invite/code-lookup/v1`; nunca se reutiliza subchave para outro papel.
+O MAC do link usa `sub_link` na fórmula de token de `10` §3, conservando
+seu domínio `colete/invite/v1\0` e os bytes autenticados. O código usa os
+primeiros 50 bits, big-endian, de
+`HMAC-SHA-256(sub_code, invite_id(16 bytes, ordem RFC 4122) || public_nonce(16))`;
+particiona em 10 grupos consecutivos de 5 bits, cada qual índice no alfabeto
+da M2-D23. `code_digest` é
+`HMAC-SHA-256(sub_lookup, u16be(token_version) || codigo_normalizado_ASCII)`.
+A chave `INVITE_HMAC_KEY_V1` do piloto contém exatamente 32 bytes
+aleatórios, codificados em base64url **sem padding**. HKDF-SHA-256 (RFC 5869)
+usa salt fixo `colete/invite/hkdf-salt/v1` em bytes ASCII; cada `info` é o
+rótulo ASCII de sua subchave acima e `L = 32` bytes. `code_digest` é
+serializado em hexadecimal minúsculo de 64 caracteres na coluna `text unique`.
+No piloto há uma única versão: o lookup calcula o digest com v1 e aceita
+somente linha `token_version = 1`. A colisão no índice único exige novo nonce
+para todo o material. A rotação, o lookup de várias versões e a colisão do
+mesmo código humano entre versões ficam obrigatórios antes da abertura pública
+(`25` §8.2). Vetores dourados **literais** em TypeScript e no SQL de teste da
+`0017` fixam bytes, salt, infos, comprimento, código e hex; segredo real
+jamais entra no repositório.
+
+Colisão no `unique` obriga novo nonce e recálculo do material inteiro, incluindo
+token e código, antes de persistir. Regeneração recalcula ambos os digests e
+invalida ambos os materiais anteriores no commit; a rotação faz o mesmo
+somente na etapa pós-piloto (`25` §8.2).
+
+Para compartilhar, revogar, regenerar e emitir: ator `active` com papel
+`player` recebe `NOT_ORGANIZER` (403); ator `pending`, `removed` ou sem
+membership `active` recebe `NOT_MEMBER` (403), como o helper da `0016`.
+`NOT_ACTIVE_MEMBER` permanece reservado ao alvo da operação.
+Essa autoridade é revalidada antes de qualquer projeção ou efeito (M2-D4).
+Erros de compartilhamento: comuns, `INVITE_REVOKED`, `INVITE_EXPIRED` e
+`INVITE_USED`; nunca devolvem código ou link. Tela 24 mostra validade absoluta,
+usos restantes, código para copiar e link para compartilhar somente de
+convite utilizável. Reexibição consulta estado fresco; não recupera token de
+outcome, cache ou armazenamento persistente.
+
+#### 5.0.5 Criação inicial, revogar, regenerar e emitir outro convite
+
+`create_group(name, request_id)` conserva a assinatura e os IDs de saída
+existentes (§5, linha 632). Quem chama é o titular autenticado ativo, com
+aceite em dia; trava idempotência → perfil próprio → novo grupo → membership
+própria → convite inicial. Reconta cota de cinco grupos ativos não arquivados
+sob o perfil; a sexta criação é `GROUP_LIMIT`, HTTP 409. Cria grupo com dono
+igual ao ator, membership `organizer/active` e convite inicial de 100 usos,
+criado pelo servidor e válido por 30 dias (M2-D22; `25` §5.2, linhas 695–703).
+O grupo, a membership e o convite são atômicos: falha não deixa nenhum deles.
+Edge gera ID/nonce/digests internos; token/código completo não chega ao banco.
+Replay conserva os IDs e não gera/persiste outro material, seguindo a
+autenticação/autoridade corrente de §5.0.1. Criação e renomeação aplicam a regra única de nome da M2-D36 (§5.0.6). A tela 16 pede nome e, após commit, abre a tela 24; material
+é lido pela projeção sensível atual, sem ficar no outcome.
+
+| Operação e assinatura contratada | Quem | Ordem após idempotência | Efeito definido |
+| --- | --- | --- | --- |
+| `revoke_group_invite(invite_id, request_id)` | autoridade atual M2-D4 | perfil próprio → grupo → membership própria → convite | convite vivo recebe `revoked_at` pelo servidor; não altera uso, prazo, membros ou pedidos |
+| `regenerate_group_invite(invite_id, request_id)` | autoridade atual M2-D4 | perfil próprio → grupo → membership própria → convite | somente vivo: troca nonce, `token_digest` e `code_digest`; conserva ID, versão, prazo, limite e contagem; invalida material anterior |
+| `issue_group_invite(group_id, request_id)` | autoridade atual M2-D4 do grupo | perfil próprio → grupo → membership própria → convites em bytes crescentes | somente se não houver convite vivo sob o lock do grupo, inclusive quando não houver linha após expurgo; anterior, se existir, preservado; nova linha com novo ID, 100 usos, prazo de 30 dias e `used_count=0`, sem alterar membros ou pedidos |
+
+Base: `25` §5.2 e M2-D22/M2-D24/M2-D34. O `group_id` identifica a emissão;
+o grupo é o lock-pai que serializa duas emissões concorrentes. Sob esse lock,
+a RPC reconta os convites: no máximo um vivo (não revogado, não expirado e
+não esgotado) por grupo. Se houver vivo, devolve `INVITE_ALREADY_ACTIVE`
+(409), sem criar linha. A prova da `0017` força duas emissões concorrentes
+sobre o mesmo grupo terminal e exige exatamente uma nova linha viva e uma
+recusa 409, sem deadlock. A outra ocasião sempre tem 100 usos e 30 dias.
+
+Depois do expurgo físico do último convite terminal, o grupo sem nenhuma
+linha de convite pode emitir. A condição sob o lock-pai é **ausência de convite
+vivo**, não a existência de uma linha terminal (M2-D34, decisão de 29/09).
+O banco define criação/expiração pelo relógio do servidor; a Edge
+gera material e IDs internos, que não são campos fornecidos pelo cliente.
+Falha de unique refaz o material inteiro; falha final dá rollback integral.
+Nenhuma operação renova ou zera a linha anterior. A retenção da anterior
+continua revogação/expiração + 30 dias (`17` §2, linha 31).
+
+As três mutações seguem §5.0.1: replay não revoga de novo, não troca nonce de
+novo e não cria outra linha. Retorna IDs/desfecho gravados; projeção somente
+com autoridade atual. Código/link são obtidos por leitura sensível fresca,
+sem congelá-los no outcome. Papel perdido nega projeção, inclusive para o
+criador original. Conta/sessão/aceite recusados negam também o desfecho.
+
+Regenerar terminal retorna `INVITE_REVOKED`, `INVITE_EXPIRED` ou `INVITE_USED`
+conforme o estado, HTTP 409, e orienta **Emitir novo convite**. Revogar convite
+já terminal com `request_id` novo conclui `invite_revocation_unchanged`, sem
+`UPDATE` ou troca do evento que inicia a retenção: preserva `revoked_at`,
+`expires_at` e `used_count` (M2-D35). Emitir com convite vivo recusa
+`INVITE_ALREADY_ACTIVE` (409), sem coexistência (M2-D34). Os demais erros são os comuns e não alteram material ou membership. As
+saídas de sucesso são exatamente as de §5.0.1; segredo nunca entra no outcome.
+
+A tela 24 oferece revogar e regenerar material vivo e emitir outra ocasião
+após terminal; mostra prazo/usos atuais, explica que regeneração invalida o
+material anterior e conserva prazo/uso. O estado terminal conserva informação
+segura e oferece a emissão autorizada; não reapresenta código/link inválido.
+
+#### 5.0.6 Renomear — `0018`
+
+Assinatura contratada: `rename_group(group_id, name, request_id)`. Dono ou
+organizador com membership `active` pode renomear (M2-D36). A regra única
+para criação e renomeação é: aplicar Unicode NFC, recusar qualquer ponto de
+código da categoria Cc (incluindo tab e quebra de linha) e os invisíveis/
+controles de direção U+061C, U+200B, U+200E, U+200F, U+202A–U+202E,
+U+2060–U+2064, U+2066–U+2069 e U+FEFF; U+200C e U+200D são permitidos. Depois, tratar cada
+caractere de Zs, Zl ou Zp como espaço, remover essas sequências das pontas e
+reduzir cada sequência interna a um U+0020. Só então contar 2 a 40 pontos de
+código. Violação devolve `VALIDATION` (422). Servidor e fingerprint da intenção
+usam o mesmo nome normalizado (decisão técnica do planejador de 29/09,
+`25` §8.1): duas formas
+externas equivalentes geram a mesma identidade de intenção no replay.
+Autenticação e replay seguem §5.0.1. Trava perfil próprio → grupo → membership
+própria. Altera somente `groups.name`; não muda convites, membros, pedidos,
+papéis, prazo ou uso. Nome corrente é projeção fresca e nunca outcome. A tela
+25 exibe o campo e o resultado confirmado pelo servidor; lista, detalhe,
+preview e pedido próprio usam o nome corrente quando relidos.
+Grupo arquivado/suspenso recusa edição com `GROUP_ARCHIVED` (410)/
+`GROUP_SUSPENDED` (403). Falta de autoridade de organização usa
+`NOT_ORGANIZER` (403); a regra de nome não deriva do nome pessoal (M2-D36).
+
+O contrato integral de `archive_group`, suas provas e a leitura por policy
+de grupo arquivado estão preservados em `25` §8.2 como obrigatórios antes
+de abrir o app ao público (M2-D40). O arquivamento por exclusão de conta
+(M2-D9) e `GROUP_ARCHIVED` já entregues em `main` não mudam.
 
 ### 5.1 Autenticação e vínculo
 
@@ -907,6 +1288,7 @@ Aprovação tardia segue 2.5.
 | `purge_idempotency_outcomes` | diário | outcome 30d → `payload_expired`; tombstone até 24 meses |
 | `apply_retention` | diário | aplica mapa, inclusive conteúdo de notificação separado; disputa não estende binário/fingerprint além de 7 dias |
 | `health_check_jobs` | 5 min | alerta atraso/falha e alimenta saúde no painel |
+| `purge_invite_rate_limits` | por minuto, desde a `0017` | remove tentativas de perfil com instante <= relógio do servidor menos 1 h, inclusive perfil sem novo tráfego; prazo máximo 1 h + um intervalo do job (1 min), provado com tempo controlado; registra só contagem/duração |
 
 ## 8. Catálogo de erros estáveis
 
@@ -948,3 +1330,52 @@ auditoria/notificação devolve, respectivamente, `AUDIT_PAYLOAD_INVALID` e
 `NOTIFICATION_PAYLOAD_INVALID`; eles nunca são expostos como sucesso parcial.
 
 Código novo entra neste documento e em teste de contrato antes de entrar na aplicação.
+
+### 8.1 Quota e indisponibilidade do limitador de convites
+
+Emenda de 2026-09-28, M2-D25/M2-D27: contratos de erros **planejados para
+a `0017`**. Eles ficam registrados neste §8 antes de qualquer uso. Na fase 1,
+a lista acima e seu espelho TypeScript permanecem iguais à base: nenhum código
+é alterado. O commit da `0017` inclui `RATE_LIMITED` e `RATE_LIMIT_UNAVAILABLE`
+na lista principal, regenera o catálogo cliente e publica o mapeamento Edge/
+validação/testes correspondentes juntos. Esta fronteira não permite usar erro
+sem suporte cliente nem adiar sua geração depois de publicar a RPC.
+
+`INVITE_ALREADY_ACTIVE` é HTTP 409: emissão recusada porque existe convite
+vivo no grupo. Não entrega código, link ou estado privado de outro grupo.
+O catálogo principal, o espelho TypeScript e a Edge recebem o código no commit
+da `0017`, junto com os demais códigos planejados desta seção.
+
+`RATE_LIMITED` é HTTP 429 e tem
+`retry_after` em segundos inteiros não negativos, arredondados para cima, e
+`available_at` como instante absoluto UTC em ISO 8601. Ambos são calculados
+pelo servidor para a primeira admissão possível com o orçamento por perfil no piloto;
+não identificam qual contador recusou. O header `Retry-After` usa o mesmo
+número de segundos. Nova tentativa pode mudar esse instante; a UI não trata
+contagem local como autorização.
+
+```ts
+{ error: { code: 'RATE_LIMITED', message: string,
+           retry_after: number, available_at: string }, request_id: string }
+```
+
+Preview acima da quota retorna o mesmo código, HTTP, mensagem e estrutura
+qualquer que seja o material enviado; os tempos só dependem do orçamento, não
+da validade do convite. A resposta não contém `fields`, `current`, grupo,
+perfil, tipo de contador ou causa interna. A UI anuncia o erro associado à
+ação e orienta tentar novamente no horário absoluto recebido (`15` §1).
+
+`RATE_LIMIT_UNAVAILABLE` é HTTP 503: o contador obrigatório por perfil não
+confirmou a admissão. Recusa antes da RPC de domínio, sem fallback em memória
+ou bypass e sem confundir indisponibilidade com quota (M2-D25/M2-D39).
+Resposta mínima com mensagem “Não foi possível verificar o limite agora.
+Tente novamente mais tarde.”, sem detalhe de provedor nem prazo inventado.
+Retry de resgate conserva a intenção e seu `request_id`; continua sujeito ao
+mesmo limitador. A dimensão por IP é pós-piloto (`25` §8.2).
+
+`CODE_INVALID` no preview é HTTP 400 para código inexistente ou
+material malformado. Convite existente revogado, expirado ou esgotado retorna
+`INVITE_REVOKED`, `INVITE_EXPIRED` ou `INVITE_USED` (409), respectivamente.
+Grupo arquivado/suspenso, capacidade e limite pessoal usam o erro próprio
+quando aplicável. `RATE_LIMITED` (429) vem antes do lookup para qualquer
+código; não contém `fields`, `current`, grupo ou perfil (M2-D42).

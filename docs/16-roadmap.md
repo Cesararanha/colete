@@ -5,6 +5,14 @@ evidências em `19`/`20`. O objetivo agora não é continuar redesenhando o prod
 incrementalmente as decisões fechadas em `01`, `04` e `09`–`17`. O plano do M1-A abaixo ainda
 não é implementação concluída.
 
+Emendas documentais de 28–29/09/2026 (M2-D24/M2-D25/M2-D31–M2-D42):
+`0017` concentra convites e limitador **de piloto**, com uma chave v1 e
+barreira por perfil; `0018` publica **só renomear** para a UI-B, sem foto
+(M2-D40).
+Rotação de chave, dimensão por IP, alarme automático da taxa global e
+arquivamento por RPC estão em `25` §8.2 “Pendências pós-piloto”,
+**obrigatório antes de abrir o app ao público** (M2-D39).
+
 ## 1. Estado da definição
 
 | Bloco | Artefato | Estado atual |
@@ -108,7 +116,7 @@ incremental por marco, e não muda a ordem de locks nem relaxa os critérios de 
 | M1-A, antecipação da fatia 10 | catálogo de políticas, dispatcher interno e RPCs `accept_policies`, `complete_profile`, `revoke_current_session` e `update_profile` | `0006_identity_rpcs.sql` |
 | M1-A, retenção antecipada da fatia 7 | expurgo de outcomes e tombstones nos prazos normativos | `0007_idempotency_retention.sql` |
 | M1-B, antecipação de identidade/privacidade da fatia 10 | worker e jobs de identidade; saga de exclusão; export governado, bucket `data-exports` e download Edge | `0011_worker_foundation.sql` → `0012_account_deletion.sql` → `0013_data_export_delivery.sql`, conforme o plano normativo `22` |
-| M2, fatia 3 e antecipação de grupos/convites da fatia 10 | fundação, isolamento e extensão da exclusão; membership e titularidade; convites/HMAC e `create_group`; UI-A (telas 10, 11, 12, 16 e 24) e UI-B (telas 17 e 25), sem migration | `0015_group_foundation.sql` → `0016_group_membership_rpcs.sql` → `0017_group_invites.sql` → UI-A → UI-B, conforme o plano normativo `25` |
+| M2, fatia 3 e antecipação de grupos/convites da fatia 10 | fundação, isolamento e extensão da exclusão; membership e titularidade; convites/HMAC, limitador e `create_group`; renomear (sem foto); UI-A (telas 10, 11, 12, 16 e 24) e UI-B (telas 17 e 25), sem migration | `0015_group_foundation.sql` → `0016_group_membership_rpcs.sql` → `0017_group_invites.sql` → UI-A → `0018` (só renomear) → UI-B, conforme o plano normativo `25` |
 | B2 fatias 3–6 e partes restantes das fatias 7–10 | ordem nominal desta seção | a numerar quando cada fatia começar |
 
 Permanecem na fatia 7 a auditoria tipada, o outbox N1–N28 com conteúdo separado,
@@ -247,7 +255,7 @@ e testado, a interface não renderiza botão oculto ou desabilitado prometendo t
 |---|---|---|
 | **M0 — fundação** | repo do app, Expo Web/PWA, TypeScript, CI, Supabase dev, harness de migrations + fatias B2 1–2, Sentry sanitizado, tokens AA | pipeline verde; fatia atual do banco recria do zero; PWA abre por teclado; redaction e backup de teste funcionam |
 | **M1 — identidade** | e-mail/OTP/Google, aceite, sessão revogada, export governado e saga de exclusão | JWT revogado/deletion_pending não acessa; crash externo retoma; export expira/purga |
-| **M2 — grupos** | grupos, reentrada, owner, papéis, convites nonce/versão/HMAC, transferência | recompartilha/rotaciona; dump não forja; RLS impede acesso cruzado |
+| **M2 — grupos** | grupos, reentrada, owner, papéis, convites nonce/versão/HMAC, transferência e renomear | recompartilha na chave v1; dump não forja; RLS impede acesso cruzado; rotação é pós-piloto (M2-D39) |
 | **M3 — racha** | criar/editar, segredos Pix separados, TP/T0/T1/T2, série versionada | desligar×advance não gera inesperado; Pix purga sem corromper racha; retry não duplica |
 | **M4 — lista** | lista atômica, fila tier/seq, T1, claims 30/10 min, T2, reconciliação e saúde dos jobs | testes de corrida passam; nenhum pagamento é orientado sem reserva válida; falha de job alerta |
 | **M5 — financeiro** | grafo composto, stream Edge, resolução, estorno, primeira decisão/apelação, caso Admin, purge/backup | insert cruzado falha; URL assinada inexiste; corridas têm uma resolução; binário some em 7d |
@@ -295,8 +303,12 @@ Antes de cobrar ou operar além do círculo pessoal:
 
 Executar o plano do M2 em `25-plano-m2.md`: fundação/isolamento e extensão da exclusão na
 `0015`, membership/titularidade na `0016` e convites/reentrada/HMAC e `create_group` na
-`0017`. As telas 10, 11, 12, 16 e 24 (UI-A) e 17 e 25 (UI-B) entram somente depois desses
-contratos, sem migration artificial. Os gates de beta
+`0017`, incluindo o limitador compartilhado; somente renomear fica na `0018`.
+Arquivamento por RPC é obrigatório pós-piloto (`25` §8.2, M2-D40).
+As telas 10, 11, 12, 16 e 24 (UI-A) usam a `0017`; 17 e 25 (UI-B) usam também
+a `0018`. As interfaces entram somente depois dos contratos e implementações
+correspondentes, sem migration artificial de UI. A fase 1 registra documentos,
+perguntas e checksum, sem criar essas migrations. Os gates de beta
 podem avançar em paralelo, mas precisam estar concluídos antes do primeiro convite. Não
 começar pelas telas: sem locks, RLS, capacidade e protocolo criptográfico provados, a
 interface apenas esconderia dívidas técnicas mais caras.
