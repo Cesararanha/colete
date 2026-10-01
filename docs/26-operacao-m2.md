@@ -6,8 +6,8 @@ as fontes normativas `10`, `13`, `14`, `16`, `17`, `22` e `25`. Continua de
 precedente de `19`–`21` e `23`: registra o que aconteceu, não é contrato
 congelado.
 
-Este documento registra as fatias do M2 à medida que entram: a Fatia 1 e a
-Fatia 2.
+Este documento registra as fatias do M2 à medida que entram: fundação,
+membership, convites e renomeação do grupo.
 
 ## Fatia 1 — `0015_group_foundation.sql`
 
@@ -1232,3 +1232,46 @@ linhas `ok -`.
 
 Após a contraprova, os 20 comandos do AGENTS §5 passaram novamente, começando
 por `db:reset`. `auth.users`, grupos, convites e limitador estavam em 0 ao fim.
+
+## Fatia 4 — `0018_rename_group.sql` (PILOTO, 01/10/2026)
+
+A `0018` entrega apenas `rename_group` pela rota produtiva `groups/rename_group`.
+A RPC permite ao dono e ao organizador ativo alterar `groups.name`. Jogador
+ativo recebe `NOT_ORGANIZER`; pendente, removido e perfil de outro grupo recebem
+`NOT_MEMBER`. Grupo suspenso recebe `GROUP_SUSPENDED`, arquivado recebe
+`GROUP_ARCHIVED`. A criação e a renomeação chamam a mesma função SQL
+`private.normalize_group_name`; o gateway compartilha a normalização de entrada
+em `_shared/group-name.ts`. Foto, arquivamento e UI permanecem fora da fatia.
+
+A operação integra a lista fechada e o desfecho exato do livro de idempotência:
+`{group_id, logical_result: "group_renamed"}`. No replay, a sessão é conferida
+após as travas e antes de expor o desfecho. Ator ainda autorizado recebe também
+`current` com o nome fresco; ao perder autoridade, recebe só `outcome`; sessão
+revogada recebe erro de autenticação. A ordem das travas é perfil, grupo e
+membership, em `FOR NO KEY UPDATE`, conforme M2-D13.
+
+**Provas medidas.** `db:reset` recriou `0001`–`0018` apenas por migrations.
+`db:test` passou em **17 arquivos e 1.194 asserções**. O harness novo
+`db:test:rename`, registrado no pacote, neste AGENTS §5 e na CI, passou com
+**11 linhas `ok -`**: HTTP real pela Edge com JWT GoTrue provou os dois papéis
+permitidos e os quatro casos sem autoridade; alteração exclusiva do nome;
+replay com `current` fresco enquanto autorizado, sem `current` após perda de
+papel ou membership, e erro de autenticação após revogação; suspensão e
+arquivamento recusados pelos códigos do contrato. Um mutante da função SQL
+compartilhada aceitou U+200B tanto na criação quanto na renomeação; restaurada
+a função, ambas recusaram o mesmo nome inválido. Duas corridas de renomeação,
+uma em cada ordem, usaram a barreira no segundo recurso: a última transação a
+commitar venceu, sem `40P01`. O mutante `FOR UPDATE` no perfil reproduziu
+`40P01` nas duas ordens; a função original foi restaurada. `auth.users` tinha
+**0 antes e 0 depois**; grupos e registros de idempotência terminaram em 0.
+
+Após o reset, passaram `db:test:idempotency` (7 provas), `db:test:gateway` (9),
+`db:test:worker` (8), `db:test:deletion` (10), `db:test:export` (16),
+`db:test:invites` (63), `db:test:groups` (29), `db:test:membership` (68) e
+`db:test:rename` (11). Auth web passou com 8 testes e privacidade com 4;
+smoke web passou com 6. `verify:app` passou com **193 testes em 22 arquivos**,
+além de lint, formato, tipos, build, PWA e configuração Auth. `scan:docs`,
+`scan:secrets`, `audit:high` e `git diff --check` passaram. A auditoria
+registrou **19 vulnerabilidades moderadas**, nenhuma alta ou crítica. Nenhum
+segredo real, projeto Supabase remoto, deploy ou serviço de produção foi
+acessado.

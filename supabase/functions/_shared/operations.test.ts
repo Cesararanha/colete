@@ -277,3 +277,33 @@ describe('group membership operations (docs/13 section 5, docs/25 section 4)', (
     }
   });
 });
+
+describe('rename_group uses the creation name rule', () => {
+  const groupId = '15b00001-0000-4000-8000-000000000000';
+  it('fingerprints equivalent NFC and Unicode spacing identically', () => {
+    const first = normaliseRequest('rename_group', {
+      request_id: REQUEST_ID,
+      group_id: groupId,
+      name: '  Cafe\u0301　da　Turma  ',
+    });
+    const second = normaliseRequest('rename_group', {
+      request_id: REQUEST_ID,
+      group_id: groupId,
+      name: 'Café da Turma',
+    });
+    expect(first.canonicalInput).toEqual(second.canonicalInput);
+  });
+  it('refuses controls and out-of-range names before idempotency', () => {
+    for (const name of ['X\u200bY', 'Um\nNome', 'A', 'x'.repeat(41)]) {
+      expect(
+        refusal(() =>
+          normaliseRequest('rename_group', {
+            request_id: REQUEST_ID,
+            group_id: groupId,
+            name,
+          }),
+        ).code,
+      ).toBe('VALIDATION');
+    }
+  });
+});

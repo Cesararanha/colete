@@ -9,6 +9,7 @@
 // Edge is not the authority on domain rules.
 
 import { GatewayError, validation } from './errors.ts';
+import { normaliseGroupName } from './group-name.ts';
 
 export const IDENTITY_OPERATIONS = [
   'complete_profile',
@@ -29,6 +30,7 @@ export const GROUP_OPERATIONS = [
   'set_ratings_visibility',
   'transfer_ownership',
   'leave_group',
+  'rename_group',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -284,6 +286,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     set_ratings_visibility: ['request_id', 'group_id', 'visibility', 'confirm_members_visibility'],
     transfer_ownership: ['request_id', 'group_id', 'new_owner_id'],
     leave_group: ['request_id', 'group_id'],
+    rename_group: ['request_id', 'group_id', 'name'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -400,6 +403,15 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         operation,
         requestId,
         canonicalInput: { group_id: requiredUuid(record['group_id'], 'group_id') },
+      };
+    case 'rename_group':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          name: normaliseGroupName(record['name']),
+        },
       };
   }
 }
