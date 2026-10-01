@@ -47,6 +47,7 @@
     "db:test:groups": "node scripts/test-group-foundation.mjs",
     "db:test:membership": "node scripts/test-group-membership.mjs",
     "db:test:invites": "node scripts/test-group-invites.mjs",
+    "db:test:rename": "node scripts/test-group-rename.mjs",
     "db:stop": "supabase stop --no-backup",
     "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets"
   },

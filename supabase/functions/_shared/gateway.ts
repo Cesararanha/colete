@@ -141,6 +141,12 @@ function rpcParameters(
       };
     case 'leave_group':
       return { ...common, p_group_id: canonicalInput['group_id'] };
+    case 'rename_group':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_name: canonicalInput['name'],
+      };
   }
 }
 

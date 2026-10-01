@@ -32,6 +32,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   },
   transfer_ownership: { request_id: REQUEST_ID, group_id: GROUP, new_owner_id: TARGET },
   leave_group: { request_id: REQUEST_ID, group_id: GROUP },
+  rename_group: { request_id: REQUEST_ID, group_id: GROUP, name: '  Café　da　Turma  ' },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -48,6 +49,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   },
   transfer_ownership: { p_group_id: GROUP, p_new_owner_id: TARGET },
   leave_group: { p_group_id: GROUP },
+  rename_group: { p_group_id: GROUP, p_name: 'Café da Turma' },
 };
 
 describe('gateway internal call', () => {

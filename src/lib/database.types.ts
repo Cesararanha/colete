@@ -399,6 +399,19 @@ export type Database = {
         };
         Returns: Json;
       };
+      rename_group: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_name: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       request_data_export: {
         Args: {
           p_actor_auth_user_id: string;
