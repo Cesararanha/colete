@@ -1116,3 +1116,119 @@ alterados; os outros dez corpos da `0016` são idênticos. O diff do complemento
 contém somente a `0016`, seus testes, `13`, `25`, `26` e os dois checksums no
 manifesto. Nenhum segredo real, projeto Supabase remoto, deploy ou serviço de
 produção foi acessado. O PR continua draft para revisão independente.
+
+## Fatia 3 — `0017_group_invites.sql` (PILOTO, 30/09/2026)
+
+A `0017` entrega convite inicial em `create_group`, preview, pedido pendente do
+titular, resgate por código e link, compartilhamento, revogação, regeneração,
+emissão, limitador privado e os dois expurgos. `token_digest` segue a decisão
+técnica do planejador de 30/09: SHA-256 hexadecimal minúsculo dos 66 bytes
+binários do token. O vetor sintético literal está no teste TypeScript e no
+pgTAP. `code_digest` usa HMAC da subchave exclusiva de lookup; o banco nunca
+recebe token, MAC nem código humano. A URL local de teste usa somente
+`127.0.0.1`; a origem e a rota públicas continuam como PERGUNTA para a
+revisão do PR.
+
+**Provas funcionais medidas.** `db:reset` recriou `0001`–`0017` somente pelas
+migrations. `db:test` passou em 16 arquivos com **1.152 asserções**, incluindo
+três provas de privilégios/RLS do limitador. Vitest dos módulos de material e
+gateway passou com **10 testes**; TypeScript passou. O harness passa pela Edge
+real com JWT GoTrue, não por implementação duplicada: criação e replay,
+normalização/fingerprint de nomes, preview sem consumo, resgate e reentrada,
+pendência própria, quota antes do domínio, autoridade após rebaixamento/saída,
+sessão revogada antes de replay, compartilhamento e material terminal.
+`delete_account` em grupo cheio liberou uma vaga; uma entrada passou e a
+seguinte recebeu `GROUP_FULL`. Com limite local 2, 25 admissões concorrentes
+do mesmo perfil tiveram duas admitidas e 23 recusadas, todas debitadas.
+
+| Corrida | Ordem/prova | Resultado observado |
+| --- | --- | --- |
+| Seis RPCs idempotentes, mesmo ator | A→B e B→A, barreira no segundo recurso | 12 pares sem `40P01`; 12 mutantes `FOR UPDATE` reproduziram `40P01` |
+| Seis RPCs, sem barreira | 20 pares por operação antes e depois | 240 pares; zero `40P01` |
+| Último uso do convite | 25 resgates, 24 esperas de `Lock` | Um uso 100, 24 `INVITE_USED` |
+| Capacidade 99/100/101 | Três resgates, duas esperas | Dois pedidos, um `GROUP_FULL`; grupo em 100 |
+| Contraprova de capacidade sem locks de leitura | Três resgates esperando a linha do convite | Três pedidos admitidos; 101 vagas ocupadas; função original restaurada |
+| Quinta vaga própria | Duas criações, ambas as ordens | Uma criação e um `GROUP_LIMIT` por ordem |
+| Criação × aprovação | Ambas as ordens | Quinta vaga preservada; sem deadlock |
+| Share × regeneração/revogação | Ambas as ordens | Material corrente ou recusa terminal sob lock do convite |
+
+O lock comum das RPCs novas é `FOR NO KEY UPDATE`. A linha do convite usa
+`FOR UPDATE` em regeneração e expurgo físico: o primeiro altera material
+indexado por `code_digest`; o segundo remove a chave referenciada. O expurgo
+do limitador usa `FOR UPDATE SKIP LOCKED` nas linhas a apagar. A contraprova
+dos seis pares idempotentes substituiu só o lock do perfil por `FOR UPDATE`,
+observou `40P01` nas duas ordens e restaurou a definição original antes das
+tempestades sem barreira.
+
+**Cinco séries consecutivas finais do harness:** 17,43 s; 17,21 s; 17,25 s;
+17,53 s; 17,31 s de parede. Todas passaram, com `auth.users`, perfis, grupos,
+convites, limitador, idempotência e registros próprios dos jobs em zero no fim.
+O `pg_dump --data-only` do censo único mediu, nas cinco séries, 1.106.236;
+1.113.877; 1.123.339; 1.131.897; 1.139.270 bytes. O audit log local do
+GoTrue permanece como precedente aceito no M2: a consulta posterior contou
+346 eventos acumulados, sem usuários, perfis ou grupos. Em cada
+série, 59 corpos HTTP, cinco logs de serviços, o dump e quatro injeções
+independentes no detector em memória não encontraram token, MAC ou
+código fora da resposta de share autorizada. O sentinela apareceu no log do
+Postgres em todas as séries, provando que o log foi lido. A Edge não integra
+Sentry no piloto; o transporte em memória mede só o detector, não um canal
+produtivo. A primeira revisão pediu sentinela positiva em cada canal lido.
+
+**Validação integral após reset.** O comando de reset passou com a `0017`
+aplicada; em seguida passaram `db:test` (16 arquivos, 1.152 asserções),
+`db:test:idempotency` (7 provas), `db:test:gateway` (9), `db:test:worker`
+(8), `db:test:deletion` (10), `db:test:export` (16), `db:test:groups`
+(29), `db:test:membership` (68) e `db:test:invites` (61). A primeira rodada
+de `db:test:membership` acusou somente o comparador textual herdado da `0016`,
+que ainda exigia o corpo antigo de seis funções estendidas pela `0017`.
+Corrigido o harness para exigir as seis definições exatas da migration mais
+recente, a série integral passou; as demais onze funções da `0016` continuam
+comparadas com o texto original. O teste preserva a recusa de qualquer outra
+redefinição posterior.
+
+Build de Auth e testes web: 8 passados/2 pulados; privacidade: 4 passados/4
+pulados. Build smoke e seis testes smoke passaram. `verify:app` passou com
+**185 testes em 22 arquivos**, lint, formato, tipos, build, PWA e configuração
+de Auth verdes. `scan:docs`, `scan:secrets` e `git diff --check` passaram;
+`audit:high` saiu 0, com **19 vulnerabilidades moderadas** e nenhuma alta ou
+crítica. Nenhum segredo real, projeto Supabase remoto, deploy ou serviço de
+produção foi acessado.
+
+### Correção da primeira revisão do PR #45 (30/09/2026)
+
+Os números acima pertencem ao commit original; a contagem histórica correta
+do harness era **61** linhas `ok -`. A correção acrescentou as provas D34/D35
+com mutantes de regravação, erro e emissão sem linha; 25 competidores do
+limitador aguardaram a barreira, e o mutante sem lock admitiu mais de 2 após
+todos terem contado sob o segundo recurso (FK). Janela deslizante, consulta
+manual 20/10 e expurgo pelo job com 59 min 59 s preservados e 61 min apagados
+passaram. O mutante que removeu U+200B do normalizador SQL fez o pgTAP falhar;
+a definição original foi restaurada. O censo teve sentinelas positivas no dump,
+nos cinco logs e nas respostas e erros HTTP; 79 corpos foram lidos na série
+integral. Sentry não integra a Edge no piloto, portanto o detector em memória
+não foi contado como transporte produtivo.
+
+Três execuções finais consecutivas de `db:test:invites` passaram, mais a série
+da validação integral; esta mediu **63** linhas `ok -`. `auth.users` tinha 0
+linhas antes e depois; grupos, convites e limitador terminaram em 0. Após
+`db:reset`, os 20 comandos do AGENTS §5 saíram 0: pgTAP **16/1.179**;
+idempotência 7, gateway 9, worker 8, exclusão 10, export 16, grupos 29,
+membership 68; web Auth 8 e privacidade 4, smoke 6; `verify:app` **190/22**;
+scan de documentos e segredos, auditoria e `git diff --check` verdes. A
+auditoria encontrou 19 moderadas e nenhuma alta ou crítica.
+
+### Conferência final do PR #45 sobre `main` com D63 (30/09/2026)
+
+O rebase preservou em `14` a D63-I corrigida (Google depois do piloto) e a
+D63-C (Sentry antes da abertura pública), acrescentando apenas a origem pública
+do `share_url`. A prova de expurgo passou a fixar o relógio do job em
+`2030-01-02T03:04:05Z`: a tentativa de **1 h − 1 s** foi preservada, a de
+**1 h + 1 s** apagada (`changed=1`). Com elegibilidade mutante em
+**1 h + 50 s**, ambas permaneceram (`changed=0`) e a asserção de apagamento
+reprovou. A definição original da função foi restaurada mesmo após a falha.
+O HTTP agora prova `VALIDATION` (422) sem débito também para corpo que não é
+JSON válido; o censo integral leu **80** corpos. O harness conservou **63**
+linhas `ok -`.
+
+Após a contraprova, os 20 comandos do AGENTS §5 passaram novamente, começando
+por `db:reset`. `auth.users`, grupos, convites e limitador estavam em 0 ao fim.

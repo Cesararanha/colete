@@ -22,6 +22,12 @@ import type { ActorContext, RpcCaller } from './gateway.ts';
 import { keyResolverFromEnvironment } from './hmac.ts';
 import type { Operation } from './operations.ts';
 import { GatewayError, defaultMessage, httpStatusFor } from './errors.ts';
+import {
+  dispatchInvite,
+  inviteKeyFromEnvironment,
+  inviteShareUrl,
+  isInviteOperation,
+} from './invite-gateway.ts';
 import type { ErrorCode } from './errors.ts';
 
 declare const Deno: {
@@ -40,7 +46,7 @@ function requireEnv(...names: string[]): string {
 }
 
 /** Serves exactly the operations in `served`, and nothing else. */
-export function serveGateway(served: readonly Operation[]): void {
+export function serveGateway(served: readonly string[]): void {
   const SUPABASE_URL = requireEnv('SUPABASE_URL');
   // The client-facing key, used only to address the Auth endpoint that verifies
   // the caller's token.
@@ -52,10 +58,16 @@ export function serveGateway(served: readonly Operation[]): void {
   const resolveKey = keyResolverFromEnvironment(readEnv, [1]);
 
   function jsonResponse(status: number, body: unknown): Response {
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
-    });
+    const headers: Record<string, string> = {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+    };
+    const error = (body as { error?: { code?: string; retry_after?: number } }).error;
+    if (error?.code === 'RATE_LIMITED' && Number.isInteger(error.retry_after)) {
+      headers['retry-after'] = String(error.retry_after);
+    }
+    return new Response(JSON.stringify(body), { status, headers });
   }
 
   function errorResponse(code: ErrorCode, requestId: string): Response {
@@ -117,11 +129,25 @@ export function serveGateway(served: readonly Operation[]): void {
     if (!response.ok) {
       const failure = (await response.json().catch(() => ({}))) as {
         message?: string | null;
+        code?: string | null;
       };
-      return { error: { message: failure.message ?? null } };
+      return { error: { message: failure.message ?? null, code: failure.code ?? null } };
     }
     return { data: await response.json() };
   };
+
+  async function ownProfileId(token: string): Promise<string> {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=id`, {
+      headers: { apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok)
+      throw new GatewayError('RATE_LIMIT_UNAVAILABLE', defaultMessage('RATE_LIMIT_UNAVAILABLE'));
+    const profiles = (await response.json()) as Array<{ id?: unknown }>;
+    if (!Array.isArray(profiles) || profiles.length !== 1 || typeof profiles[0]?.id !== 'string') {
+      throw new GatewayError('NOT_FOUND', defaultMessage('NOT_FOUND'));
+    }
+    return profiles[0].id;
+  }
 
   Deno.serve(async (request: Request): Promise<Response> => {
     if (request.method !== 'POST') {
@@ -154,13 +180,39 @@ export function serveGateway(served: readonly Operation[]): void {
       return errorResponse('UNAUTHENTICATED', requestIdHint);
     }
 
-    const result = await runOperation(
-      { resolveKey, callRpc },
-      operation,
-      body,
-      actor,
-      requestIdHint,
-    );
+    let inviteKey: Uint8Array | undefined;
+    if (isInviteOperation(operation)) {
+      try {
+        inviteKey = inviteKeyFromEnvironment(readEnv);
+      } catch {
+        return errorResponse('INTERNAL', requestIdHint);
+      }
+    }
+    const result = isInviteOperation(operation)
+      ? await dispatchInvite(
+          {
+            actor,
+            resolveKey,
+            inviteKey: inviteKey!,
+            callRpc,
+            profileId: () => ownProfileId(token),
+            shareUrl: (inviteToken) =>
+              inviteShareUrl(
+                readEnv('INVITE_SHARE_URL_BASE'),
+                inviteToken,
+                readEnv('COLETE_LOCAL_STACK') === 'true',
+              ),
+          },
+          operation,
+          body,
+        )
+      : await runOperation(
+          { resolveKey, callRpc },
+          operation as Operation,
+          body,
+          actor,
+          requestIdHint,
+        );
     return jsonResponse(result.status, result.body);
   });
 }

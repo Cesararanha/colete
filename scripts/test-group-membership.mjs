@@ -612,31 +612,59 @@ const DEFINED_0016 = [
   'public.worker_execute_database_job',
 ];
 
+const EXPECTED_0017_OVERRIDES = new Set([
+  'private.acquire_group_idempotency',
+  'private.complete_group_idempotency',
+  'private.enforce_idempotency_conclusion',
+  'private.validate_idempotency_outcome',
+  'private.worker_job_slot',
+  'public.worker_execute_database_job',
+]);
+
 async function proveCanonicalText(admin) {
   const defined = migrationFunctions(MIGRATION);
+  const overrides = migrationFunctions('0017_group_invites.sql');
   assert.deepEqual(
     [...defined.keys()].sort(),
     DEFINED_0016,
     'the extractor did not find exactly the functions defined by 0016',
   );
   for (const [qualifiedName, expected] of defined) {
-    const differences = compareDefinition(expected, await liveFunction(admin, qualifiedName));
-    assert.deepEqual(differences, [], `${qualifiedName} diverges from 0016: ${differences}`);
+    const expectedLive = EXPECTED_0017_OVERRIDES.has(qualifiedName)
+      ? overrides.get(qualifiedName)
+      : expected;
+    assert.ok(expectedLive, `${qualifiedName} has no expected live definition`);
+    const differences = compareDefinition(expectedLive, await liveFunction(admin, qualifiedName));
+    assert.deepEqual(
+      differences,
+      [],
+      `${qualifiedName} diverges from its latest migration: ${differences}`,
+    );
   }
   const later = fs
     .readdirSync(migrationsDirectory)
     .filter((file) => file > MIGRATION && file.endsWith('.sql'));
   for (const file of later) {
     for (const qualifiedName of migrationFunctions(file).keys()) {
-      assert.ok(!defined.has(qualifiedName), `${file} redefines ${qualifiedName}`);
+      if (defined.has(qualifiedName)) {
+        assert.ok(
+          file === '0017_group_invites.sql' && EXPECTED_0017_OVERRIDES.has(qualifiedName),
+          `${file} unexpectedly redefines ${qualifiedName}`,
+        );
+      }
     }
   }
+  assert.deepEqual(
+    [...overrides.keys()].filter((name) => defined.has(name)).sort(),
+    [...EXPECTED_0017_OVERRIDES].sort(),
+    '0017 must redefine exactly the six expected 0016 functions',
+  );
   // Nenhuma função que a 0015 fixou é redefinida pela 0016.
   for (const qualifiedName of migrationFunctions('0015_group_foundation.sql').keys()) {
     assert.ok(!defined.has(qualifiedName), `0016 redefines ${qualifiedName} fixed by 0015`);
   }
   console.log(
-    `ok - ${defined.size} functions: pg_get_functiondef equals the 0016 text byte for byte`,
+    `ok - ${defined.size} functions: pg_get_functiondef equals the latest migration byte for byte`,
   );
 }
 

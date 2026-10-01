@@ -674,6 +674,11 @@ contratos. As referências às decisões M2-D22 a M2-D42 apontam para as emendas
 
 O cliente chama somente a Edge autenticada e envia os campos da assinatura;
 identidade, sessão, papel, nonce, versões de chave e digests nunca vêm do body.
+No preview ou resgate, corpo que não é JSON válido ou JSON que não seja objeto
+(inclusive `null` e array) recebe `VALIDATION` (422) sem débito: não carrega
+código ou token e não constitui tentativa. Corpo objeto com código ou token em formato inválido debita antes da
+recusa; `request_id` UUID válido do cliente volta inclusive no 429 ou 503 do
+resgate.
 A Edge verifica o JWT, e as RPCs nominais resolvem o perfil e revalidam conta,
 denylist, aceite e autoridade. `public`, `anon` e `authenticated` não executam
 RPC interna mutável; `service_role` só recebe `EXECUTE` nominal, sem DML direto
@@ -1305,7 +1310,7 @@ EXPORT_ALREADY_PENDING · EXPORT_EXPIRED ·
 FINANCIAL_CASE_NOT_ASSIGNED · FINANCIAL_CASE_NOT_FOUND · FINANCIAL_CASE_OPEN ·
 FINANCIAL_SUBSTITUTE_REQUIRED · FORBIDDEN · GROUP_ARCHIVED · GROUP_FULL · GROUP_LIMIT ·
 GROUP_SUSPENDED · IDEMPOTENCY_CONFLICT · IDEMPOTENCY_EXPIRED ·
-IDEMPOTENCY_WAIT_TIMEOUT · INTERNAL · INVITE_EXPIRED · INVITE_REVOKED · INVITE_USED · IS_OWNER ·
+IDEMPOTENCY_WAIT_TIMEOUT · INTERNAL · INVITE_ALREADY_ACTIVE · INVITE_EXPIRED · INVITE_REVOKED · INVITE_USED · IS_OWNER ·
 LIST_CLOSED · LIST_EMPTY · MATCH_CANCELED · MATCH_DONE · MATCH_NOT_CANCELED ·
 MATCH_NOT_OPEN · MATCH_STARTED · MEMBERSHIP_ALREADY_DECIDED · MONTHLY_DISABLED ·
 MONTHLY_ONLY · NOT_ACTIVE_MEMBER · NOT_FOUND · NOT_MEMBER · NOT_ORGANIZER · NOT_STARTER ·
@@ -1315,6 +1320,7 @@ PAYMENT_ALREADY_RESOLVED · PAYMENT_CYCLE_CONFLICT · PAYMENT_CYCLE_NOT_FOUND ·
 PAYMENT_INTENT_ACTIVE · PAYMENT_IN_REVIEW · PAYMENT_RELATION_NOT_FOUND · PIX_INVALID ·
 PIX_LOCKED · PIX_PURGED · PLAYER_MISMATCH · PREFERENCE_REQUIRED · PRICE_INVALID · PRICE_LOCKED ·
 PROFILE_SUSPENDED · PROOFS_PENDING · PROOF_EVIDENCE_PURGED · PROOF_RESOLVED_ELSEWHERE ·
+RATE_LIMITED · RATE_LIMIT_UNAVAILABLE ·
 RATINGS_MISSING · RATING_DISPUTE_ALREADY_OPEN · RATING_DISPUTE_AUTHORITY_REQUIRED ·
 RATING_DISPUTE_NOT_OPEN · RATING_DISPUTE_TARGET_INVALID · RECENT_REAUTH_REQUIRED ·
 RECURRENCE_CANCEL_CONFIRMATION_REQUIRED · RECURRENCE_INACTIVE · RECURRENCE_INVALID · REFUNDS_PENDING ·
@@ -1333,12 +1339,10 @@ Código novo entra neste documento e em teste de contrato antes de entrar na apl
 
 ### 8.1 Quota e indisponibilidade do limitador de convites
 
-Emenda de 2026-09-28, M2-D25/M2-D27: contratos de erros **planejados para
-a `0017`**. Eles ficam registrados neste §8 antes de qualquer uso. Na fase 1,
-a lista acima e seu espelho TypeScript permanecem iguais à base: nenhum código
-é alterado. O commit da `0017` inclui `RATE_LIMITED` e `RATE_LIMIT_UNAVAILABLE`
-na lista principal, regenera o catálogo cliente e publica o mapeamento Edge/
-validação/testes correspondentes juntos. Esta fronteira não permite usar erro
+Emenda de 2026-09-28, M2-D25/M2-D27: contratos de erros planejados para
+a `0017`. A fatia `0017` inclui `RATE_LIMITED`, `RATE_LIMIT_UNAVAILABLE` e
+`INVITE_ALREADY_ACTIVE` na lista principal, regenera o catálogo cliente e
+publica o mapeamento Edge e seus testes no mesmo commit. Esta fronteira não permite usar erro
 sem suporte cliente nem adiar sua geração depois de publicar a RPC.
 
 `INVITE_ALREADY_ACTIVE` é HTTP 409: emissão recusada porque existe convite
