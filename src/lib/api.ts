@@ -420,6 +420,15 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   }
 
   return {
+    getGroupMembers: (groupId: string, signal?: AbortSignal) =>
+      groupRead<
+        {
+          profile_id: string;
+          display_name: string;
+          role: 'owner' | 'organizer' | 'player';
+          status: 'active' | 'pending';
+        }[]
+      >('get_group_members', { group_id: groupId }, signal),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
     joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),
     joinGroupByInvite: (token: string) => mutation<GroupOutcome>('join_by_invite', { token }),

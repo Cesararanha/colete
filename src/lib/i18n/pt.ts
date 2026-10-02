@@ -29,6 +29,9 @@ export const pt = {
     detail: {
       eyebrow: 'Seu grupo',
       title: 'Detalhe do grupo',
+      members: 'Membros',
+      pendingMembers: 'Pendentes de aprovação',
+      player: 'Jogador',
       description: 'Confira o grupo e suas ações disponíveis.',
       leave: 'Sair do grupo',
       ownerLeaveReason: 'Transfira a titularidade primeiro para sair deste grupo.',

@@ -149,6 +149,7 @@ npm run db:test:invites
 npm run db:test:groups
 npm run db:test:membership
 npm run db:test:rename
+npm run db:test:members
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
 npm run test:groups:web
 npm run build:web:smoke && npm run test:smoke:web

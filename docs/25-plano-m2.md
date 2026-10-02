@@ -351,6 +351,7 @@ As policies são fechadas e testadas com um papel-sonda sem `BYPASSRLS`:
 | Tabela | Leitura autorizada | Prova negativa obrigatória |
 | --- | --- | --- |
 | `groups` | membership própria `active` no grupo não arquivado; grupo arquivado ainda não é enumerável na RLS vigente da `0015` (M2-D40) | membro ativo de A não lê a linha de B; `pending` e `removed` não leem a linha do grupo; leitura de arquivado por policy é pós-piloto |
+| `get_group_members` (`0019`) | membro ativo lê quatro campos dos ativos do mesmo grupo; dono/organizador ativo lê também pendentes; sem SELECT adicional em `profiles` | pendente, removido, outro grupo e anônimo não recebem lista; removidos e dados de conta nunca saem |
 | `group_members` | membro ativo lê as memberships do próprio grupo; `pending` lê somente a própria linha/pedido | membro de A não lê membership de B; pendente não enumera membros nem outro pedido |
 | `group_invites` | owner ou organizer com membership `active` no momento da leitura lê somente a projeção administrativa allowlisted; `created_by` é histórico, não autoridade | membro comum, pendente, organizador de outro grupo e criador removido ou rebaixado não leem; ninguém cliente recebe `token_digest` ou material bruto |
 
@@ -1605,6 +1606,33 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   roteiro do piloto inclui a leitura, cópia e digitação do código humano da
   M2-D23. A tabela será criada no gate do piloto, não nesta fatia.
 
+- **M2-D44 (decidida por César em 2026-10-01).** Membro com membership
+  `active` vê, dos outros membros `active` do mesmo grupo, somente o nome de
+  exibição e o papel (dono, organizador ou jogador). Dono e organizador com
+  membership `active` veem também o nome de exibição de quem tem pedido
+  `pending`, para subsidiar aprovação ou recusa. A projeção contém somente
+  `profile_id`, nome de exibição, papel e estado `active|pending`; não inclui
+  e-mail, telefone, dado de conta, membro removido nem dado de outro grupo.
+  A leitura pertence à fatia `0019` e não concede leitura de perfis de
+  terceiros em `profiles`. A tela 11 mostra os membros com nome e papel e,
+  para dono e organizador ativo, pedidos pendentes somente com nomes.
+  Aprovar e recusar pela interface pertencem à UI-B; a tela 11 não recebe
+  controles sem ação publicada.
+  **Complemento humano de 2026-10-02:** nome de exibição é `nickname` após
+  trim quando não vazio; na ausência de apelido preenchido, é `name`.
+  A resposta contém um único nome de exibição: quando há apelido, não inclui
+  o nome completo. As provas cobrem as duas alternativas e a ausência do
+  nome completo na resposta quando há apelido.
+
+**Decisões técnicas do planejador (02/10/2026), complemento da M2-D44.**
+
+- Membership `active` de perfil `suspended|banned` aparece com nome de
+  exibição e papel. Nenhum estado da conta é projetado.
+- Ativos: dono, organizadores, jogadores; em cada papel, nome de exibição
+  sem diferenciar maiúsculas e `profile_id` como desempate estável.
+  Pendentes aparecem em bloco separado, somente para dono/organizador,
+  por `last_requested_at` crescente e `profile_id` como desempate.
+
 **Decisões técnicas do planejador (01/10/2026).**
 
 - A exceção de fixture da M2-D11 inclui `expires_at` do convite, além de
@@ -1614,8 +1642,9 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 - O checklist `15` e o roadmap `16` seguem a M2-D43: provas automatizadas em
   cada fatia de interface e uma passada manual com leitor de tela no gate do
   piloto, cobrindo todas as telas do piloto em documento operacional próprio.
-- A M2-D44, lista de membros, pertence a fatia própria. A tela 11 da UI-A
-  permanece sem lista de membros e sem controle que prometa essa função.
+- A M2-D44, lista de membros, pertence à fatia `0019`. Na entrega original
+  da UI-A, a tela 11 ficou sem lista e sem controle que prometesse essa função;
+  a `0019` acrescenta a leitura decidida, sem ações da UI-B.
 
 **Decisões técnicas do planejador (29/09/2026).**
 

@@ -656,6 +656,45 @@ em logs. Bytes são `id(16)||version(u16 BE)||nonce(16)||mac(32)`, base64url sem
 domínio é `colete/invite/v1` ou `colete/match-invite/v1`. Rotação incrementa versão, troca
 nonce/digest e invalida a anterior. Dump sem chave do cofre não forja nem reconstrói MAC.
 
+### Leitura de membros do grupo — `get_group_members(group_id)` (M2-D44)
+
+POST autenticado na Edge `groups/get_group_members`, corpo somente
+`{ group_id: uuid }`. Não é mutação: sem chave idempotente; `request_id`
+na resposta é correlação gerada pelo servidor. HTTP 200 com
+`{ data: [{ profile_id, display_name, role, status }], request_id }`.
+`role` é `owner|organizer|player`, com dono derivado de `groups.owner_id`;
+`status` é `active|pending`. Nenhum outro campo é autorizado.
+
+Quem chama: sessão válida, perfil não em exclusão, membership `active` no
+mesmo grupo. Ativos veem ativos; dono/organizador ativo vê também pendentes.
+Pendente, removido e membro de outro grupo recebem `NOT_MEMBER` (403),
+inclusive para grupo inexistente, sem enumeração. Anônimo, sessão inválida
+ou revogada recebe `UNAUTHENTICATED` (401). Perfil sem cadastro ou já
+desidentificado, sem vínculo ao Auth, recebe
+`NOT_FOUND` (404); ator `deletion_pending` recebe `FORBIDDEN` (403).
+Entrada inválida recebe `VALIDATION` (422); falha inesperada `INTERNAL` (500).
+Grupo suspenso conserva a leitura, pois a suspensão bloqueia mutações
+(`10` §11 e §5.4), não esta lista. Grupo arquivado não tem leitura no piloto
+(M2-D40): ator sem vínculo ativo recebe `NOT_MEMBER`; ator ainda ativo recebe
+`GROUP_ARCHIVED` (410). Não abre leitura histórica nem SELECT de terceiros
+em `profiles`; a policy própria permanece intacta.
+
+**Decisão humana de 2026-10-02:** `display_name` é `nickname` após trim
+quando não vazio; caso contrário, `name`. Com apelido, o nome completo
+não é retornado. As provas cobrem as duas alternativas e a ausência do
+nome completo por valor. Não há dado novo armazenado.
+
+**Decisão técnica do planejador de 2026-10-02:** alvo com membership
+`active` e conta `suspended|banned` aparece como qualquer outro, sem revelar
+estado da conta. Ativos vêm antes dos pendentes: dono, organizadores,
+jogadores; dentro de cada papel, `lower(display_name)` crescente e
+`profile_id` como desempate. Pendentes formam bloco separado por
+`last_requested_at` crescente e `profile_id`. O timestamp ordena no servidor,
+mas não sai na resposta. Perfil em exclusão perde autoridade e membership
+pela saga (§5.3); `deletion_pending|deleted` não é projetado, mesmo em estado
+intermediário de fixture. Conta suspensa/banida do chamador conserva leitura
+com membership ativa, sem restabelecer mutação ou sessão revogada.
+
 ### 5.0 Contratos de convites e configurações do M2 — fase documental
 
 Emendas humanas de 2026-09-28/29: M2-D22 a M2-D42, em `25` §8.1. Este registro
