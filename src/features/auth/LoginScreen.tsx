@@ -13,6 +13,7 @@ import { AuthShell } from '@/components/ui/AuthShell';
 import { api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { spacing } from '@/theme/spacing';
+import { hasPendingInvite } from '@/features/groups/join-fragment';
 
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
@@ -39,7 +40,7 @@ export function LoginScreen() {
       // Whoever signs in here owns this device now; a protocol kept by an
       // earlier account must not shadow their own gate.
       deletionProtocolStore.clear();
-      router.replace('/perfil');
+      router.replace(hasPendingInvite() ? '/join' : '/perfil');
     },
   });
 

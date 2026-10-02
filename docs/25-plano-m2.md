@@ -1125,12 +1125,12 @@ headings/título por rota, validação no blur e em tempo real depois do primeir
 erro, botão **sempre habilitado** e, com erro, foco no primeiro campo inválido,
 mensagem que diz **o que fazer**, não o que está errado, redução de movimento,
 nenhuma informação importante que desapareça sozinha, horários absolutos,
-linguagem simples, prevenção de erro, passada manual de `15` §3 e as exceções
-declaradas. Axe é camada adicional, não substitui leitor de tela. O formato de
-evidência da passada manual com leitor de tela ainda não está definido e é gate
-do §8: sem ele, nenhuma das duas fatias fecha. A UI-A também verifica
-manual e explicitamente a legibilidade do alfabeto e agrupamento humano
-da M2-D23.
+linguagem simples, prevenção de erro e as exceções declaradas. Axe é camada
+adicional, não substitui leitor de tela. Pela M2-D43, a passada manual de
+`15` §3 acontece uma vez no gate do piloto, para todas as telas do piloto. O
+fechamento da UI-A e da UI-B exige as provas automatizadas desta seção; a
+passada manual não bloqueia cada fatia. A legibilidade do alfabeto e do
+agrupamento humano da M2-D23 integra o roteiro manual do gate do piloto.
 
 O E2E usa Auth, Edge e Postgres locais reais. Inspeciona URL, corpo, headers,
 Cache API e storage persistente para provar ausência de token/MAC, código exibido
@@ -1138,8 +1138,8 @@ e normalizado e ator. Sentry permanece fora enquanto não houver integração
 produtiva no piloto. Uma contraprova
 que injeta o código em cada superfície precisa reprovar o censo. Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia
 anterior, ou pela Edge real por HTTP, com usuários criados pela API admin local
-de Auth; nenhum `insert` como `postgres` no E2E, exceto `suspended_at`,
-declarado teste a teste (M2-D11). Semear pela Edge real não é adaptador: a
+de Auth; nenhum `insert` como `postgres` no E2E, exceto `suspended_at` e `expires_at` de convite,
+declarados teste a teste (M2-D11). Semear pela Edge real não é adaptador: a
 chamada passa pelo envelope, pela capacidade e pela cota de produção. A UI-A
 exercita criação no limite, convite inicial, compartilhamento por autoridade,
 `OWNER_MUST_TRANSFER` do dono sozinho, preview sem consumo, resgate com pedido
@@ -1259,7 +1259,7 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   UI-B (decisão e titularidade) = telas 17 e 25. Estado de domínio do E2E nasce
   pela UI da própria fatia ou de fatia anterior, ou pela Edge real por HTTP, com
   usuários criados pela API admin local de Auth; nenhum `insert` como `postgres`
-  no E2E, exceto `suspended_at`, declarado teste a teste. A regra está na
+  no E2E, exceto `suspended_at` e `expires_at` de convite, declarados teste a teste. A regra está na
   redação ajustada pela M2-D11; a original não admitia a Edge real. O gate 8
   passa a bloquear a UI-A. `16` §3 (linha da tabela do M2) e §8 foram
   emendados para a nova divisão. Razão: a divisão anterior deixava na UI-A provas que só a UI-B
@@ -1302,7 +1302,7 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 - **M2-D11 (decidida em 2026-09-26).** A regra de E2E da M2-D5 passa a ser:
   “Estado de domínio do E2E nasce pela UI da própria fatia ou de fatia anterior,
   ou pela Edge real por HTTP, com usuários criados pela API admin local de Auth;
-  nenhum insert como postgres no E2E, exceto suspended_at, declarado teste a
+  nenhum insert como postgres no E2E, exceto suspended_at e expires_at de convite, declarados teste a
   teste.” Os cenários “grupo cheio” e “último uso” da UI-A semeiam as entradas
   dessa forma (§6.3) e são alcançáveis sem depender das telas da UI-B; o estado
   que exige aprovação é preparado pela Edge real (M2-D12). Semear pela Edge real
@@ -1414,7 +1414,7 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   símbolos do alfabeto de 32 `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`: 50 bits,
   exibido `XXXXX-XXXXX`, com formato versionado. Normalização em maiúsculas,
   ignorando espaço e hífen. A legibilidade do alfabeto com leitor de tela entra
-  na passada manual da UI-A; o formato dessa evidência continua no gate 12.
+  na passada manual do gate do piloto, conforme M2-D43.
   Com código uniforme, espaço de `2^50`, V convites vivos e R perfis em IPs
   suficientes, a taxa máxima por perfil é 20/h (M2-D25); o modelo aproximado
   de espera para acertar qualquer convite é `2^50 / (V × R × 20 × 24)` dias.
@@ -1596,6 +1596,26 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   M2-D28; as provas exigem cada causa, inexistente e precedência da quota.
   O resgate permite inferir existência pelo mesmo orçamento de 20/h do
   preview: esse oráculo limitado é aceito expressamente para o piloto.
+- **M2-D43 (decidida por César em 2026-09-30).** A passada manual com leitor de
+  tela de `15` §3 acontece uma única vez no gate do piloto e cobre todas as
+  telas do piloto. A evidência fica em documento operacional fora do manifesto,
+  numa tabela por tela com leitor, versão, navegador, roteiro, resultado por
+  item de `15` §1 e achados. A UI-A e a UI-B fecham com as provas automatizadas
+  de acessibilidade de §6.3; o gate manual não é repetido em cada fatia. O
+  roteiro do piloto inclui a leitura, cópia e digitação do código humano da
+  M2-D23. A tabela será criada no gate do piloto, não nesta fatia.
+
+**Decisões técnicas do planejador (01/10/2026).**
+
+- A exceção de fixture da M2-D11 inclui `expires_at` do convite, além de
+  `suspended_at` do grupo. O E2E prepara o prazo expirado como `postgres`,
+  declara essa intervenção no teste e prova a mensagem pela Edge real. O
+  restante do estado de domínio continua nascendo pela UI ou pela Edge HTTP.
+- O checklist `15` e o roadmap `16` seguem a M2-D43: provas automatizadas em
+  cada fatia de interface e uma passada manual com leitor de tela no gate do
+  piloto, cobrindo todas as telas do piloto em documento operacional próprio.
+- A M2-D44, lista de membros, pertence a fatia própria. A tela 11 da UI-A
+  permanece sem lista de membros e sem controle que prometa essa função.
 
 **Decisões técnicas do planejador (29/09/2026).**
 
@@ -1684,8 +1704,8 @@ A implementação não pode preencher estas respostas:
     aos demais itens não mudem.
 11. Decidido como M2-D8 (§8.1). O número fica reservado para que as referências
     aos demais itens não mudem.
-12. Qual é o formato de evidência da passada manual com leitor de tela de `15`
-    §3? Sem ele, UI-A e UI-B não fecham.
+12. Encerrado pela M2-D43; número reservado. A evidência manual única pertence
+    ao gate do piloto, com formato definido em §8.1.
 13. Encerrado pela M2-D23; número reservado.
 14. Encerrado pela M2-D26 refinada pela M2-D32; número reservado.
     Bytes/HKDF foram fechados em 29/09; colisão entre versões é pós-piloto.

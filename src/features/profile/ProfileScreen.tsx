@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 
 import { AppAlert } from '@/components/ui/AppAlert';
@@ -11,6 +11,8 @@ import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { AppError, api, TransportError, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import { applySessionChange } from '@/lib/private-queries';
+import { announceLocalSignOut } from '@/lib/session-broadcast';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
@@ -50,8 +52,14 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
     },
     onSuccess: async () => {
       logoutIntent.current = null;
-      await queryClient.resetQueries();
-      router.replace('/entrar');
+      applySessionChange(queryClient, null);
+      if (Platform.OS === 'web') {
+        announceLocalSignOut();
+        window.location.replace('/entrar');
+      } else {
+        router.dismissAll();
+        router.replace('/entrar');
+      }
     },
   });
   const canRetry =

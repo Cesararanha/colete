@@ -29,8 +29,8 @@ const result = spawnSync(supabaseBinary, ['start'], {
     INVITE_HMAC_KEY_V1: Buffer.from(Array.from({ length: 32 }, (_, byte) => byte)).toString(
       'base64url',
     ),
-    // Apenas uma rota de fixture local; a origem pública real será fixada no staging.
-    INVITE_SHARE_URL_BASE: 'http://127.0.0.1:8081/__invite_fixture__',
+    // The local web export serves the real join route on this loopback origin.
+    INVITE_SHARE_URL_BASE: 'http://127.0.0.1:4173/join',
     COLETE_LOCAL_STACK: 'true',
     WORKER_CRON_SECRET: localWorkerCronSecret(),
     SUPABASE_TELEMETRY_DISABLED: '1',

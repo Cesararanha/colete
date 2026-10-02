@@ -31,19 +31,29 @@ function privateQueries(client: QueryClient) {
 }
 
 describe('lib/private-queries session lifecycle', () => {
-  it('drops every private result on sign-out and keeps what is not private', () => {
+  it('clears every query and mutation after sign-out', async () => {
     const client = signedInClient('user-a');
     expect(privateQueries(client)).toHaveLength(3);
+    const mutation = client.getMutationCache().build(client, {
+      mutationKey: ['private-sentinel'],
+      mutationFn: async (value: { group_name: string; token: string }) => value,
+    });
+    await mutation.execute({ group_name: 'group-sentinel', token: 'invite-sentinel' });
+    expect(client.getMutationCache().getAll()[0]?.state.data).toEqual({
+      group_name: 'group-sentinel',
+      token: 'invite-sentinel',
+    });
 
     applySessionChange(client, null);
 
     expect(privateQueries(client)).toEqual([]);
     expect(client.getQueryData(privateQueryKeys.ownDataExports)).toBeUndefined();
     expect(client.getQueryData(SESSION_QUERY_KEY)).toBeNull();
-    expect(client.getQueryData(['public-catalog'])).toEqual(['kept']);
+    expect(client.getQueryData(['public-catalog'])).toBeUndefined();
+    expect(client.getMutationCache().getAll()).toEqual([]);
   });
 
-  it('drops the previous person when the session changes owner without a sign-out', () => {
+  it('clears the previous person when the session changes owner without a sign-out', () => {
     const client = signedInClient('user-a');
 
     applySessionChange(client, sessionFor('user-b'));
@@ -60,6 +70,28 @@ describe('lib/private-queries session lifecycle', () => {
     expect(client.getQueryData(privateQueryKeys.ownDataExports)).toEqual([
       { id: 'export-of-user-a' },
     ]);
+  });
+
+  it('cancels a public fetch in flight and clears it with the full cache', async () => {
+    const client = signedInClient('user-a');
+    client.removeQueries({ queryKey: ['public-catalog'] });
+    let resolveFetch: (rows: string[]) => void = () => undefined;
+    const inFlight = client
+      .fetchQuery({
+        queryKey: ['public-catalog'],
+        queryFn: () =>
+          new Promise<string[]>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      })
+      .then(
+        () => 'resolved',
+        (error: unknown) => (isCancelledError(error) ? 'cancelled' : 'rejected'),
+      );
+    applySessionChange(client, null);
+    resolveFetch(['stale']);
+    await expect(inFlight).resolves.toBe('cancelled');
+    expect(client.getQueryData(['public-catalog'])).toBeUndefined();
   });
 
   it('cancels a private fetch in flight so its result never lands after sign-out', async () => {

@@ -226,8 +226,10 @@ o mesmo `request_id`. O piloto valida o número antes de tratá-lo como calibrag
 
 Testes e2e mínimos: criar conta; entrar por convite; corrida por vaga; reservar antes de
 pagar; upload interrompido e retomado; decisão de prova; sorteio/ajuste por teclado;
-cancelamento/estorno/contestação e exclusão bloqueada por caso. Cada marco faz teste manual por teclado e leitor de tela; M8 é
-auditoria final, não a primeira vez que acessibilidade aparece.
+cancelamento/estorno/contestação e exclusão bloqueada por caso. Cada fatia de
+interface faz provas automatizadas de acessibilidade. Pela M2-D43, uma passada
+manual com leitor de tela cobre todas as telas do piloto no gate do piloto,
+registrada por tela em documento operacional; M8 é auditoria final.
 
 ## 5. Construção por marcos
 

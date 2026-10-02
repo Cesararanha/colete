@@ -25,13 +25,13 @@ export function usableAccessToken(session: Session | null | undefined): string |
   return accessToken === undefined || accessToken === '' ? null : accessToken;
 }
 
-/**
- * Drops every private result and cancels every private fetch in flight.
- * `removeQueries` does both: removing a query destroys it, and destroying a
- * query cancels its fetch silently, so its result never lands in the cache.
+/** Clears every cached result and mutation when the authenticated person leaves.
+ * Cancellation starts before eviction, so an in-flight private read cannot
+ * repopulate the cache after another person signs in on the same client.
  */
 export function clearPrivateQueries(queryClient: QueryClient) {
-  queryClient.removeQueries({ queryKey: [PRIVATE_QUERY_ROOT] });
+  void queryClient.cancelQueries();
+  queryClient.clear();
 }
 
 /** Counts the sessions published per cache; a read started before the last one is stale. */
@@ -52,7 +52,9 @@ export function applySessionChange(queryClient: QueryClient, next: Session | nul
   const previous = queryClient.getQueryData<Session | null>(SESSION_QUERY_KEY);
   const previousUserId = previous?.user.id ?? null;
   const nextUserId = next?.user.id ?? null;
-  if (nextUserId === null || nextUserId !== previousUserId) clearPrivateQueries(queryClient);
+  if (previousUserId !== null && (nextUserId === null || nextUserId !== previousUserId)) {
+    clearPrivateQueries(queryClient);
+  }
   sessionGenerations.set(queryClient, sessionGeneration(queryClient) + 1);
   queryClient.setQueryData(SESSION_QUERY_KEY, next);
 }
