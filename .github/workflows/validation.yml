@@ -109,6 +109,8 @@ jobs:
         run: npm run db:start
       - name: Recreate the database from migrations
         run: npm run db:reset
+      - name: Prove the dated audit exception boundary
+        run: npm run test:audit
       - name: Run pgTAP security tests
         run: npm run db:test
       - name: Run the transactional idempotency concurrency harness

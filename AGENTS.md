@@ -154,6 +154,7 @@ npm run build:web:smoke && npm run test:smoke:web
 npm run verify:app
 npm run scan:docs
 npm run scan:secrets
+npm run test:audit
 npm run audit:high
 git diff --check
 ```

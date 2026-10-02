@@ -1049,3 +1049,112 @@ no workflow: `test`, os três `test:*`, `db:test` e os cinco `db:test:*`; não h
 ausência a justificar.
 Os cinco nomes de job continuam `App quality`, `PWA export`,
 `Database security`, `Repository guardrails` e `PWA smoke`.
+
+## Exceção datada de auditoria — decisão humana de 02/10/2026
+
+### Alerta, conferência e decisão
+
+O alerta [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
+(CVE-2026-85393) classifica como alta a aceitação de elementos extras em
+`DigestAlgorithm` na verificação RSA PKCS#1 v1.5 do `node-forge` até 1.4.0.
+A conferência anterior à mudança usou `origin/main` em `eb66c7b`, instalação por
+`npm ci` e export de produção por `npm run build:web`.
+
+Saída completa de `npm ls node-forge` (omitido somente o diretório local):
+
+```text
+colete@0.0.1
+└─┬ expo@57.0.18
+  └─┬ @expo/cli@57.0.20
+    ├─┬ @expo/code-signing-certificates@0.0.6
+    │ └── node-forge@1.4.0 deduped
+    └── node-forge@1.4.0
+```
+
+O pacote está na cadeia de **produção** do npm: `expo` é dependência de
+produção e a entrada de `node-forge` no lockfile não tem `dev: true`.
+Isso não o coloca no app publicado: nessa cadeia ele atende à CLI e à geração
+de certificados usados pelas ferramentas do Expo. Não se usou `--omit`.
+
+O export terminou com 1.028 módulos web, 14 rotas estáticas e o bundle
+`entry-53a5285187afc6d0b1dbb31977ca0941.js` de 2,1 MB. A busca foi:
+
+```sh
+rg -n 'node-forge|DigestAlgorithm|emsaPkcs1v15|digestFromOid|forge\.pki|forge\.asn1|forge\.md|_modPow|pki\.rsa' dist supabase/functions
+```
+
+Saída: **nenhuma linha**, código 1, zero ocorrências tanto no PWA exportado
+quanto no código das Edge Functions. Uma segunda busca por literais presentes
+em `node-forge/lib/rsa.js` e `lib/pkcs1.js` — `DigestInfo.DigestAlgorithm`,
+`Invalid RSAES-OAEP`, `Encryption block is invalid` e
+`Unknown message digest algorithm` — também terminou sem ocorrência.
+
+`npm view node-forge versions --json` terminou em:
+
+```text
+"1.3.1", "1.3.2", "1.3.3", "1.4.0"
+```
+
+A API oficial `gh api /advisories/GHSA-86w9-cpqp-85rv` respondeu
+`severity: high`, `vulnerable_version_range: <= 1.4.0` e
+`first_patched_version: null`. Nenhuma versão corrigida estava publicada.
+O fixture versionado conserva a saída integral de `npm audit --json`:
+21 registros, 17 moderados e quatro altos. Os quatro altos são o alerta direto
+em `node-forge` e sua propagação a `@expo/code-signing-certificates`,
+`@expo/cli` e `expo`; não são quatro alertas distintos.
+
+César Aranha decidiu em 02/10/2026, pelo AGENTS §8, aceitar **somente** esse ID,
+por 14 dias, condicionado à ausência no app publicado comprovada acima.
+`audit-exceptions.json` registra ID, pacote, motivo, evidência, decisor e
+`expiresOn: 2026-10-16`. A exceção vence **no início de 16/10/2026 UTC**;
+não há tolerância adicional nem renovação automática.
+
+### Mecanismo, provas e contraprovas
+
+`audit:high` conserva a consulta integral com `--audit-level=high` e avalia o
+JSON no script versionado. As causas dos registros transitivos são resolvidas
+por `via`, e a autorização exige simultaneamente o ID e o pacote. Alertas
+moderados continuam fora do limiar. Qualquer outro alerta alto ou crítico,
+causa desconhecida ou erro de consulta reprova. Entrada vencida ou órfã
+reprova mesmo sem outro alerta alto e a mensagem identifica a entrada.
+
+`npm run test:audit` executa o CLI real em diretório descartável com um
+processo npm que devolve o fixture. Não existe bypass no script produtivo.
+As quatro provas exigidas verificam códigos de saída:
+
+| Caso | Código exigido e observado |
+| --- | --- |
+| ID listado dentro do prazo | 0; sem a entrada, 1 |
+| Mesma entrada vencida | 1, com ID e mensagem de vencimento |
+| Outro alerta alto, inclusive no mesmo pacote | 1, com ID não autorizado |
+| Exceção órfã | 1, com ID e mensagem de remoção |
+
+Dois testes adicionais cobrem alerta crítico, erro do audit, pacote divergente
+e causa desconhecida ao lado da causa permitida. As três mutações temporárias
+retiraram a guarda de vencimento, retiraram a guarda de órfão e autorizaram todo
+alerta do pacote em vez do ID. Cada mutação reprovou a suíte; restaurado o
+script, os seis testes passaram. Nenhuma mutação foi conservada.
+
+### Validação e procedimento ao vencer
+
+A validação completa do AGENTS §5 passou, incluindo os quatro harnesses M2:
+**1.194 asserções pgTAP em 17 arquivos**, nove harnesses de integração,
+**193 testes unitários em 22 arquivos**, Auth com oito testes efetivos e dois
+ignorados, privacidade com quatro efetivos e quatro ignorados, e smoke com seis.
+`scan:docs` confirmou 23 arquivos; `scan:secrets` verificou 239 arquivos.
+Os censos dos harnesses não deixaram registro operacional nem objeto Storage;
+a trilha própria `auth.audit_log_entries` mantém o resíduo aceito do GoTrue.
+O banco foi recriado exclusivamente pelas migrations `0001`–`0018`.
+
+O comando público `audit:high` conserva o nome; `test:audit` foi acrescentado ao
+`package.json`, ao AGENTS §5 e ao job `Database security`. Os cinco jobs e o
+limiar alto/crítico permanecem. Nenhuma dependência, migration ou documento
+normativo foi alterado; o manifesto não mudou. Nenhum projeto Supabase remoto,
+deploy ou segredo real foi acessado.
+
+Quando vencer, a CI deve reprovar. Conferir novamente o registry e o alerta;
+havendo correção, atualizar somente `node-forge` por caminho compatível ou
+`overrides`, remover a entrada e repetir conferência e validação. Se o alerta
+sumir antes, a guarda de órfão exige a mesma remoção. Sem correção, parar para
+nova decisão humana: esta autorização não permite estender o prazo, aceitar
+outro ID, omitir dependências nem desligar o job.

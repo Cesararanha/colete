@@ -30,7 +30,7 @@
     "test:privacy:web": "playwright test e2e/m1-b-privacy.spec.ts",
     "scan:docs": "node scripts/verify-docs.mjs",
     "scan:secrets": "secretlint \"**/*\" && node scripts/verify-secret-boundaries.mjs",
-    "audit:high": "npm audit --audit-level=high",
+    "audit:high": "node scripts/audit-high.mjs",
     "verify:pwa": "node scripts/verify-pwa.mjs",
     "verify:auth-config": "node scripts/verify-auth-config.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
@@ -49,7 +49,8 @@
     "db:test:invites": "node scripts/test-group-invites.mjs",
     "db:test:rename": "node scripts/test-group-rename.mjs",
     "db:stop": "supabase stop --no-backup",
-    "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets"
+    "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets",
+    "test:audit": "node --test scripts/test-audit-high.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.14",

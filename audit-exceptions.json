@@ -1,0 +1,10 @@
+[
+  {
+    "id": "GHSA-86w9-cpqp-85rv",
+    "package": "node-forge",
+    "reason": "Sem versão corrigida publicada; biblioteca da CLI ausente do PWA exportado e das Edge Functions.",
+    "evidence": "Conferência em 02/10/2026: npm ls node-forge; npm run build:web; busca por node-forge, DigestAlgorithm, emsaPkcs1v15, digestFromOid, forge.pki, forge.asn1, forge.md, _modPow e pki.rsa em dist e supabase/functions: zero ocorrências. npm view termina em 1.4.0; alerta oficial first_patched_version=null. Saídas em docs/23-operacao-m1-b.md.",
+    "decidedBy": "Cesar Aranha — decisão humana de 02/10/2026, AGENTS §8",
+    "expiresOn": "2026-10-16"
+  }
+]
