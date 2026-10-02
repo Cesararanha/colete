@@ -44,6 +44,38 @@ export type IdentityOperation =
   | 'revoke_current_session'
   | 'update_profile';
 
+export type GroupOperation =
+  | 'create_group'
+  | 'join_by_code'
+  | 'join_by_invite'
+  | 'leave_group'
+  | 'revoke_group_invite'
+  | 'regenerate_group_invite'
+  | 'issue_group_invite';
+
+export type GroupOutcome = {
+  outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
+  current?: { group_id?: string; group_name?: string; status?: 'pending' | 'active' };
+};
+export type GroupSummary = { id: string; name: string; owner_id: string; role: string };
+export type GroupDetail = { id: string; name: string; owner_id: string; role: string };
+export type GroupInvite = {
+  id: string;
+  group_id: string;
+  expires_at: string;
+  revoked_at: string | null;
+  max_uses: number;
+  used_count: number;
+};
+export type InviteShare = {
+  invite_id: string;
+  expires_at: string;
+  remaining_uses: number;
+  share_url: string;
+  code: string;
+  code_format: 'v1';
+};
+
 export type DataExportRequestResult = {
   outcome: { export_id: string; logical_result: 'data_export_requested' };
   current: DataExportProjection[];
@@ -60,6 +92,8 @@ export class AppError extends Error {
   readonly fields?: Readonly<Record<string, string>>;
   readonly requestId: string;
   readonly retryable: boolean;
+  readonly retryAfter?: number;
+  readonly availableAt?: string;
 
   constructor(
     code: ErrorCode,
@@ -69,6 +103,8 @@ export class AppError extends Error {
       fields?: Readonly<Record<string, string>>;
       requestId?: string;
       retryable?: boolean;
+      retryAfter?: number;
+      availableAt?: string;
     } = {},
   ) {
     super(message);
@@ -78,6 +114,8 @@ export class AppError extends Error {
     if (options.fields !== undefined) this.fields = options.fields;
     this.requestId = options.requestId ?? '';
     this.retryable = options.retryable ?? code === 'IDEMPOTENCY_WAIT_TIMEOUT';
+    if (options.retryAfter !== undefined) this.retryAfter = options.retryAfter;
+    if (options.availableAt !== undefined) this.availableAt = options.availableAt;
   }
 }
 
@@ -140,6 +178,15 @@ const INTERNAL_ONLY_FIELDS = new Set([
   'profile_id',
   'session_id',
 ]);
+const groupOperations = new Set<string>([
+  'create_group',
+  'join_by_code',
+  'join_by_invite',
+  'leave_group',
+  'revoke_group_invite',
+  'regenerate_group_invite',
+  'issue_group_invite',
+]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
   if (Array.isArray(value)) {
@@ -185,9 +232,16 @@ function appErrorFromEnvelope(value: unknown, fallbackRequestId: string): AppErr
     current?: unknown;
     fields?: Readonly<Record<string, string>>;
     requestId: string;
+    retryable?: boolean;
   } = { requestId };
   if (Object.hasOwn(error, 'current')) options.current = error['current'];
   if (fields !== undefined) options.fields = fields;
+  if (typeof error['retry_after'] === 'number' && Number.isFinite(error['retry_after'])) {
+    Object.assign(options, { retryAfter: error['retry_after'], retryable: true });
+  }
+  if (typeof error['available_at'] === 'string') {
+    Object.assign(options, { availableAt: error['available_at'] });
+  }
   return new AppError(code, message, options);
 }
 
@@ -214,7 +268,7 @@ function authFailure(
 }
 
 export type MutationIntent<T> = {
-  readonly operation: IdentityOperation;
+  readonly operation: IdentityOperation | GroupOperation;
   readonly requestId: string;
   execute: () => Promise<T>;
   retry: () => Promise<T>;
@@ -231,7 +285,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   const config = () => dependencies.supabaseConfig ?? publicSupabaseConfig();
 
   async function callGateway<T>(
-    operation: IdentityOperation,
+    operation: IdentityOperation | GroupOperation,
     requestId: string,
     serializedBody: string,
   ): Promise<T> {
@@ -240,8 +294,11 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         const accessToken = await accessTokenOrThrow(requestId);
 
         const { url, publishableKey } = config();
-        const response = await fetcher(`${url}/functions/v1/identity/${operation}`, {
+        const gateway = groupOperations.has(operation) ? 'groups' : 'identity';
+        const response = await fetcher(`${url}/functions/v1/${gateway}/${operation}`, {
           method: 'POST',
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
           headers: {
             apikey: publishableKey,
             Authorization: `Bearer ${accessToken}`,
@@ -268,7 +325,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   }
 
   function mutation<T>(
-    operation: IdentityOperation,
+    operation: IdentityOperation | GroupOperation,
     businessInput: Readonly<Record<string, unknown>>,
   ): MutationIntent<T> {
     refuseInternalFields(businessInput);
@@ -276,6 +333,39 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     const serializedBody = JSON.stringify({ request_id: requestId, ...businessInput });
     const execute = () => callGateway<T>(operation, requestId, serializedBody);
     return { operation, requestId, execute, retry: execute };
+  }
+
+  async function groupRead<T>(
+    operation: string,
+    businessInput: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    refuseInternalFields(businessInput);
+    const accessToken = await accessTokenOrThrow();
+    const { url, publishableKey } = config();
+    let response: Response;
+    try {
+      response = await fetcher(`${url}/functions/v1/groups/${operation}`, {
+        method: 'POST',
+        ...(signal === undefined ? {} : { signal }),
+        cache: 'no-store',
+        referrerPolicy: 'no-referrer',
+        headers: {
+          apikey: publishableKey,
+          Authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(businessInput),
+      });
+    } catch {
+      throw new TransportError();
+    }
+    const body: unknown = await response.json().catch(() => undefined);
+    const error = appErrorFromEnvelope(body, '');
+    if (error?.code === 'INTERNAL') throw new TransportError();
+    if (error !== undefined) throw error;
+    if (!response.ok || !Object.hasOwn(asRecord(body) ?? {}, 'data')) throw new TransportError();
+    return (body as { data: T }).data;
   }
 
   function profileValidationError(error: {
@@ -330,6 +420,88 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   }
 
   return {
+    createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
+    joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),
+    joinGroupByInvite: (token: string) => mutation<GroupOutcome>('join_by_invite', { token }),
+    leaveGroup: (groupId: string) => mutation<GroupOutcome>('leave_group', { group_id: groupId }),
+    revokeGroupInvite: (inviteId: string) =>
+      mutation<GroupOutcome>('revoke_group_invite', { invite_id: inviteId }),
+    regenerateGroupInvite: (inviteId: string) =>
+      mutation<GroupOutcome>('regenerate_group_invite', { invite_id: inviteId }),
+    issueGroupInvite: (groupId: string) =>
+      mutation<GroupOutcome>('issue_group_invite', { group_id: groupId }),
+    previewGroupByCode: (code: string) =>
+      groupRead<{ group_name: string }>('preview_group_by_code', { code }),
+    previewGroupByInvite: (token: string) =>
+      groupRead<{ group_name: string }>('preview_group_by_invite', { token }),
+    getMyPendingGroupRequests: () =>
+      groupRead<{ group_id: string; group_name: string; status: 'pending' }[]>(
+        'get_my_pending_group_requests',
+        {},
+      ),
+    getInviteShareLink: (inviteId: string, signal?: AbortSignal) =>
+      groupRead<InviteShare>('get_invite_share_link', { invite_id: inviteId }, signal),
+    async getOwnGroups(profileId: string, accessToken: string): Promise<GroupSummary[]> {
+      const memberships = await supabase()
+        .from('group_members')
+        .select('group_id,role,status')
+        .eq('profile_id', profileId)
+        .eq('status', 'active')
+        .setHeader('Authorization', `Bearer ${accessToken}`);
+      if (memberships.error !== null) throw new TransportError();
+      const ids = (memberships.data ?? []).map((row) => row.group_id);
+      if (ids.length === 0) return [];
+      const groups = await supabase()
+        .from('groups')
+        .select('id,name,owner_id')
+        .in('id', ids)
+        .order('name')
+        .setHeader('Authorization', `Bearer ${accessToken}`);
+      if (groups.error !== null) throw new TransportError();
+      return (groups.data ?? []).map((group) => ({
+        ...group,
+        role:
+          group.owner_id === profileId
+            ? 'owner'
+            : (memberships.data?.find((member) => member.group_id === group.id)?.role ?? 'player'),
+      }));
+    },
+    async getGroupDetail(
+      groupId: string,
+      profileId: string,
+      accessToken: string,
+    ): Promise<GroupDetail | null> {
+      const result = await supabase()
+        .from('groups')
+        .select('id,name,owner_id')
+        .eq('id', groupId)
+        .maybeSingle()
+        .setHeader('Authorization', `Bearer ${accessToken}`);
+      if (result.error !== null) throw new TransportError();
+      if (result.data === null) return null;
+      const membership = await supabase()
+        .from('group_members')
+        .select('role,status')
+        .eq('group_id', groupId)
+        .eq('profile_id', profileId)
+        .maybeSingle()
+        .setHeader('Authorization', `Bearer ${accessToken}`);
+      if (membership.error !== null) throw new TransportError();
+      return {
+        ...result.data,
+        role: result.data.owner_id === profileId ? 'owner' : (membership.data?.role ?? 'player'),
+      };
+    },
+    async getGroupInvites(groupId: string, accessToken: string): Promise<GroupInvite[]> {
+      const result = await supabase()
+        .from('group_invites')
+        .select('id,group_id,expires_at,revoked_at,max_uses,used_count')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: false })
+        .setHeader('Authorization', `Bearer ${accessToken}`);
+      if (result.error !== null) throw new TransportError();
+      return result.data ?? [];
+    },
     completeProfile: (profile: ProfileInput) =>
       mutation<{
         outcome: { profile_id: string; logical_result: 'profile_created' };

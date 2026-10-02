@@ -15,6 +15,7 @@ import { AppError, api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { hasPendingInvite } from '@/features/groups/join-fragment';
 
 import { useAuthFlowStore } from './auth-flow-store';
 import { deletionProtocolStore } from '../profile/deletion-protocol';
@@ -53,7 +54,7 @@ export function VerifyCodeScreen() {
       await api.verifyEmailOtp(pendingEmail, code, 'signup');
       clearPendingSignup();
       deletionProtocolStore.clear();
-      router.replace('/perfil');
+      router.replace(hasPendingInvite() ? '/join' : '/perfil');
     },
   });
 

@@ -5,7 +5,7 @@ passar nesta lista.** Não é etapa final — é parte da definição de pronto 
 (`16-roadmap.md`, M0–M8).
 
 Emendas documentais de 28–29/09/2026 (M2-D23/M2-D27/M2-D37/M2-D40): código humano e espera por
-quota seguem os critérios abaixo; confirmação de arquivamento por RPC é pós-piloto; a evidência manual continua no gate 12 de `25`.
+quota seguem os critérios abaixo; confirmação de arquivamento por RPC é pós-piloto; a evidência manual única fica no gate do piloto, conforme M2-D43 de `25`.
 
 ## 1. Checklist por tela (o critério de aceite)
 
@@ -96,16 +96,18 @@ quota seguem os critérios abaixo; confirmação de arquivamento por RPC é pós
 |---|---|
 | No design (etapa D) | Tokens de cor já nascem validados: cada par texto/fundo dos dois temas passa no contraste **antes** de virar tela |
 | Em todo PR | `eslint-plugin-react-native-a11y` no lint (CI) — pega rótulo faltando e erro comum |
-| No fim de cada marco | Passada manual no alvo disponível: leitor de tela + teclado no PWA; VoiceOver/TalkBack nos builds nativos quando eles entrarem no roadmap |
+| Em cada fatia de interface | Provas automatizadas de axe, teclado, foco, reflow, nomes acessíveis e anúncio de erros no alvo web |
+| No gate do piloto | Uma passada manual com leitor de tela, cobrindo todas as telas do piloto, em tabela por tela num documento operacional fora do manifesto |
 | No M8 (polish) | Auditoria completa: axe DevTools no alvo web, zoom 400% com reflow, revisão da lista inteira tela a tela |
 | No beta | Perguntar ao grupo, de verdade, se alguém precisa de ajuste (tamanho de fonte, movimento, notificação) — acessibilidade também se pesquisa |
 
-Na UI-A, a passada manual também verifica leitura e cópia dos 10 símbolos
+No gate do piloto, a passada manual também verifica leitura e cópia dos 10 símbolos
 do alfabeto `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, agrupados `XXXXX-XXXXX`, e
 a digitação com maiúsculas/minúsculas, espaço e hífen normalizados (M2-D23).
 O teste registra o alfabeto efetivo, leitor/plataforma, ação e resultado no
-formato de evidência que o gate 12 de `25` ainda exige aprovar; axe não encerra
-esse gate nem prova legibilidade do código.
+formato da M2-D43: leitor, versão, navegador, roteiro, resultado por item do §1
+e achados. Axe integra as provas automatizadas de cada fatia e não prova, sozinho,
+a legibilidade do código.
 
 Na etapa pós-piloto, a tela 25 exige confirmação acessível antes de `archive_group`: título e
 texto anunciam que o grupo ficará somente leitura, que pedidos pendentes

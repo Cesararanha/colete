@@ -1,29 +1,39 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
+import type { ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
 
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { AppError, api } from '@/lib/api';
+import { AppError, api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import {
+  applySessionChange,
   isSessionUnavailable,
   privateQueryKeys,
   usePrivateQuery,
   useSessionQuery,
 } from '@/lib/private-queries';
+import { announceLocalSignOut } from '@/lib/session-broadcast';
 
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { DeletionShellScreen } from '../profile/DeletionShellScreen';
 import { ProfileScreen } from '../profile/ProfileScreen';
 import { ProfileCompletionScreen } from './ProfileCompletionScreen';
 
-function LoadingGate() {
+type AuthGateProps = {
+  renderAuthenticated?: (profile: OwnProfile, session: Session) => ReactNode;
+  page?: { title: string; eyebrow: string; description: string };
+};
+
+function LoadingGate({ page }: { page: AuthGateProps['page'] }) {
   return (
     <AuthenticatedShell
-      description={pt.profile.description}
-      eyebrow={pt.profile.eyebrow}
-      title={pt.profile.title}
+      description={page?.description ?? pt.profile.description}
+      eyebrow={page?.eyebrow ?? pt.profile.eyebrow}
+      title={page?.title ?? pt.profile.title}
     >
       <AsyncNotice kind="loading" message={pt.common.loading} />
     </AuthenticatedShell>
@@ -37,7 +47,7 @@ function LoadingGate() {
  * Auth is gone the locally kept protocol still renders the restricted shell
  * instead of a login redirect, without recreating any session.
  */
-export function AuthGateScreen() {
+export function AuthGateScreen({ renderAuthenticated, page }: AuthGateProps = {}) {
   const queryClient = useQueryClient();
   const storedProtocol = useSyncExternalStore(
     deletionProtocolStore.subscribe,
@@ -79,21 +89,27 @@ export function AuthGateScreen() {
       .signOutLocally()
       .catch(() => undefined)
       .then(async () => {
-        await queryClient.resetQueries();
-        router.replace('/entrar');
+        applySessionChange(queryClient, null);
+        if (Platform.OS === 'web') {
+          announceLocalSignOut();
+          window.location.replace('/entrar');
+        } else {
+          router.dismissAll();
+          router.replace('/entrar');
+        }
       });
   };
 
-  if (session.isPending) return <LoadingGate />;
+  if (session.isPending) return <LoadingGate page={page} />;
 
   if (currentSession === null) {
     if (storedProtocol !== null) {
       return <DeletionShellScreen onLeave={leave} protocol={storedProtocol} request={null} />;
     }
-    return <LoadingGate />;
+    return <LoadingGate page={page} />;
   }
 
-  if (profile.isPending || deletion.isPending) return <LoadingGate />;
+  if (profile.isPending || deletion.isPending) return <LoadingGate page={page} />;
 
   if (
     deletion.error instanceof AppError &&
@@ -108,9 +124,9 @@ export function AuthGateScreen() {
     const sessionUnavailable = isSessionUnavailable(queryError);
     return (
       <AuthenticatedShell
-        description={pt.profile.description}
-        eyebrow={pt.profile.eyebrow}
-        title={pt.profile.title}
+        description={page?.description ?? pt.profile.description}
+        eyebrow={page?.eyebrow ?? pt.profile.eyebrow}
+        title={page?.title ?? pt.profile.title}
       >
         <AsyncNotice
           action={() => {
@@ -160,5 +176,9 @@ export function AuthGateScreen() {
     );
   }
 
-  return <ProfileScreen profile={profile.data} session={currentSession} />;
+  return (
+    renderAuthenticated?.(profile.data, currentSession) ?? (
+      <ProfileScreen profile={profile.data} session={currentSession} />
+    )
+  );
 }

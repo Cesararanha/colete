@@ -41,6 +41,25 @@ const serviceWorkerRegistration = `
 })();
 `;
 
+// Runs before the app and any observability code. The invitation is held only
+// in page memory until the join screen consumes it; it never enters a URL
+// after this script or any persistent browser store.
+const consumeInviteFragment = `
+(() => {
+  const capture = () => {
+    if (location.pathname !== '/join' || !location.hash) return;
+    const fragment = location.hash;
+    history.replaceState(history.state, '', location.pathname + location.search);
+    if (!fragment.startsWith('#token=')) return;
+    try { window.__COLETE_INVITE_TOKEN__ = decodeURIComponent(fragment.slice(7)); }
+    catch { window.__COLETE_INVITE_TOKEN__ = ''; }
+    window.dispatchEvent(new Event('colete:invite-fragment'));
+  };
+  capture();
+  window.addEventListener('hashchange', capture);
+})();
+`;
+
 const globalStyles = `
   :root { color-scheme: light dark; }
   html, body, #root { min-height: 100%; margin: 0; }
@@ -78,6 +97,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <link href="/icons/icon-192.png" rel="icon" sizes="192x192" type="image/png" />
         <link href="/icons/icon-192.png" rel="apple-touch-icon" />
         <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
+        <script dangerouslySetInnerHTML={{ __html: consumeInviteFragment }} />
         <script dangerouslySetInnerHTML={{ __html: serviceWorkerRegistration }} />
         <ScrollViewStyleReset />
       </head>

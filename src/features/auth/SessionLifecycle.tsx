@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 import { api } from '@/lib/api';
 import { applySessionChange } from '@/lib/private-queries';
+import { listenForLocalSignOut } from '@/lib/session-broadcast';
 import { isSmokeMode } from '@/lib/runtime';
 
 /**
@@ -17,10 +18,18 @@ export function SessionLifecycle() {
 
   useEffect(() => {
     if (isSmokeMode()) return undefined;
-    const subscription = api.onAuthStateChange((_event, nextSession) => {
+    const stopListening = listenForLocalSignOut(() => {
+      applySessionChange(queryClient, null);
+      window.location.replace('/entrar');
+    });
+    const subscription = api.onAuthStateChange((event, nextSession) => {
+      if (event === 'INITIAL_SESSION') return;
       applySessionChange(queryClient, nextSession);
     });
-    return () => subscription.unsubscribe();
+    return () => {
+      stopListening();
+      subscription.unsubscribe();
+    };
   }, [queryClient]);
 
   return null;

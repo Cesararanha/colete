@@ -1269,9 +1269,90 @@ Após o reset, passaram `db:test:idempotency` (7 provas), `db:test:gateway` (9),
 `db:test:worker` (8), `db:test:deletion` (10), `db:test:export` (16),
 `db:test:invites` (63), `db:test:groups` (29), `db:test:membership` (68) e
 `db:test:rename` (11). Auth web passou com 8 testes e privacidade com 4;
-smoke web passou com 6. `verify:app` passou com **193 testes em 22 arquivos**,
+smoke web passou com 6. `verify:app` passou com **194 testes em 22 arquivos**,
 além de lint, formato, tipos, build, PWA e configuração Auth. `scan:docs`,
 `scan:secrets`, `audit:high` e `git diff --check` passaram. A auditoria
 registrou **19 vulnerabilidades moderadas**, nenhuma alta ou crítica. Nenhum
 segredo real, projeto Supabase remoto, deploy ou serviço de produção foi
 acessado.
+
+## UI-A — entrada e convites de grupos (01/10/2026)
+
+As telas 10, 11, 12, 16 e 24 usam apenas contratos publicados até a `0018`.
+A navegação autenticada expõe Grupos e Perfil; Rachas permanece para o M3. A
+lista distingue vazio, grupos ativos e pedidos próprios pendentes. A criação
+abre o convite inicial. O detalhe mostra o papel próprio e a saída; o dono
+solo vê o motivo de transferência antes do controle focável com `aria-disabled`; o acionamento não chama a Edge. A entrada por código ou link confirma o
+nome por preview antes do resgate e mostra `pending` sem consumir novamente
+quando o pedido já existe. A tela de convites copia o código e o link,
+regenera, revoga e emite outra linha depois do término. Não há lista de membros na tela 11 (M2-D44, fatia própria) nem controles de
+foto, arquivamento, rotação ou limitador por IP.
+
+O fragmento do link é removido por `history.replaceState` antes da aplicação e
+da observabilidade, inclusive para a pessoa já autenticada. Se a pessoa ainda precisa entrar, o token permanece apenas
+na memória da página até a autenticação e então é consumido. Preview e resgate
+não colocam o material nas variáveis do cache de mutações. A tela 24 lê o
+material sensível diretamente num componente de vida curta, sem closure de
+consulta que o retenha; a listagem usa `gcTime: 0`. No logout, consultas em
+andamento são canceladas e `QueryCache` e `MutationCache` são limpos por
+inteiro. O documento web é encerrado na mesma aba para liberar também rotas
+privadas e strings externas que o browser ainda mantinha depois da limpeza.
+Um aviso efêmero por `BroadcastChannel`, sem identificador ou credencial,
+faz as outras abas encerrarem o documento e limparem seus caches também. O censo E2E examina
+URL, referrer, histórico, headers, corpos de requisições, logs do navegador,
+Cache API e storages persistentes. As contraprovas injetam sentinelas em URL,
+estado do histórico, `localStorage`, `sessionStorage` e Cache API e exigem
+reprovação do censo. Os corpos com token são aceitos somente nas duas rotas
+contratadas de preview e resgate. Código e link foram copiados pelo navegador
+e comparados em memória, sem imprimir o material no relatório.
+
+O E2E semeia grupos e pessoas pela UI, Auth local e Edge real. Os 99 resgates
+que lotam o grupo passam pela Edge com o limitador real configurado localmente
+para 150 tentativas por perfil. A prova distingue `GROUP_FULL` com um uso
+restante, o 100º uso após aprovação e remoção via Edge, e `INVITE_USED` após
+outra vaga liberada. Outra prova configura o mesmo limitador em 2 tentativas e
+verifica a terceira com `RATE_LIMITED` e horário absoluto. As únicas escritas diretas de fixture de domínio são `suspended_at` e
+`expires_at` de convite, admitidas pela M2-D11 com decisão técnica de 01/10;
+provam `GROUP_SUSPENDED` sem consumo e a mensagem `INVITE_EXPIRED`. A sexta criação recebe
+`GROUP_LIMIT` sem criar grupo. A retentativa do resgate depois de
+`RATE_LIMITED` e `RATE_LIMIT_UNAVAILABLE` usa o mesmo `request_id` observado
+nos dois corpos HTTP. O horário de liberação é comparado com o `available_at`
+servido, não apenas com um formato de data. Cada cenário apaga seus sujeitos sintéticos e
+confere `auth.users = 0` depois; a primeira prova confere também o zero antes.
+
+A saída do dono mantém foco no botão com `aria-disabled`, descreve o motivo
+antes da ação e não envia requisição. A Edge real ainda retorna
+`OWNER_MUST_TRANSFER` como contraprova. O jogador sai, recebe mensagem que
+persiste na lista e não volta a ver o grupo ao navegar de volta. A tela 11
+não mostra nomes e papéis de terceiros: a lista de membros foi
+atribuída à M2-D44, em fatia própria, sem controle inerte nesta interface. A M2-D43 ficou no plano normativo; `15` e `16` foram alinhados. A tabela da
+passada manual única pertence ao gate do piloto e não foi criada aqui.
+
+Na contraprova de memória, o código anterior deixava no snapshot CDP tanto
+o nome-sentinela como o token de A após B entrar no mesmo documento. O teste
+foi corrigido para não chamar `page.goto` durante a entrada de B, pois isso
+descartava o heap e mascarava a falha. Com limpeza integral e encerramento
+do documento pela aplicação no logout, B entra na mesma aba e o snapshot
+não contém nenhum dos dois marcadores. Sem `replaceState`, o E2E do link já
+logado encontra o fragmento; descartando a intenção depois de `RATE_LIMITED`,
+os dois `request_id` diferem e o E2E reprova.
+
+**Validação medida.** `db:reset` recriou `0001`–`0018` apenas por migrations.
+`db:test` passou em **17 arquivos e 1.194 asserções**. Os harnesses existentes
+passaram: idempotência 7, gateway 9, worker 8, exclusão 10, export 16,
+convites 63, fundação de grupos 29, membership 68 e renomeação 11.
+`verify:app` passou com **194 testes em 22 arquivos**, lint, formato, tipos,
+build, PWA, Auth, docs e segredos. Em cada uma de três séries consecutivas,
+Auth web passou 8 testes, privacidade 4, UI-A 20 (dez cenários em mobile e
+desktop) e smoke 6. Axe, foco de teclado, nomes acessíveis, reflow em 320 px e
+os dois temas foram verificados em cada tela. `scan:docs`, `scan:secrets`,
+`git diff --check` passou. A auditoria `audit:high` passou antes da nova
+advisory do registry, mas a repetição final falhou duas vezes: 17
+vulnerabilidades moderadas e quatro altas, todas pela dependência transitiva
+`node-forge@1.4.0` de `expo@57`/`@expo/cli` (GHSA-86w9-cpqp-85rv).
+Em 01/10, `1.4.0` era a versão publicada mais recente e a advisory não
+indicava versão corrigida. O AGENTS §8 impede ampliar esta fatia UI-A para
+alterar a cadeia Expo sem decisão de escopo. A validação e o commit final
+ficam pendentes desse desbloqueio. As capturas com usuários sintéticos e
+material sensível mascarado estão fora do repositório em
+`~/colete-noite/ui-a-telas/`.

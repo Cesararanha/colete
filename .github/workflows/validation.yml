@@ -139,6 +139,8 @@ jobs:
         run: npm run test:auth:web
       - name: Run the screen 13 privacy controls browser flow
         run: npm run test:privacy:web
+      - name: Run the UI-A group browser flow
+        run: npm run test:groups:web
       # Evidence for a failed browser run: trace, screenshot and error context.
       # The repository is private, and the trace records only traffic to the
       # disposable local stack started above, whose keys are the fixed local
