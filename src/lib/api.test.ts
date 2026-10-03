@@ -350,3 +350,48 @@ describe('lib/api authentication boundaries', () => {
     expect(signOut).toHaveBeenCalledExactlyOnceWith({ scope: 'local' });
   });
 });
+
+describe('UI-B group targets and transport', () => {
+  it('sends each business target exclusively to its contracted group endpoint', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: { outcome: { group_id: 'group', logical_result: 'done' } },
+          request_id: body.request_id,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    await client.approveMember('group', 'target', true).execute();
+    await client.removeMember('group', 'target', 'reason').execute();
+    await client.setMemberRole('group', 'target', 'organizer').execute();
+    await client.renameGroup('group', 'New name').execute();
+    await client.transferOwnership('group', 'target').execute();
+    expect(calls.map((call) => call.url)).toEqual(
+      ['approve_member', 'remove_member', 'set_role', 'rename_group', 'transfer_ownership'].map(
+        (name) => `http://local.test/functions/v1/groups/${name}`,
+      ),
+    );
+    expect(calls.map((call) => call.body)).toEqual([
+      { request_id: REQUEST_ID, group_id: 'group', profile_id: 'target', approve: true },
+      { request_id: REQUEST_ID, group_id: 'group', profile_id: 'target', reason: 'reason' },
+      { request_id: REQUEST_ID, group_id: 'group', profile_id: 'target', role: 'organizer' },
+      { request_id: REQUEST_ID, group_id: 'group', name: 'New name' },
+      { request_id: REQUEST_ID, group_id: 'group', new_owner_id: 'target' },
+    ]);
+  });
+  it('does not relax rejection of nested actor fields inside a business target', () => {
+    const client = createApiClient({ fetch: vi.fn() });
+    expect(() =>
+      client.approveMember('group', { actor_auth_user_id: 'forged' } as never, true),
+    ).toThrowError(AppError);
+    expect(() =>
+      client.removeMember('group', 'target', { input_hmac: 'forged' } as never),
+    ).toThrowError(AppError);
+  });
+});

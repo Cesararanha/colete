@@ -1467,3 +1467,140 @@ corrigida, sem mudar suíte ou aplicação. `auth.users` foi zero antes e depois
 o censo final confirmou também zero em perfis, grupos, memberships, convites,
 idempotência, limitadores, efeitos, exports, pedidos de exclusão e papéis-sonda.
 O hash da função viva continuou igual ao original da revisão independente.
+
+## UI-B — gestão de membros e configurações do grupo (03/10/2026)
+
+As telas 17 e 25 entram pelas ações da tela 11 para dono e organizador ativo.
+Jogador não recebe as entradas; a rota direta não renderiza nome do grupo,
+lista nem controle administrativo. `get_group_members` é a fonte dos quatro
+campos permitidos, incluindo `display_name`; a UI nunca lê perfis de terceiros.
+A leitura final revalida o papel próprio e as consultas ficam na raiz privada,
+com `gcTime: 0`. Nenhuma migration, RPC, policy, grant, Edge Function ou
+biblioteca foi criada ou alterada.
+
+A tela 17 prioriza pendentes e decide aprovar/recusar por `approve_member`.
+Somente o dono promove/rebaixa por `set_role`; dono não recebe expulsão nem
+controle de papel sobre si. Expulsão por `remove_member` exige confirmação e
+motivo de 1 a 500 caracteres, com aviso de que o motivo ainda não é guardado.
+O aviso descreve somente saída do grupo e necessidade de novo pedido de entrada.
+Depois de cada ação, a lista é relida; não há atualização otimista.
+A tela 11 tem um único heading de nível 3 para pendentes, em tamanho de seção.
+
+A tela 25 renomeia para dono/organizador com o schema de nome compartilhado
+com a criação: NFC, controles proibidos, espaços Unicode e 2–40 pontos de
+código, sempre com validação definitiva no servidor. O nome confirmado vem da
+projeção. Titularidade escolhe outro membro ativo e exige duas confirmações;
+transferência relê o papel do antigo dono e remove os controles exclusivos de
+dono. Cancelar não muta e devolve foco ao controle de origem; quando o controle
+some após sucesso, o foco fica em Atualizar dados. Campos inválidos recebem
+foco, anúncio e revalidação após o primeiro erro; botões permanecem habilitados.
+
+As cinco mutações foram acrescentadas à API cliente, todas no gateway `groups`.
+`profile_id` é permitido somente como alvo de `approve_member`, `remove_member`
+e `set_role`; a recusa recursiva de campos de ator/HMAC continua. Intenções e
+motivo ficam na memória do componente, fora do cache de mutações; retry de
+rede, 429 ou 503 conserva a intenção. Nenhum retry, timeout ou sleep de
+sincronização foi acrescentado. Leitura pós-ação também evita publicar resultado
+de componente encerrado durante troca de sessão.
+
+### Matriz de controles provada
+
+| Controle | Dono | Organizador ativo | Jogador |
+| --- | --- | --- | --- |
+| Entradas das telas 17 e 25 na tela 11 | sim | sim | ausentes |
+| Aprovar e recusar pedidos | sim | sim | ausentes |
+| Promover e rebaixar | sim, exceto sobre o dono | ausentes | ausentes |
+| Expulsar com motivo e confirmação | sim, exceto dono | sim, exceto dono | ausente |
+| Renomear | sim | sim | ausente |
+| Transferir com dupla confirmação | sim, para outro ativo | ausente | ausente |
+| Rota administrativa direta | dados e controles autorizados | somente controles devidos | nenhum dado ou controle administrativo |
+
+### Provas e contraprovas
+
+`e2e/m2-ui-b.spec.ts` tem dez cenários em dois viewports, integrado a
+`test:groups:web`, AGENTS §5 e job Database security. Auth, Edge e Postgres são
+locais reais. Os sete caminhos de sucesso são conferidos no banco. Perda de
+papel, remoção e mudança de alvo por outra sessão devolvem erro e retiram dados
+antigos. `MEMBERSHIP_ALREADY_DECIDED`, `GROUP_LIMIT`, `GROUP_FULL`, `NOT_FOUND`,
+`IS_OWNER`, `NOT_ACTIVE_MEMBER`, `OWNER_ONLY`, `NOT_ORGANIZER`,
+`GROUP_SUSPENDED` e `GROUP_ARCHIVED` têm mensagens estáveis e provas HTTP reais.
+O teste de envelopes sintéticos cobre separadamente a apresentação de cada
+mensagem; não substitui a prova do contrato no banco.
+
+Para `NOT_FOUND` e `IS_OWNER`, o transporte do teste substitui somente o alvo
+externo antes da Edge real, porque a interface não oferece ação sobre o dono.
+`GROUP_LIMIT` usa cinco grupos criados pela Edge pelo alvo pendente;
+`GROUP_FULL` baixa temporariamente a configuração canônica de capacidade para
+4 sobre cinco vínculos, restaurando 100 em `finally`. Não há bypass do limite.
+`GROUP_SUSPENDED` usa somente a fixture de `suspended_at` permitida pela M2-D11.
+A pergunta exploratória de `archived_at` foi resolvida sem fixture nova:
+o organizador mantém a tela aberta, sai pela Edge, o dono remove o outro ativo
+e pede exclusão; o arquivamento solo com pendentes é medido no banco e a próxima
+renomeação da sessão removida recebe `GROUP_ARCHIVED`. Cleanup conserva os IDs
+de perfil conhecidos para limpar também a saga depois da desidentificação.
+
+As respostas 429 e 503 são sintéticas, antes do efeito de aprovação;
+a segunda tentativa atravessa a Edge real, conserva `request_id` e conclui
+um único registro de idempotência no banco. Logout/login usa a mesma aba,
+sem navegação de teste para descartar o heap: a aplicação encerra o documento;
+o nome-sentinela presente antes não aparece depois no snapshot CDP, HTML,
+histórico, storages ou Cache API. Axe nos dois temas, teclado, foco, alvos
+mínimos, 320 px e texto ampliado a 200% são exercitados nas telas e nas
+confirmações. A passada manual com leitor de tela continua no gate do piloto,
+conforme M2-D43; não foi substituída por axe.
+
+Sete mutantes isolados reprovaram: entrada para jogador; rota administrativa
+para jogador; controles de papel para organizador; controles sobre o dono;
+transferência para organizador; seleção de pendente para transferência; e
+intenção descartada no retry. O último reprova tanto 429 como 503: oito
+reprovações no total. Cada fonte foi restaurada exatamente. Comandos, alteração,
+linha de asserção e restauração estão em `~/colete-noite/ui-b-contraprovas.md`.
+A primeira execução ampliada teve 15 de 16 aprovações: o teste de mensagens
+clicava antes do fim da releitura anterior. A sincronização passou a esperar o
+fim do carregamento visível, sem relaxar asserção nem aumentar prazo.
+
+### Validação medida
+
+Após as contraprovas, `db:reset` recriou `0001`–`0019` somente por migrations
+em 26,98 s. pgTAP aprovou **1.210 asserções em 18 arquivos**. Os onze
+harnesses existentes passaram: idempotência 7 provas, gateway 9, worker 8,
+exclusão 10, export 16, convites 63, fundação de grupos 29, membership 68,
+renomeação 11 e leitura de membros 6 linhas `ok -` (o harness executa sua
+matriz e mutantes internamente). Nenhum objeto de banco produtivo mudou.
+
+Três séries completas da versão final aprovaram **8 Auth, 4 privacidade,
+42 grupos (22 UI-A + 20 UI-B) e 6 smoke por série**: **180 execuções
+aprovadas**, além de 18 skips preexistentes de Auth/privacidade. Nenhum skip
+foi introduzido na UI-B. Tempos de parede de `test:groups:web`: 154,85 s,
+156,79 s e 147,14 s. Uma série anterior passou 40 testes de grupos antes da
+inclusão da prova real de arquivamento e não foi contada nessas três séries.
+Não houve suspensão do Mac durante as passadas; o último Wake em `pmset`
+precede o início do trabalho.
+
+`verify:app` saiu 0 em 22,53 s: lint, formato, tipos, **196 unitários em
+22 arquivos**, build, PWA, configuração Auth, documentos e segredos.
+`scan:docs`, `scan:secrets`, `test:audit`, `audit:high` e `git diff --check`
+passaram. Auditoria não encontrou alerta alto/crítico fora das duas exceções
+datadas herdadas; nenhuma exceção ou dependência foi acrescentada.
+
+`auth.users = 0` antes e depois da validação. O censo final mediu zero em
+Auth, perfis, grupos, memberships, convites, limitador, idempotência, efeitos,
+exports, pedidos de exclusão, jobs, retenção e sessões revogadas, além de
+zero papéis-sonda. Logs e tempos estão em `~/colete-noite/ui-b-validacao/`.
+As nove capturas requeridas, inspecionadas e com **840 px de largura**, estão
+em `~/colete-noite/ui-b-telas/`: `11-titulo.png`, `17-com-pendentes.png`,
+`17-sem-pendentes.png`, `17-expulsao.png`, `17-organizador.png`, `25-dono.png`,
+`25-organizador.png`, `25-transferencia-1.png` e `25-transferencia-2.png`.
+Não há e-mail ou segredo visível. Nenhum Supabase remoto, deploy ou serviço
+de produção foi acessado; containers alheios foram preservados.
+
+### Fora da fatia e revisão
+
+Visibilidade das notas entra no M6 por decisão humana de César em 03/10/2026;
+`set_ratings_visibility` permanece intacta. Mensalista (M2-D6), foto,
+arquivamento por RPC (M2-D40) e convidados avulsos continuam fora. Não restam
+PERGUNTAS de contrato/produto da UI-B. O M2 inteiro ainda depende de suas
+pendências e revisão pós-marco; esta entrega não o declara fechado.
+A UI-B é de risco alto por tocar capacidade, sessão e nomes de membros.
+O PR do autor permanece em draft, sem merge, para revisão independente
+conforme AGENTS §4.11/§4.12.

@@ -51,7 +51,12 @@ export type GroupOperation =
   | 'leave_group'
   | 'revoke_group_invite'
   | 'regenerate_group_invite'
-  | 'issue_group_invite';
+  | 'issue_group_invite'
+  | 'approve_member'
+  | 'remove_member'
+  | 'set_role'
+  | 'rename_group'
+  | 'transfer_ownership';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -186,6 +191,11 @@ const groupOperations = new Set<string>([
   'revoke_group_invite',
   'regenerate_group_invite',
   'issue_group_invite',
+  'approve_member',
+  'remove_member',
+  'set_role',
+  'rename_group',
+  'transfer_ownership',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -328,7 +338,12 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     operation: IdentityOperation | GroupOperation,
     businessInput: Readonly<Record<string, unknown>>,
   ): MutationIntent<T> {
-    refuseInternalFields(businessInput);
+    // Only these signatures enumerate profile_id as a business target.
+    if (['approve_member', 'remove_member', 'set_role'].includes(operation)) {
+      const { profile_id: target, ...rest } = businessInput;
+      refuseInternalFields(rest);
+      refuseInternalFields(target, 'profile_id');
+    } else refuseInternalFields(businessInput);
     const requestId = uuid();
     const serializedBody = JSON.stringify({ request_id: requestId, ...businessInput });
     const execute = () => callGateway<T>(operation, requestId, serializedBody);
@@ -429,6 +444,20 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
           status: 'active' | 'pending';
         }[]
       >('get_group_members', { group_id: groupId }, signal),
+    approveMember: (groupId: string, targetId: string, approve: boolean) =>
+      mutation<GroupOutcome>('approve_member', {
+        group_id: groupId,
+        profile_id: targetId,
+        approve,
+      }),
+    removeMember: (groupId: string, targetId: string, reason: string) =>
+      mutation<GroupOutcome>('remove_member', { group_id: groupId, profile_id: targetId, reason }),
+    setMemberRole: (groupId: string, targetId: string, role: 'organizer' | 'player') =>
+      mutation<GroupOutcome>('set_role', { group_id: groupId, profile_id: targetId, role }),
+    renameGroup: (groupId: string, name: string) =>
+      mutation<GroupOutcome>('rename_group', { group_id: groupId, name }),
+    transferOwnership: (groupId: string, targetId: string) =>
+      mutation<GroupOutcome>('transfer_ownership', { group_id: groupId, new_owner_id: targetId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
     joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),
     joinGroupByInvite: (token: string) => mutation<GroupOutcome>('join_by_invite', { token }),

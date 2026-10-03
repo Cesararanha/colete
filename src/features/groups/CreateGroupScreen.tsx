@@ -18,13 +18,9 @@ import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { spacing } from '@/theme/spacing';
 
 import { groupErrorMessage } from './group-errors';
+import { groupNameSchema } from './group-name-schema';
 
-const schema = z.object({
-  name: z.string().refine((name) => {
-    const length = [...name.trim()].length;
-    return length >= 2 && length <= 40;
-  }, pt.groups.create.invalid),
-});
+const schema = z.object({ name: groupNameSchema });
 type Values = z.infer<typeof schema>;
 
 export function CreateGroupScreen() {
