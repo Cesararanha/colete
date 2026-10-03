@@ -77,3 +77,59 @@ test('causa desconhecida não desaparece ao lado da causa permitida', () => {
   report.vulnerabilities['@expo/cli'].via.push('pacote-ausente');
   assert.equal(runCli(report, [exception]).status, 1);
 });
+
+function cyclicReport(advisory = true) {
+  return {
+    auditReportVersion: 2,
+    vulnerabilities: {
+      A: { severity: 'high', via: ['B'] },
+      B: {
+        severity: 'high',
+        via: ['A', ...(advisory ? [fixture.vulnerabilities['node-forge'].via[0]] : [])],
+      },
+    },
+  };
+}
+
+test('ciclo A↔B com advisory real coberto por exceção passa', () => {
+  assert.equal(runCli(cyclicReport(), [exception]).status, 0);
+});
+test('mesmo ciclo sem exceção reprova citando o GHSA', () => {
+  const result = runCli(cyclicReport(), []);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /não autorizado: GHSA-86w9-cpqp-85rv/);
+});
+test('ciclo puro sem advisory reprova por falta de causa identificável', () => {
+  for (const severity of ['high', 'critical']) {
+    const report = cyclicReport(false);
+    report.vulnerabilities.A.severity = severity;
+    const result = runCli(report, []);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`Alerta ${severity} sem causa identificável: A`));
+  }
+});
+test('ciclo ao lado de pacote ausente reprova', () => {
+  const report = cyclicReport();
+  report.vulnerabilities.B.via.push('pacote-ausente');
+  const result = runCli(report, [exception]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /não autorizado: A \(pacote-ausente\)/);
+});
+test('ciclo ao lado de pacote com via inválido reprova', () => {
+  const report = cyclicReport();
+  report.vulnerabilities.B.via.push('pacote-invalido');
+  report.vulnerabilities['pacote-invalido'] = { severity: 'moderate', via: null };
+  const result = runCli(report, [exception]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /não autorizado: A \(pacote-invalido\)/);
+});
+test('relatório real de 03/10 passa somente com as duas exceções', () => {
+  const report = JSON.parse(
+    readFileSync(new URL('./fixtures/audit-high-2026-10-03.json', import.meta.url)),
+  );
+  const exceptions = JSON.parse(readFileSync(new URL('../audit-exceptions.json', import.meta.url)));
+  assert.equal(runCli(report, exceptions).status, 0);
+  const result = runCli(report, [exception]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /não autorizado: GHSA-vfj7-8cjw-p6xm/);
+});
