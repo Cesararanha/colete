@@ -1356,3 +1356,114 @@ alterar a cadeia Expo sem decisão de escopo. A validação e o commit final
 ficam pendentes desse desbloqueio. As capturas com usuários sintéticos e
 material sensível mascarado estão fora do repositório em
 `~/colete-noite/ui-a-telas/`.
+
+## Fatia 0019 — leitura dos membros (M2-D44)
+
+A leitura `get_group_members` devolve somente `profile_id`, `display_name`,
+`role` e `status`. Membros ativos veem os ativos do mesmo grupo; dono e
+organizador ativo veem também os pendentes. Removidos e membros de outro
+grupo ficam fora da projeção. A decisão humana de 02/10 define apelido
+não vazio após trim, com nome como alternativa; quando há apelido, o nome
+completo não sai. As decisões técnicas do planejador preservam a visibilidade
+de memberships ativos de contas suspensas ou banidas, sem revelar o estado
+da conta, e fixam a ordem por papel, nome sem distinção de caixa e UUID.
+Pendentes vêm depois dos ativos, por data do pedido e UUID. Exclusão,
+suspensão e arquivamento seguem o contrato registrado em `docs/13` §5.
+
+A migration `0019` mantém intactos os privilégios e a policy de leitura do
+próprio perfil. A função usa contexto autenticado, locks de perfil e grupo
+e projeção estreita; não armazena dado novo. A tela 11 mostra nome e papel
+dos ativos e somente nomes na seção de pedidos, sem ações da UI-B. Os tipos
+foram regenerados do banco local, incluindo entradas anteriores que faltavam
+no arquivo gerado. O harness `db:test:members` entrou no package, AGENTS §5
+e CI no mesmo commit da implementação.
+
+As provas usam HTTP real e papel-sonda sem BYPASSRLS para dono, organizador,
+jogador, pendente, removido, outro grupo e anônimo. O censo por valor busca
+marcadores sintéticos de contato, campos de perfil e nome completo quando
+há apelido. Contraprovas executáveis retiram a autorização, incluem pendentes
+ou removidos indevidamente, cruzam grupos, invertem a ordem e devolvem nome
+completo ou um quinto campo. Cada implementação defeituosa reprova. As
+barreiras dos locks são observadas com PIDs distintos, commit efetivo e
+contraprova retirando cada lock. Os catálogos pgTAP conferem a policy original,
+os quatro campos e os privilégios. Contas em exclusão ou já desidentificadas
+não aparecem; contas suspensas ou banidas não expõem estado de conta.
+
+A tela passou axe, teclado, temas e reflow em 320 px. O snapshot CDP encontra
+os nomes sintéticos do dono, ativo e pendente de A antes do logout e não os
+encontra depois da entrada de B, junto com os marcadores de grupo e convite.
+O observer continua tratado por `handledObserver`. Nenhuma asserção foi
+reduzida; não foram acrescentados retries, sleeps ou timeouts maiores.
+Uma execução exploratória corrigiu a fixture que consultava dois nomes e
+esperava três. A terceira passada UI-A foi invalidada pelo fechamento do
+notebook: `pmset` registrou suspensão de 280 segundos, coincidente com duas
+requisições locais de aproximadamente 279 segundos que retornaram HTTP 200.
+A passada foi repetida integralmente e aprovada.
+
+**Validação medida em 02/10/2026.** `db:reset` recriou `0001`–`0019` somente
+por migrations. `db:test` passou em 18 arquivos e 1.210 asserções, incluindo
+16 novas asserções de catálogo. Passaram os harnesses de idempotência,
+gateway, worker, exclusão, export, convites, grupos, membership, renomeação
+e membros. Auth, privacidade, grupos e smoke tiveram três passadas completas:
+por passada, 8, 4, 22 e 6 testes aprovados, respectivamente; total de 120
+execuções aprovadas e 18 skips preexistentes. `verify:app` passou com 194
+testes unitários em 22 arquivos, lint, formato, tipos, builds e verificações
+PWA/Auth. `scan:docs`, `scan:secrets`, `test:audit`, `audit:high` e
+`git diff --check` passaram. A auditoria conserva a exceção transitória
+anterior, sem nova exceção nesta fatia.
+
+O censo final confirmou zero em `auth.users`, perfis, grupos, memberships,
+convites, limitadores de convite, idempotência, efeitos, exports e pedidos
+de exclusão, além de zero papéis-sonda residuais. O zero de `auth.users` foi
+medido também antes das provas. Nenhum Supabase remoto, deploy ou serviço
+produtivo foi acessado. Containers de outros projetos não foram alterados.
+As capturas inspecionadas estão em `~/colete-noite/ui-a-telas/`:
+`11-com-lista.png` e `11-com-pendentes.png`. Não restam PERGUNTAS da fatia.
+
+### Correção da revisão independente do PR #52 — 03/10/2026
+
+A revisão independente encontrou lacunas nas provas, sem defeito produtivo.
+O harness agora compara os corpos 403 de pendente, removido, outro grupo e
+grupo inexistente, retirando apenas `request_id`; cobre arquivado para dono,
+organizador e jogador ativos e nega divulgação a pendente, removido e outsider.
+Cada alternativa de apelido nulo, vazio e só com espaços é lida por HTTP,
+comparada ao nome esperado e exigida não vazia. Dois perfis de fixture com
+UUIDs fixos tornam `CaseTie`/`casetie` um empate em que a ordem sem `lower()`
+é sempre diferente. O papel `owner` é afirmado semanticamente, independentemente
+do papel `organizer` da membership. A barreira nova observa a leitura esperando
+no perfil, commita revogação de sessão ou estado `deletion_pending` no detentor
+e exige rejeição pela segunda checagem do ator após a trava.
+
+Os mutantes literais M17, M16, M19, M14 e M18 da revisão reprovam nas
+asserções novas. M10, que retira `lower()`, reprovou **7 de 7 execuções** na
+mesma linha; a prova anterior dependia de UUIDs aleatórios e não sustentava
+essa garantia. Todas as 12 execuções terminaram com `auth.users = 0` e
+restauração conferida por MD5 da definição original. Controle anterior sem
+mutante passou. Comandos, linhas e logs estão fora do repositório em
+`~/colete-noite/corr52-contraprovas.md` e `~/colete-noite/corr52/`.
+
+A decisão técnica A de 03/10 ficou em `13`: o ramo 410 protege o contrato
+pós-piloto, pois arquivar no fluxo atual torna as memberships removidas.
+A decisão humana B ficou em `25` §8.1: a leitura permanece disponível com
+membership ativa e aceite pendente ou conta suspensa. O §8.2 registra a
+reavaliação pós-piloto de contas suspensas/banidas e as observações 8 e 10
+sobre contenção e cobertura de cache no E2E, sem ação nesta correção.
+O mapa do §2 ganhou a linha da `0019`. Foram retirados os rótulos copiados
+da `0018` do harness. Migration, Edge, API e tela não mudaram; nenhum teste,
+retry ou timeout foi enfraquecido. O rebase sobre o merge do PR #53 preservou
+o patch original, confirmado por `range-diff`, e a correção fica em commit
+separado para conferência.
+
+**Validação da correção.** O reset posterior aos mutantes recriou `0001`–`0019`
+somente por migrations; pgTAP passou 1.210 asserções em 18 arquivos e os 11
+harnesses de banco passaram. Auth, privacidade, grupos e smoke passaram três
+vezes, respectivamente 8, 4, 22 e 6 testes por passada: 120 aprovações e 18
+skips preexistentes. `verify:app` passou, incluindo 194 unitários em 22 arquivos;
+scans de docs/segredos, os 12 casos de `test:audit`, `audit:high` e
+`git diff --check` passaram. A auditoria usa as duas exceções datadas herdadas
+do PR #53, sem alteração nesta fatia. Uma chamada inicial de browser não
+executou testes porque uma expansão do zsh gerou `test:b`; a chamada foi
+corrigida, sem mudar suíte ou aplicação. `auth.users` foi zero antes e depois;
+o censo final confirmou também zero em perfis, grupos, memberships, convites,
+idempotência, limitadores, efeitos, exports, pedidos de exclusão e papéis-sonda.
+O hash da função viva continuou igual ao original da revisão independente.

@@ -31,6 +31,7 @@ export const INVITE_OPERATIONS = [
   'preview_group_by_code',
   'preview_group_by_invite',
   'get_my_pending_group_requests',
+  'get_group_members',
   'join_by_code',
   'join_by_invite',
   'get_invite_share_link',
@@ -217,6 +218,7 @@ export async function dispatchInvite(
       preview_group_by_code: ['code'],
       preview_group_by_invite: ['token'],
       get_my_pending_group_requests: [],
+      get_group_members: ['group_id'],
       join_by_code: ['code', 'request_id'],
       join_by_invite: ['token', 'request_id'],
       get_invite_share_link: ['invite_id'],
@@ -312,6 +314,13 @@ export async function dispatchInvite(
       } catch {
         /* Domain success is not executed a second time. */
       }
+      return { status: 200, body: { data, request_id: requestId } };
+    }
+    if (operation === 'get_group_members') {
+      const data = await rpc(deps, operation, {
+        ...actorParameters(deps.actor),
+        p_group_id: uuid(input['group_id'], 'group_id'),
+      });
       return { status: 200, body: { data, request_id: requestId } };
     }
     if (operation === 'get_my_pending_group_requests') {

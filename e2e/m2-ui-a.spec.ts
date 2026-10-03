@@ -1159,6 +1159,16 @@ test('UI-A clears old account group and invite material from the browser heap', 
   try {
     const accountA = await createActor(request, 'heap-a', authIds);
     const accountB = await createActor(request, 'heap-b', authIds);
+    const memberA = await createActor(
+      request,
+      `Member${crypto.randomUUID().replaceAll('-', '')}`,
+      authIds,
+    );
+    const pendingA = await createActor(
+      request,
+      `Pending${crypto.randomUUID().replaceAll('-', '')}`,
+      authIds,
+    );
     const groupSentinel = `Heap${crypto.randomUUID().replaceAll('-', '').slice(0, 22)}`;
     await login(page, accountA);
     await page.getByRole('link', { name: 'Grupos' }).click();
@@ -1168,6 +1178,34 @@ test('UI-A clears old account group and invite material from the browser heap', 
     await expect(page.getByTestId('invite-link')).toBeVisible();
     const token = new URL(await page.getByTestId('invite-link').innerText()).hash.slice(7);
     expect(await heapContains(page, [groupSentinel, token])).toEqual([true, true]);
+    const created = await db.query('select id from public.groups where owner_id=$1', [
+      accountA.profileId,
+    ]);
+    const groupId = created.rows[0].id as string;
+    for (const actor of [memberA, pendingA])
+      expect(
+        (await edge(request, actor, 'join_by_invite', { token, request_id: crypto.randomUUID() }))
+          .status,
+      ).toBe(200);
+    expect(
+      (
+        await edge(request, accountA, 'approve_member', {
+          group_id: groupId,
+          profile_id: memberA.profileId,
+          approve: true,
+          request_id: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    const names = (
+      await db.query('select name from public.profiles where id=any($1::uuid[])', [
+        [accountA.profileId, memberA.profileId, pendingA.profileId],
+      ])
+    ).rows.map((row: { name: string }) => row.name);
+    await page.goto(`/grupos/${groupId}`);
+    for (const name of names)
+      await expect(page.getByTestId('group-members-list')).toContainText(name);
+    expect(await heapContains(page, names)).toEqual([true, true, true]);
     await page.getByRole('link', { name: 'Perfil' }).click();
     const unloaded = handledObserver(
       page.waitForEvent('framenavigated', {
@@ -1196,11 +1234,104 @@ test('UI-A clears old account group and invite material from the browser heap', 
         groupSentinel,
       ),
     ).toBe(false);
-    expect(await heapContains(page, [groupSentinel, token])).toEqual([false, false]);
+    expect(await heapContains(page, [groupSentinel, token, ...names])).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   } finally {
     await cleanActors(authIds, db);
     const count = await db.query('select count(*)::integer as count from auth.users');
     expect(count.rows[0].count).toBe(0);
+    await db.end();
+  }
+});
+
+test('0019 screen 11 shows active roles and pending names with keyboard and 320px reflow', async ({
+  page,
+  request,
+}, testInfo) => {
+  await mobileWidth(page, testInfo.project.name);
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
+    const owner = await createActor(request, 'members-owner', authIds);
+    const member = await createActor(request, 'members-active', authIds);
+    const pending = await createActor(request, 'members-pending', authIds);
+    const created = await edge(request, owner, 'create_group', {
+      name: 'Lista de participantes',
+      request_id: crypto.randomUUID(),
+    });
+    expect(created.status).toBe(200);
+    const outcome = created.value.data?.['outcome'] as { group_id: string; invite_id: string };
+    const share = await edge(request, owner, 'get_invite_share_link', {
+      invite_id: outcome.invite_id,
+    });
+    expect(share.status).toBe(200);
+    for (const actor of [member, pending]) {
+      expect(
+        (
+          await edge(request, actor, 'join_by_code', {
+            code: share.value.data?.['code'],
+            request_id: crypto.randomUUID(),
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(
+      (
+        await edge(request, owner, 'approve_member', {
+          group_id: outcome.group_id,
+          profile_id: member.profileId,
+          approve: true,
+          request_id: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    await login(page, owner);
+    await page.goto(`/grupos/${outcome.group_id}`);
+    const list = page.getByTestId('group-members-list');
+    await expect(list).toContainText('Pessoa members-active · Jogador');
+    await expect(list).toContainText('Pessoa members-owner · Dono');
+    const requests = page.getByTestId('group-pending-members-list');
+    await expect(requests).toContainText('Pessoa members-pending');
+    await expect(requests).not.toContainText('Jogador');
+    await expect(page.getByRole('button', { name: /^(Aprovar|Recusar)$/ })).toHaveCount(0);
+    await assertUiAccessible(page);
+    await requests.scrollIntoViewIfNeeded();
+    if (captureLocalScreenshots(testInfo.project.name))
+      await page.screenshot({
+        path: path.join(screenshotRoot!, '11-com-pendentes.png'),
+        fullPage: true,
+      });
+    // Decision is fixture preparation through the productive HTTP Edge, never a dead UI control.
+    expect(
+      (
+        await edge(request, owner, 'approve_member', {
+          group_id: outcome.group_id,
+          profile_id: pending.profileId,
+          approve: false,
+          request_id: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    await page.reload();
+    await expect(page.getByTestId('group-members-list')).toContainText('Pessoa members-active');
+    await expect(page.getByTestId('group-pending-members-list')).toHaveCount(0);
+    await assertUiAccessible(page);
+    await page.getByTestId('group-members-list').scrollIntoViewIfNeeded();
+    if (captureLocalScreenshots(testInfo.project.name))
+      await page.screenshot({
+        path: path.join(screenshotRoot!, '11-com-lista.png'),
+        fullPage: true,
+      });
+  } finally {
+    await cleanActors(authIds, db);
+    expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
     await db.end();
   }
 });

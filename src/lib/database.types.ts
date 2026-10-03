@@ -25,6 +25,7 @@ export type Database = {
     Tables: {
       group_invites: {
         Row: {
+          code_digest: string | null;
           created_at: string;
           created_by: string;
           expires_at: string;
@@ -38,6 +39,7 @@ export type Database = {
           used_count: number;
         };
         Insert: {
+          code_digest?: string | null;
           created_at?: string;
           created_by: string;
           expires_at: string;
@@ -51,6 +53,7 @@ export type Database = {
           used_count?: number;
         };
         Update: {
+          code_digest?: string | null;
           created_at?: string;
           created_by?: string;
           expires_at?: string;
@@ -324,6 +327,10 @@ export type Database = {
         };
         Returns: Json;
       };
+      check_and_debit_invite_attempt: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; profile_id: string };
+        Returns: Json;
+      };
       complete_profile: {
         Args: {
           p_actor_auth_user_id: string;
@@ -340,6 +347,23 @@ export type Database = {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_export_id: string };
         Returns: Json;
       };
+      create_group: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_code_digest: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_invite_id: string;
+          p_name: string;
+          p_nonce_hex: string;
+          p_request_id: string;
+          p_token_digest: string;
+          p_token_version: number;
+        };
+        Returns: Json;
+      };
       delete_account: {
         Args: {
           p_actor_auth_user_id: string;
@@ -353,6 +377,23 @@ export type Database = {
       };
       enqueue_data_export_purge: { Args: { p_export_id: string }; Returns: Json };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
+      get_group_members: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_group_id: string };
+        Returns: {
+          display_name: string;
+          profile_id: string;
+          role: string;
+          status: string;
+        }[];
+      };
+      get_invite_share_link: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_invite_id: string };
+        Returns: Json;
+      };
+      get_my_pending_group_requests: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
+        Returns: Json;
+      };
       get_own_data_exports: {
         Args: Record<PropertyKey, never>;
         Returns: Database['public']['CompositeTypes']['data_export_projection'][];
@@ -373,6 +414,49 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      issue_group_invite: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_code_digest: string;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_new_invite_id: string;
+          p_nonce_hex: string;
+          p_request_id: string;
+          p_token_digest: string;
+          p_token_version: number;
+        };
+        Returns: Json;
+      };
+      join_by_code: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_code_digest: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      join_by_invite: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_invite_id: string;
+          p_request_id: string;
+          p_token_digest: string;
+          p_token_version: number;
+        };
+        Returns: Json;
+      };
       leave_group: {
         Args: {
           p_actor_auth_user_id: string;
@@ -382,6 +466,40 @@ export type Database = {
           p_hash_key_version: number;
           p_input_hmac: string;
           p_request_id: string;
+        };
+        Returns: Json;
+      };
+      mark_invite_attempt_success: {
+        Args: { attempt_id: string; p_actor_auth_user_id: string; p_actor_session_id: string };
+        Returns: undefined;
+      };
+      preview_group_by_code: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_code_digest: string };
+        Returns: Json;
+      };
+      preview_group_by_invite: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_invite_id: string;
+          p_token_digest: string;
+          p_token_version: number;
+        };
+        Returns: Json;
+      };
+      regenerate_group_invite: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_code_digest: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_invite_id: string;
+          p_nonce_hex: string;
+          p_request_id: string;
+          p_token_digest: string;
+          p_token_version: number;
         };
         Returns: Json;
       };
@@ -430,6 +548,18 @@ export type Database = {
           p_canonical_version: number;
           p_hash_key_version: number;
           p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      revoke_group_invite: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_invite_id: string;
           p_request_id: string;
         };
         Returns: Json;

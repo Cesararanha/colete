@@ -131,6 +131,8 @@ jobs:
         run: npm run db:test:invites
       - name: Run the group rename HTTP, replay and lock harness
         run: npm run db:test:rename
+      - name: Run the group member read matrix and value leak counterproofs
+        run: npm run db:test:members
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build
