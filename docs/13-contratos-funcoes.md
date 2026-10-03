@@ -678,6 +678,9 @@ Grupo suspenso conserva a leitura, pois a suspensão bloqueia mutações
 (M2-D40): ator sem vínculo ativo recebe `NOT_MEMBER`; ator ainda ativo recebe
 `GROUP_ARCHIVED` (410). Não abre leitura histórica nem SELECT de terceiros
 em `profiles`; a policy própria permanece intacta.
+Decisão técnica do planejador (03/10/2026): o ramo 410 é defesa do contrato
+de arquivamento pós-piloto e não é alcançável no fluxo normal do piloto,
+pois o arquivamento passa as memberships a `removed`.
 
 **Decisão humana de 2026-10-02:** `display_name` é `nickname` após trim
 quando não vazio; caso contrário, `name`. Com apelido, o nome completo

@@ -115,6 +115,7 @@ permanentes: são os dois pontos de extensão obrigatórios da primeira fatia.
 | 3-A | Convites, limitador, reentrada, HMAC e criação | `0017_group_invites.sql` | material, cofre, código, link, compartilhamento, revogação, regeneração, nova ocasião sem convite vivo, preview/resgate, limitador privado por perfil e `create_group` com convite inicial de 30 dias | entrada pendente, reentrada explícita, criação real de grupo e critério de saída criptográfico do M2 | **No máximo 2 rodadas:** revisão completa por risco e uma conferência; um censo de vazamento cobre token, MAC e código humano |
 | 3-B | Nome | `0018`, após M2-D36/M2-D40 | somente `rename_group`, com regra de nome comum à criação da `0017`, autoridade/replay e provas reusadas; sem foto ou `archive_group` | controle de nome da tela 25 na UI-B; a UI-A não depende desta migration | **1 revisão completa** de autoridade, replay, nome e HTTP |
 | 4 | UI-A (entrada e convite) | —, sem migration | telas 10 (lista), 11 (detalhe), 12 (entrar por código/link), 16 (criar) e 24 (convite), com navegação Grupos/Perfil | criação, convite, preview e entrada pendente visíveis sobre contratos reais, somente com estados alcançáveis sem depender das telas da UI-B; o estado que exige aprovação é preparado pela Edge real (M2-D12) | **Até 2 rodadas:** revisão completa e, no máximo, uma conferência (M2-D41) |
+| 4-B | Leitura de membros (M2-D44), após UI-A | `0019_group_members_read.sql` | quatro campos por membro, matriz sem enumeração, nome de exibição, ordem estável, conta/exclusão e locks; policy de profiles intacta; tela 11 e limpeza de memória | lista de ativos e nomes dos pendentes por autoridade, sem ações da UI-B | **Até 2 rodadas:** revisão completa por risco e conferência |
 | 5 | UI-B (decisão e titularidade) | —, sem migration | telas 17 (aprovar e gerir) e 25 (configurações, renomear e transferência; arquivar por RPC é pós-piloto) | aprovação, gestão de membros e titularidade visíveis sobre contratos reais | **Até 2 rodadas:** revisão completa e, no máximo, uma conferência (M2-D41) |
 
 M2-D41: fatia que toca vaga, dinheiro, login ou dado pessoal recebe uma
@@ -1624,6 +1625,11 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   o nome completo. As provas cobrem as duas alternativas e a ausência do
   nome completo na resposta quando há apelido.
 
+**Decisão humana de César (03/10/2026), complemento da M2-D44.**
+A leitura de membros continua disponível com membership `active`, mesmo com
+aceite obrigatório pendente ou conta suspensa, conforme `13` §5.2; não há
+mudança de código e sessão revogada continua recusada.
+
 **Decisões técnicas do planejador (02/10/2026), complemento da M2-D44.**
 
 - Membership `active` de perfil `suspended|banned` aparece com nome de
@@ -1796,6 +1802,17 @@ para antes da migration.
 de amigos pode executar `0017` com chave v1 e limite por perfil; as partes
 abaixo conservam o contrato técnico aprovado, mas não são critério de saída
 da `0017` nem condição para iniciar o piloto.
+
+**Leitura de membros por conta suspensa/banida (decisão humana de 03/10/2026).**
+Reavaliar essa leitura depois do piloto; a `0019` conserva o contrato vigente.
+
+**Observações da revisão independente do PR #52 (itens 8 e 10, sem ação nesta correção).**
+As leituras do mesmo grupo serializam e marcam `xmax` nas linhas de perfil e
+grupo; no piloto, a contenção é aceita porque as travas protegem autorização
+e projeção. O E2E de logout procura nomes de membros no heap CDP, mas não
+aplica a esses nomes o censo de storages e Cache API; o risco estrutural foi
+considerado baixo pela política do service worker e pela limpeza de queries.
+Essas observações não pedem reescrita da função ou ampliação do E2E nesta fatia.
 
 **Arquivamento por RPC e leitura histórica (M2-D40).** O arquivamento
 pela exclusão de conta (M2-D9) e as recusas `GROUP_ARCHIVED` já entregues

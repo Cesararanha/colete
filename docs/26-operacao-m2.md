@@ -1419,3 +1419,51 @@ medido também antes das provas. Nenhum Supabase remoto, deploy ou serviço
 produtivo foi acessado. Containers de outros projetos não foram alterados.
 As capturas inspecionadas estão em `~/colete-noite/ui-a-telas/`:
 `11-com-lista.png` e `11-com-pendentes.png`. Não restam PERGUNTAS da fatia.
+
+### Correção da revisão independente do PR #52 — 03/10/2026
+
+A revisão independente encontrou lacunas nas provas, sem defeito produtivo.
+O harness agora compara os corpos 403 de pendente, removido, outro grupo e
+grupo inexistente, retirando apenas `request_id`; cobre arquivado para dono,
+organizador e jogador ativos e nega divulgação a pendente, removido e outsider.
+Cada alternativa de apelido nulo, vazio e só com espaços é lida por HTTP,
+comparada ao nome esperado e exigida não vazia. Dois perfis de fixture com
+UUIDs fixos tornam `CaseTie`/`casetie` um empate em que a ordem sem `lower()`
+é sempre diferente. O papel `owner` é afirmado semanticamente, independentemente
+do papel `organizer` da membership. A barreira nova observa a leitura esperando
+no perfil, commita revogação de sessão ou estado `deletion_pending` no detentor
+e exige rejeição pela segunda checagem do ator após a trava.
+
+Os mutantes literais M17, M16, M19, M14 e M18 da revisão reprovam nas
+asserções novas. M10, que retira `lower()`, reprovou **7 de 7 execuções** na
+mesma linha; a prova anterior dependia de UUIDs aleatórios e não sustentava
+essa garantia. Todas as 12 execuções terminaram com `auth.users = 0` e
+restauração conferida por MD5 da definição original. Controle anterior sem
+mutante passou. Comandos, linhas e logs estão fora do repositório em
+`~/colete-noite/corr52-contraprovas.md` e `~/colete-noite/corr52/`.
+
+A decisão técnica A de 03/10 ficou em `13`: o ramo 410 protege o contrato
+pós-piloto, pois arquivar no fluxo atual torna as memberships removidas.
+A decisão humana B ficou em `25` §8.1: a leitura permanece disponível com
+membership ativa e aceite pendente ou conta suspensa. O §8.2 registra a
+reavaliação pós-piloto de contas suspensas/banidas e as observações 8 e 10
+sobre contenção e cobertura de cache no E2E, sem ação nesta correção.
+O mapa do §2 ganhou a linha da `0019`. Foram retirados os rótulos copiados
+da `0018` do harness. Migration, Edge, API e tela não mudaram; nenhum teste,
+retry ou timeout foi enfraquecido. O rebase sobre o merge do PR #53 preservou
+o patch original, confirmado por `range-diff`, e a correção fica em commit
+separado para conferência.
+
+**Validação da correção.** O reset posterior aos mutantes recriou `0001`–`0019`
+somente por migrations; pgTAP passou 1.210 asserções em 18 arquivos e os 11
+harnesses de banco passaram. Auth, privacidade, grupos e smoke passaram três
+vezes, respectivamente 8, 4, 22 e 6 testes por passada: 120 aprovações e 18
+skips preexistentes. `verify:app` passou, incluindo 194 unitários em 22 arquivos;
+scans de docs/segredos, os 12 casos de `test:audit`, `audit:high` e
+`git diff --check` passaram. A auditoria usa as duas exceções datadas herdadas
+do PR #53, sem alteração nesta fatia. Uma chamada inicial de browser não
+executou testes porque uma expansão do zsh gerou `test:b`; a chamada foi
+corrigida, sem mudar suíte ou aplicação. `auth.users` foi zero antes e depois;
+o censo final confirmou também zero em perfis, grupos, memberships, convites,
+idempotência, limitadores, efeitos, exports, pedidos de exclusão e papéis-sonda.
+O hash da função viva continuou igual ao original da revisão independente.

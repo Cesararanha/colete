@@ -1,4 +1,4 @@
-// Fatia 0018: HTTP real com JWT GoTrue, commit sob service_role e barreira M2 §2.
+// Fatia 0019: HTTP real com JWT GoTrue, commit sob service_role e barreira M2 §2.
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
@@ -15,7 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const supabase = path.join(root, 'node_modules', '.bin', 'supabase');
 const AUTH_PREFIX = 'group-members-';
 const APP_PREFIX = 'colete_members_';
-const PASSWORD = 'colete-local-rename-harness-password';
+const PASSWORD = 'colete-local-members-harness-password';
 const syntheticKey = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index));
 const guard = installHarnessGuard('db:test:members', {
   applicationPrefix: APP_PREFIX,
@@ -96,7 +96,7 @@ function denied(response, status, code, label) {
   assert.equal(response.body.error?.code, code, label);
   assert.equal(Object.hasOwn(response.body, 'data'), false, label);
 }
-async function createActor(status, label) {
+async function createActor(status, label, db) {
   const email = harnessEmail(AUTH_PREFIX, `${crypto.randomUUID()}-${label}`);
   const created = await fetch(`${status.apiUrl}/auth/v1/admin/users`, {
     method: 'POST',
@@ -121,13 +121,27 @@ async function createActor(status, label) {
   );
   assert.equal(claims.sub, user.id);
   const actor = { authId: user.id, token: session.access_token, sessionId: claims.session_id };
+  // Fixed profile UUIDs make the case-fold order proof independent of randomness.
+  const fixedProfiles = {
+    player: '10000000-0000-4000-8000-000000000001',
+    player2: '10000000-0000-4000-8000-000000000002',
+  };
+  if (Object.hasOwn(fixedProfiles, label)) {
+    actor.profileId = fixedProfiles[label];
+    await db.query('insert into public.profiles(id,auth_user_id,name) values($1,$2,$3)', [
+      actor.profileId,
+      actor.authId,
+      `Member ${label}`,
+    ]);
+    return actor;
+  }
   const completed = ok(
     await edge(
       status,
       'identity/complete_profile',
       {
         request_id: crypto.randomUUID(),
-        profile: { name: `Rename ${label}` },
+        profile: { name: `Member ${label}` },
       },
       actor.token,
     ),
@@ -144,12 +158,81 @@ function assertProjection(rows, expected, forbidden) {
   );
   for (const row of rows) {
     assert.deepEqual(Object.keys(row).sort(), ['display_name', 'profile_id', 'role', 'status']);
+    assert.ok(row.display_name.trim().length > 0, 'display_name is never empty');
     assert.ok(['active', 'pending'].includes(row.status));
     assert.ok(['owner', 'organizer', 'player'].includes(row.role));
   }
   const serialized = JSON.stringify(rows);
   for (const marker of forbidden) assert.equal(serialized.includes(marker), false, 'value leak');
 }
+async function proveActorRevalidation(status, observer, actor, groupId) {
+  const holder = client(status.dbUrl, 'revalidation_holder');
+  const reader = client(status.dbUrl, 'revalidation_reader');
+  await Promise.all([holder.connect(), reader.connect()]);
+  try {
+    const pids = await assertDistinctConnections(
+      { observer, holder, reader },
+      'actor-revalidation',
+    );
+    for (const change of ['revoked', 'deleting']) {
+      await holder.query('begin');
+      await holder.query('select id from public.profiles where id=$1 for no key update', [
+        actor.profileId,
+      ]);
+      const contender = track(
+        (async () => {
+          await reader.query('begin');
+          try {
+            await reader.query('set local role service_role');
+            const rows = await reader.query('select * from public.get_group_members($1,$2,$3)', [
+              actor.authId,
+              actor.sessionId,
+              groupId,
+            ]);
+            await reader.query('commit');
+            return rows.rows;
+          } catch (error) {
+            await reader.query('rollback');
+            throw error;
+          }
+        })(),
+      );
+      try {
+        await awaitLockWait(observer, contender, pids.reader, pids.holder, change, APP_PREFIX);
+        if (change === 'revoked') {
+          await holder.query(
+            "insert into private.revoked_auth_sessions(session_id,profile_id,expires_at) values($1,$2,now()+interval '1 day')",
+            [actor.sessionId, actor.profileId],
+          );
+        } else {
+          await holder.query(
+            "update public.profiles set account_status='deletion_pending' where id=$1",
+            [actor.profileId],
+          );
+        }
+        await holder.query('commit');
+        const result = await contender.settled;
+        assert.equal(result.status, 'rejected', 'actor must be revalidated after the profile lock');
+        assert.equal(result.reason.message, change === 'revoked' ? 'UNAUTHENTICATED' : 'FORBIDDEN');
+      } finally {
+        await holder.query('rollback');
+        await contender.settled;
+        await observer.query('delete from private.revoked_auth_sessions where session_id=$1', [
+          actor.sessionId,
+        ]);
+        await observer.query("update public.profiles set account_status='active' where id=$1", [
+          actor.profileId,
+        ]);
+      }
+    }
+  } finally {
+    await Promise.all([holder.end(), reader.end()]);
+  }
+  console.log(
+    'ok - revoked session and deletion after observed lock wait reject before projection',
+  );
+}
+
 async function prove(status, db) {
   const actors = {};
   for (const label of [
@@ -165,7 +248,7 @@ async function prove(status, db) {
     'pending2',
     'player2',
   ]) {
-    actors[label] = await createActor(status, label);
+    actors[label] = await createActor(status, label, db);
   }
   const {
     owner,
@@ -278,10 +361,42 @@ async function prove(status, db) {
         rows.find((row) => row.profile_id === owner.profileId).display_name,
         'Alias-owner',
       );
+      assert.equal(
+        rows.find((row) => row.profile_id === owner.profileId).role,
+        'owner',
+        'owner role derives from groups.owner_id, not organizer membership',
+      );
       assert.ok(rows.some((row) => row.profile_id === suspended.profileId));
       assert.ok(rows.some((row) => row.profile_id === banned.profileId));
     }
   }
+  // Non-members and absent groups must be indistinguishable apart from correlation.
+  const withoutCorrelation = ({ request_id: _requestId, ...body }) => body;
+  const nonMemberBodies = [];
+  for (const actor of [pending, removed, outsider]) {
+    const response = await read(actor);
+    denied(response, 403, 'NOT_MEMBER', 'non-member body');
+    nonMemberBodies.push(withoutCorrelation(response.body));
+  }
+  const absentGroupId = '20000000-0000-4000-8000-000000000099';
+  assert.equal(
+    (
+      await db.query('select count(*)::integer as n from public.groups where id=$1', [
+        absentGroupId,
+      ])
+    ).rows[0].n,
+    0,
+  );
+  const absent = await edge(
+    status,
+    'groups/get_group_members',
+    { group_id: absentGroupId },
+    owner.token,
+  );
+  denied(absent, 403, 'NOT_MEMBER', 'nonexistent group cannot be enumerated');
+  nonMemberBodies.push(withoutCorrelation(absent.body));
+  for (const body of nonMemberBodies)
+    assert.deepEqual(body, nonMemberBodies[0], '403 bodies must be identical without request_id');
   for (const actor of [owner, organizer, player, pending, removed, outsider]) {
     const response = await fetch(`${status.apiUrl}/rest/v1/profiles?select=id`, {
       headers: { apikey: status.publishableKey, Authorization: `Bearer ${actor.token}` },
@@ -309,6 +424,13 @@ async function prove(status, db) {
   assertProjection(ok(await read(owner), 'suspended group'), all, forbidden);
   await db.query('update public.groups set archived_at=now() where id=$1', [groupId]);
   denied(await read(owner), 410, 'GROUP_ARCHIVED', 'archived group');
+  for (const actor of [organizer, player])
+    denied(await read(actor), 410, 'GROUP_ARCHIVED', 'archived active member');
+  for (const actor of [outsider, pending, removed]) {
+    const response = await read(actor);
+    denied(response, 403, 'NOT_MEMBER', 'archived group must not be disclosed to non-members');
+    assert.deepEqual(withoutCorrelation(response.body), nonMemberBodies[0], 'archived 403 body');
+  }
   await db.query('update public.groups set archived_at=null,suspended_at=null where id=$1', [
     groupId,
   ]);
@@ -369,13 +491,20 @@ async function prove(status, db) {
   console.log(
     'ok - HTTP and no-BYPASSRLS matrix, contacts/profile value census, nickname/fallback, account states and group states',
   );
-  // Null and whitespace nicknames both fall back to exactly the full name.
-  await db.query('update public.profiles set nickname=null where id=$1', [player2.profileId]);
-  const fallback = ok(await read(owner), 'null nickname');
-  assert.equal(
-    fallback.find((row) => row.profile_id === player2.profileId).display_name,
-    expectedRows.find((row) => row.profile_id === player2.profileId).display_name,
-  );
+  // Each fallback is observed over real HTTP, including blank and whitespace values.
+  const fallbackName = expectedRows.find(
+    (row) => row.profile_id === player2.profileId,
+  ).display_name;
+  for (const nickname of [null, '', '   ']) {
+    await db.query('update public.profiles set nickname=$2 where id=$1', [
+      player2.profileId,
+      nickname,
+    ]);
+    const rows = ok(await read(owner), 'nickname fallback');
+    const displayName = rows.find((row) => row.profile_id === player2.profileId).display_name;
+    assert.equal(displayName, fallbackName, 'null, empty and whitespace nickname use name');
+    assert.ok(displayName.trim().length > 0, 'fallback is never empty');
+  }
   // Case-fold ties use UUID, independent of insertion order and spelling case.
   await db.query(
     "update public.profiles set nickname=case when id=$1 then 'CaseTie' else 'casetie' end where id=any($2::uuid[])",
@@ -384,9 +513,17 @@ async function prove(status, db) {
   const tied = ok(await read(owner), 'case-fold tie').filter((row) =>
     [player.profileId, player2.profileId].includes(row.profile_id),
   );
+  const foldedOrder = [player.profileId, player2.profileId];
+  const rawOrder = (
+    await db.query('select id from public.profiles where id=any($1::uuid[]) order by nickname,id', [
+      foldedOrder,
+    ])
+  ).rows.map((row) => row.id);
+  assert.notDeepEqual(rawOrder, foldedOrder, 'fixture distinguishes raw order from lower()');
   assert.deepEqual(
     tied.map((row) => row.profile_id),
-    [player.profileId, player2.profileId].sort(),
+    foldedOrder,
+    'case-fold order is deterministic with fixed profile UUIDs',
   );
   await db.query('update public.profiles set nickname=$2 where id=$1', [
     player.profileId,
@@ -407,6 +544,7 @@ async function prove(status, db) {
       [deleting.profileId, deleting.authId],
     );
   }
+  await proveActorRevalidation(status, db, owner, groupId);
   // Counterproof: an actual defective SQL projection leaks the full name as display_name.
   const original = (
     await db.query(
