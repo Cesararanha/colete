@@ -50,7 +50,8 @@ export function evaluateAudit(report, exceptions, today = new Date().toISOString
       );
   }
   function roots(name, seen = new Set()) {
-    if (seen.has(name) || !entries[name] || !Array.isArray(entries[name].via)) {
+    if (seen.has(name)) return [];
+    if (!entries[name] || !Array.isArray(entries[name].via)) {
       return [{ name, severity: 'high' }];
     }
     const next = new Set([...seen, name]);

@@ -1158,3 +1158,143 @@ havendo correção, atualizar somente `node-forge` por caminho compatível ou
 sumir antes, a guarda de órfão exige a mesma remoção. Sem correção, parar para
 nova decisão humana: esta autorização não permite estender o prazo, aceitar
 outro ID, omitir dependências nem desligar o job.
+
+## Exceção de braces e correção de ciclos — decisão humana de 03/10/2026
+
+Trabalho próprio a partir de `origin/main` em `922f12a`, sem alterar o PR #52.
+O alerta [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
+afeta `braces <= 3.0.3` por exaustão da pilha em padrões profundamente aninhados.
+`npm view braces version versions --json` respondeu `version: 3.0.3`, com a
+lista publicada terminando em `3.0.0`, `3.0.1`, `3.0.2`, `3.0.3`.
+`gh api /advisories/GHSA-vfj7-8cjw-p6xm` confirmou:
+
+```json
+{"first_patched_version":null,"package":{"ecosystem":"npm","name":"braces"},"vulnerable_version_range":"<= 3.0.3"}
+```
+
+Não há versão corrigida publicada. O `fixAvailable` do npm sugere Expo 44.0.6,
+uma troca major; essa sugestão não foi aplicada.
+
+Após `npm ci`, `npm ls braces` respondeu (omitido somente o diretório local):
+
+```text
+colete@0.0.1
+└─┬ expo@57.0.18
+  └─┬ @expo/cli@57.0.20
+    └─┬ @expo/metro-file-map@57.0.2
+      └─┬ micromatch@4.0.8
+        └── braces@3.0.3
+```
+
+É dependência transitiva de **produção na classificação npm**: `expo` está em
+`dependencies` e a entrada de `braces` no lockfile não tem `dev: true`.
+Esse caminho serve à ferramenta de build. O export por `npm run build:web`
+terminou com **1.041 módulos web**, **19 rotas estáticas** e
+`entry-6804320f8678cf25db176ede12c521bd.js` de 2,2 MB. A busca foi:
+
+```sh
+rg -n -o 'node_modules/braces|npm:braces|micromatch|expanded array length exceeds range limit|encloseBrace|CHAR_LEFT_CURLY_BRACE|CHAR_ZERO_WIDTH_NOBREAK_SPACE' dist supabase/functions
+```
+
+Saída: nenhuma linha, código 1, **zero ocorrências** no PWA exportado e nas
+Edge Functions. Os literais e identificadores foram conferidos no código
+instalado de `braces/lib/parse.js` e `lib/expand.js`. A busca genérica pela
+palavra `braces` encontrou somente uma mensagem do Helmet sobre envolver filhos
+em chaves; isso não é inclusão do pacote.
+
+Com essa prova, aplica-se a decisão humana de César Aranha de 03/10/2026,
+AGENTS §8: exceção somente para esse GHSA e pacote, até o início de
+**16/10/2026 UTC**, sem renovação automática. Dependências e lockfile não mudam.
+
+### Defeito do filtro e correção autorizada
+
+O relatório real de hoje está preservado integralmente em
+`scripts/fixtures/audit-high-2026-10-03.json`: **36 registros**, 16 moderados,
+20 altos e zero críticos. O fixture anterior de `node-forge` foi preservado.
+Os altos têm dois advisories reais: `node-forge` e `braces`, com propagação por
+dependências. Há ciclos no grafo Metro/React Native. Ao revisitar um pacote no
+mesmo caminho, `roots` fabricava uma causa alta desconhecida. Mesmo simulando
+a exceção de `braces`, restavam **36 erros** desses ciclos.
+
+A decisão humana de 03/10/2026 autorizou a correção no mesmo PR: somente a
+volta do ciclo retorna uma lista vazia. O conjunto de visitados continua local
+ao caminho; os outros ramos ainda são percorridos. Pacote ausente ou com `via`
+inválido continua causa alta desconhecida. Ciclo puro sem advisory real continua
+reprovando por `sem causa identificável`. ID exato, pacote, validade e guarda de
+exceção órfã permanecem iguais.
+
+### Provas, contraprova e validação
+
+`npm run test:audit`: **12 testes, 12 aprovados, zero falhas**. Os seis anteriores
+permanecem, inclusive `causa desconhecida não desaparece ao lado da causa
+permitida`, sem alteração. Os seis novos exercitam o mesmo CLI com npm
+substituído por fixture: ciclo com advisory autorizado; mesmo ciclo sem exceção
+citando GHSA; ciclo puro alto e crítico; ciclo ao lado de pacote ausente; ciclo
+ao lado de pacote com `via` inválido; relatório real passando somente com as
+duas exceções.
+
+Contraprova: desfeita temporariamente apenas a correção em `roots`, executou-se:
+
+```sh
+node --test --test-name-pattern='ciclo A↔B com advisory real coberto por exceção passa' scripts/test-audit-high.mjs
+```
+
+```text
+✖ ciclo A↔B com advisory real coberto por exceção passa
+tests 1; pass 0; fail 1
+AssertionError: Expected values to be strictly equal: 1 !== 0
+```
+
+Código 1. A correção foi restaurada; os 12 testes passaram novamente.
+`node scripts/verify-docs.mjs` passou com 23 arquivos; `git diff --check` passou.
+Não se executou Prettier em `docs/`. Conforme o escopo autorizado desta tarefa,
+não se subiu a pilha local nem se acessou contêiner, Supabase remoto, deploy ou
+segredo real. A validação de banco fica para os jobs existentes da CI.
+
+Saída de `npm run audit:high` antes da mudança (código 1):
+
+```text
+Alerta high não autorizado: @expo/cli (metro).
+Alerta high não autorizado: GHSA-vfj7-8cjw-p6xm (braces).
+Alerta high não autorizado: @expo/cli (metro-config).
+Alerta high não autorizado: @expo/cli (metro-transform-worker).
+Alerta high não autorizado: @expo/metro (metro).
+Alerta high não autorizado: @expo/metro (metro-config).
+Alerta high não autorizado: @expo/metro (metro-transform-worker).
+Alerta high não autorizado: @expo/metro-config (metro).
+Alerta high não autorizado: @expo/metro-config (metro-config).
+Alerta high não autorizado: @expo/metro-config (metro-transform-worker).
+Alerta high não autorizado: @react-native/community-cli-plugin (metro-config).
+Alerta high não autorizado: @react-native/community-cli-plugin (metro).
+Alerta high não autorizado: @react-native/metro-config (metro-config).
+Alerta high não autorizado: @react-native/metro-config (metro).
+Alerta high não autorizado: @react-native/virtualized-lists (metro-config).
+Alerta high não autorizado: @react-native/virtualized-lists (metro).
+Alerta high não autorizado: @react-native/virtualized-lists (@react-native/virtualized-lists).
+Alerta high não autorizado: expo (metro).
+Alerta high não autorizado: expo (metro-config).
+Alerta high não autorizado: expo (metro-transform-worker).
+Alerta high não autorizado: metro (metro).
+Alerta high não autorizado: metro-config (metro-config).
+Alerta high não autorizado: metro-config (metro).
+Alerta high não autorizado: metro-transform-worker (metro).
+Alerta high não autorizado: metro-transform-worker (metro-transform-worker).
+Alerta high não autorizado: react-native (metro-config).
+Alerta high não autorizado: react-native (metro).
+Alerta high não autorizado: react-native (react-native).
+Alerta high não autorizado: react-native-reanimated (metro-config).
+Alerta high não autorizado: react-native-reanimated (metro).
+Alerta high não autorizado: react-native-reanimated (react-native).
+Alerta high não autorizado: react-native-screens (metro-config).
+Alerta high não autorizado: react-native-screens (metro).
+Alerta high não autorizado: react-native-screens (react-native).
+Alerta high não autorizado: react-native-worklets (metro-config).
+Alerta high não autorizado: react-native-worklets (metro).
+Alerta high não autorizado: react-native-worklets (react-native).
+```
+
+Depois da correção e da exceção, código 0:
+
+```text
+Audit aprovado: nenhum alerta alto ou crítico fora das 2 exceções ativas.
+```
