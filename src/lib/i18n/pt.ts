@@ -69,7 +69,7 @@ export const pt = {
       title: 'Configurações do grupo',
       description: 'Altere o nome e transfira a titularidade do grupo.',
       rename: 'Salvar nome',
-      renamed: 'Nome atualizado pelo servidor.',
+      renamed: 'Nome atualizado.',
       transfer: 'Transferir titularidade',
       choose: 'Escolha um membro ativo para ser o novo dono.',
       select: (name: string) => `Escolher ${name}`,

@@ -29,7 +29,7 @@ export function GroupConfirmation({
         <h3
           tabIndex={-1}
           data-testid={`${testID}-heading`}
-          style={{ color: colors.text, fontSize: 22, lineHeight: '30px', margin: 0 }}
+          style={{ fontFamily: 'system-ui, sans-serif', color: colors.text, fontSize: 22, lineHeight: '30px', margin: 0 }}
         >
           {title}
         </h3>

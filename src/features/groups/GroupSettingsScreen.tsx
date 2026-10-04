@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text } from 'react-native';
 
@@ -37,12 +37,16 @@ export function GroupSettingsScreen({
     handleSubmit,
     setFocus,
     setError,
+    reset,
     formState: { errors },
   } = useForm<{ name: string }>({
     defaultValues: { name: '' },
     mode: 'onBlur',
     reValidateMode: 'onChange',
   });
+  useEffect(() => {
+    if (group) reset({ name: group.name });
+  }, [group?.name, reset]);
   const cancel = () => {
     const id = target?.id;
     setTarget(null);

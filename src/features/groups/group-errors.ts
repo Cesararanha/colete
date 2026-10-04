@@ -44,6 +44,8 @@ export function groupErrorMessage(error: unknown, administration = false): strin
     }
     case 'RATE_LIMIT_UNAVAILABLE':
       return pt.groups.errors.rateUnavailable;
+    case 'PROOFS_PENDING':
+      return 'Há comprovantes pendentes. Resolva-os antes de remover esta pessoa.';
     case 'OWNER_MUST_TRANSFER':
       return pt.groups.errors.ownerMustTransfer;
     case 'NOT_MEMBER':

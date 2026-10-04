@@ -72,6 +72,8 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                 {[true, false].map((approve) => (
                   <AppButton
                     key={String(approve)}
+                    variant={approve ? 'primary' : 'secondary'}
+                    accessibilityLabel={`${approve ? 'Aprovar' : 'Recusar'} ${member.display_name}`}
                     label={approve ? pt.groups.members.approve : pt.groups.members.refuse}
                     onPress={() =>
                       void run(`${approve}:${member.profile_id}`, () =>
@@ -110,6 +112,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                             ? pt.groups.members.promote
                             : pt.groups.members.demote
                         }
+                        accessibilityLabel={`${member.role === 'player' ? 'Promover' : 'Rebaixar'} ${member.display_name} a ${member.role === 'player' ? 'organizador' : 'jogador'}`}
                         testID={`role-${member.profile_id}`}
                         onPress={() => {
                           const role = member.role === 'player' ? 'organizer' : 'player';
@@ -122,6 +125,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                     ) : null}
                     <AppButton
                       label={pt.groups.members.remove}
+                      accessibilityLabel={`Expulsar ${member.display_name}`}
                       testID={`remove-${member.profile_id}`}
                       onPress={() => {
                         setTarget({ id: member.profile_id, name: member.display_name });
