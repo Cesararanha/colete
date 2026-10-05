@@ -1,11 +1,11 @@
 # Colete — Roadmap executável (v2, implementação incremental; D63-A–I em 30/09/2026)
 
 **Atualizado em 30/09/2026 pelas respostas D63-A–I.** M0, M1-A e M1-B foram entregues;
-`0015` e `0016` do M2 estão em `main`. O roteiro agora prioriza o ciclo de um
+`0001`–`0019`, UI-A e UI-B estão entregues em `main`. O roteiro agora prioriza o ciclo de um
 piloto com amigos e preserva em `27-piloto-minimo.md` a classificação das
 partes posteriores e das especificações pré-marco. Os documentos `01`, `04` e
 `09`–`17` continuam a especificação; o #41 foi mergeado em `main`
-(`9805ece`), mas `0017`/`0018` ainda não foram implementadas.
+(`9805ece`), e `0017`/`0018`/`0019`, UI-A e UI-B foram implementadas (evidências em `26`).
 
 Emendas documentais de 28–29/09/2026 (M2-D24/M2-D25/M2-D31–M2-D42):
 `0017` concentra convites e limitador **de piloto**, com uma chave v1 e
@@ -21,7 +21,7 @@ arquivamento por RPC estão em `25` §8.2 “Pendências pós-piloto”,
 |---|---|---|
 | Requisitos e decisões | `01-requisitos.md` · `09-pivo-produto.md` | D1–D62 preservadas; D63-A–I fixam o recorte do piloto |
 | Algoritmo | `04-algoritmo-sorteio.md` | v3 binária preservada como evolução; simples por serpentina exige especificação exata antes de M6 (D63-A) |
-| Schema/RLS | `10-schema-db.md` | `0001`–`0016` aplicadas/testadas em marcos incrementais; `0017`/`0018` e domínios seguintes ainda pendentes |
+| Schema/RLS | `10-schema-db.md` | `0001`–`0019` aplicadas/testadas em marcos incrementais; domínios seguintes ainda pendentes |
 | Telas e fluxos | `11-telas-v1.md` | 25 telas e F1–F6 alinhados |
 | Notificações | `12-notificacoes.md` | N1–N28, payloads, canais e semântica de entrega fechados |
 | Contratos | `13-contratos-funcoes.md` | entradas, erros, locks, JCS/HMAC, apelações, recorrência e sagas fechados |
@@ -136,8 +136,8 @@ as reconciliações/retention que dependem desses domínios e as demais policies
 M1-B antecipa apenas a parte de exportação e exclusão de identidade exigida antes do beta.
 
 As linhas `0004`–`0007` estão **executadas**, com evidência em `21`; `0011`–`0014`
-fecharam o M1-B (`23`) e `0015`/`0016` iniciaram o M2. O limitador de convites do #41 está contratado em `main`, ainda sem a
-implementação da `0017`; textos/digests de políticas, rate limit geral do
+fecharam o M1-B (`23`) e `0015`–`0019`, UI-A e UI-B estão entregues no M2 (`26`). O limitador de convites
+do #41 foi implementado pela `0017`; textos/digests de políticas, rate limit geral do
 gateway e configuração operacional remota seguem pendentes. `0001`–`0003` têm evidência
 operacional em `19`/`20`. `private.job_runs.match_id` nasce nullable e sem FK enquanto `public.matches` não
 existe; a migration de `matches` adiciona e testa a FK. É sequenciamento explícito, não
@@ -303,7 +303,7 @@ WhatsApp leva os avisos humanos do piloto. Os critérios originais permanecem.
 | Ordem até o piloto | Fatias previstas | Telas | Risco / cerimônia | Sessões (INFERÊNCIA) | Pronto quando (D63) |
 |---|---|---|---|---|---|
 | M0 e M1-A/M1-B — entregues | `0001`–`0014`, gateway, Auth e privacidade; gates reais seguem abertos | 1–4, 13 | histórico entregue | 0 de implementação já entregue | Evidência histórica conferida; gates abertos identificados. |
-| M2 — terminar grupos | `0015`/`0016` entregues; `0017` convites/criação; `0018` só `rename_group`; UI-A antes da `0018`, UI-B depois e faxina/review; rotação/IP/arquivamento ficam em `25` §8.2 | 10–12, 16, 17, 24, 25 | cheia nas fatias de dado pessoal/login; uma revisão na faxina estrita | `0017` 5–8; `0018` 2–3; UI-A 4–6; UI-B 3–5; faxina 2–3 | Recompartilha na chave v1; dump não forja; RLS impede acesso cruzado; UI-A/UI-B verificadas. |
+| M2 — terminar grupos | `0015`–`0019`, UI-A e UI-B entregues; faxina/review pendentes; rotação/IP/arquivamento ficam em `25` §8.2 | 10–12, 16, 17, 24, 25 | cheia nas fatias de dado pessoal/login; uma revisão na faxina estrita | `0017` 5–8; `0018` 2–3; UI-A 4–6; UI-B 3–5; faxina 2–3 | Recompartilha na chave v1; dump não forja; RLS impede acesso cruzado; UI-A/UI-B verificadas. |
 | Após M2 — staging | ambiente isolado, configuração/smoke e gates operacionais; acesso remoto/deploy dependem de autorização própria | telas M2 | cheia por login/dado pessoal | 3–5 | Smoke isolado e gates operacionais registrados. |
 | Pré-M3 — registro de operações | migration append-only, validador estável de idempotência, replay/privilégios/outcomes | nenhuma | cheia por dinheiro/login/dado pessoal | 3–5 | Replay, privilégio e outcomes do registro estável provados. |
 | M3a — racha básico | especificar adaptação do `config` sem TP/T1/Pix no app; schema, criação, UI de criar e lista vazia | 5, 18, 6 parcial | cheia por dado pessoal/dinheiro | 4–6 | Racha criado sem duplicar retry; estado inicial coerente. |

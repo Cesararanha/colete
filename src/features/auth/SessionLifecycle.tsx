@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 
 import { api } from '@/lib/api';
 import { applySessionChange } from '@/lib/private-queries';
@@ -25,6 +26,7 @@ export function SessionLifecycle() {
     const subscription = api.onAuthStateChange((event, nextSession) => {
       if (event === 'INITIAL_SESSION') return;
       applySessionChange(queryClient, nextSession);
+      if (event === 'SIGNED_OUT' && Platform.OS === 'web') window.location.replace('/entrar');
     });
     return () => {
       stopListening();

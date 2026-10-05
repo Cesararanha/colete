@@ -138,6 +138,7 @@ export const pt = {
         'Não foi possível copiar. Selecione o código ou link exibido e copie manualmente.',
     },
     errors: {
+      proofsPending: 'Há comprovantes pendentes. Resolva-os antes de remover esta pessoa.',
       generic: 'Não foi possível concluir a ação. Atualize a tela e tente novamente.',
       network: 'A rede não respondeu. Confira a conexão e tente novamente.',
       unauthenticated: 'Entre novamente para continuar.',

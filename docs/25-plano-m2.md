@@ -1770,6 +1770,23 @@ Decisões de escopo do plano, sem gate humano:
 
 Pendências registradas, com prazo:
 
+**Faxina A (05/10/2026).** O inventário operacional em `26` registra a resolução
+local dos testes de audit independentes do relógio/arquivo produtivo, propagação
+de erros na limpeza do export, censo de `job_runs` antes/depois do worker,
+ordenação `lower()` contra colação C, papel do organizador, replay de rename
+suspenso/arquivado, papel da tela 11 após transferência, nomes no storage/Cache
+API após logout e recarga por evento Auth `SIGNED_OUT`. A tela 25 mantém a
+região de status montada e `PROOFS_PENDING` usa o catálogo `pt.ts`. Nenhum
+contrato de produção foi alterado. As PERGUNTAS sobre a contraprova de deadlock
+e o censo antigo permanecem identificadas em `26`.
+
+**Vai para a Faxina B:** M2-D15 (as oito travas `FOR UPDATE` restantes do M1-B)
+e replay de `request_data_export` (M2-D21), na migration própria já exigida
+abaixo; também os P3 do #40 que mexem na ordem de erros do gateway. Alterar
+função de banco ou Edge está fora do escopo desta Faxina A. Preservam-se os
+prazos e decisões já aprovados, sem antecipar a implementação.
+
+
 - **Visibilidade das notas na tela 25.** Prazo: M6, junto com as notas, por
   decisão humana de César em 03/10/2026. Preservar o contrato de
   `set_ratings_visibility`, a autoridade exclusiva do dono e a confirmação
@@ -1828,10 +1845,10 @@ Reavaliar essa leitura depois do piloto; a `0019` conserva o contrato vigente.
 **Observações da revisão independente do PR #52 (itens 8 e 10, sem ação nesta correção).**
 As leituras do mesmo grupo serializam e marcam `xmax` nas linhas de perfil e
 grupo; no piloto, a contenção é aceita porque as travas protegem autorização
-e projeção. O E2E de logout procura nomes de membros no heap CDP, mas não
-aplica a esses nomes o censo de storages e Cache API; o risco estrutural foi
-considerado baixo pela política do service worker e pela limpeza de queries.
-Essas observações não pedem reescrita da função ou ampliação do E2E nesta fatia.
+e projeção. A lacuna de censo de nomes em storages e Cache API após logout foi tratada
+na Faxina A; a UI-B já tinha essa asserção e a UI-A passou a incluí-la.
+Contraprovas nas duas suítes detectam nomes em localStorage, sessionStorage
+e Cache API. A contenção aceita no piloto continua sem alteração da função.
 
 **Arquivamento por RPC e leitura histórica (M2-D40).** O arquivamento
 pela exclusão de conta (M2-D9) e as recusas `GROUP_ARCHIVED` já entregues

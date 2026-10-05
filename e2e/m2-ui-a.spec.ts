@@ -1206,6 +1206,8 @@ test('UI-A clears old account group and invite material from the browser heap', 
     for (const name of names)
       await expect(page.getByTestId('group-members-list')).toContainText(name);
     expect(await heapContains(page, names)).toEqual([true, true, true]);
+    for (const name of names)
+      expect(await browserLeakCensus(page, name)).toBe(name !== 'Pessoa heap-a');
     await page.getByRole('link', { name: 'Perfil' }).click();
     const unloaded = handledObserver(
       page.waitForEvent('framenavigated', {
@@ -1234,6 +1236,7 @@ test('UI-A clears old account group and invite material from the browser heap', 
         groupSentinel,
       ),
     ).toBe(false);
+    for (const name of names) expect(await browserLeakCensus(page, name)).toBe(true);
     expect(await heapContains(page, [groupSentinel, token, ...names])).toEqual([
       false,
       false,
@@ -1329,6 +1332,68 @@ test('0019 screen 11 shows active roles and pending names with keyboard and 320p
         path: path.join(screenshotRoot!, '11-com-lista.png'),
         fullPage: true,
       });
+  } finally {
+    await cleanActors(authIds, db);
+    expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
+    await db.end();
+  }
+});
+
+// An expired local session fails refresh in the real Auth SDK. Visibility
+// recovery triggers it without timers, a manual logout or an app broadcast.
+test('UI-A Auth SIGNED_OUT discards the document and private group heap', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const actor = await createActor(request, 'auth-event', authIds);
+    const sentinel = `AuthHeap${crypto.randomUUID().replaceAll('-', '').slice(0, 20)}`;
+    const created = await edge(request, actor, 'create_group', {
+      name: sentinel,
+      request_id: crypto.randomUUID(),
+    });
+    expect(created.status).toBe(200);
+    const groupId = (created.value.data?.['outcome'] as { group_id: string }).group_id;
+    await login(page, actor);
+    await page.goto(`/grupos/${groupId}`);
+    await expect(page.getByRole('heading', { name: sentinel, exact: true })).toBeVisible();
+    expect(await heapContains(page, [sentinel])).toEqual([true]);
+    const unloaded = handledObserver(
+      page.waitForEvent('framenavigated', {
+        predicate: (frame) =>
+          frame === page.mainFrame() && new URL(frame.url()).pathname === '/entrar',
+      }),
+    );
+    const refresh = handledObserver(
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/auth/v1/token' &&
+          new URL(response.url()).searchParams.get('grant_type') === 'refresh_token',
+      ),
+    );
+    await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((item) => /^sb-.+-auth-token$/.test(item));
+      if (!key) throw new Error('Auth storage key missing');
+      const session = JSON.parse(localStorage.getItem(key)!);
+      session.expires_at = 1;
+      session.refresh_token = 'faxina-synthetic-invalid-refresh';
+      localStorage.setItem(key, JSON.stringify(session));
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect((await refresh).status()).toBe(400);
+    await page.waitForFunction(() =>
+      Object.keys(localStorage).every((key) => !/^sb-.+-auth-token$/.test(key)),
+    );
+    await page.waitForLoadState('load');
+    expect(await heapContains(page, [sentinel])).toEqual([false]);
+    await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: sentinel, exact: true })).toHaveCount(0);
+    await unloaded;
+    expect(await browserLeakCensus(page, sentinel)).toBe(true);
   } finally {
     await cleanActors(authIds, db);
     expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);

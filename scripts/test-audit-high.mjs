@@ -6,12 +6,25 @@ import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { evaluateAudit } from './audit-high.mjs';
 
-const exception = JSON.parse(readFileSync(new URL('../audit-exceptions.json', import.meta.url)))[0];
+// Independent copies: production exceptions can expire or be removed without
+// changing the mechanism tests.
+const exceptions = [
+  { id: 'GHSA-86w9-cpqp-85rv', package: 'node-forge' },
+  { id: 'GHSA-vfj7-8cjw-p6xm', package: 'braces' },
+].map((entry) => ({
+  ...entry,
+  reason: 'Synthetic mechanism fixture',
+  evidence: 'Versioned audit reports',
+  decidedBy: 'Test fixture',
+  expiresOn: '2099-01-01',
+}));
+const [exception] = exceptions;
+const today = '2026-10-02';
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/audit-high.json', import.meta.url)));
 
 // Executa o mesmo CLI da CI. Somente o processo npm é substituído pelo fixture;
 // não há flag ou variável de bypass no código produtivo.
-function runCli(report, exceptions) {
+function runCli(report, exceptions, date = today) {
   const root = mkdtempSync(join(tmpdir(), 'colete-audit-'));
   try {
     mkdirSync(join(root, 'scripts'));
@@ -26,23 +39,40 @@ function runCli(report, exceptions) {
       `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(report))}); process.exit(1);\n`,
       { mode: 0o755 },
     );
-    return spawnSync(process.execPath, [join(root, 'scripts/audit-high.mjs')], {
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${join(root, 'bin')}${delimiter}${process.env.PATH}` },
-    });
+    // Only the disposable subprocess clock is controlled. The CLI source is
+    // copied unchanged; evaluateAudit receives explicit dates below as well.
+    writeFileSync(
+      join(root, 'clock.cjs'),
+      `
+      const RealDate = Date;
+      const fixed = ${JSON.stringify(date)} + 'T12:00:00Z';
+      global.Date = class extends RealDate {
+        constructor(...args) { super(...(args.length ? args : [fixed])); }
+        static now() { return RealDate.parse(fixed); }
+      };
+    `,
+    );
+    return spawnSync(
+      process.execPath,
+      ['--require', join(root, 'clock.cjs'), join(root, 'scripts/audit-high.mjs')],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${join(root, 'bin')}${delimiter}${process.env.PATH}` },
+      },
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 test('alerta listado dentro do prazo passa; sem exceção reprova', () => {
-  assert.deepEqual(evaluateAudit(fixture, [exception], '2026-10-02'), []);
+  assert.deepEqual(evaluateAudit(fixture, [exception], today), []);
   assert.equal(runCli(fixture, [exception]).status, 0);
   assert.equal(runCli(fixture, []).status, 1);
 });
 test('mesma entrada vencida reprova no início da data limite', () => {
   assert.match(
-    evaluateAudit(fixture, [exception], '2026-10-16').join(' '),
+    evaluateAudit(fixture, [{ ...exception, expiresOn: '2026-10-16' }], '2026-10-16').join(' '),
     /Exceção vencida: GHSA-86w9-cpqp-85rv/,
   );
   const result = runCli(fixture, [{ ...exception, expiresOn: '2000-01-01' }]);
@@ -127,7 +157,6 @@ test('relatório real de 03/10 passa somente com as duas exceções', () => {
   const report = JSON.parse(
     readFileSync(new URL('./fixtures/audit-high-2026-10-03.json', import.meta.url)),
   );
-  const exceptions = JSON.parse(readFileSync(new URL('../audit-exceptions.json', import.meta.url)));
   assert.equal(runCli(report, exceptions).status, 0);
   const result = runCli(report, [exception]);
   assert.equal(result.status, 1);

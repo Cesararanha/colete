@@ -58,7 +58,7 @@ export function GroupSettingsScreen({
   return (
     <AuthenticatedShell {...pt.groups.settings}>
       {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
-      {message ? <AppStatus message={message} /> : null}
+      <AppStatus message={message ?? ''} testID="settings-result" />
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="administration-error" />
       ) : null}
@@ -170,7 +170,8 @@ export function GroupSettingsScreen({
                           label={step === 1 ? pt.groups.settings.next : pt.groups.settings.confirm}
                           onPress={() => {
                             if (step === 1) setStep(2);
-                            else
+                            else {
+                              setMessage(null);
                               void run(`transfer:${target.id}`, () =>
                                 api.transferOwnership(groupId, target.id),
                               ).then((success) => {
@@ -181,6 +182,7 @@ export function GroupSettingsScreen({
                                   focusGroupControl('settings-refresh');
                                 }
                               });
+                            }
                           }}
                           variant={step === 1 ? 'primary' : 'destructive'}
                         />
