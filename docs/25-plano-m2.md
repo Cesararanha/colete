@@ -1107,10 +1107,12 @@ tem contrato em `13` fica ausente, não desabilitado, até a fatia que o publica
   do M2 (M2-D6): a RPC existe na `0016` e é provada no banco com
   `monthly_enabled` preparado por fixture. Convidados avulsos ficam ausentes até
   o marco de rachas;
-- **Tela 25 — Configurações:** visibilidade das notas por
-  `set_ratings_visibility`, com a confirmação explicada que o contrato exige, e
-  transferência de titularidade por `transfer_ownership`, com dupla confirmação,
-  ambas somente para o dono. Renomear usa a `0018` e `13` §5.0.6, por dono/organizador ativo.
+- **Tela 25 — Configurações:** transferência de titularidade por
+  `transfer_ownership`, com dupla confirmação, somente para o dono.
+  Visibilidade das notas fica no M6, junto com as notas, por decisão humana
+  de César em 03/10/2026; não entra na UI-B. O contrato existente de
+  `set_ratings_visibility` e sua confirmação explicada permanecem preservados. Renomear usa a `0018` e `13` §5.0.6, por
+  dono/organizador ativo.
   Arquivamento por RPC e sua confirmação acessível ficam pós-piloto
   (M2-D40; §8.2). Foto fica fora;
   o toggle de mensalista entra no M3 com o setter de
@@ -1223,6 +1225,18 @@ código produtivo.
 ## 8. Decisões e gates humanos
 
 ### 8.1 Decisões humanas e técnicas registradas
+
+- **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
+  `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva
+  o papel gravado em `group_members`; para quem criou o grupo, organizador.
+  A UI deve usar o papel confirmado pela leitura, sem inventá-lo no cliente.
+  Sem mudança de código na RPC.
+
+- **Decisão humana de César em 03/10/2026 — visibilidade das notas.** O controle
+  da tela 25 não entra na UI-B do M2; entra no M6, junto com as notas. A RPC
+  `set_ratings_visibility` continua como está. A especificação do controle,
+  incluindo autoridade exclusiva do dono e confirmação para tornar visível,
+  fica preservada; somente seu momento de entrega muda.
 
 Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
 
@@ -1755,6 +1769,11 @@ Decisões de escopo do plano, sem gate humano:
   `0017`, cada um com prova. O agendamento segue o estado dos demais jobs.
 
 Pendências registradas, com prazo:
+
+- **Visibilidade das notas na tela 25.** Prazo: M6, junto com as notas, por
+  decisão humana de César em 03/10/2026. Preservar o contrato de
+  `set_ratings_visibility`, a autoridade exclusiva do dono e a confirmação
+  explicada ao tornar notas visíveis; ausente da UI-B do M2.
 
 - **Travas do M1-B fora da M2-D13 (M2-D15, §8.1).** Prazo: uma migration própria,
   antes de fechar o M2, as alinha à M2-D13. São nove, citadas pela função e pela

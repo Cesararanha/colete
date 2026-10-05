@@ -39,6 +39,57 @@ export const pt = {
       left: 'Você saiu do grupo.',
       missing: 'Não foi possível abrir este grupo. Volte à lista e atualize os dados.',
     },
+    members: {
+      eyebrow: 'Organização',
+      title: 'Gestão de membros',
+      description: 'Decida pedidos de entrada e cuide dos membros do grupo.',
+      approve: 'Aprovar',
+      refuse: 'Recusar',
+      promote: 'Promover a organizador',
+      demote: 'Rebaixar a jogador',
+      remove: 'Expulsar',
+      empty: 'Não há pedidos pendentes.',
+      removeTitle: (name: string) => `Expulsar ${name}?`,
+      removeBody:
+        'A pessoa sai do grupo e precisa pedir para entrar de novo. O motivo é obrigatório, mas ainda não fica guardado.',
+      reason: 'Motivo da expulsão',
+      reasonHint: 'Escreva até 500 caracteres.',
+      reasonInvalid: 'Escreva um motivo de 1 a 500 caracteres para continuar.',
+      confirmRemove: 'Confirmar expulsão',
+      cancel: 'Cancelar',
+      decided: (name: string, approve: boolean) =>
+        `${name} foi ${approve ? 'aprovado' : 'recusado'}.`,
+      roleChanged: (name: string, role: string) =>
+        `${name} passou a ser ${role === 'organizer' ? 'organizador' : 'jogador'}.`,
+      removed: (name: string) => `${name} foi expulso.`,
+      refresh: 'Atualizar dados',
+      groupLimit:
+        'Esta pessoa já participa de cinco grupos ativos. Peça que saia de um grupo antes de aprovar o pedido.',
+      archived: 'Este grupo foi arquivado. Volte à lista de grupos.',
+      rate: (when: string) => `Muitas tentativas. Tente novamente a partir de ${when}.`,
+    },
+    settings: {
+      eyebrow: 'Organização',
+      title: 'Configurações do grupo',
+      description: 'Altere o nome e transfira a titularidade do grupo.',
+      rename: 'Salvar nome',
+      renamed: 'Nome atualizado.',
+      transfer: 'Transferir titularidade',
+      choose: 'Escolha um membro ativo para ser o novo dono.',
+      select: (name: string) => `Escolher ${name}`,
+      first: (name: string) => `Transferir a titularidade para ${name}?`,
+      second: (name: string) => `Confirmar ${name} como novo dono?`,
+      warning: (role?: string) =>
+        role === 'organizer'
+          ? 'Você deixa de ser dono e passa a ser organizador.'
+          : role === 'player'
+            ? 'Você deixa de ser dono e passa a ser jogador.'
+            : 'Você deixa de ser dono e perde os controles exclusivos de titularidade.',
+      next: 'Continuar transferência',
+      confirm: 'Confirmar transferência',
+      transferred: (name: string) => `A titularidade foi transferida para ${name}.`,
+      empty: 'Aprove um membro antes de transferir a titularidade.',
+    },
     join: {
       eyebrow: 'Convite',
       title: 'Entrar em grupo',
@@ -106,7 +157,14 @@ export const pt = {
         'Não foi possível verificar o limite de tentativas. Tente novamente mais tarde.',
       ownerMustTransfer: 'Transfira a titularidade primeiro para sair deste grupo.',
       notMember: 'Você não participa deste grupo. Volte à lista de grupos.',
-      notOrganizer: 'Só o dono ou um organizador ativo pode gerir convites.',
+      notOrganizer:
+        'Você precisa ser dono ou organizador ativo para fazer esta ação. Volte ao grupo e atualize os dados.',
+      ownerOnly: 'Só o dono pode fazer esta ação. Volte ao grupo e atualize seu papel.',
+      alreadyDecided: 'Este pedido já foi decidido. Confira a lista atualizada.',
+      notFound: 'Este pedido não foi encontrado. Confira a lista atualizada.',
+      isOwner:
+        'O dono não pode ser expulso nem ter o papel alterado. Transfira a titularidade primeiro.',
+      notActive: 'Esta pessoa não é mais um membro ativo. Confira a lista atualizada.',
       alreadyActive:
         'Já existe um convite ativo. Compartilhe ou encerre o atual antes de emitir outro.',
       concurrent: 'O grupo mudou enquanto você agia. Atualize a tela e tente novamente.',

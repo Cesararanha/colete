@@ -283,3 +283,9 @@ conforme `docs/12-notificacoes.md:185` e `docs/13-contratos-funcoes.md:397`.
 As especificações técnicas pré-marco de A, E e H continuam pendentes.
 Pela correção de 30/09, N26 e N28 acompanham os gates das funcionalidades
 que os emitem; `transfer_financial_authority` integra o M5 do piloto.
+
+## Pendência UI-B decidida em 03/10/2026
+
+César decidiu que o controle de visibilidade das notas da tela 25 entra no M6,
+junto com as notas, e fica ausente da UI-B do M2. `set_ratings_visibility`
+permanece entregue na `0016`; sua autoridade e confirmação continuam no contrato.

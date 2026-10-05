@@ -87,6 +87,18 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
               onPress={() => router.push(`/grupos/${group.id}/convites`)}
             />
           ) : null}
+          {group.role === 'owner' || group.role === 'organizer' ? (
+            <>
+              <AppButton
+                label={pt.groups.members.title}
+                onPress={() => router.push(`/grupos/${group.id}/membros`)}
+              />
+              <AppButton
+                label={pt.groups.settings.title}
+                onPress={() => router.push(`/grupos/${group.id}/configuracoes`)}
+              />
+            </>
+          ) : null}
           {members.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
           {members.isError ? (
             <AsyncNotice
@@ -114,10 +126,13 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
                 ))}
               {members.data.some((member) => member.status === 'pending') ? (
                 <View testID="group-pending-members-list">
-                  <SectionHeading
-                    eyebrow={pt.groups.list.pending}
-                    title={pt.groups.detail.pendingMembers}
-                  />
+                  <Text
+                    aria-level={3}
+                    role="heading"
+                    style={[styles.section, { color: colors.text }]}
+                  >
+                    {pt.groups.detail.pendingMembers}
+                  </Text>
                   {members.data
                     .filter((member) => member.status === 'pending')
                     .map((member) => (
@@ -152,4 +167,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   );
 }
 
-const styles = StyleSheet.create({ reason: { fontSize: 16, lineHeight: 24 } });
+const styles = StyleSheet.create({
+  section: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  reason: { fontSize: 16, lineHeight: 24 },
+});

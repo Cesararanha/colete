@@ -373,6 +373,10 @@ aos membros ativos — nunca públicas na internet; só o dono altera, e tornar 
 explicação) · **transferir titularidade** (só o dono; escolhe membro, dupla confirmação) ·
 **arquivar grupo** (só o dono, controle pós-piloto).
 
+O controle de visibilidade das notas acima entra no **M6**, junto com as
+notas, por decisão humana de César em 03/10/2026. Fica ausente da UI-B do
+M2; a RPC `set_ratings_visibility` e a especificação acima continuam preservadas.
+
 No M2, a `0018` publica **somente renomear**; foto e controle de
 `archive_group` ficam fora (M2-D40).
 Dono ou organizador ativo pode renomear, com a mesma validação da criação

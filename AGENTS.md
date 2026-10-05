@@ -151,7 +151,7 @@ npm run db:test:membership
 npm run db:test:rename
 npm run db:test:members
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
-npm run test:groups:web
+npm run test:groups:web # UI-A e UI-B: Auth, Edge e Postgres locais reais
 npm run build:web:smoke && npm run test:smoke:web
 npm run verify:app
 npm run scan:docs
