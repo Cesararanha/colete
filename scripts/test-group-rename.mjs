@@ -397,7 +397,21 @@ async function proveHttp(status, db) {
     await mutate(status, owner, 'create_group', { name: 'Grupo de Estado' }),
     'state group',
   ).outcome.group_id;
+  const stateRequest = crypto.randomUUID();
+  const stateBusiness = { group_id: stateGroup, name: 'Antes do Estado' };
+  const stateFirst = ok(
+    await mutate(status, owner, 'rename_group', stateBusiness, stateRequest),
+    'rename before state change',
+  );
   await db.query('update public.groups set suspended_at=now() where id=$1', [stateGroup]);
+  assert.deepEqual(
+    ok(
+      await mutate(status, owner, 'rename_group', stateBusiness, stateRequest),
+      'suspended replay',
+    ),
+    { outcome: stateFirst.outcome },
+    'suspended replay preserves outcome without current',
+  );
   denied(
     await mutate(status, owner, 'rename_group', {
       group_id: stateGroup,
@@ -410,6 +424,11 @@ async function proveHttp(status, db) {
   await db.query('update public.groups set suspended_at=null,archived_at=now() where id=$1', [
     stateGroup,
   ]);
+  assert.deepEqual(
+    ok(await mutate(status, owner, 'rename_group', stateBusiness, stateRequest), 'archived replay'),
+    { outcome: stateFirst.outcome },
+    'archived replay preserves outcome without current',
+  );
   denied(
     await mutate(status, owner, 'rename_group', {
       group_id: stateGroup,

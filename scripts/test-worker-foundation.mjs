@@ -487,6 +487,11 @@ async function cleanup(admin, clients, retentionBaseline, jobBaseline) {
   ]);
   await admin.query('delete from private.job_runs where id>$1', [jobBaseline]);
   await admin.query('delete from private.retention_runs where id>$1', [retentionBaseline]);
+  assert.equal(
+    (await admin.query('select count(*)::integer as n from private.job_runs')).rows[0].n,
+    0,
+    'job_runs after worker cleanup',
+  );
 }
 
 async function main() {
@@ -509,7 +514,13 @@ async function main() {
     (await admin.query('select coalesce(max(id),0)::text id from private.job_runs')).rows[0].id,
   );
 
+  let failure;
   try {
+    assert.equal(
+      (await admin.query('select count(*)::integer as n from private.job_runs')).rows[0].n,
+      0,
+      'job_runs before worker harness: a prior execution must not leave residue',
+    );
     await admin.query('delete from private.external_effects where dedupe_key like $1', [
       `${testPrefix}%`,
     ]);
@@ -522,9 +533,18 @@ async function main() {
     await testServiceRoleBoundary(firstWorker);
     await testJobLifecycle(admin, firstWorker, functionsUrl, publishableKey, jobBaseline);
     console.log('Worker foundation harness passed with three independent PostgreSQL connections.');
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
-    await cleanup(admin, [firstWorker, secondWorker], retentionBaseline, jobBaseline);
-    await admin.end();
+    try {
+      await cleanup(admin, [firstWorker, secondWorker], retentionBaseline, jobBaseline);
+    } catch (error) {
+      if (failure) throw new AggregateError([failure, error], 'Worker proof and cleanup failed');
+      throw error;
+    } finally {
+      await admin.end();
+    }
   }
 }
 

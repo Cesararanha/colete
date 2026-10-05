@@ -1384,6 +1384,13 @@ test('UI-B ownership warning uses the confirmed stored player role', async ({ pa
       page.getByText('A titularidade foi transferida para Pessoa owner.', { exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId('group-settings-card')).toHaveCount(0);
+    await page.goto(`/grupos/${s.groupId}`);
+    await expect(
+      page.getByTestId('group-detail-card').getByText('Membro', { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Configurações do grupo', exact: true }),
+    ).toHaveCount(0);
     expect(
       (
         await db.query(
@@ -1392,6 +1399,46 @@ test('UI-B ownership warning uses the confirmed stored player role', async ({ pa
         )
       ).rows[0].role,
     ).toBe('player');
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B screen 25 keeps its live region across consecutive rename announcements', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    await login(page, s.owner);
+    await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    const result = page.getByTestId('settings-result');
+    await expect(result).toHaveText('');
+    await result.evaluate((node) => {
+      const state = window as typeof window & { statusNode?: Element; statusChanges?: string[] };
+      state.statusNode = node;
+      state.statusChanges = [];
+      new MutationObserver(() => state.statusChanges!.push(node.textContent ?? '')).observe(node, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    });
+    for (const name of ['Primeira ação', 'Segunda ação']) {
+      await page.getByTestId('rename-group-name').fill(name);
+      await page.getByTestId('rename-group-submit').click();
+      await expect(page.getByTestId('confirmed-group-name')).toHaveText(name);
+      await expect(result).toHaveText('Nome atualizado.');
+    }
+    expect(
+      await result.evaluate((node) => {
+        const state = window as typeof window & { statusNode?: Element; statusChanges?: string[] };
+        return { sameNode: state.statusNode === node, changes: state.statusChanges };
+      }),
+    ).toEqual({ sameNode: true, changes: ['Nome atualizado.', '', 'Nome atualizado.'] });
   } finally {
     await clean(ids, db);
   }

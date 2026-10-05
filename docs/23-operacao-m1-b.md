@@ -1208,9 +1208,11 @@ AGENTS §8: exceção somente para esse GHSA e pacote, até o início de
 
 ### Defeito do filtro e correção autorizada
 
-O relatório real de hoje está preservado integralmente em
+A captura do relatório de 03/10/2026 está preservada integralmente em
 `scripts/fixtures/audit-high-2026-10-03.json`: **36 registros**, 16 moderados,
-20 altos e zero críticos. O fixture anterior de `node-forge` foi preservado.
+20 altos e zero críticos. A captura não promete reprodução byte a byte de
+consultas posteriores: a revisão #53 encontrou variação de `effects` e
+`fixAvailable` em dez registros, com `severity`, `via` e `nodes` idênticos. O fixture anterior de `node-forge` foi preservado.
 Os altos têm dois advisories reais: `node-forge` e `braces`, com propagação por
 dependências. Há ciclos no grafo Metro/React Native. Ao revisitar um pacote no
 mesmo caminho, `roots` fabricava uma causa alta desconhecida. Mesmo simulando
@@ -1236,16 +1238,20 @@ duas exceções.
 Contraprova: desfeita temporariamente apenas a correção em `roots`, executou-se:
 
 ```sh
-node --test --test-name-pattern='ciclo A↔B com advisory real coberto por exceção passa' scripts/test-audit-high.mjs
+node --test scripts/test-audit-high.mjs
 ```
 
 ```text
 ✖ ciclo A↔B com advisory real coberto por exceção passa
-tests 1; pass 0; fail 1
-AssertionError: Expected values to be strictly equal: 1 !== 0
+✖ ciclo puro sem advisory reprova por falta de causa identificável
+✖ relatório real de 03/10 passa somente com as duas exceções
+tests 12; pass 9; fail 3
 ```
 
-Código 1. A correção foi restaurada; os 12 testes passaram novamente.
+Código 1. A revisão #53 mediu os três casos reprovando com `roots` antigo;
+a Faxina A repetiu a suíte inteira em cópia descartável, com 9 aprovados e
+3 reprovados (`faxina-a-cp11-roots-suite.log`). O código do repositório
+não foi alterado nessa contraprova; os 12 testes passam com a correção.
 `node scripts/verify-docs.mjs` passou com 23 arquivos; `git diff --check` passou.
 Não se executou Prettier em `docs/`. Conforme o escopo autorizado desta tarefa,
 não se subiu a pilha local nem se acessou contêiner, Supabase remoto, deploy ou
@@ -1298,3 +1304,16 @@ Depois da correção e da exceção, código 0:
 ```text
 Audit aprovado: nenhum alerta alto ou crítico fora das 2 exceções ativas.
 ```
+
+
+### Faxina A — precisão dos registros de auditoria, 05/10/2026
+
+A ausência de literais de braces no bundle é a evidência registrada nas buscas,
+com a limitação observada na revisão #53: uma lista dos módulos do Metro seria
+uma prova mais forte para exceções futuras. Não se alteraram dependências nem
+as duas exceções produtivas. `test:audit` agora usa cópias sintéticas das
+exceções com vencimento fixo em 2099 e data explícita/controlada; seis
+execuções (15/10/2026, 16/10/2026 e 01/01/2027, com arquivo de exceções normal
+e vazio em cópia descartável) aprovaram 12/12 cada. Reintroduzir relógio real
+e prazo produtivo reprova 3 testes; reintroduzir a leitura do arquivo vazio
+reprova 8. O prazo de `audit:high` continua inalterado.

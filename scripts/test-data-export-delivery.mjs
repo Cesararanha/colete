@@ -425,7 +425,7 @@ async function requestExportTx(client, actor, requestId, hmac) {
     await client.query('commit');
     return result.rows[0].response;
   } catch (error) {
-    await client.query('rollback').catch(() => {});
+    await client.query('rollback');
     throw error;
   }
 }
@@ -440,32 +440,22 @@ function assertOneExportWinner(results, label) {
 }
 
 async function cleanupSameActorFixture(db) {
-  await db
-    .query(
-      `delete from private.external_effects
+  await db.query(
+    `delete from private.external_effects
         where resource_id in (select id from private.data_exports where profile_id=any($1::uuid[]))`,
-      [sameActorProfiles],
-    )
-    .catch(() => {});
-  await db
-    .query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
-      sameActorProfiles,
-    ])
-    .catch(() => {});
-  await db
-    .query('delete from private.data_exports where profile_id=any($1::uuid[])', [sameActorProfiles])
-    .catch(() => {});
-  await db
-    .query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [
-      sameActorProfiles,
-    ])
-    .catch(() => {});
-  await db
-    .query('delete from public.profiles where id=any($1::uuid[])', [sameActorProfiles])
-    .catch(() => {});
-  await db
-    .query('delete from auth.users where id=any($1::uuid[])', [sameActorAuth])
-    .catch(() => {});
+    [sameActorProfiles],
+  );
+  await db.query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
+    sameActorProfiles,
+  ]);
+  await db.query('delete from private.data_exports where profile_id=any($1::uuid[])', [
+    sameActorProfiles,
+  ]);
+  await db.query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [
+    sameActorProfiles,
+  ]);
+  await db.query('delete from public.profiles where id=any($1::uuid[])', [sameActorProfiles]);
+  await db.query('delete from auth.users where id=any($1::uuid[])', [sameActorAuth]);
 }
 
 // M2-D14. request_data_export grava a idempotência, que toma FOR KEY SHARE no
@@ -623,7 +613,7 @@ async function insertGroupsFixture(db) {
     );
     await db.query('commit');
   } catch (error) {
-    await db.query('rollback').catch(() => {});
+    await db.query('rollback');
     throw error;
   }
   await db.query('begin');
@@ -647,7 +637,7 @@ async function insertGroupsFixture(db) {
     );
     await db.query('commit');
   } catch (error) {
-    await db.query('rollback').catch(() => {});
+    await db.query('rollback');
     throw error;
   }
 }
@@ -792,13 +782,11 @@ async function tableCounts(client, schemas) {
 // grafo de grupos. Roda ao fim da prova, para que o purge pendente não chegue
 // às aquisições seguintes do harness, e de novo na limpeza final.
 async function cleanupGroupsFixture(db, env) {
-  const groupObjects = await db
-    .query(
-      `select name from storage.objects
+  const groupObjects = await db.query(
+    `select name from storage.objects
         where bucket_id='data-exports' and name like 'exports/' || $1 || '/%'`,
-      [groupsFixture.titular],
-    )
-    .catch(() => ({ rows: [] }));
+    [groupsFixture.titular],
+  );
   if (groupObjects.rows.length > 0) {
     await fetch(`${env.api}/storage/v1/object/data-exports`, {
       method: 'DELETE',
@@ -808,38 +796,28 @@ async function cleanupGroupsFixture(db, env) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ prefixes: groupObjects.rows.map((row) => row.name) }),
-    }).catch(() => {});
+    });
   }
-  await db
-    .query(
-      `delete from private.external_effects
+  await db.query(
+    `delete from private.external_effects
         where resource_id in (select id from private.data_exports where profile_id=any($1::uuid[]))`,
-      [groupsProfiles],
-    )
-    .catch(() => {});
-  await db
-    .query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
-      groupsProfiles,
-    ])
-    .catch(() => {});
-  await db
-    .query('delete from private.data_exports where profile_id=any($1::uuid[])', [groupsProfiles])
-    .catch(() => {});
-  await db
-    .query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [groupsProfiles])
-    .catch(() => {});
-  await db.query('begin').catch(() => {});
-  await db
-    .query('delete from public.group_invites where group_id=any($1::uuid[])', [groupsIds])
-    .catch(() => {});
-  await db
-    .query('delete from public.group_members where group_id=any($1::uuid[])', [groupsIds])
-    .catch(() => {});
-  await db.query('delete from public.groups where id=any($1::uuid[])', [groupsIds]).catch(() => {});
-  await db.query('commit').catch(() => {});
-  await db
-    .query('delete from public.profiles where id=any($1::uuid[])', [groupsProfiles])
-    .catch(() => {});
+    [groupsProfiles],
+  );
+  await db.query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
+    groupsProfiles,
+  ]);
+  await db.query('delete from private.data_exports where profile_id=any($1::uuid[])', [
+    groupsProfiles,
+  ]);
+  await db.query('delete from public.privacy_requests where profile_id=any($1::uuid[])', [
+    groupsProfiles,
+  ]);
+  await db.query('begin');
+  await db.query('delete from public.group_invites where group_id=any($1::uuid[])', [groupsIds]);
+  await db.query('delete from public.group_members where group_id=any($1::uuid[])', [groupsIds]);
+  await db.query('delete from public.groups where id=any($1::uuid[])', [groupsIds]);
+  await db.query('commit');
+  await db.query('delete from public.profiles where id=any($1::uuid[])', [groupsProfiles]);
 }
 
 async function cleanup(db, env) {
@@ -854,37 +832,27 @@ async function cleanup(db, env) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ prefixes: [objectPath(profileIds[index], exportIds[index])] }),
-    }).catch(() => {});
+    });
   }
-  await db
-    .query(
-      `delete from private.external_effects
+  await db.query(
+    `delete from private.external_effects
        where resource_id=any($1::uuid[])
           or resource_id=any($2::uuid[])
           or resource_id in (select id from private.deletion_requests where profile_id=any($2::uuid[]))`,
-      [exportIds, profileIds],
-    )
-    .catch(() => {});
-  await db
-    .query('delete from private.revoked_auth_sessions where profile_id=any($1::uuid[])', [
-      profileIds,
-    ])
-    .catch(() => {});
-  await db
-    .query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [profileIds])
-    .catch(() => {});
-  await db
-    .query('delete from private.deletion_requests where profile_id=any($1::uuid[])', [profileIds])
-    .catch(() => {});
-  await db
-    .query('delete from private.data_exports where id=any($1::uuid[])', [exportIds])
-    .catch(() => {});
-  await db
-    .query('delete from public.privacy_requests where id=any($1::uuid[])', [requestIds])
-    .catch(() => {});
-  await db
-    .query('delete from public.profiles where id=any($1::uuid[])', [profileIds])
-    .catch(() => {});
+    [exportIds, profileIds],
+  );
+  await db.query('delete from private.revoked_auth_sessions where profile_id=any($1::uuid[])', [
+    profileIds,
+  ]);
+  await db.query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [
+    profileIds,
+  ]);
+  await db.query('delete from private.deletion_requests where profile_id=any($1::uuid[])', [
+    profileIds,
+  ]);
+  await db.query('delete from private.data_exports where id=any($1::uuid[])', [exportIds]);
+  await db.query('delete from public.privacy_requests where id=any($1::uuid[])', [requestIds]);
+  await db.query('delete from public.profiles where id=any($1::uuid[])', [profileIds]);
   for (const userId of userIds)
     if (userId) {
       await fetch(`${env.api}/auth/v1/admin/users/${userId}`, {
@@ -893,7 +861,7 @@ async function cleanup(db, env) {
           apikey: env.secret,
           Authorization: `Bearer ${env.secret}`,
         },
-      }).catch(() => {});
+      });
     }
   // Usuários com a marca que a API não removeu ou que uma execução
   // interrompida deixou. Usuário sem a marca nunca é tocado.
@@ -1315,7 +1283,7 @@ async function main() {
         await deleter.query('commit');
       } catch (error) {
         deletionError = error;
-        await deleter.query('rollback').catch(() => undefined);
+        await deleter.query('rollback');
       }
       buildResult = await buildPending;
       await builder.query('error' in buildResult ? 'rollback' : 'commit');

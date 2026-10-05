@@ -366,6 +366,11 @@ async function prove(status, db) {
         'owner',
         'owner role derives from groups.owner_id, not organizer membership',
       );
+      assert.equal(
+        rows.find((row) => row.profile_id === organizer.profileId).role,
+        'organizer',
+        'organizer is not projected as owner',
+      );
       assert.ok(rows.some((row) => row.profile_id === suspended.profileId));
       assert.ok(rows.some((row) => row.profile_id === banned.profileId));
     }
@@ -505,6 +510,26 @@ async function prove(status, db) {
     assert.equal(displayName, fallbackName, 'null, empty and whitespace nickname use name');
     assert.ok(displayName.trim().length > 0, 'fallback is never empty');
   }
+  // Mixed initials distinguish lower() from case-sensitive collation C.
+  await db.query(
+    "update public.profiles set nickname=case when id=$1 then 'beta' else 'Zeta' end where id=any($2::uuid[])",
+    [player.profileId, [player.profileId, player2.profileId]],
+  );
+  const mixed = ok(await read(owner), 'mixed-case initials').filter((row) =>
+    [player.profileId, player2.profileId].includes(row.profile_id),
+  );
+  const cOrder = (
+    await db.query(
+      'select id from public.profiles where id=any($1::uuid[]) order by nickname collate "C",id',
+      [[player.profileId, player2.profileId]],
+    )
+  ).rows.map((row) => row.id);
+  assert.deepEqual(cOrder, [player2.profileId, player.profileId], 'C puts Zeta before beta');
+  assert.deepEqual(
+    mixed.map((row) => row.profile_id),
+    [player.profileId, player2.profileId],
+    'lower() puts beta before Zeta',
+  );
   // Case-fold ties use UUID, independent of insertion order and spelling case.
   await db.query(
     "update public.profiles set nickname=case when id=$1 then 'CaseTie' else 'casetie' end where id=any($2::uuid[])",

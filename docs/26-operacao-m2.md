@@ -1233,7 +1233,7 @@ linhas `ok -`.
 Após a contraprova, os 20 comandos do AGENTS §5 passaram novamente, começando
 por `db:reset`. `auth.users`, grupos, convites e limitador estavam em 0 ao fim.
 
-## Fatia 4 — `0018_rename_group.sql` (PILOTO, 01/10/2026)
+## Fatia 3-B — `0018_rename_group.sql` (PILOTO, 01/10/2026)
 
 A `0018` entrega apenas `rename_group` pela rota produtiva `groups/rename_group`.
 A RPC permite ao dono e ao organizador ativo alterar `groups.name`. Jogador
@@ -1699,3 +1699,69 @@ ou sleep. Os sete mutantes reprovaram novamente e as fontes foram
 restauradas por SHA-256; logs em `corr54-mut/round2/`.
 
 AGENTS §5 e browsers 3× foram repetidos integralmente após o ajuste CP3: 216 aprovações, 18 skips preexistentes; nenhum parâmetro de execução foi ampliado. Os sete mutantes finais e as linhas atualizadas estão em `corr54-mut/round2/`.
+
+
+## Faxina A — inventário e ajustes, 05/10/2026
+
+Esta fatia altera testes, harnesses, os pequenos ajustes de tela autorizados e
+registros documentais. Não altera migrations, Edge Functions ou dependências.
+Os censos anteriores deste documento são medições históricas de cada execução,
+não o censo da árvore atual. O censo desta fatia será registrado depois da
+validação, sem copiar os números anteriores.
+
+Origem: revisões e conferências salvas em `~/colete-noite/` (`rev40`, `rev46`,
+`rev52`, `conf52`, `rev53`, `rev54`, `conf54` e `conf50b`). O inventário detalhado,
+comandos e contraprovas estão em `progresso-faxina-a.md` e
+`faxina-a-contraprovas.md` nesse diretório.
+
+PERGUNTA: item 5 do roteiro — qual é a contraprova específica de `40P01` que
+“deixou de reproduzir”? As fontes indicadas não identificam esse caso. A
+contraprova embutida de rename reproduziu o deadlock nas duas ordens nesta
+execução; não removemos uma prova sem identificar sua origem.
+
+PERGUNTA: item 12 do roteiro — qual trecho do “censo antigo” deve ser corrigido?
+As revisões indicadas identificam a nomenclatura “Fatia 4”, corrigida para
+“Fatia 3-B”, mas não apontam um censo específico. As medições históricas foram
+preservadas; a validação desta fatia terá seu próprio censo.
+
+
+### Validação medida da Faxina A
+
+Os **35 comandos npm** da validação saíram com código 0, incluindo a seção 5
+completa e as três séries de browsers. `db:reset` aplicou `0001`–`0019` em
+**25,79 s**; pgTAP passou **1.210 asserções em 18 arquivos**. Todos os harnesses
+passaram. O worker final rodou duas vezes adicionais após a prova de resíduo:
+um job da execução anterior reprova os censos e o processo encerra com código 1;
+a fixture foi removida e as duas execuções corretas encerraram com código 0.
+A conexão administrativa fecha mesmo quando o censo falha, e falhas de prova
+mais limpeza são conservadas juntas em `AggregateError`.
+
+Cada série passou **8 Auth + 4 privacidade + 58 grupos (24 UI-A + 34 UI-B) +
+6 smoke**: **228 aprovações**, com **18 skips preexistentes** de Auth/privacidade.
+Tempos de Grupos: **173.37, 170.80, 170.58** segundos. `verify:app`, os scanners,
+12 testes de audit, auditoria alta e `git diff --check` passaram. Não foram
+alterados retries, timeouts, skips, migrations, Edge Functions ou dependências.
+
+O censo final usou conexão nova: a conexão do wrapper, aberta antes do reset,
+foi encerrada pelo reset e retornou `57P01` ao tentar a leitura final. Essa
+falha de instrumentação não foi omitida do progresso nem confundida com uma
+falha de teste. O setup da prova negativa do worker inicialmente tentou um
+resumo vazio, recusado por `VALIDATION`; a fixture foi corrigida para o mesmo
+registro `running` já usado pelo harness, sem mudar validador ou regra de banco.
+
+`auth.users = 0` antes e depois. Foram medidas **54 tabelas BASE TABLE** em
+`public`, `private`, `auth` e `storage`, além de **zero papéis-sonda**. O censo
+mediu zero em tabelas de domínio/operacionais e Storage objects. Depois de
+confirmar ausência de usuários Auth, foram removidos somente os **4.736
+registros de auditoria Auth** e **6 fluxos Auth** sintéticos criados desde o
+início desta validação, conforme o precedente da correção UI-B. O censo antes
+dessa limpeza foi preservado; o censo final confirma zero nas duas tabelas.
+As tabelas de configuração/controle de migrations conservam suas linhas:
+Auth schema migrations 82, MIME 4, limites 17, buckets 2 e Storage migrations 73
+(cinco tabelas não vazias depois do cleanup; nenhuma linha foi criada por teste).
+
+Evidências: `~/colete-noite/faxina-a-validacao/results.json`, `census.json`,
+`census-before-provider-cleanup.json`, `auth-antes.txt`, `auth-depois.txt` e
+`faxina-a-contraprovas.md`. Nenhum serviço de produção, Supabase remoto ou deploy
+foi acessado. A pilha local será parada e o worktree removido depois da CI verde;
+o PR permanece draft, sem merge, para revisão independente de risco alto.
