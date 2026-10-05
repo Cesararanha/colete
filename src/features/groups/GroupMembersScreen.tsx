@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -23,7 +23,14 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
   const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
   const [reason, setReason] = useState('');
   const [invalid, setInvalid] = useState(false);
-  const [done, setDone] = useState(false);
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    if (message && typeof document !== 'undefined') {
+      const result = document.querySelector<HTMLElement>('[data-testid="member-result"]');
+      result?.setAttribute('tabindex', '-1');
+      result?.focus();
+    }
+  }, [message]);
   const reasonRef = useRef<TextInput>(null);
   const data = listing.isSuccess ? listing.data : undefined;
   const allowed = data?.group;
@@ -53,7 +60,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       {allowed ? (
         <AppCard testID="group-management-card">
           <Text style={[styles.body, { color: colors.text }]}>{allowed.name}</Text>
-          {done ? <AppStatus message={pt.groups.members.changed} /> : null}
+          <AppStatus message={message} testID="member-result" />
           <Text role="heading" aria-level={2} style={[styles.heading, { color: colors.text }]}>
             {pt.groups.detail.pendingMembers}
           </Text>
@@ -72,12 +79,18 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                 {[true, false].map((approve) => (
                   <AppButton
                     key={String(approve)}
+                    variant={approve ? 'primary' : 'secondary'}
+                    accessibilityLabel={`${approve ? 'Aprovar' : 'Recusar'} ${member.display_name}`}
                     label={approve ? pt.groups.members.approve : pt.groups.members.refuse}
-                    onPress={() =>
+                    onPress={() => {
+                      setMessage('');
                       void run(`${approve}:${member.profile_id}`, () =>
                         api.approveMember(groupId, member.profile_id, approve),
-                      ).then(setDone)
-                    }
+                      ).then((success) => {
+                        if (success)
+                          setMessage(pt.groups.members.decided(member.display_name, approve));
+                      });
+                    }}
                   />
                 ))}
               </View>
@@ -110,18 +123,24 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                             ? pt.groups.members.promote
                             : pt.groups.members.demote
                         }
+                        accessibilityLabel={`${member.role === 'player' ? 'Promover' : 'Rebaixar'} ${member.display_name} a ${member.role === 'player' ? 'organizador' : 'jogador'}`}
                         testID={`role-${member.profile_id}`}
                         onPress={() => {
                           const role = member.role === 'player' ? 'organizer' : 'player';
+                          setMessage('');
                           void run(`${role}:${member.profile_id}`, () =>
                             api.setMemberRole(groupId, member.profile_id, role),
-                          ).then(setDone);
+                          ).then((success) => {
+                            if (success)
+                              setMessage(pt.groups.members.roleChanged(member.display_name, role));
+                          });
                         }}
                         variant="secondary"
                       />
                     ) : null}
                     <AppButton
                       label={pt.groups.members.remove}
+                      accessibilityLabel={`Expulsar ${member.display_name}`}
                       testID={`remove-${member.profile_id}`}
                       onPress={() => {
                         setTarget({ id: member.profile_id, name: member.display_name });
@@ -133,55 +152,59 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                     />
                   </>
                 ) : null}
+                {target?.id === member.profile_id ? (
+                  <GroupConfirmation
+                    title={pt.groups.members.removeTitle(target.name)}
+                    testID="remove-confirmation"
+                  >
+                    <Text style={[styles.body, { color: colors.text }]}>
+                      {pt.groups.members.removeBody}
+                    </Text>
+                    <AppTextField
+                      ref={reasonRef}
+                      label={pt.groups.members.reason}
+                      hint={pt.groups.members.reasonHint}
+                      value={reason}
+                      error={invalid ? pt.groups.members.reasonInvalid : undefined}
+                      onBlur={() => setInvalid(!validReason(reason))}
+                      onChangeText={(value) => {
+                        setReason(value);
+                        if (invalid) setInvalid(!validReason(value));
+                        administration.discardIntent();
+                      }}
+                      testID="remove-reason"
+                      multiline
+                    />
+                    <AppButton
+                      label={pt.groups.members.confirmRemove}
+                      onPress={() => {
+                        if (!validReason(reason)) {
+                          setInvalid(true);
+                          reasonRef.current?.focus();
+                          return;
+                        }
+                        setMessage('');
+                        void run(`remove:${target.id}:${reason}`, () =>
+                          api.removeMember(groupId, target.id, reason),
+                        ).then((success) => {
+                          if (success) {
+                            setMessage(pt.groups.members.removed(target.name));
+                            setTarget(null);
+                            setReason('');
+                          }
+                        });
+                      }}
+                      variant="destructive"
+                    />
+                    <AppButton
+                      label={pt.groups.members.cancel}
+                      onPress={close}
+                      variant="secondary"
+                    />
+                  </GroupConfirmation>
+                ) : null}
               </View>
             ))}
-          {target ? (
-            <GroupConfirmation
-              title={pt.groups.members.removeTitle(target.name)}
-              testID="remove-confirmation"
-            >
-              <Text style={[styles.body, { color: colors.text }]}>
-                {pt.groups.members.removeBody}
-              </Text>
-              <AppTextField
-                ref={reasonRef}
-                label={pt.groups.members.reason}
-                hint={pt.groups.members.reasonHint}
-                value={reason}
-                error={invalid ? pt.groups.members.reasonInvalid : undefined}
-                onBlur={() => setInvalid(!validReason(reason))}
-                onChangeText={(value) => {
-                  setReason(value);
-                  if (invalid) setInvalid(!validReason(value));
-                  administration.discardIntent();
-                }}
-                testID="remove-reason"
-                multiline
-              />
-              <AppButton
-                label={pt.groups.members.confirmRemove}
-                onPress={() => {
-                  if (!validReason(reason)) {
-                    setInvalid(true);
-                    reasonRef.current?.focus();
-                    return;
-                  }
-                  void run(`remove:${target.id}:${reason}`, () =>
-                    api.removeMember(groupId, target.id, reason),
-                  ).then((success) => {
-                    if (success) {
-                      setDone(true);
-                      setTarget(null);
-                      setReason('');
-                      focusGroupControl('management-refresh');
-                    }
-                  });
-                }}
-                variant="destructive"
-              />
-              <AppButton label={pt.groups.members.cancel} onPress={close} variant="secondary" />
-            </GroupConfirmation>
-          ) : null}
         </AppCard>
       ) : null}
     </AuthenticatedShell>

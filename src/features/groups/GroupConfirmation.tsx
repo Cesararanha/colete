@@ -22,6 +22,10 @@ export function GroupConfirmation({
   const { colors } = useTheme();
   useEffect(() => {
     focusGroupControl(`${testID}-heading`);
+    if (typeof document !== 'undefined')
+      document
+        .querySelector<HTMLElement>(`[data-testid="${testID}"]`)
+        ?.scrollIntoView({ block: 'start' });
   }, [testID]);
   return (
     <View style={styles.container} testID={testID}>
@@ -29,7 +33,13 @@ export function GroupConfirmation({
         <h3
           tabIndex={-1}
           data-testid={`${testID}-heading`}
-          style={{ color: colors.text, fontSize: 22, lineHeight: '30px', margin: 0 }}
+          style={{
+            fontFamily: 'system-ui, sans-serif',
+            color: colors.text,
+            fontSize: 22,
+            lineHeight: '30px',
+            margin: 0,
+          }}
         >
           {title}
         </h3>

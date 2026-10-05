@@ -299,8 +299,8 @@ test('UI-B role matrix and direct routes do not disclose administration to playe
           await expect(page.getByText('Grupo UI B', { exact: true })).toHaveCount(0);
         } else if (route === 'membros') {
           await expect(page.getByTestId('group-management-card')).toBeVisible();
-          await expect(page.getByRole('button', { name: 'Aprovar', exact: true })).toHaveCount(2);
-          await expect(page.getByRole('button', { name: 'Recusar', exact: true })).toHaveCount(2);
+          await expect(page.getByRole('button', { name: /^Aprovar Pessoa / })).toHaveCount(2);
+          await expect(page.getByRole('button', { name: /^Recusar Pessoa / })).toHaveCount(2);
           await expect(page.getByTestId(`role-${s.player.profileId}`)).toHaveCount(
             role === 'owner' ? 1 : 0,
           );
@@ -342,14 +342,18 @@ test('UI-B approves refuses promotes demotes removes renames and transfers with 
     await page.goto(`/grupos/${s.groupId}/membros`);
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .press('Enter');
     await expect(page.getByTestId(`member-${s.pending.profileId}`)).toContainText('Jogador');
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa pending foi aprovado.');
+    await expect(page.getByTestId('member-result')).toBeFocused();
     await page
       .getByTestId(`member-${s.refused.profileId}`)
-      .getByRole('button', { name: 'Recusar', exact: true })
+      .getByRole('button', { name: /^Recusar Pessoa / })
       .press('Enter');
     await expect(page.getByTestId(`member-${s.refused.profileId}`)).toHaveCount(0);
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa refused foi recusado.');
+    await expect(page.getByTestId('member-result')).toBeFocused();
     await expect(page.getByText('Não há pedidos pendentes.')).toBeVisible();
     await capture(page, '17-sem-pendentes.png');
     await page.getByTestId(`role-${s.player.profileId}`).press('Enter');
@@ -402,6 +406,8 @@ test('UI-B approves refuses promotes demotes removes renames and transfers with 
       ]),
     );
     await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    await expect(page.getByTestId('rename-group-name')).toHaveValue('Grupo UI B');
+    await page.getByTestId('rename-group-name').fill('');
     await page.getByTestId('rename-group-submit').press('Enter');
     await expect(page.getByTestId('rename-group-name')).toBeFocused();
     await page.getByTestId('rename-group-name').fill('Nome confirmado UI B');
@@ -412,6 +418,9 @@ test('UI-B approves refuses promotes demotes removes renames and transfers with 
     ).toBe('Nome confirmado UI B');
     await page.getByTestId(`transfer-${s.organizer.profileId}`).press('Enter');
     await expect(page.getByTestId('transfer-confirmation-1-heading')).toBeFocused();
+    await expect(
+      page.getByText('Você deixa de ser dono e passa a ser organizador.', { exact: true }),
+    ).toBeVisible();
     await accessible(page);
     await capture(page, '25-transferencia-1.png');
     await page.getByRole('button', { name: 'Continuar transferência' }).press('Enter');
@@ -420,7 +429,7 @@ test('UI-B approves refuses promotes demotes removes renames and transfers with 
     await capture(page, '25-transferencia-2.png');
     await page.getByRole('button', { name: 'Confirmar transferência' }).press('Enter');
     await expect(
-      page.getByText('Titularidade transferida. Seu papel foi atualizado.'),
+      page.getByText('A titularidade foi transferida para Pessoa organizer.'),
     ).toBeVisible();
     await expect(page.getByTestId(`transfer-${s.organizer.profileId}`)).toHaveCount(0);
     expect(
@@ -466,7 +475,7 @@ for (const code of ['RATE_LIMITED', 'RATE_LIMIT_UNAVAILABLE'])
       });
       const approve = page
         .getByTestId(`member-${s.pending.profileId}`)
-        .getByRole('button', { name: 'Aprovar', exact: true });
+        .getByRole('button', { name: /^Aprovar Pessoa / });
       await approve.click();
       await expect(page.getByTestId('administration-error')).toContainText('Tente novamente');
       await approve.click();
@@ -510,7 +519,7 @@ test('UI-B loses authority on the next action after a second session removes or 
     ).toBe(200);
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText(
       'Você precisa ser dono ou organizador ativo',
@@ -582,6 +591,7 @@ test('UI-B displays stable contract messages without committing intercepted erro
       ],
       ['GROUP_SUSPENDED', 'Este grupo está suspenso. Procure quem organiza o grupo.'],
       ['GROUP_ARCHIVED', 'Este grupo foi arquivado. Volte à lista de grupos.'],
+      ['PROOFS_PENDING', 'Há comprovantes pendentes. Resolva-os antes de remover esta pessoa.'],
     ]) {
       await page.route('**/functions/v1/groups/approve_member', async (route) => {
         const body = route.request().postDataJSON() as { request_id: string };
@@ -596,7 +606,7 @@ test('UI-B displays stable contract messages without committing intercepted erro
       });
       await page
         .getByTestId(`member-${s.pending.profileId}`)
-        .getByRole('button', { name: 'Aprovar', exact: true })
+        .getByRole('button', { name: /^Aprovar Pessoa / })
         .click();
       await expect(page.getByTestId('administration-error')).toHaveText(message!);
       await expect(page.getByTestId(`member-${s.pending.profileId}`)).toContainText('Aprovar');
@@ -640,7 +650,7 @@ test('UI-B real stale targets and suspended group return their contract errors',
     ).toBe(200);
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText(
       'Este pedido já foi decidido',
@@ -665,7 +675,7 @@ test('UI-B real stale targets and suspended group return their contract errors',
     await db.query('update public.groups set suspended_at=now() where id=$1', [s.groupId]);
     await page
       .getByTestId(`member-${s.refused.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText(
       'Este grupo está suspenso',
@@ -798,7 +808,7 @@ test('UI-B real HTTP contract covers missing target owner protection and approva
     });
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText(
       'Este pedido não foi encontrado',
@@ -826,7 +836,7 @@ test('UI-B real HTTP contract covers missing target owner protection and approva
     );
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText('Este grupo está cheio');
     await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
@@ -845,7 +855,7 @@ test('UI-B real HTTP contract covers missing target owner protection and approva
     }
     await page
       .getByTestId(`member-${s.pending.profileId}`)
-      .getByRole('button', { name: 'Aprovar', exact: true })
+      .getByRole('button', { name: /^Aprovar Pessoa / })
       .click();
     await expect(page.getByTestId('administration-error')).toContainText(
       'Esta pessoa já participa de cinco grupos ativos',
@@ -923,6 +933,465 @@ test('UI-B real archived error after the actor leaves and the solo owner deletes
     expect(
       (await db.query('select name from public.groups where id=$1', [s.groupId])).rows[0].name,
     ).toBe('Grupo UI B');
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+// CP3 and CP5 preserve the independent reviewer's probes in the regular suite.
+test('UI-B role matrix CP3 checks administrative network traffic for player pending removed and outsider', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    const outsider = await createActor(request, 'outsider', ids);
+    expect(
+      (
+        await edge(request, s.owner, 'remove_member', {
+          group_id: s.groupId,
+          profile_id: s.organizer.profileId,
+          reason: 'fixture',
+          request_id: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    const names = [
+      'Pessoa owner',
+      'Pessoa player',
+      'Pessoa pending',
+      'Pessoa refused',
+      'Pessoa organizer',
+    ];
+    for (const [own, actor] of [
+      ['Pessoa player', s.player],
+      ['Pessoa pending', s.pending],
+      ['Pessoa organizer', s.organizer],
+      ['Pessoa outsider', outsider],
+    ] as const) {
+      await login(page, actor);
+      for (const route of ['membros', 'configuracoes']) {
+        const reads: string[] = [];
+        const bodies: Promise<string>[] = [];
+        const requests = new Set<import('@playwright/test').Request>();
+        const onRequest = (item: import('@playwright/test').Request) => {
+          requests.add(item);
+          if (new URL(item.url()).pathname === '/functions/v1/groups/get_group_members')
+            reads.push(item.url());
+        };
+        const onResponse = (response: import('@playwright/test').Response) => {
+          const url = new URL(response.url());
+          // A response from the previous document may arrive after goto cancels its body.
+          if (
+            requests.has(response.request()) &&
+            url.origin === env.apiUrl &&
+            url.pathname !== '/rest/v1/profiles'
+          )
+            bodies.push(response.text().catch(() => ''));
+        };
+        page.on('request', onRequest);
+        page.on('response', onResponse);
+        await page.goto(`/grupos/${s.groupId}/${route}`);
+        await expect(
+          page.getByText('Você precisa ser dono ou organizador ativo', { exact: false }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole('button', {
+            name: /Aprovar|Recusar|Expulsar|Promover|Rebaixar|Escolher|Salvar nome/,
+          }),
+        ).toHaveCount(0);
+        page.off('request', onRequest);
+        page.off('response', onResponse);
+        expect(reads).toEqual([]);
+        const responses = await Promise.all(bodies);
+        expect(
+          responses.filter((body) => names.some((name) => name !== own && body.includes(name))),
+        ).toEqual([]);
+        const text = (await page.locator('body').textContent()) ?? '';
+        expect(names.filter((name) => name !== own && text.includes(name))).toEqual([]);
+      }
+      await page.getByRole('link', { name: 'Perfil', exact: true }).click();
+      await page.getByRole('button', { name: 'Sair com segurança' }).click();
+      await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
+    }
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+async function rapidDoublePress(button: import('@playwright/test').Locator) {
+  await expect(button).toBeVisible();
+  // Two browser click events in the same task: no timing assumption or sleep.
+  await button.evaluate((element) => {
+    (element as HTMLElement).click();
+    (element as HTMLElement).click();
+  });
+}
+
+test('UI-B CP5 double click sends one mutation for approve role remove and transfer', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    await login(page, s.owner);
+    await page.goto(`/grupos/${s.groupId}/membros`);
+    const seen = new Map<string, string[]>();
+    await page.route('**/functions/v1/groups/*', async (route) => {
+      const op = new URL(route.request().url()).pathname.split('/').at(-1)!;
+      if (['approve_member', 'set_role', 'remove_member', 'transfer_ownership'].includes(op)) {
+        const body = route.request().postDataJSON() as { request_id: string };
+        seen.set(op, [...(seen.get(op) ?? []), body.request_id]);
+      }
+      await route.continue();
+    });
+    await rapidDoublePress(
+      page.getByRole('button', { name: 'Aprovar Pessoa pending', exact: true }),
+    );
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa pending foi aprovado.');
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    expect(seen.get('approve_member')).toHaveLength(1);
+    await rapidDoublePress(page.getByTestId(`role-${s.player.profileId}`));
+    await expect(page.getByTestId(`member-${s.player.profileId}`)).toContainText('Organizador');
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    expect(seen.get('set_role')).toHaveLength(1);
+    await page.getByTestId(`remove-${s.player.profileId}`).click();
+    await page.getByTestId('remove-reason').fill('Motivo sintético');
+    await rapidDoublePress(page.getByRole('button', { name: 'Confirmar expulsão', exact: true }));
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa player foi expulso.');
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    expect(seen.get('remove_member')).toHaveLength(1);
+    await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    await page.getByTestId(`transfer-${s.organizer.profileId}`).click();
+    await page.getByRole('button', { name: 'Continuar transferência', exact: true }).click();
+    await rapidDoublePress(
+      page.getByRole('button', { name: 'Confirmar transferência', exact: true }),
+    );
+    await expect(page.getByTestId('settings-role')).toHaveText('Organizador');
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    expect(seen.get('transfer_ownership')).toHaveLength(1);
+    const counted = await db.query(
+      'select operation,count(*)::integer as n from private.idempotency_records where actor_id=$1 and request_id=any($2::uuid[]) group by operation',
+      [s.owner.profileId, [...seen.values()].flat()],
+    );
+    expect(counted.rows).toHaveLength(4);
+    expect(counted.rows.every((row: { n: number }) => row.n === 1)).toBe(true);
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B CP5 new target reason and name use new request_id and network retry keeps the id', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    await login(page, s.owner);
+    await page.goto(`/grupos/${s.groupId}/membros`);
+    const approvals: { id: string; target: string }[] = [];
+    let abortApprovals = true;
+    await page.route('**/functions/v1/groups/approve_member', async (route) => {
+      const body = route.request().postDataJSON();
+      approvals.push({ id: body.request_id, target: body.profile_id });
+      if (abortApprovals) await route.abort('failed');
+      else await route.continue();
+    });
+    const first = page.getByRole('button', { name: 'Aprovar Pessoa pending', exact: true });
+    await first.click();
+    await expect(page.getByTestId('administration-error')).toContainText('conexão');
+    abortApprovals = false;
+    await first.click();
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa pending foi aprovado.');
+    await page.getByRole('button', { name: 'Aprovar Pessoa refused', exact: true }).click();
+    await expect(page.getByTestId('member-result')).toHaveText('Pessoa refused foi aprovado.');
+    expect(approvals).toHaveLength(5);
+    expect(new Set(approvals.slice(0, 4).map((entry) => entry.id)).size).toBe(1);
+    expect(approvals[3]!.id).not.toBe(approvals[4]!.id);
+    expect(approvals[3]!.target).not.toBe(approvals[4]!.target);
+    const rem: { reason: string; id: string }[] = [];
+    await page.route('**/functions/v1/groups/remove_member', async (route) => {
+      const body = route.request().postDataJSON();
+      rem.push({ reason: body.reason, id: body.request_id });
+      if (rem.length === 1)
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'RATE_LIMIT_UNAVAILABLE', message: 'synthetic' },
+            request_id: body.request_id,
+          }),
+        });
+      else await route.continue();
+    });
+    await page.getByTestId(`remove-${s.player.profileId}`).click();
+    await page.getByTestId('remove-reason').fill('Primeiro motivo');
+    await page.getByRole('button', { name: 'Confirmar expulsão', exact: true }).click();
+    await expect(page.getByTestId('administration-error')).toBeVisible();
+    await page.getByTestId('remove-reason').fill('Segundo motivo');
+    await page.getByRole('button', { name: 'Confirmar expulsão', exact: true }).click();
+    await expect(page.getByTestId(`member-${s.player.profileId}`)).toHaveCount(0);
+    expect(rem).toHaveLength(2);
+    expect(rem[0]!.id).not.toBe(rem[1]!.id);
+    expect(rem.map((entry) => entry.reason)).toEqual(['Primeiro motivo', 'Segundo motivo']);
+    await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    const renames: { name: string; id: string }[] = [];
+    let abortRenames = true;
+    await page.route('**/functions/v1/groups/rename_group', async (route) => {
+      const body = route.request().postDataJSON();
+      renames.push({ name: body.name, id: body.request_id });
+      if (abortRenames) await route.abort('failed');
+      else await route.continue();
+    });
+    await page.getByTestId('rename-group-name').fill('Primeiro nome');
+    await page.getByTestId('rename-group-submit').click();
+    await expect(page.getByTestId('administration-error')).toBeVisible();
+    await page.getByTestId('rename-group-name').fill('Segundo nome');
+    await page.getByTestId('rename-group-submit').click();
+    await expect(page.getByTestId('administration-error')).toBeVisible();
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    abortRenames = false;
+    await page.getByTestId('rename-group-submit').click();
+    await expect(page.getByTestId('confirmed-group-name')).toHaveText('Segundo nome');
+    expect(renames).toHaveLength(7);
+    expect(renames[0]!.id).not.toBe(renames[3]!.id);
+    expect(new Set(renames.slice(0, 3).map((entry) => entry.id)).size).toBe(1);
+    expect(new Set(renames.slice(3).map((entry) => entry.id)).size).toBe(1);
+    expect(renames.map((entry) => entry.name)).toEqual([
+      'Primeiro nome',
+      'Primeiro nome',
+      'Primeiro nome',
+      'Segundo nome',
+      'Segundo nome',
+      'Segundo nome',
+      'Segundo nome',
+    ]);
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B twenty active members have unique accessible names and inline visible confirmations', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    const invite = (
+      await db.query('select id from public.group_invites where group_id=$1', [s.groupId])
+    ).rows[0].id;
+    const share = await edge(request, s.owner, 'get_invite_share_link', { invite_id: invite });
+    for (let index = 0; index < 17; index++) {
+      const actor = await createActor(request, `member-${index.toString().padStart(2, '0')}`, ids);
+      expect(
+        (
+          await edge(request, actor, 'join_by_code', {
+            code: share.value.data?.['code'],
+            request_id: crypto.randomUUID(),
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await edge(request, s.owner, 'approve_member', {
+            group_id: s.groupId,
+            profile_id: actor.profileId,
+            approve: true,
+            request_id: crypto.randomUUID(),
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(
+      (
+        await db.query(
+          "select count(*)::integer as n from public.group_members where group_id=$1 and status='active'",
+          [s.groupId],
+        )
+      ).rows[0].n,
+    ).toBe(20);
+    await login(page, s.owner);
+    await page.goto(`/grupos/${s.groupId}/membros`);
+    const buttons = page.getByTestId('group-management-card').getByRole('button');
+    await expect(buttons).toHaveCount(42);
+    const labels = await buttons.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('aria-label')),
+    );
+    expect(new Set(labels).size).toBe(42);
+    for (const label of labels) {
+      expect(label).toMatch(
+        /^(Aprovar Pessoa .+|Recusar Pessoa .+|Promover Pessoa .+ a organizador|Rebaixar Pessoa .+ a jogador|Expulsar Pessoa .+)$/,
+      );
+      await expect(page.getByRole('button', { name: label!, exact: true })).toHaveAccessibleName(
+        label!,
+      );
+    }
+    const approve = page.getByRole('button', { name: 'Aprovar Pessoa pending', exact: true });
+    const refuse = page.getByRole('button', { name: 'Recusar Pessoa pending', exact: true });
+    expect(await approve.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(
+      await refuse.evaluate((node) => getComputedStyle(node).backgroundColor),
+    );
+    await capture(page, '17-com-pendentes.png');
+    const origin = page
+      .getByTestId('group-management-card')
+      .getByRole('button', { name: /^Expulsar Pessoa / })
+      .first();
+    const id = await origin.getAttribute('data-testid');
+    const row = page.getByTestId(id!.replace('remove-', 'member-'));
+    await origin.click();
+    const confirmation = row.getByTestId('remove-confirmation');
+    await expect(confirmation).toHaveCount(1);
+    await expect(confirmation.getByTestId('remove-confirmation-heading')).toBeFocused();
+    const rect = await confirmation.boundingBox();
+    const originRect = await origin.boundingBox();
+    expect(rect!.y - (originRect!.y + originRect!.height)).toBeLessThanOrEqual(24);
+    await expect(confirmation.getByTestId('remove-confirmation-heading')).toBeInViewport({
+      ratio: 1,
+    });
+    await expect(confirmation.getByRole('button', { name: 'Confirmar expulsão' })).toBeInViewport({
+      ratio: 1,
+    });
+    expect(
+      await confirmation
+        .getByTestId('remove-confirmation-heading')
+        .evaluate((node) => getComputedStyle(node).fontFamily),
+    ).toContain('system-ui');
+    await capture(page, '17-expulsao-20-membros.png');
+    await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await expect(origin).toBeFocused();
+    await expect(origin).toBeInViewport({ ratio: 1 });
+    await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    await expect(page.getByTestId('rename-group-name')).toHaveValue('Grupo UI B');
+    const choices = page.getByRole('button', { name: /^Escolher Pessoa / });
+    await expect(choices).toHaveCount(19);
+    const choiceNames = await choices.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('aria-label')),
+    );
+    expect(new Set(choiceNames).size).toBe(19);
+    for (const name of choiceNames)
+      await expect(page.getByRole('button', { name: name!, exact: true })).toHaveAccessibleName(
+        name!,
+      );
+    await capture(page, '25-dono.png');
+    const choice = choices.first();
+    await choice.click();
+    for (const step of [1, 2]) {
+      const panel = page.getByTestId(`transfer-confirmation-${step}`);
+      await expect(panel.getByTestId(`transfer-confirmation-${step}-heading`)).toBeFocused();
+      expect(
+        await panel.evaluate((node) => node.previousElementSibling?.getAttribute('data-testid')),
+      ).toBe(await choice.getAttribute('data-testid'));
+      await expect(panel).toBeInViewport({ ratio: 1 });
+      await capture(page, `25-transferencia-${step}.png`);
+      if (step === 1) await panel.getByRole('button', { name: 'Continuar transferência' }).click();
+    }
+    await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await expect(choice).toBeFocused();
+    await expect(choice).toBeInViewport({ ratio: 1 });
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B CP5 another target after failed intent gets a new request_id and mutates only the new target', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    await login(page, s.owner);
+    await page.goto(`/grupos/${s.groupId}/membros`);
+    const seen: { id: string; target: string }[] = [];
+    await page.route('**/functions/v1/groups/approve_member', async (route) => {
+      const body = route.request().postDataJSON();
+      seen.push({ id: body.request_id, target: body.profile_id });
+      if (seen.length === 1)
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'RATE_LIMIT_UNAVAILABLE', message: 'synthetic' },
+            request_id: body.request_id,
+          }),
+        });
+      else await route.continue();
+    });
+    await page.getByRole('button', { name: 'Aprovar Pessoa pending', exact: true }).click();
+    await expect(page.getByTestId('administration-error')).toBeVisible();
+    await page.getByRole('button', { name: 'Aprovar Pessoa refused', exact: true }).click();
+    await expect(page.getByTestId(`member-${s.refused.profileId}`)).toContainText('Jogador');
+    await expect(page.getByTestId(`member-${s.pending.profileId}`)).toContainText('Aprovar');
+    expect(seen).toHaveLength(2);
+    expect(seen[0]!.id).not.toBe(seen[1]!.id);
+    expect(seen.map((entry) => entry.target)).toEqual([s.pending.profileId, s.refused.profileId]);
+    expect(
+      (
+        await db.query(
+          'select profile_id,status from public.group_members where group_id=$1 and profile_id=any($2::uuid[])',
+          [s.groupId, [s.pending.profileId, s.refused.profileId]],
+        )
+      ).rows,
+    ).toEqual(
+      expect.arrayContaining([
+        { profile_id: s.pending.profileId, status: 'pending' },
+        { profile_id: s.refused.profileId, status: 'active' },
+      ]),
+    );
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B ownership warning uses the confirmed stored player role', async ({ page, request }) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    expect(
+      (
+        await edge(request, s.owner, 'transfer_ownership', {
+          group_id: s.groupId,
+          new_owner_id: s.player.profileId,
+          request_id: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    await login(page, s.player);
+    await page.goto(`/grupos/${s.groupId}/configuracoes`);
+    await page.getByTestId(`transfer-${s.owner.profileId}`).click();
+    await expect(
+      page.getByText('Você deixa de ser dono e passa a ser jogador.', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Continuar transferência' }).click();
+    await page.getByRole('button', { name: 'Confirmar transferência' }).click();
+    await expect(
+      page.getByText('A titularidade foi transferida para Pessoa owner.', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId('group-settings-card')).toHaveCount(0);
+    expect(
+      (
+        await db.query(
+          'select role from public.group_members where group_id=$1 and profile_id=$2',
+          [s.groupId, s.player.profileId],
+        )
+      ).rows[0].role,
+    ).toBe('player');
   } finally {
     await clean(ids, db);
   }

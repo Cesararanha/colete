@@ -1604,3 +1604,98 @@ pendências e revisão pós-marco; esta entrega não o declara fechado.
 A UI-B é de risco alto por tocar capacidade, sessão e nomes de membros.
 O PR do autor permanece em draft, sem merge, para revisão independente
 conforme AGENTS §4.11/§4.12.
+
+
+## UI-B — correção da revisão independente do PR #54, 04/10/2026
+
+A revisão do head `6a46c2e` encontrou quatro P2 e sete P3, sem P1. Os onze
+itens foram tratados nesta rodada, sem alterar `supabase/`, dependências,
+workflow ou configuração Playwright. A decisão técnica Q1 do planejador
+foi registrada em `13` §5 e `25` §8.1, com os checksums atualizados:
+transferir troca somente `groups.owner_id` e conserva o papel armazenado.
+A leitura cliente expõe esse papel já retornado na própria membership; o
+aviso diz organizador ou jogador conforme a leitura, com prova de ambos.
+
+A decisão de pendente anuncia nome e ação numa região persistente e leva
+o foco ao resultado; duas decisões seguidas não repetem o mesmo texto.
+Os botões de linha incluem a pessoa no nome acessível. Recusar é secundário.
+A confirmação usa a fonte do sistema, fica logo depois do controle de origem
+e recebe foco/rolagem ao abrir; cancelar devolve foco e mantém a origem visível.
+O campo de nome começa preenchido pela projeção confirmada. Os textos não
+expõem “pelo servidor”, a transferência informa o destinatário e
+`PROOFS_PENDING` orienta resolver os comprovantes antes da remoção.
+
+### Provas acrescentadas à suíte regular
+
+A UI-B passou de dez para dezesseis cenários, sem novo harness. A matriz
+confere DOM, requisições e respostas nas rotas administrativas de jogador,
+pendente, removido e não-membro. A intenção nova é provada depois de falha
+para outro alvo, outro motivo e outro nome. Duas ações de clique na mesma
+tarefa do navegador enviam uma requisição em aprovação, papel, expulsão
+e transferência; quatro registros de idempotência correspondem às quatro
+mutações. `route.abort` esgota os retries preexistentes e prova ID estável
+nas tentativas automáticas e na tentativa manual seguinte. Nenhum retry,
+timeout, sleep de sincronização, skip ou dependência foi acrescentado.
+
+A lista longa nasce por Auth e Edge reais: **20 ativos e dois pendentes**.
+São **42 nomes acessíveis distintos** na tela 17 e **19 escolhas distintas**
+na tela 25. Os testes conferem a fonte computada, o estilo secundário de
+Recusar, nome atual no campo, distância de até 24 px da origem à confirmação
+de expulsão, confirmação dentro da linha, headings/botões visíveis na área
+do navegador, foco inicial e retorno à origem ao cancelar. Os dois viewports
+passam; a passada manual com leitor de tela permanece no gate M2-D43.
+
+### Contraprovas desta rodada
+
+Sete mutantes reprovaram por asserção e foram restaurados byte a byte,
+com SHA-256 conferido antes do próximo. M3, M5a e M5b foram reaproveitados
+do revisor; em M5a só a indentação da substituição foi adaptada à confirmação
+movida para a linha. Comandos, alterações, linhas e hashes estão em
+`~/colete-noite/corr54-contraprovas.md` e `corr54-mut/`.
+
+| Item | Regra quebrada / mutante | Teste em `e2e/m2-ui-b.spec.ts` | Linha da reprovação |
+| --- | --- | --- | --- |
+| 1 | sem foco no resultado | fluxo completo de decisões | 349 |
+| 2 | botões sem a pessoa no rótulo | lista de vinte ativos | 1232 |
+| 4 | motivo novo conserva ID, M5a | CP5 intenção nova | 1144 |
+| 4 | sem guarda busy, M5b | CP5 duplo clique | 1059 |
+| 8 | expulsão no fim do cartão | lista de vinte ativos | 1255 |
+| 8 | transferência no fim do cartão | lista de vinte ativos | 1295 |
+| 11 | jogador busca membros, M3 | matriz de rede CP3 | 1008 |
+
+### Validação medida nesta correção
+
+`db:reset` recriou `0001`–`0019` somente pelas migrations em **25.40 s**. pgTAP passou **1.210 asserções em 18 arquivos**. Todos os dez harnesses de banco passaram, incluindo leitura de membros. `verify:app` passou em **12.26 s**, com **196 unitários**. Scanners, auditoria alta, testes de auditoria e `git diff --check` passaram; nenhuma exceção de auditoria foi acrescentada.
+
+Três séries da versão final passaram **8 Auth + 4 privacidade + 54 grupos (22 UI-A + 32 UI-B) + 6 smoke** por série: **216 execuções aprovadas**, com 18 skips preexistentes de Auth/privacidade. Tempos de grupos: **156.32 s, 157.97 s, 158.06 s**. A primeira seleção do novo teste de rede abortava só uma tentativa e foi corrigida para esgotar os retries existentes. Uma primeira série foi descartada porque seu build antecedeu o ajuste final da mensagem de transferência; os testes detectaram a mensagem antiga. Uma tentativa da segunda série foi invalidada por suspensão do Mac, registrada em `suspension.log`; dois testes de Auth expiraram. Ela foi repetida com proteção temporária contra repouso ocioso, sem mudança de timeout. As três séries contadas foram repetidas após o ajuste CP3 e usam builds correspondentes à versão final. Logs e tempos finais estão em `~/colete-noite/corr54-validacao/round2/`; as execuções anteriores foram preservadas.
+
+`auth.users = 0` antes e depois; o censo final e a limpeza da pilha foram
+registrados em `corr54-validacao/round2/`. Os **4.616 registros de auditoria do Auth** desta repetição (e 6.153 na rodada anterior)
+gerados pelas fixtures locais foram removidos no cleanup final, depois de
+confirmar que não havia usuário Auth; auditoria, identities, sessions e
+refresh_tokens também ficaram em zero. Nenhum dado/objeto residual dos testes,
+Supabase remoto, deploy ou serviço de produção. Uma pilha Colete por vez;
+contêineres `siac-*` e de outros projetos preservados.
+
+Capturas afetadas refeitas e inspecionadas em `~/colete-noite/ui-b-telas/`:
+`17-com-pendentes.png`, `17-sem-pendentes.png`, `17-expulsao.png`,
+`17-expulsao-20-membros.png`, `25-dono.png`, `25-transferencia-1.png` e
+`25-transferencia-2.png`; largura de 840 px, usuários sintéticos, sem
+e-mail ou credencial visível. O PR continua draft e não foi mergeado.
+As correções aguardam conferência independente conforme a cerimônia D63.
+Não há nova pergunta de contrato; Q1 foi decidida pelo planejador.
+
+
+### Ajuste da prova de rede após a CI
+
+O run `37257169861` passou quatro jobs e falhou em Database security,
+na matriz CP3 wide. O trace isolou uma resposta de `get_own_deletion_request`
+iniciada na página de login antes do `goto`: a navegação cancelou o corpo
+depois dos headers, e `response.text()` ficou pendente até o timeout.
+A coleta agora associa cada resposta à requisição iniciada no intervalo
+observado da rota testada. As asserções de requisições administrativas,
+dados de outros membros e DOM foram preservadas, sem novo timeout, retry
+ou sleep. Os sete mutantes reprovaram novamente e as fontes foram
+restauradas por SHA-256; logs em `corr54-mut/round2/`.
+
+AGENTS §5 e browsers 3× foram repetidos integralmente após o ajuste CP3: 216 aprovações, 18 skips preexistentes; nenhum parâmetro de execução foi ampliado. Os sete mutantes finais e as linhas atualizadas estão em `corr54-mut/round2/`.

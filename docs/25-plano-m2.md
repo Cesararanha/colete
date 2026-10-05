@@ -1226,6 +1226,12 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
+  `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva
+  o papel gravado em `group_members`; para quem criou o grupo, organizador.
+  A UI deve usar o papel confirmado pela leitura, sem inventá-lo no cliente.
+  Sem mudança de código na RPC.
+
 - **Decisão humana de César em 03/10/2026 — visibilidade das notas.** O controle
   da tela 25 não entra na UI-B do M2; entra no M6, junto com as notas. A RPC
   `set_ratings_visibility` continua como está. A especificação do controle,

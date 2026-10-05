@@ -63,7 +63,13 @@ export type GroupOutcome = {
   current?: { group_id?: string; group_name?: string; status?: 'pending' | 'active' };
 };
 export type GroupSummary = { id: string; name: string; owner_id: string; role: string };
-export type GroupDetail = { id: string; name: string; owner_id: string; role: string };
+export type GroupDetail = {
+  id: string;
+  name: string;
+  owner_id: string;
+  role: string;
+  membershipRole?: string | undefined;
+};
 export type GroupInvite = {
   id: string;
   group_id: string;
@@ -528,6 +534,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       return {
         ...result.data,
         role: result.data.owner_id === profileId ? 'owner' : (membership.data?.role ?? 'player'),
+        membershipRole: membership.data?.role,
       };
     },
     async getGroupInvites(groupId: string, accessToken: string): Promise<GroupInvite[]> {

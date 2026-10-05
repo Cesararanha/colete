@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -37,12 +37,17 @@ export function GroupSettingsScreen({
     handleSubmit,
     setFocus,
     setError,
+    reset,
     formState: { errors },
   } = useForm<{ name: string }>({
     defaultValues: { name: '' },
     mode: 'onBlur',
     reValidateMode: 'onChange',
   });
+  const confirmedName = group?.name;
+  useEffect(() => {
+    if (confirmedName !== undefined) reset({ name: confirmedName });
+  }, [confirmedName, reset]);
   const cancel = () => {
     const id = target?.id;
     setTarget(null);
@@ -105,6 +110,7 @@ export function GroupSettingsScreen({
             testID="rename-group-submit"
             onPress={handleSubmit(
               async ({ name }) => {
+                setMessage(null);
                 const success = await run(
                   `rename:${name}`,
                   () => api.renameGroup(groupId, name),
@@ -136,56 +142,57 @@ export function GroupSettingsScreen({
               {data.members
                 .filter((member) => member.status === 'active' && member.role !== 'owner')
                 .map((member) => (
-                  <AppButton
-                    key={member.profile_id}
-                    label={pt.groups.settings.select(member.display_name)}
-                    testID={`transfer-${member.profile_id}`}
-                    onPress={() => {
-                      setTarget({ id: member.profile_id, name: member.display_name });
-                      setStep(1);
-                      administration.discardIntent();
-                    }}
-                    variant="secondary"
-                  />
+                  <View key={member.profile_id}>
+                    <AppButton
+                      label={pt.groups.settings.select(member.display_name)}
+                      testID={`transfer-${member.profile_id}`}
+                      onPress={() => {
+                        setTarget({ id: member.profile_id, name: member.display_name });
+                        setStep(1);
+                        administration.discardIntent();
+                      }}
+                      variant="secondary"
+                    />
+                    {target?.id === member.profile_id ? (
+                      <GroupConfirmation
+                        key={step}
+                        title={
+                          step === 1
+                            ? pt.groups.settings.first(target.name)
+                            : pt.groups.settings.second(target.name)
+                        }
+                        testID={`transfer-confirmation-${step}`}
+                      >
+                        <Text style={[styles.body, { color: colors.text }]}>
+                          {pt.groups.settings.warning(group.membershipRole)}
+                        </Text>
+                        <AppButton
+                          label={step === 1 ? pt.groups.settings.next : pt.groups.settings.confirm}
+                          onPress={() => {
+                            if (step === 1) setStep(2);
+                            else
+                              void run(`transfer:${target.id}`, () =>
+                                api.transferOwnership(groupId, target.id),
+                              ).then((success) => {
+                                if (success) {
+                                  setTarget(null);
+                                  setStep(1);
+                                  setMessage(pt.groups.settings.transferred(target.name));
+                                  focusGroupControl('settings-refresh');
+                                }
+                              });
+                          }}
+                          variant={step === 1 ? 'primary' : 'destructive'}
+                        />
+                        <AppButton
+                          label={pt.groups.members.cancel}
+                          onPress={cancel}
+                          variant="secondary"
+                        />
+                      </GroupConfirmation>
+                    ) : null}
+                  </View>
                 ))}
-              {target ? (
-                <GroupConfirmation
-                  key={step}
-                  title={
-                    step === 1
-                      ? pt.groups.settings.first(target.name)
-                      : pt.groups.settings.second(target.name)
-                  }
-                  testID={`transfer-confirmation-${step}`}
-                >
-                  <Text style={[styles.body, { color: colors.text }]}>
-                    {pt.groups.settings.warning}
-                  </Text>
-                  <AppButton
-                    label={step === 1 ? pt.groups.settings.next : pt.groups.settings.confirm}
-                    onPress={() => {
-                      if (step === 1) setStep(2);
-                      else
-                        void run(`transfer:${target.id}`, () =>
-                          api.transferOwnership(groupId, target.id),
-                        ).then((success) => {
-                          if (success) {
-                            setTarget(null);
-                            setStep(1);
-                            setMessage(pt.groups.settings.transferred);
-                            focusGroupControl('settings-refresh');
-                          }
-                        });
-                    }}
-                    variant={step === 1 ? 'primary' : 'destructive'}
-                  />
-                  <AppButton
-                    label={pt.groups.members.cancel}
-                    onPress={cancel}
-                    variant="secondary"
-                  />
-                </GroupConfirmation>
-              ) : null}
             </>
           ) : null}
         </AppCard>

@@ -57,7 +57,11 @@ export const pt = {
       reasonInvalid: 'Escreva um motivo de 1 a 500 caracteres para continuar.',
       confirmRemove: 'Confirmar expulsão',
       cancel: 'Cancelar',
-      changed: 'Ação concluída. A lista foi atualizada.',
+      decided: (name: string, approve: boolean) =>
+        `${name} foi ${approve ? 'aprovado' : 'recusado'}.`,
+      roleChanged: (name: string, role: string) =>
+        `${name} passou a ser ${role === 'organizer' ? 'organizador' : 'jogador'}.`,
+      removed: (name: string) => `${name} foi expulso.`,
       refresh: 'Atualizar dados',
       groupLimit:
         'Esta pessoa já participa de cinco grupos ativos. Peça que saia de um grupo antes de aprovar o pedido.',
@@ -69,17 +73,21 @@ export const pt = {
       title: 'Configurações do grupo',
       description: 'Altere o nome e transfira a titularidade do grupo.',
       rename: 'Salvar nome',
-      renamed: 'Nome atualizado pelo servidor.',
+      renamed: 'Nome atualizado.',
       transfer: 'Transferir titularidade',
       choose: 'Escolha um membro ativo para ser o novo dono.',
       select: (name: string) => `Escolher ${name}`,
       first: (name: string) => `Transferir a titularidade para ${name}?`,
       second: (name: string) => `Confirmar ${name} como novo dono?`,
-      warning:
-        'Você deixa de ser dono e perde os controles exclusivos de titularidade. Seu papel será atualizado pelo servidor.',
+      warning: (role?: string) =>
+        role === 'organizer'
+          ? 'Você deixa de ser dono e passa a ser organizador.'
+          : role === 'player'
+            ? 'Você deixa de ser dono e passa a ser jogador.'
+            : 'Você deixa de ser dono e perde os controles exclusivos de titularidade.',
       next: 'Continuar transferência',
       confirm: 'Confirmar transferência',
-      transferred: 'Titularidade transferida. Seu papel foi atualizado.',
+      transferred: (name: string) => `A titularidade foi transferida para ${name}.`,
       empty: 'Aprove um membro antes de transferir a titularidade.',
     },
     join: {
