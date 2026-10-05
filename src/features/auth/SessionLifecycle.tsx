@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 import { api } from '@/lib/api';
 import { applySessionChange } from '@/lib/private-queries';
-import { listenForLocalSignOut } from '@/lib/session-broadcast';
+import { listenForLocalSignOut, reloadAfterSignOut } from '@/lib/session-broadcast';
 import { isSmokeMode } from '@/lib/runtime';
 
 /**
@@ -21,12 +21,12 @@ export function SessionLifecycle() {
     if (isSmokeMode()) return undefined;
     const stopListening = listenForLocalSignOut(() => {
       applySessionChange(queryClient, null);
-      window.location.replace('/entrar');
+      reloadAfterSignOut();
     });
     const subscription = api.onAuthStateChange((event, nextSession) => {
       if (event === 'INITIAL_SESSION') return;
       applySessionChange(queryClient, nextSession);
-      if (event === 'SIGNED_OUT' && Platform.OS === 'web') window.location.replace('/entrar');
+      if (event === 'SIGNED_OUT' && Platform.OS === 'web') reloadAfterSignOut();
     });
     return () => {
       stopListening();

@@ -11,6 +11,8 @@ import { accountDeletionHandlers } from '../supabase/functions/_shared/deletion.
 import { createDeletionProviders } from '../supabase/functions/_shared/worker-providers.ts';
 import { harnessEmail, installHarnessGuard, sweepMarkedAuthUsers } from './harness-guard.mjs';
 import { localWorkerCronSecret } from './local-worker-test-config.mjs';
+import { rollbackPreservingError } from './rollback-preserving-error.mjs';
+import { proveCleanupLocks } from './prove-cleanup-locks.mjs';
 import { outcomeOf, sameActorPair, track } from './lock-barrier.mjs';
 
 const { Client } = pg;
@@ -425,8 +427,7 @@ async function requestExportTx(client, actor, requestId, hmac) {
     await client.query('commit');
     return result.rows[0].response;
   } catch (error) {
-    await client.query('rollback');
-    throw error;
+    throw await rollbackPreservingError(client, error);
   }
 }
 
@@ -613,8 +614,7 @@ async function insertGroupsFixture(db) {
     );
     await db.query('commit');
   } catch (error) {
-    await db.query('rollback');
-    throw error;
+    throw await rollbackPreservingError(db, error);
   }
   await db.query('begin');
   try {
@@ -637,8 +637,7 @@ async function insertGroupsFixture(db) {
     );
     await db.query('commit');
   } catch (error) {
-    await db.query('rollback');
-    throw error;
+    throw await rollbackPreservingError(db, error);
   }
 }
 
@@ -868,6 +867,164 @@ async function cleanup(db, env) {
   await sweepMarkedAuthUsers(db, AUTH_EMAIL_PREFIX);
 }
 
+async function proveRollbackCause() {
+  const original = Object.assign(new Error('original proof failure'), { code: '40P01' });
+  const rollback = new Error('connection lost during rollback');
+  const calls = [];
+  const client = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.startsWith('select public.request_data_export')) throw original;
+      if (sql === 'rollback') throw rollback;
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    requestExportTx(client, { auth: 'fixture', session: 'fixture' }, 'fixture', 'fixture'),
+    (error) => {
+      assert.equal(error.code, '40P01', 'the SQLSTATE must remain the proof SQLSTATE');
+      assert.equal(error.cause, original, 'the original failure is the cause');
+      assert.deepEqual(error.errors, [original, rollback], 'proof failure comes first');
+      return true;
+    },
+  );
+  assert.equal(calls.at(-1), 'rollback');
+  console.log(
+    'ok - export rollback: original proof failure and SQLSTATE preserved before rollback failure',
+  );
+}
+
+async function proveExportReplayHttp(db, env, token) {
+  const profile = profileIds[0];
+  const request = crypto.randomUUID();
+  const call = async (id) => {
+    const response = await fetch(`${env.functions}/identity/request_data_export`, {
+      method: 'POST',
+      headers: {
+        apikey: env.publishable,
+        Authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ request_id: id }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  await db.query(
+    "insert into public.profiles(id,auth_user_id,name) values($1,$2,'Replay privacy probe')",
+    [profile, userIds[0]],
+  );
+  try {
+    const original = await call(request);
+    assert.equal(original.status, 200);
+    assert.ok(original.body.data.outcome);
+    const exportId = original.body.data.outcome.export_id;
+    await db.query("update private.data_exports set status='building' where id=$1", [exportId]);
+    const accepted = async (label) => {
+      const replay = await call(request);
+      assert.equal(replay.status, 200, `${label}: replay denied`);
+      assert.deepEqual(
+        replay.body.data.outcome,
+        original.body.data.outcome,
+        `${label}: outcome changed`,
+      );
+      assert.ok(Object.hasOwn(replay.body.data, 'current'), `${label}: current missing`);
+      const projection = (
+        await db.query('select private.data_export_projection($1) as current', [profile])
+      ).rows[0].current;
+      assert.deepEqual(replay.body.data.current, projection, `${label}: current is not fresh`);
+      assert.notDeepEqual(
+        replay.body.data.current,
+        original.body.data.current,
+        `${label}: stale original projection`,
+      );
+      const fresh = await call(crypto.randomUUID());
+      assert.equal(
+        fresh.body.error.code,
+        'EXPORT_ALREADY_PENDING',
+        `${label}: new-call actor guard disagrees`,
+      );
+      console.log(
+        `ok - export replay HTTP ${label}: 200, unchanged outcome, fresh current; new-call guard accepts actor`,
+      );
+    };
+    const denied = async (label, status, code) => {
+      for (const id of [request, crypto.randomUUID()]) {
+        const result = await call(id);
+        assert.equal(result.status, status, `${label}: expected normal error`);
+        assert.equal(result.body.error.code, code, `${label}: replay/new guard differs`);
+        assert.equal(Object.hasOwn(result.body, 'data'), false, `${label}: data leaked`);
+        assert.equal(Object.hasOwn(result.body, 'outcome'), false);
+        assert.equal(Object.hasOwn(result.body, 'current'), false);
+      }
+      console.log(
+        `ok - export replay HTTP ${label}: replay and new ${status} ${code}, no outcome/current`,
+      );
+    };
+    await accepted('authority-intact');
+    await db.query(
+      "insert into private.revoked_auth_sessions(session_id,profile_id,expires_at) values($1,$2,now()+interval '1 hour')",
+      [sessionIds[0], profile],
+    );
+    await denied('revoked-session', 401, 'UNAUTHENTICATED');
+    await db.query('delete from private.revoked_auth_sessions where session_id=$1', [
+      sessionIds[0],
+    ]);
+    await db.query("update public.profiles set account_status='deletion_pending' where id=$1", [
+      profile,
+    ]);
+    await denied('deletion-pending', 403, 'FORBIDDEN');
+    for (const status of ['suspended', 'banned']) {
+      await db.query('update public.profiles set account_status=$2 where id=$1', [profile, status]);
+      await accepted(status);
+    }
+    await db.query("update public.profiles set account_status='active' where id=$1", [profile]);
+    assert.equal(
+      Number((await db.query('select count(*) from private.policy_documents')).rows[0].count),
+      0,
+    );
+    await db.query(`insert into private.policy_documents(document_type,version,content_sha256,published_at,mandatory)
+      values('terms','export-replay-0020',decode(repeat('a',64),'hex'),now(),true),
+            ('privacy','export-replay-0020',decode(repeat('b',64),'hex'),now(),true)`);
+    assert.equal(
+      Number(
+        (
+          await db.query('select count(*) from public.policy_acceptances where profile_id=$1', [
+            profile,
+          ])
+        ).rows[0].count,
+      ),
+      0,
+      'mandatory policies are unaccepted',
+    );
+    await accepted('policy-pending');
+    await db.query("delete from private.policy_documents where version='export-replay-0020'");
+    await db.query(
+      "update public.profiles set auth_user_id=null,account_status='deleted',deidentified_at=now() where id=$1",
+      [profile],
+    );
+    await denied('deleted', 404, 'NOT_FOUND');
+    assert.equal(
+      Number(
+        (await db.query('select count(*) from private.data_exports where profile_id=$1', [profile]))
+          .rows[0].count,
+      ),
+      1,
+      'replay repeated an effect',
+    );
+  } finally {
+    await db.query("delete from private.policy_documents where version='export-replay-0020'");
+    await db.query(
+      'delete from private.external_effects where resource_id in(select id from private.data_exports where profile_id=$1)',
+      [profile],
+    );
+    await db.query('delete from private.data_exports where profile_id=$1', [profile]);
+    await db.query('delete from public.privacy_requests where profile_id=$1', [profile]);
+    await db.query('delete from private.idempotency_records where actor_id=$1', [profile]);
+    await db.query('delete from private.revoked_auth_sessions where profile_id=$1', [profile]);
+    await db.query('delete from public.profiles where id=$1', [profile]);
+  }
+}
+
 async function main() {
   const env = environment();
   const db = new Client({ connectionString: env.db, application_name: 'colete_export_main' });
@@ -899,9 +1056,15 @@ async function main() {
     jobBaseline = Number(
       (await db.query('select coalesce(max(id), 0)::text as id from private.job_runs')).rows[0].id,
     );
+    await proveRollbackCause();
+    if (selectedReviewProof === 'rollback') return;
+    await proveCleanupLocks(env.db, db);
+    if (selectedReviewProof === 'locks') return;
     // Cada lote assenta inteiro antes de uma falha subir: nenhuma criação de
     // usuário continua em voo durante a limpeza.
     const tokens = await allCreated(profileIds.map((_, index) => createActor(env, index)));
+    await proveExportReplayHttp(db, env, tokens[0]);
+    if (selectedReviewProof === 'replay') return;
     const [groupsToken] = await allCreated(
       [0, 1, 2].map((offset) => createActor(env, GROUPS_ACTOR_INDEX + offset)),
     );
@@ -1282,8 +1445,7 @@ async function main() {
         ).rows[0].response;
         await deleter.query('commit');
       } catch (error) {
-        deletionError = error;
-        await deleter.query('rollback');
+        deletionError = await rollbackPreservingError(deleter, error);
       }
       buildResult = await buildPending;
       await builder.query('error' in buildResult ? 'rollback' : 'commit');

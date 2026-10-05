@@ -16,7 +16,7 @@ import {
   usePrivateQuery,
   useSessionQuery,
 } from '@/lib/private-queries';
-import { announceLocalSignOut } from '@/lib/session-broadcast';
+import { announceLocalSignOut, reloadAfterSignOut } from '@/lib/session-broadcast';
 
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { DeletionShellScreen } from '../profile/DeletionShellScreen';
@@ -92,7 +92,7 @@ export function AuthGateScreen({ renderAuthenticated, page }: AuthGateProps = {}
         applySessionChange(queryClient, null);
         if (Platform.OS === 'web') {
           announceLocalSignOut();
-          window.location.replace('/entrar');
+          reloadAfterSignOut();
         } else {
           router.dismissAll();
           router.replace('/entrar');

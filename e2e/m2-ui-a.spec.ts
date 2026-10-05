@@ -1215,8 +1215,15 @@ test('UI-A clears old account group and invite material from the browser heap', 
           frame === page.mainFrame() && new URL(frame.url()).pathname === '/entrar',
       }),
     );
+    const logoutDocuments: string[] = [];
+    page.on('request', (request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+        logoutDocuments.push(new URL(request.url()).pathname);
+    });
     await page.getByRole('button', { name: 'Sair com segurança' }).click();
     await unloaded;
+    await page.waitForLoadState('load');
+    expect(logoutDocuments).toEqual(['/entrar']);
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     // Account B uses the same browser tab after the app completes logout.
     await page.getByTestId('login-email').fill(accountB.email);

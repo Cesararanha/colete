@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -66,6 +66,26 @@ const screenHeadings = new Set(
 for (let id = 1; id <= 25; id += 1) {
   if (!screenHeadings.has(id)) failures.push(`Screen heading ${id} is missing`);
 }
+
+// The operational guard inventory is measured from call sites, not frozen in
+// the specification manifest. Keep its seven entries accurate (PR #56 P3).
+const guardedHarnesses = [];
+for (const file of await readdir(path.join(root, 'scripts'))) {
+  if (!file.endsWith('.mjs') || file === 'harness-guard.mjs') continue;
+  const source = await readFile(path.join(root, 'scripts', file), 'utf8');
+  const installed = source.match(/installHarnessGuard\('([^']+)'/);
+  if (installed) guardedHarnesses.push(installed[1]);
+}
+const operational = await readFile(path.join(root, 'docs/26-operacao-m2.md'), 'utf8');
+const guardRow =
+  operational.split('\n').find((line) => line.startsWith('| `scripts/harness-guard.mjs` |')) ?? '';
+const documentedHarnesses = [...guardRow.matchAll(/`(db:test:[^`]+)`/g)].map((match) => match[1]);
+if (
+  guardedHarnesses.length !== 7 ||
+  !guardRow.includes('guarda de sete harnesses:') ||
+  guardedHarnesses.sort().join(',') !== documentedHarnesses.sort().join(',')
+)
+  failures.push('docs/26 harness-guard inventory must list the seven actual guarded harnesses');
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

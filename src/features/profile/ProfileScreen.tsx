@@ -12,7 +12,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { AppError, api, TransportError, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { applySessionChange } from '@/lib/private-queries';
-import { announceLocalSignOut } from '@/lib/session-broadcast';
+import { announceLocalSignOut, reloadAfterSignOut } from '@/lib/session-broadcast';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 
@@ -55,7 +55,7 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
       applySessionChange(queryClient, null);
       if (Platform.OS === 'web') {
         announceLocalSignOut();
-        window.location.replace('/entrar');
+        reloadAfterSignOut();
       } else {
         router.dismissAll();
         router.replace('/entrar');

@@ -1834,6 +1834,98 @@ async function proveSelfRevokedReplayHttp(status, admin) {
   }
 }
 
+// Observação pós-piloto: mede precedências ainda não normativas sem fixá-las
+// como contrato nem alterar a produção.
+async function measureGatewayOrder(status, admin) {
+  const users = await createRealUsers(status, admin, 0x1521, ['owner', 'target']);
+  const groupId = idFor('b0', 0x1521, 1);
+  await createGroups(admin, [
+    {
+      id: groupId,
+      owner: users.owner,
+      monthlyEnabled: true,
+      members: [
+        [users.owner, 'organizer', 'active'],
+        [users.target, 'player', 'active'],
+      ],
+    },
+  ]);
+  const fields = { group_id: groupId, profile_id: users.target.id, enabled: true };
+  const request = crypto.randomUUID();
+  const original = await groupsCall(status, users.owner, 'set_monthly', fields, request);
+  assert.equal(original.status, 200, 'measurement fixture must complete');
+  const measure = async (label, promise) => {
+    const result = await promise;
+    console.log(
+      `# gateway order measured, not normative: ${JSON.stringify({
+        label,
+        status: result.status,
+        code: result.body.error?.code ?? null,
+        outcome: Object.hasOwn(result.body.data ?? {}, 'outcome'),
+        current: Object.hasOwn(result.body.data ?? {}, 'current'),
+      })}`,
+    );
+  };
+  const invalid = { ...fields, request_id: 'invalid-request-id' };
+  await measure('invalid-envelope+no-token', edge(status, 'groups/set_monthly', invalid));
+  await measure(
+    'invalid-envelope+invalid-token',
+    edge(status, 'groups/set_monthly', invalid, 'invalid-token'),
+  );
+  for (const [label, column] of [
+    ['suspended', 'suspended_at'],
+    ['archived', 'archived_at'],
+  ]) {
+    await admin.query(`update public.groups set ${column}=now() where id=$1`, [groupId]);
+    await measure(
+      `${label}+replay`,
+      groupsCall(status, users.owner, 'set_monthly', fields, request),
+    );
+    await measure(`${label}+new`, groupsCall(status, users.owner, 'set_monthly', fields));
+    await admin.query(`update public.groups set ${column}=null where id=$1`, [groupId]);
+  }
+  const holder = newClient(status.databaseUrl, 'gateway_measure_holder');
+  await holder.connect();
+  try {
+    const waitingRequest = crypto.randomUUID();
+    await holder.query('begin');
+    await holder.query('set local role service_role');
+    await holder.query('select public.set_monthly($1,$2,$3,$4,1,1,$5,$6,true)', [
+      users.owner.authId,
+      users.owner.sessionId,
+      waitingRequest,
+      'c'.repeat(64),
+      groupId,
+      users.target.id,
+    ]);
+    const revoked = await edge(
+      status,
+      'identity/revoke_current_session',
+      { request_id: crypto.randomUUID() },
+      users.owner.token,
+    );
+    assert.equal(revoked.status, 200);
+    await measure(
+      'idempotency-wait+revoked-session',
+      groupsCall(status, users.owner, 'set_monthly', fields, waitingRequest),
+    );
+  } finally {
+    await holder.query('rollback');
+    await holder.end();
+  }
+  await admin.query('delete from private.revoked_auth_sessions where session_id=$1', [
+    users.owner.sessionId,
+  ]);
+  await admin.query('update public.groups set archived_at=now() where id=$1', [groupId]);
+  await admin.query('delete from public.group_members where group_id=$1', [groupId]);
+  await admin.query('delete from public.groups where id=$1', [groupId]);
+  await measure(
+    'missing-group+replay',
+    groupsCall(status, users.owner, 'set_monthly', fields, request),
+  );
+  await measure('missing-group+new', groupsCall(status, users.owner, 'set_monthly', fields));
+}
+
 // 40d (e): o mesmo JWT ainda verificável após revogação pelo gateway.
 // Mede todos os replays antes de afirmar: a contraprova não oculta os demais.
 async function proveRevokedSessionReplayHttp(status, admin) {
@@ -1886,6 +1978,27 @@ async function proveRevokedSessionReplayHttp(status, admin) {
     assert.equal(revoked.status, 200, 'session revocation through the real gateway');
   }
   for (const entry of cases) {
+    assertEdgeError(
+      await groupsCall(
+        status,
+        entry.actor,
+        entry.operation,
+        { ...entry.fields, group_id: crypto.randomUUID() },
+        entry.requestId,
+      ),
+      409,
+      'IDEMPOTENCY_CONFLICT',
+      `${entry.operation}: changed input before revoked-session 401`,
+    );
+    assertEdgeError(
+      await groupsCall(status, entry.actor, entry.operation, entry.fields, 'invalid-request-id'),
+      422,
+      'VALIDATION',
+      `${entry.operation}: invalid envelope before revoked-session 401`,
+    );
+    console.log(
+      `ok - ${entry.operation} HTTP envelope: conflict 409 and validation 422 precede revoked-session 401`,
+    );
     entry.replay = await groupsCall(
       status,
       entry.actor,
@@ -2665,6 +2778,7 @@ const PROOFS = [
   ['cross-deletion-transfer', 'deletion × transfer in the cross form'],
   ['cross-deletion-transfer-inverse', 'deletion UUID greater, both orders'],
   ['replay-http', 'M2-D20: current authority over HTTP'],
+  ['gateway-order-measured', 'post-pilot non-normative gateway precedence measurements'],
   ['replay-revoked-session-http', '40d: authentication before replay'],
   ['actor-scoped-request-http', '40d: actor-scoped idempotency over HTTP'],
   ['replay-authority', 'M2-D20: all seven RPCs'],
@@ -2743,6 +2857,7 @@ async function main() {
     }
     if (run('replay-authority')) await proveReplayAuthority(admin, first);
     if (run('replay-http')) await proveReplayHttp(status, admin);
+    if (run('gateway-order-measured')) await measureGatewayOrder(status, admin);
     if (run('replay-revoked-session-http')) await proveRevokedSessionReplayHttp(status, admin);
     if (run('actor-scoped-request-http')) await proveActorScopedRequestHttp(status, admin);
     if (run('replay-self-revoked-http')) await proveSelfRevokedReplayHttp(status, admin);
