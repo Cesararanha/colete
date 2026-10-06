@@ -1446,3 +1446,200 @@ OTP foi incluído no diff, na documentação ou na evidência de módulos.
 AGENTS §5 completo: todos os comandos terminaram com exit 0, inclusive
 `verify:app` final, `scan:docs` (23 arquivos), `scan:secrets` (271 arquivos),
 `test:audit`, `audit:high` e `git diff --check`. Sem alteração no manifesto.
+
+## Trava de auditoria pelo escopo publicado — decisão humana de 06/10/2026
+
+César decidiu pelo AGENTS §8 que a trava considera o que chega ao PWA exportado
+ou às Edge Functions: todo CRITICAL bloqueia; HIGH publicado bloqueia, salvo
+exceção datada com ID exato, pacote, validade e ausência de órfã; HIGH somente
+de build, teste ou desenvolvimento vira aviso. O risco aceito é permanecer até
+duas semanas com falha em ferramenta de build na máquina e na CI. Esta decisão
+está também em `25` §8.1 e não autoriza atualizar dependências nesta tarefa.
+
+### Cálculo e falha fechada
+
+`npm run build:audit-scope` apaga a prova anterior e executa o export web real
+de produção. `metro.config.cjs` preserva o hook anterior e captura os módulos
+dos grafos Metro web/client e web/node. Para cada módulo npm, o coletor encontra
+a raiz do pacote instalado e confirma nome e versão contra `package-lock.json`.
+A união medida nesta execução tem **1.207 módulos e 66 pacotes**; os grafos
+incluem o renderer estático, conservadoramente. A AST TypeScript dos arquivos
+produtivos em `supabase/functions` calcula imports externos, ignorando testes.
+Hoje não há import externo. Imports npm com versão exata são resolvidos contra
+o lock e a instalação, incluindo dependências transitivas e opcionais; pacote,
+versão ou grafo não resolvido invalida o conjunto. Import externo desconhecido,
+import dinâmico não literal ou sintaxe inválida também invalida a prova.
+
+O resultado local é `.expo/audit-shipped.json`. O CLI valida schema, conjunto
+não vazio, versões, SHA-256 do lock, SHA-256 das fontes, instante/mtime não
+anterior ao lock e igualdade do commit `HEAD`. Prova ausente ou inválida mantém
+todo HIGH bloqueante; não há flag, variável ou arquivo de bypass. O CLI percorre
+`via` até o advisory de origem, com a proteção de ciclos anterior, e cruza o
+range vulnerável com cada versão instalada nos `nodes` da causa raiz. Só a
+versão vulnerável publicada bloqueia. Versão/range desconhecido bloqueia.
+
+`audit:high` escreve `.expo/audit-report.json` e imprime `BLOQUEIA` e
+`AVISOS (não publicados)`, com GHSA, pacote, versão, caminho e indicação de
+correção do npm. Sugestão para ancestral não é tratada como patch da causa raiz.
+Erros e bloqueios resultam em exit 1; avisos isolados resultam em exit 0.
+As exceções node-forge/braces foram removidas: com a ausência provada, seriam
+órfãs. Os fixtures antigos permanecem com exceções sintéticas independentes da
+produção e do relógio.
+
+### Alertas reais desta execução
+
+`npm audit --json`: **38 registros, 16 moderate, 21 high e um critical**.
+Os registros propagados não são advisories novos; há quatro causas de origem.
+Todos os caminhos abaixo estão ausentes dos grafos Metro e dos imports Edge.
+
+| GHSA | Pacote instalado / caminho | Publicado | Resultado | Primeira versão corrigida |
+| --- | --- | --- | --- | --- |
+| GHSA-86w9-cpqp-85rv | node-forge 1.4.0, `node_modules/node-forge` | não | aviso HIGH | sem patch, confirmado pela API oficial nesta execução |
+| GHSA-vfj7-8cjw-p6xm | braces 3.0.3, `node_modules/braces` | não | aviso HIGH | sem patch, confirmado pela API oficial nesta execução |
+| GHSA-wq5f-xc86-pv6w | sharp 0.35.4, `node_modules/sharp` | não | aviso HIGH | 0.35.5, confirmado pela API oficial GitHub nesta execução |
+| GHSA-pqg4-j6r4-53mv | shell-quote 1.10.0, `node_modules/shell-quote` | não | **bloqueia CRITICAL** | 1.11.0, confirmado pela API oficial GitHub nesta execução |
+
+O roteiro chamou shell-quote de HIGH, mas o registry e a API oficial do GitHub
+agora o classificam como CRITICAL. A implementação conserva o bloqueio. Nenhuma
+dependência foi atualizada e nenhuma exceção foi criada. **PERGUNTA:** CI verde
+exige resolver esse CRITICAL em uma fatia autorizada; esta tarefa proíbe essa
+atualização. O usuário foi informado durante a execução.
+
+### CI e rodada quinzenal
+
+A forma escolhida gera o conjunto no próprio `Repository guardrails`, antes de
+`audit:high`. Isso cobre também push/schedule em main, sem depender de um job de
+export que não roda nesses eventos. O commit é o mesmo checkout usado pela
+auditoria. Nenhum timeout foi ampliado. O job anterior, run `37465224683`, levou
+**47 s** (12:42:39–12:43:26 UTC em 06/10/2026). A primeira geração local levou
+**9,822 s**; isso é medição do comando local, não duração da CI posterior.
+
+A cada quinzena: gerar a prova com o lock/commit atual, rodar `audit:high`, ler
+as duas seções e o relatório, conferir patches dos avisos na origem e abrir
+uma fatia de atualização com validação completa. HIGH publicado novo requer
+correção ou decisão humana de exceção datada; CRITICAL sempre bloqueia. Não
+renovar exceções automaticamente; remover órfãs e preservar contraprovas.
+
+A revisão automática negou acrescentar um upload de artefatos GitHub por 14
+dias, por exportar metadados de módulos/pacotes sem autorização específica.
+Essa etapa não foi aplicada. Os relatórios permanecem locais. Conforme o roteiro,
+a negativa exige salvar WIP local e parar depois das verificações independentes.
+O trabalho fica pendente de decisão sobre esse upload e sobre o CRITICAL.
+
+### Provas e validação local antes do WIP
+
+| Prova do CLI produtivo com npm substituído por fixture | Resultado |
+| --- | --- |
+| HIGH publicado sem exceção / válida / vencida | reprova / passa / reprova |
+| HIGH não publicado, com aviso detalhado | passa |
+| CRITICAL não publicado; CRITICAL propagado no topo | reprovam |
+| Conjunto ausente, vazio, antigo, de outro commit, lock ou fontes divergentes | reprovam HIGH |
+| Duas versões: só a vulnerável publicada / só a corrigida publicada | reprova / avisa |
+| Causa raiz publicada atrás de cadeia e ciclo | reprova |
+| Exceção de pacote não publicado | reprova como órfã |
+| Versão/range desconhecido; 12 testes anteriores | bloqueiam; preservados |
+
+`test:audit`: **21 testes, 21 aprovados**, sem dependência do relógio produtivo.
+Contraprovas executáveis (quatro exit 1): tratar tudo como não publicado,
+ignorar frescor, rebaixar CRITICAL a aviso e classificar pelo topo da cadeia.
+Arquivos restaurados após cada mutação. Evidências locais em
+`~/colete-noite/audit-policy-contraprovas.md` e logs `audit-policy-mutant-*`.
+
+Seção 5 executada integralmente: reset por **20 migrations**; **1.259 asserções
+pgTAP em 19 arquivos**; todos os dez harnesses aprovados; **197 testes unitários
+em 23 arquivos**. Browsers **1×**, sem retry: Auth **8** e dois skips anteriores;
+privacidade **4** e quatro skips anteriores; grupos **62**; smoke **6**.
+Total **80 aprovações**, seis skips preexistentes, zero falhas. Censos antes e
+depois: **auth.users=0**; final **storage.objects=0 e zero papéis-sonda**. Os
+censos dos harnesses passaram; resíduo sintético da trilha GoTrue é o já aceito.
+
+`verify:app`, `scan:docs`, `scan:secrets`, `test:audit` e `git diff --check`
+aprovaram. `build:audit-scope` levou **10,186 s** no comando completo;
+`audit:high` levou **1,550 s**, exit **1 somente por shell-quote CRITICAL**.
+O job posterior da CI ainda não foi executado; não se atribui duração local à CI.
+O manifesto foi recalculado somente para a decisão autorizada em `25`.
+Nenhuma migration, versão de dependência ou lockfile mudou. Nenhum projeto
+Supabase remoto, deploy ou serviço de produção foi acessado; siac-* e outras
+pilhas não foram alteradas. O WIP local preserva a implementação enquanto
+faltam a decisão sobre CRITICAL, publicação/revisão independente e a CI.
+
+
+### Retomada autorizada por César em 06/10/2026
+
+A pergunta sobre shell-quote foi respondida: corrigir neste PR, com override
+escopado, sem major direto e sem exceção CRITICAL. O único consumidor instalado
+é react-native 0.86.3 → react-devtools-core 6.1.5 → shell-quote.
+`overrides.react-devtools-core.shell-quote = "1.11.0"` fixa somente esse
+consumidor. O lock altera somente `node_modules/shell-quote`: versão
+1.10.0 → 1.11.0, resolved e integrity, **três linhas removidas e três adicionadas**.
+A comparação estrutural de todas as entradas encontrou apenas essa diferença;
+resolved e integrity conferem byte a byte com `npm view shell-quote@1.11.0 dist`.
+Nenhum outro pacote muda. Nenhuma exceção CRITICAL foi criada.
+
+O usuário também decidiu não fazer upload dos relatórios. Não há passo de
+upload da auditoria no workflow. Os relatórios permanecem na máquina do job;
+o export instrumentado guarda sua saída completa localmente e imprime somente
+contagens. A auditoria imprime BLOQUEIA/AVISOS. A negativa anterior está
+encerrada por esta escolha explícita; não se executa a ação negada.
+Os registros anteriores descrevem a execução do WIP, não o estado final.
+
+A validação da retomada executou todos os comandos da seção 5. Reset,
+1.259 pgTAP, dez harnesses, 197 unitários e `verify:app` passaram. Auth 8,
+privacidade 4 e smoke 6 aprovaram; grupos teve **61 aprovações e uma falha**,
+na viewport larga, `e2e/m2-ui-b.spec.ts:415`: após Enter em rename, o nome
+confirmado permaneceu `Grupo UI B` em vez de `Nome confirmado UI B`.
+Browsers executados **1×**, sem retry, timeout ampliado ou asserção enfraquecida.
+O trace foi examinado antes de o smoke limpar o diretório compartilhado de
+resultados; o log persistente está em `~/colete-noite/audit-policy-resume-validation-16.log`.
+A causa não foi comprovada. Nenhum arquivo do app ou teste de navegador mudou.
+**PERGUNTA:** autorizar investigação/correção desse achado de UI-B neste PR,
+porque corrigir essa fronteira amplia a fatia (AGENTS §8).
+
+`test:audit` passou **21/21**. A auditoria real pós-correção terminou com
+**exit 0**, seção BLOQUEIA vazia e exatamente três avisos não publicados:
+node-forge 1.4.0, braces 3.0.3 e sharp 0.35.4. Nenhuma exceção ativa.
+A falha local de UI-B permanece bloqueio explícito da entrega; não se registra
+esta retomada como seção 5 verde nem se substitui a falha por sucesso da CI.
+
+### Medição da CI da política publicada
+
+`Repository guardrails` aprovou na run **37537268202**, commit inicial da
+retomada `1a6ccb7`: **99 s** (21:55:53–21:57:32 UTC em 06/10/2026), contra
+**47 s** na run anterior `37465224683`: acréscimo observado de **52 s**.
+A etapa nova `Calculate shipped packages from the production export` levou
+**52 s**; a auditoria levou **2 s**. Esses são tempos reais do runner, não
+estimativas derivadas da máquina local. O timeout do job permanece **15 min**.
+O job calcula no próprio checkout e guarda os arquivos somente no runner;
+não há upload de relatório de dependências. A CI posterior não elimina a
+falha local de UI-B registrada acima, que continua pendente de decisão de escopo.
+
+
+### Conferência do coletor pelo autor na retomada
+
+O coletor inicialmente unia os grafos client e Node. Isso acrescentava quatro
+pacotes usados pelo renderer de HTML durante o build, sem código publicado
+no bundle client. Corrigido dentro da própria fatia: cada snapshot informa
+plataforma e ambiente; o export estático seleciona somente os grafos client.
+Modo de export ou ambiente desconhecido, grafo inválido e client vazio impedem
+gerar o conjunto. A configuração resolvida do Expo confirma o modo static.
+
+O conjunto real corrigido contém **1.049 módulos e 62 pacotes**, em vez dos
+1.207/66 da união anterior. Duas provas adicionais verificam exclusão do renderer,
+deduplicação e rejeição de entrada incerta. `test:audit`: **23/23**; os quatro
+mutantes continuam reprovando. `verify:app` passou após essa correção. A auditoria
+real terminou novamente com **exit 0 e três avisos**, sem exceções: node-forge,
+braces e sharp. App e testes de navegador permanecem intactos.
+
+A run **37538729860**, ainda com a união anterior, concluiu os cinco jobs verdes.
+Seu `Repository guardrails` levou **102 s** (22:10:16–22:11:58 UTC), contra
+os **47 s** anteriores. As medições de 99/102 s são desses commits, não uma
+estimativa do coletor corrigido. O novo commit requer sua própria CI; a falha
+local de UI-B continua registrada e impede declarar a seção 5 toda verde.
+
+
+A medição do coletor corrigido veio da run **37541723017**, commit `7a7265a`:
+`Repository guardrails` **99 s**, de **22:37:16 a 22:38:55 UTC** em 06/10/2026.
+Comparação final da mudança de código: **antes 47 s; depois 99 s; diferença +52 s**.
+O job aprovou calculando o conjunto client no próprio runner, sem upload.
+Este registro acrescenta somente documentação ao código medido; a CI do commit
+que o publica deve continuar sendo acompanhada separadamente.

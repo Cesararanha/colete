@@ -52,7 +52,8 @@
     "db:test:rename": "node scripts/test-group-rename.mjs",
     "db:stop": "supabase stop --no-backup",
     "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets",
-    "test:audit": "node --test scripts/test-audit-high.mjs"
+    "test:audit": "node --test scripts/test-audit-high.mjs",
+    "build:audit-scope": "node scripts/build-audit-scope.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.14",
@@ -100,6 +101,9 @@
   "overrides": {
     "fast-uri": "3.1.7",
     "compression": "1.8.2",
-    "source-map-js": "1.2.2"
+    "source-map-js": "1.2.2",
+    "react-devtools-core": {
+      "shell-quote": "1.11.0"
+    }
   }
 }

@@ -185,7 +185,9 @@ jobs:
         run: npm run verify:auth-config
       - name: Scan for committed secrets
         run: npm run scan:secrets
-      - name: Reject high or critical dependency advisories
+      - name: Calculate shipped packages from the production export
+        run: npm run build:audit-scope
+      - name: Reject blocking dependency advisories
         run: npm run audit:high
 
   pwa-smoke:

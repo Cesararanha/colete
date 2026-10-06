@@ -1,18 +1,1 @@
-[
-  {
-    "id": "GHSA-86w9-cpqp-85rv",
-    "package": "node-forge",
-    "reason": "Sem versão corrigida publicada; biblioteca da CLI ausente do PWA exportado e das Edge Functions.",
-    "evidence": "Conferência em 06/10/2026: npm ls node-forge; npm view node-forge versions --json; advisory oficial first_patched_version=null; npm run build:web. Hook experimentalSerializerHook do Metro: 1.049 módulos web/client e 1.102 web/node, zero caminhos do pacote em ambos; buscas por identificadores e literais em dist e supabase/functions: zero ocorrências. Listas em docs/evidence/sec-audit/metro-modules-2026-10-06.json e saídas em docs/23-operacao-m1-b.md.",
-    "decidedBy": "Cesar Aranha — decisão humana de 06/10/2026, AGENTS §8",
-    "expiresOn": "2026-10-20"
-  },
-  {
-    "id": "GHSA-vfj7-8cjw-p6xm",
-    "package": "braces",
-    "reason": "Sem versão corrigida publicada; biblioteca da CLI ausente do PWA exportado e das Edge Functions.",
-    "evidence": "Conferência em 06/10/2026: npm ls braces; npm view braces versions --json; advisory oficial first_patched_version=null; npm run build:web. Hook experimentalSerializerHook do Metro: 1.049 módulos web/client e 1.102 web/node, zero caminhos do pacote em ambos; buscas por identificadores e literais em dist e supabase/functions: zero ocorrências. Listas em docs/evidence/sec-audit/metro-modules-2026-10-06.json e saídas em docs/23-operacao-m1-b.md.",
-    "decidedBy": "Cesar Aranha — decisão humana de 06/10/2026, AGENTS §8",
-    "expiresOn": "2026-10-20"
-  }
-]
+[]

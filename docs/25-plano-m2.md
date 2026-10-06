@@ -1226,6 +1226,24 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Decisão humana de César em 06/10/2026 — trava de dependências pelo escopo
+  publicado (AGENTS §8).** `audit:high` bloqueia todo CRITICAL e todo HIGH cuja
+  causa raiz e versão instalada chegam ao PWA exportado ou às Edge Functions.
+  HIGH somente de build, teste ou desenvolvimento vira aviso, listado na saída
+  e no relatório da rodada quinzenal. O conjunto publicado é calculado pelo
+  grafo real do export Metro de produção e pelos imports npm das Edge Functions,
+  nunca por lista manual. Se não puder ser calculado, estiver vazio, anterior ao
+  lockfile ou não corresponder ao commit auditado, todo HIGH bloqueia. Na dúvida
+  sobre causa ou versão, bloqueia; não se classifica pelo topo da cadeia.
+  Exceção HIGH publicado conserva ID exato, pacote, validade e rejeição de órfã;
+  exceção de HIGH não publicado é órfã. Não há bypass por flag ou variável.
+  **Risco aceito:** falha em ferramenta de build pode permanecer até duas semanas
+  sem correção na máquina de desenvolvimento e na CI. A rodada quinzenal revê
+  avisos e patches. Na retomada de 06/10/2026, César autorizou corrigir somente shell-quote
+  neste PR, pela menor mudança escopada, sem exceção para CRITICAL e sem major
+  de dependência direta. Relatórios ficam no job, sem upload; logs contêm
+  somente contagens e as seções BLOQUEIA/AVISOS.
+
 - **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
   `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva
   o papel gravado em `group_members`; para quem criou o grupo, organizador.
