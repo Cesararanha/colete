@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda dos harnesses `db:test:groups`, `db:test:export` e `db:test:idempotency`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de sete harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership` e `db:test:rename`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -952,8 +952,9 @@ recriou todas as funções somente pelas migrations.
 
 **Alcance e pendência.** `delete_account` passa a ter a exceção normativa da
 M2-D21: somente desfecho e os cinco campos da própria saga após autorrevogação.
-O achado de `request_data_export` continua divergência temporária, com prazo
-antes de fechar o M2, na mesma migration da M2-D15 (`25` §8.2). Nenhuma RPC fora
+Na entrega da `0016`, o achado de `request_data_export` ficou como divergência
+temporária, com prazo antes de fechar o M2 na migration da M2-D15; a `0020`
+encerrou essa pendência, conforme a seção Faxina B abaixo. Nenhuma RPC fora
 das sete da `0016` foi corrigida nesta rodada. As emendas de `13` §0, §5 e §5.3,
 `25` (cabeçalho, §7, §8.1 e §8.2) e o manifesto refletem as decisões humanas.
 
@@ -1765,3 +1766,151 @@ Evidências: `~/colete-noite/faxina-a-validacao/results.json`, `census.json`,
 `faxina-a-contraprovas.md`. Nenhum serviço de produção, Supabase remoto ou deploy
 foi acessado. A pilha local será parada e o worktree removido depois da CI verde;
 o PR permanece draft, sem merge, para revisão independente de risco alto.
+
+
+## Faxina B — 0020, decisões do planejador de 05/10/2026
+
+Base `1710285` (PR #56 mergeado). A `0020_m2_cleanup_b.sql` aplica M2-D15 e
+M2-D21 sem alterar assinaturas, erros/efeitos da chamada nova, ordem de locks
+ou privilégios. Nenhuma migration entregue anteriormente foi editada.
+Linhas abaixo do `pg_get_functiondef` vivo antes/depois da `0020`; NKU =
+`FOR NO KEY UPDATE`. A lista de Faxina B foi esvaziada em `25` §8.2.
+
+| Função | Linha | Tabela | O que faz com a linha | Antes | Depois | Justificativa | FK de entrada | Prova |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `private.reconcile_deletion_request` | 13 | `deletion_requests` | status, retry e código de erro | FOR UPDATE | NKU | id/profile_id intactos; não apaga | sem FK de entrada | espera observada; estado novo após commit |
+| `public.consume_data_export` | 21 | `data_exports` | ready → downloaded e downloaded_at | FOR UPDATE | NKU | id/privacy_request_id/storage_path intactos | sem FK de entrada | espera observada; estado novo após commit |
+| `public.enqueue_data_export_purge` | 9 | `data_exports` | ready → cleanup_pending | FOR UPDATE | NKU | nenhuma coluna única muda | sem FK de entrada | espera observada; estado novo após commit |
+| `public.finalize_deletion` | 19 | `deletion_requests` | zera auth_user_id, conclui e limpa erro | FOR UPDATE | NKU | auth_user_id da saga não é chave; id/profile_id intactos | sem FK de entrada | espera observada; estado novo após commit |
+| `public.worker_acquire_external_effect` | 67 | `external_effects` | lease, attempts, status e token de fencing | FOR UPDATE SKIP LOCKED | NKU SKIP LOCKED | lease_token não é único; id/dedupe_key intactos | sem FK de entrada | pula linha retida; estado novo após commit |
+| `public.worker_complete_external_effect` | 26 | `external_effects` | fecha/reagenda lease e status | FOR UPDATE | NKU | id/dedupe_key intactos | sem FK de entrada | espera observada; estado novo após commit |
+| `public.worker_finish_job` | 24 | `job_runs` | status, summary e conclusão | FOR UPDATE | NKU | id/run_key intactos | sem FK de entrada | espera observada; estado novo após commit |
+| `public.worker_publish_data_export` | 9 | `external_effects` | lê efeito fenced | FOR UPDATE | NKU | nenhuma coluna do efeito muda | sem FK de entrada | espera observada; estado novo após commit |
+
+A sonda explícita aprovada na decisão A isola a trava inventariada; as duas
+chamadas da sonda e o observador usam três backends/application_name distintos.
+O primeiro retém a linha, muda estado não chave e só commita depois de o
+observador confirmar a espera do segundo em `pg_locks`/`pg_stat_activity`, com
+`pg_blocking_pids` apontando para o primeiro. A segunda leitura trava e enxerga
+esse estado; na variante SKIP LOCKED retorna zero linhas enquanto retida e lê
+após commit. Não há sleep, segundo recurso inventado ou afirmação de deadlock.
+O catálogo liga cada sonda à linha real da função; os corpos completos são
+comparados byte a byte. Os harnesses existentes continuam exercitando as RPCs
+inteiras sob `service_role`, commits reais e as provas herdadas de mesmo ator
+por upgrade e do par cruzado de FK. A sonda não se apresenta como chamada
+inteira da saga nem como prova de um ciclo inexistente.
+
+Nenhuma FK aponta para as quatro tabelas, confirmado pelo catálogo. Portanto
+as oito partes de compatibilidade KEY SHARE e suas contraprovas no modo antigo
+estão dispensadas pela decisão A. A exclusão mútua também existe no modo
+antigo; não se afirma que revertê-lo a reprove. Oito contraprovas adicionais de
+catálogo reverteram cada definição pré-0020 individualmente, reprovaram o corpo
+exato e restauraram `pg_get_functiondef` idêntico.
+
+Dois `FOR UPDATE` permanecem no mesmo corpo/ordem: `finalize_deletion` L17 em
+`profiles` zera `auth_user_id` único; `worker_publish_data_export` L14 em
+`data_exports` grava `storage_path` único. O catálogo afirma os índices únicos
+e os corpos contendo esses UPDATEs, além das provas funcionais das sagas.
+
+O replay do export adquire a mesma trava de perfil NKU e aplica exatamente a
+guarda da chamada nova antes de devolver qualquer desfecho/projeção. Não há
+checagem adicional de conta ativa ou aceite no canal de privacidade.
+
+| Caso HTTP | Replay medido | Comparação com chamada nova |
+| --- | --- | --- |
+| autoridade íntegra | 200, outcome original + current fresco | guarda aceita; export existente dá EXPORT_ALREADY_PENDING |
+| sessão revogada | 401 UNAUTHENTICATED, sem data/outcome/current | mesmo erro |
+| conta em exclusão | 403 FORBIDDEN, sem data/outcome/current | mesmo erro |
+| conta suspensa | 200, outcome original + current fresco | guarda aceita |
+| conta banida | 200, outcome original + current fresco | guarda aceita |
+| aceite obrigatório pendente | 200, outcome original + current fresco | guarda aceita; dois documentos obrigatórios sem aceite |
+| conta excluída/desidentificada | 404 NOT_FOUND, sem data/outcome/current | mesmo erro |
+
+A projeção original queued é comparada com o estado building posterior, não
+apenas com a presença de current. O censo afirma um único export, sem repetir
+efeito. Contraprova B: definição pré-0020 devolve 200 no replay revogado e
+reprova a expectativa 401; restaurada exatamente.
+
+| Item | Entrega e prova |
+| --- | --- |
+| A | oito modos NKU, oito sondas explícitas; 49 asserções novas de catálogo abrangem A/B; allowlist exata de 39 rotinas e atributos preservados; oito mutantes reprovam |
+| B | sete casos HTTP, guarda idêntica à chamada nova, outcome original/current fresco; mutante sem revalidação reprova |
+| C | nenhuma produção alterada; sete RPCs conservam prova 409/422 antes do 401; nove combinações indefinidas medidas em set_monthly e movidas para pós-piloto, não normativas |
+| D1 | guarda compartilhada para Auth, logout manual e broadcast; unitário e heap nos dois viewports; contagem de documentos no logout manual, refresh inválido e por aba no logout cruzado; zero recargas adicionais sem sessão e com refresh válido |
+| D2 | AggregateError preserva causa primeira, ordem e SQLSTATE nos quatro catches; dupla falha reprova quando se retorna apenas o rollback |
+| D3 | descrição correta dos sete harnesses; scan:docs compara os sete call sites reais; descrição com três reprova |
+
+A comparação canônica do harness de grupos exige a `0015` exata para 14
+funções e a `0020` exata para request_data_export; só essa redefinição posterior
+é autorizada. A primeira execução da retomada detectou essa baseline antiga,
+que foi corrigida mantendo a comparação integral e repetindo a suíte de banco.
+
+Medições finais da retomada: AGENTS §5 completo, todos os comandos com saída
+0. Reset pelas vinte migrations; pgTAP 1.259 asserções em 19 arquivos (49
+novas), confirmado novamente no fim. Dez harnesses obrigatórios passaram;
+grupo repetido após preservar as duas contraprovas do comparador, 2,768 s.
+verify:app passou, incluindo 197 unitários em 23 arquivos, lint, formato,
+tipos, build, PWA, configuração Auth e scanners. scan:docs, scan:secrets,
+test:audit, audit:high e diff --check passaram. Auditoria respeitou as duas
+exceções ativas; nenhum alerta alto/crítico fora delas. Tipos gerados do banco
+sem diff. Nenhum prettier executado em docs/.
+
+Browsers 3×: 228 aprovações e 18 skips preexistentes (nenhum novo): por série,
+8 Auth + 4 privacidade + 58 grupos + 6 smoke. Grupos em 177,237 /173,237
+/176,830 s; heap e navegação única verdes nos dois viewports. Nenhum retry,
+timeout maior, sleep de sincronização ou asserção removida/enfraquecida.
+
+Censo: auth.users=0 antes/depois, 54 tabelas, zero papéis-sonda; só cinco
+tabelas de configuração têm linhas (Auth migrations82, MIME4, limites17,
+buckets2, Storage migrations73). Os 4.838 audit_log_entries e seis flow_state
+foram exclusivamente sintéticos da validação após reset, removidos depois de
+confirmar Auth vazio. Censos antes/depois preservados; dados de domínio,
+operacionais e objetos Storage zerados. Toolchain local Node24.15/npm11.14;
+CI conserva versões fixadas, sem atualização de dependência. Logs, comandos, linhas e
+restaurações das contraprovas estão em
+`~/colete-noite/faxina-b-contraprovas.md`.
+
+Nenhuma PERGUNTA nova. As decisões A/B encerraram as duas dúvidas; a decisão C
+manteve explicitamente as precedências indefinidas como pendência pós-piloto,
+sem inferir contrato. Nenhuma dependência criada/atualizada, acesso Supabase
+remoto, deploy ou serviço de produção. Contêineres alheios intactos.
+
+
+### Correção dos três P3 da revisão do PR #57
+
+A correção sobre `cd8debf` não altera comportamento. O cabeçalho da `0020`
+explicita M2-D15 e a revalidação de autenticação antes do replay (M2-D21).
+COMMENT ON FUNCTION de worker_acquire_external_effect agora descreve
+FOR NO KEY UPDATE SKIP LOCKED. Comparação pelo catálogo com `cd8debf`, em
+transação desfeita: nove corpos, ACLs, SECURITY DEFINER e search_path
+idênticos; nenhum dos oito comentários cita o modo antigo.
+
+Os testes contam somente requisições de navegação do frame principal, por
+aba. Refresh inválido exige exatamente uma carga de `/entrar`; o logout em
+duas abas exige exatamente uma em cada aba. Os casos sem sessão na tela de
+login e sessão expirada com refresh válido exigem zero cargas adicionais.
+A contagem permanece até networkidle, com a tela esperada visível. O teste
+anterior de logout manual e heap continua intacto. A prova é uma janela de
+observação até estabilização, sem afirmar ausência de eventos futuros.
+
+Contraprova: mutante temporário marca sessionStorage no logout e executa
+uma segunda carga real na inicialização do documento seguinte. Refresh
+inválido reprova em `e2e/m2-ui-a.spec.ts:1409` com duas cargas; duas abas
+reprova em `e2e/m1-b-privacy.spec.ts:1026` com duas cargas em cada aba.
+Arquivo restaurado byte a byte, build normal refeito. Sem retry, aumento de
+timeout, sleep de sincronização ou enfraquecimento de asserção.
+
+Browsers completos 3× novamente: 240 aprovações, 18 skips preexistentes;
+por série, 8 Auth + 4 privacidade + 62 grupos + 6 smoke. Grupos medidos em
+172,993 /185,156 /174,677 s. Reset pelas vinte migrations, pgTAP 1.259
+asserções em 19 arquivos e os dez harnesses passaram novamente.
+O manifesto foi recalculado e permanece idêntico: nenhum arquivo normativo
+mudou; este registro operacional não faz parte da baseline.
+
+AGENTS §5 completo: todos os comandos exit 0, incluindo verify:app,
+scan:docs, scan:secrets, test:audit, audit:high e diff --check. auth.users
+zero antes e depois; censo final de 54 tabelas e zero papéis-sonda, com linhas
+somente nas cinco tabelas de configuração já listadas. Removidos 4.882
+logs de auditoria e seis fluxos Auth exclusivamente sintéticos desta rodada.
+Tipos regenerados sem diff. Evidências e restauração em
+`~/colete-noite/correcao57-contraprovas.md` e logs `correcao57-*`.

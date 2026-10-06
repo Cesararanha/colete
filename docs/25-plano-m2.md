@@ -1217,9 +1217,9 @@ código produtivo.
   emendas a `13` que o §8 exige antes da `0017`, mais M2-D22 a M2-D30
   em `10` §3/§11, `11`, `13`, `15`, `16` e `17` nesta fase documental,
   mais M2-D31 a M2-D42 emendadas em 29/09.
-  Divergência com qualquer um deles é bloqueio, salvo a pendência temporária
-  de `request_data_export` expressamente aceita pela M2-D21 e registrada com
-  prazo no §8.2. A exceção de `delete_account` está escrita em `13` §0 e §5.3;
+  Divergência com qualquer um deles é bloqueio. A pendência temporária de
+  `request_data_export` da M2-D21 foi encerrada na `0020`, pela decisão do
+  planejador de 05/10/2026. A exceção de `delete_account` está escrita em `13` §0 e §5.3;
   não é divergência nem autorização para o plano prevalecer.
 
 ## 8. Decisões e gates humanos
@@ -1366,6 +1366,18 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   nenhuma FK aponta para `deletion_requests`, `data_exports`, `external_effects`
   ou `job_runs`, então o deadlock por upgrade que a M2-D13 corrige, causado pelo
   `FOR KEY SHARE` que a verificação de FK toma, não se aplica a elas.
+  **Decisão técnica do planejador de 05/10/2026 (Faxina B):** aceita-se a
+  sonda explícita de cada uma das oito travas restantes, com conexões distintas,
+  sem inventar segundo recurso ou deadlock. Duas chamadas da sonda sobre a
+  mesma linha: a segunda espera, observado em `pg_locks`/`pg_stat_activity`
+  sem sleep, e depois do commit da primeira enxerga o estado novo. Na variante
+  `SKIP LOCKED`, a segunda pula a linha. Havendo FK de entrada, a inserção
+  referenciadora (KEY SHARE implícito) deve ser compatível com NKU e bloquear
+  com o modo antigo; voltar ao modo antigo reprova essa compatibilidade.
+  Sem FK de entrada, registra-se “sem FK de entrada” e dispensa-se essa parte.
+  A `0020_m2_cleanup_b.sql` aplica os oito modos, preservando ordem, assinaturas,
+  efeitos e privilégios. As oito sondas passaram; o catálogo confirma ausência
+  de FK de entrada nas quatro tabelas e allowlist exata de 39 rotinas.
 - **M2-D16 (decidida em 2026-09-28).** A recusa em `approve_member` faz
   `pending → removed`, com `removed_at = now()` e `removal_count` inalterado. Um
   novo resgate válido da `0017` incrementa o contador como qualquer reentrada.
@@ -1419,9 +1431,16 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   tentativa de `13` §5.3, `14` §5 (linhas 56–72) e `0012` (linhas 67–68).
   `current` fica limitado a `id`, `status`, `requested_at`, `completed_at` e
   `has_operational_failure`, sem restaurar autoridade de domínio. O replay de
-  `request_data_export` com sessão revogada ainda devolve `current` e fica como
-  divergência temporária no §8.2, com prazo **antes de fechar o M2**, na mesma
-  migration da M2-D15. Nenhuma dessas duas RPCs é corrigida nesta fatia.
+  `request_data_export` foi alinhado na `0020`.
+  **Decisão técnica do planejador de 05/10/2026:** prevalece a guarda de ator
+  da chamada nova da própria RPC, aplicada antes do replay. Sessão revogada e
+  conta em exclusão/excluída recebem o erro normal, sem desfecho nem `current`.
+  Conta suspensa/banida e aceite obrigatório pendente continuam atendidos nos
+  canais de privacidade, conforme `13` §5.2 e §5.4. Replay nunca é mais
+  restritivo nem mais permissivo que a chamada nova. `13` §0 foi emendado e
+  perdeu o parágrafo da divergência temporária. A exceção de `delete_account`
+  permanece inalterada. Os sete casos HTTP e a contraprova sem revalidação
+  confirmam a decisão.
 
 - **M2-D22 (decidida em 2026-09-28; encerra gate 6).** Cada convite vale 30
   dias a partir da criação, pelo relógio do servidor. Trocar nonce, regenerar
@@ -1780,45 +1799,17 @@ região de status montada e `PROOFS_PENDING` usa o catálogo `pt.ts`. Nenhum
 contrato de produção foi alterado. As PERGUNTAS sobre a contraprova de deadlock
 e o censo antigo permanecem identificadas em `26`.
 
-**Vai para a Faxina B:** M2-D15 (as oito travas `FOR UPDATE` restantes do M1-B)
-e replay de `request_data_export` (M2-D21), na migration própria já exigida
-abaixo; também os P3 do #40 que mexem na ordem de erros do gateway. Alterar
-função de banco ou Edge está fora do escopo desta Faxina A. Preservam-se os
-prazos e decisões já aprovados, sem antecipar a implementação.
-
+**Faxina B: lista esvaziada pela `0020`.** M2-D15 e M2-D21 aplicadas com
+sondas explícitas e provas HTTP. Os três P3 do #56 estão corrigidos; as provas
+409/422 antes do 401 do #40 permanecem, sem mudança de produção no gateway.
+**Decisão técnica do planejador de 05/10/2026 (item C):** precedências que
+`13` §0 não define ficam como estão, e a tabela medida abaixo vai para
+“Pendências pós-piloto”, marcada como medido, não normativo.
 
 - **Visibilidade das notas na tela 25.** Prazo: M6, junto com as notas, por
   decisão humana de César em 03/10/2026. Preservar o contrato de
   `set_ratings_visibility`, a autoridade exclusiva do dono e a confirmação
   explicada ao tornar notas visíveis; ausente da UI-B do M2.
-
-- **Travas do M1-B fora da M2-D13 (M2-D15, §8.1).** Prazo: uma migration própria,
-  antes de fechar o M2, as alinha à M2-D13. São nove, citadas pela função e pela
-  linha no `pg_get_functiondef` vivo depois da `0015`, como a segunda revisão do
-  PR #36 as listou: `private.reconcile_deletion_request`, linha 13
-  (`deletion_requests`); `public.consume_data_export`, linha 21 (`data_exports`);
-  `public.enqueue_data_export_purge`, linha 9 (`data_exports`);
-  `public.finalize_deletion`, linha 19 (`deletion_requests`);
-  `public.worker_acquire_external_effect`, linha 67 (`external_effects`,
-  `FOR UPDATE SKIP LOCKED`); `public.worker_complete_external_effect`, linha 26
-  (`external_effects`); `public.worker_execute_database_job`, linha 10
-  (`job_runs`); `public.worker_finish_job`, linha 24 (`job_runs`); e
-  `public.worker_publish_data_export`, linha 9 (`external_effects`). A `0016`
-  reescreve `worker_execute_database_job` para despachar
-  `purge_removed_memberships` e, pela regra do §2, alinha a trava dela a
-  `FOR NO KEY UPDATE`; restam oito.
-
-- **Replay de `request_data_export` sem autoridade atual (M2-D21, §8.1).**
-  Prazo: **antes de fechar o M2**, na mesma migration própria da M2-D15 acima.
-  Em `0015_group_foundation.sql:831` (origem `0013:818`), o replay precede a
-  denylist em `0015:843`; com sessão revogada, ainda devolve desfecho e
-  `current`, enquanto a chamada nova dá `UNAUTHENTICATED`. É divergência
-  temporária de `13` §0: a migration deve revalidar a autenticação antes do
-  replay e, quando negada, devolver o erro normal sem desfecho nem `current`,
-  pelo ajuste de 28/09 à M2-D20 emendada. A projeção atual é somente
-  do titular, sem link, path ou token; download continua exigindo sessão válida
-  e reautenticação recente. Esse prazo é uma decisão expressa, não bloqueio da
-  `0016` nem exceção permanente à denylist. Não corrigir nesta rodada.
 
 Os antigos indefinidos sobre `active` e `pending` com request novo foram
 encerrados pelas M2-D29/M2-D30. As oito perguntas de `13` §5.0.7 foram
@@ -1833,6 +1824,30 @@ resposta muda a numeração; se exigir contrariar documento normativo, o trabalh
 para antes da migration.
 
 #### Pendências pós-piloto
+
+**Ordem de erros do gateway — medido, não normativo (05/10/2026).**
+P3 do #40: nenhuma alteração de produção. Medição HTTP local em `set_monthly`
+(prova `gateway-order-measured` de `db:test:membership`); os resultados abaixo
+não decidem precedência nova em `13` §0. Antes da abertura pública, decidir
+explicitamente a precedência e a classificação desses estados.
+
+| Combinação medida | HTTP/código | Desfecho | current |
+| --- | --- | --- | --- |
+| envelope inválido + token ausente | 401 UNAUTHENTICATED | ausente | ausente |
+| envelope inválido + token inválido | 401 UNAUTHENTICATED | ausente | ausente |
+| espera idempotente + sessão revogada | 503 IDEMPOTENCY_WAIT_TIMEOUT | ausente | ausente |
+| grupo suspenso, replay | 200 | gravado | ausente |
+| grupo suspenso, chamada nova | 403 GROUP_SUSPENDED | ausente | ausente |
+| grupo arquivado, replay | 200 | gravado | ausente |
+| grupo arquivado, chamada nova | 410 GROUP_ARCHIVED | ausente | ausente |
+| grupo inexistente, replay | 200 | gravado | ausente |
+| grupo inexistente, chamada nova | 404 NOT_FOUND | ausente | ausente |
+
+Os casos já definidos mantêm provas separadas nas sete RPCs da `0016`:
+entrada diferente no mesmo pedido → 409 IDEMPOTENCY_CONFLICT; envelope
+inválido com JWT ainda verificável de sessão revogada → 422 VALIDATION;
+replay e chamada nova válidos dessa sessão → 401 UNAUTHENTICATED, sem data.
+
 
 **Obrigatório antes de abrir o app ao público** (M2-D39/M2-D40). O piloto de grupo
 de amigos pode executar `0017` com chave v1 e limite por perfil; as partes

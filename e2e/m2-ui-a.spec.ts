@@ -1215,8 +1215,15 @@ test('UI-A clears old account group and invite material from the browser heap', 
           frame === page.mainFrame() && new URL(frame.url()).pathname === '/entrar',
       }),
     );
+    const logoutDocuments: string[] = [];
+    page.on('request', (request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+        logoutDocuments.push(new URL(request.url()).pathname);
+    });
     await page.getByRole('button', { name: 'Sair com segurança' }).click();
     await unloaded;
+    await page.waitForLoadState('load');
+    expect(logoutDocuments).toEqual(['/entrar']);
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     // Account B uses the same browser tab after the app completes logout.
     await page.getByTestId('login-email').fill(accountB.email);
@@ -1367,6 +1374,11 @@ test('UI-A Auth SIGNED_OUT discards the document and private group heap', async 
           frame === page.mainFrame() && new URL(frame.url()).pathname === '/entrar',
       }),
     );
+    const signedOutDocuments: string[] = [];
+    page.on('request', (sent) => {
+      if (sent.isNavigationRequest() && sent.frame() === page.mainFrame())
+        signedOutDocuments.push(new URL(sent.url()).pathname);
+    });
     const refresh = handledObserver(
       page.waitForResponse(
         (response) =>
@@ -1393,7 +1405,65 @@ test('UI-A Auth SIGNED_OUT discards the document and private group heap', async 
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: sentinel, exact: true })).toHaveCount(0);
     await unloaded;
+    await page.waitForLoadState('networkidle');
+    expect(signedOutDocuments).toEqual(['/entrar']);
     expect(await browserLeakCensus(page, sentinel)).toBe(true);
+  } finally {
+    await cleanActors(authIds, db);
+    expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
+    await db.end();
+  }
+});
+
+test('UI-A no session keeps the login document without reloads', async ({ page }) => {
+  await page.goto('/entrar');
+  await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
+  const documents: string[] = [];
+  page.on('request', (sent) => {
+    if (sent.isNavigationRequest() && sent.frame() === page.mainFrame())
+      documents.push(new URL(sent.url()).pathname);
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    window.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
+  expect(documents).toEqual([]);
+});
+
+test('UI-A expired session with valid refresh keeps its document', async ({ page, request }) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const actor = await createActor(request, 'valid-refresh', authIds);
+    await login(page, actor);
+    const documents: string[] = [];
+    page.on('request', (sent) => {
+      if (sent.isNavigationRequest() && sent.frame() === page.mainFrame())
+        documents.push(new URL(sent.url()).pathname);
+    });
+    const refresh = handledObserver(
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/auth/v1/token' &&
+          new URL(response.url()).searchParams.get('grant_type') === 'refresh_token',
+      ),
+    );
+    await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((item) => /^sb-.+-auth-token$/.test(item));
+      if (!key) throw new Error('Auth storage key missing');
+      const session = JSON.parse(localStorage.getItem(key)!);
+      session.expires_at = 1;
+      localStorage.setItem(key, JSON.stringify(session));
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect((await refresh).status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    expect(documents).toEqual([]);
   } finally {
     await cleanActors(authIds, db);
     expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);

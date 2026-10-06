@@ -767,21 +767,29 @@ async function proveCanonicalText(admin) {
     ],
     'the extractor did not find exactly the functions defined by 0015',
   );
-  for (const [qualifiedName, expected] of defined) {
+  const cleanup = migrationFunctions('0020_m2_cleanup_b.sql');
+  assert.ok(cleanup.has('public.request_data_export'), '0020 must redefine the export replay');
+  for (const [qualifiedName, original] of defined) {
+    const replaced = qualifiedName === 'public.request_data_export';
+    const expected = replaced ? cleanup.get(qualifiedName) : original;
+    const source = replaced ? '0020' : '0015';
     const differences = compareDefinition(expected, await liveFunction(admin, qualifiedName));
-    assert.deepEqual(differences, [], `${qualifiedName} diverges from 0015: ${differences}`);
+    assert.deepEqual(differences, [], `${qualifiedName} diverges from ${source}: ${differences}`);
   }
-  // Nenhuma migration posterior pode redefinir o que a 0015 fixou.
+  // Only the explicit M2-D21 replacement is permitted; all other 0015
+  // definitions remain immutable and no future override is accepted silently.
   const later = fs
     .readdirSync(migrationsDirectory)
     .filter((file) => file > '0015_group_foundation.sql' && file.endsWith('.sql'));
   for (const file of later) {
     for (const qualifiedName of migrationFunctions(file).keys()) {
-      assert.ok(!defined.has(qualifiedName), `${file} redefines ${qualifiedName}`);
+      const approved =
+        file === '0020_m2_cleanup_b.sql' && qualifiedName === 'public.request_data_export';
+      assert.ok(!defined.has(qualifiedName) || approved, `${file} redefines ${qualifiedName}`);
     }
   }
   console.log(
-    `ok - ${defined.size} functions: pg_get_functiondef equals the 0015 text byte for byte`,
+    `ok - ${defined.size} functions: canonical byte-for-byte 0015, export replay from 0020`,
   );
 
   // Contraprovas do comparador: um byte a mais e o texto da 0012 são acusados.

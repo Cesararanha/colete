@@ -59,7 +59,12 @@ A resposta autorizada combina `{ outcome, current }`: `outcome` vem do registro 
 `current` é projeção fresca. Em **todas as mutações**, o replay de um registro
 concluído distingue autenticação de autoridade no grupo. Depois dos locks e
 antes do ramo de replay, a checagem de autenticação exige conta ativa, sessão
-não revogada e nenhum aceite obrigatório pendente. Negação devolve o mesmo erro
+não revogada e nenhum aceite obrigatório pendente. Nos canais de privacidade,
+“autenticação” é exatamente a guarda da chamada nova da própria RPC: exportação
+continua disponível para conta suspensa/banida e aceite pendente (§5.2 e §5.4);
+sessão revogada e conta em exclusão/excluída recebem o erro normal, sem desfecho
+nem `current`. Replay nunca é mais restritivo nem mais permissivo que a chamada
+nova (decisão técnica do planejador de 05/10/2026, M2-D21). Negação devolve o mesmo erro
 normal da chamada nova, inclusive no replay, sem desfecho nem projeção. Com a
 autenticação válida, o replay devolve o desfecho gravado, composto somente de IDs
 estáveis e `logical_result`; a checagem de membership, papel e titularidade atuais
@@ -84,9 +89,7 @@ devolve o desfecho e os cinco campos da própria exclusão em `current`:
 É o canal de nova tentativa de §5.3, `14` §5 (linhas 56–72) e
 `0012_account_deletion.sql` (linhas 67–68), coerente com o shell de exclusão de
 `22` §4; não restaura autoridade de domínio nem expõe dados de terceiros
-(M2-D21, mesma decisão humana). O replay de `request_data_export` com sessão
-revogada ainda devolve `current`: é divergência temporária registrada com prazo
-em `25` §8.2, não outra exceção permanente.
+(M2-D21, mesma decisão humana).
 
 Pix por `get_payment_instructions`, upload/leitura de prova pelas Edge
 autenticadas, claim/lista por `get_my_match_state` e proposta por
