@@ -1317,3 +1317,132 @@ execuções (15/10/2026, 16/10/2026 e 01/01/2027, com arquivo de exceções norm
 e vazio em cópia descartável) aprovaram 12/12 cada. Reintroduzir relógio real
 e prazo produtivo reprova 3 testes; reintroduzir a leitura do arquivo vazio
 reprova 8. O prazo de `audit:high` continua inalterado.
+
+## Segurança de dependências — decisão humana de 06/10/2026
+
+Tarefa própria a partir de `origin/main` em `178a591`, depois da confirmação
+`gh pr view 57 --json state`: `MERGED`. Branch `chore/audit-2026-10`, worktree
+`~/dev/sec-audit`. César autorizou pelo AGENTS §8 patches/overrides mínimos
+para pacotes corrigidos e exceção por 14 dias somente para pacotes sem patch
+com ausência comprovada no PWA exportado e nas Edge Functions. Major de
+qualquer dependência direta e pacote sem patch presente nesses artefatos
+continuam gates humanos. Nenhum major foi aplicado.
+
+### Relatório, caminhos e decisão por advisory
+
+`npm audit --json` antes das mudanças: **38 registros, 23 high, 15 moderate,
+zero critical** (exit 1 esperado). Os 23 registros high têm somente os quatro
+advisories de origem abaixo. Os `first_patched_version` foram consultados na
+API oficial `gh api /advisories/<GHSA>`, além de `npm view <pacote> versions
+--json`; não foram inferidos da sugestão `fixAvailable` do npm.
+
+| GHSA (high) | Pacote instalado → final | Caminho confirmado por `npm ls --all` | Classificação npm | first_patched_version | Decisão / validade |
+| --- | --- | --- | --- | --- | --- |
+| [GHSA-vc2v-76pw-4v95](https://github.com/advisories/GHSA-vc2v-76pw-4v95) | compression 1.8.1 → 1.8.2 | expo 57.0.18 → @expo/cli 57.0.20 → compression; serve 14.2.6 → compression | produção via Expo e desenvolvimento via serve | 1.8.2 | override exato 1.8.2; sem exceção |
+| [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q) | source-map-js 1.2.1 → 1.2.2 | expo 57.0.18 → @expo/metro-config 57.0.12 → postcss 8.5.26 → source-map-js | produção no lockfile; ferramenta de build | 1.2.2 | override exato 1.2.2; sem exceção |
+| [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) | node-forge 1.4.0 | expo 57.0.18 → @expo/cli 57.0.20 → node-forge; também via @expo/code-signing-certificates 0.0.6 | produção no lockfile; ferramenta da CLI | null | exceção renovada até 2026-10-20 |
+| [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) | braces 3.0.3 | expo 57.0.18 → @expo/cli 57.0.20 → @expo/metro-file-map 57.0.2 → micromatch 4.0.8 → braces | produção no lockfile; ferramenta de build | null | exceção renovada até 2026-10-20 |
+
+Os outros **19 registros high**, propagados por `via` e conferidos também por
+`npm ls --all`, são: `@expo/cli`, `@expo/code-signing-certificates`,
+`@expo/metro`, `@expo/metro-config`, `@expo/metro-file-map`,
+`@react-native/community-cli-plugin`, `@react-native/metro-config`,
+`@react-native/virtualized-lists`, `expo`, `metro`, `metro-config`,
+`metro-file-map`, `metro-transform-worker`, `micromatch`, `react-native`,
+`react-native-reanimated`, `react-native-screens`, `react-native-worklets` e
+`serve`. São a propagação das mesmas causas, inclusive ciclos Metro/React
+Native; não apareceu outro GHSA high/critical. `serve` é dependência direta de
+desenvolvimento; as demais cadeias têm caminho por dependência de produção.
+Alertas moderados permanecem fora do limiar e do escopo desta correção.
+
+Após cada atualização, separadamente, passaram `npm ci` limpo,
+`npm run verify:app`, `npm run build:web` e `npm run build:web:smoke`.
+`verify:app` mediu **197 testes unitários em 23 arquivos**, todos aprovados.
+A comparação estrutural do lockfile com `origin/main` encontrou somente
+`node_modules/compression` e `node_modules/source-map-js` diferentes.
+Diff do lockfile: **11 linhas adicionadas, seis removidas**, em duas entradas.
+Compression atualiza versão, tarball, integrity e funding, e acrescenta a
+referência a `destroy: 1.2.0`, cuja entrada já existia e permanece idêntica;
+source-map-js atualiza somente versão, tarball e integrity. Nenhuma outra
+entrada foi criada, removida ou alterada; todas as dependências diretas
+conservam suas versões.
+
+### Ausência dos dois pacotes sem patch
+
+`npm view` continua terminando em `node-forge 1.4.0` e `braces 3.0.3`.
+Os dois advisories oficiais continuam com `first_patched_version: null`.
+Não se aplicou a sugestão de downgrade major do Expo feita pelo npm.
+
+Para complementar a busca por texto com prova do grafo real, um
+`metro.config.cjs` temporário usou `getDefaultConfig(__dirname)` de
+`expo/metro-config`, preservou o hook anterior e observou
+`serializer.experimentalSerializerHook(graph, delta)`. Em cada chamada,
+registrou `graph.transformOptions.platform`, o ambiente de transformação e
+`[...graph.dependencies.keys()]`, ordenados e relativos ao repositório.
+Executou-se **`npm run build:web`**, sem flag de smoke, e a configuração foi
+removida imediatamente. Nenhum script de build ou código do app mudou.
+
+As listas completas estão em
+[evidence/sec-audit/metro-modules-2026-10-06.json](evidence/sec-audit/metro-modules-2026-10-06.json):
+**1.049 módulos web/client e 1.102 web/node**. O segundo grafo cobre a
+renderização estática, além do cliente. Em ambos, zero caminhos correspondem
+à fronteira de pacote `node_modules/(node-forge|braces)/`. Esses números são
+as cardinalidades do grafo, não o contador de progresso impresso pelo Metro.
+Contraprova do detector em cópias das listas: acrescentar
+`node_modules/node-forge/index.js` ou `node_modules/braces/index.js` produz
+uma detecção em cada grafo; as quatro inclusões sintéticas foram detectadas.
+Nenhuma inclusão foi feita no app ou no artefato versionado.
+
+O export instrumentado e o export normal anterior produziram o mesmo bundle
+`entry-0254db1eaf66b70e813d4800944eb7b1.js` de **2,2 MB**, com **21 rotas
+estáticas**. A busca refeita em `dist` e `supabase/functions` usou:
+
+```sh
+rg -n -o 'node-forge|DigestAlgorithm|emsaPkcs1v15|digestFromOid|forge\.pki|forge\.asn1|forge\.md|_modPow|pki\.rsa|DigestInfo.DigestAlgorithm|Invalid RSAES-OAEP|Encryption block is invalid|Unknown message digest algorithm|node_modules/braces|npm:braces|micromatch|expanded array length exceeds range limit|encloseBrace|CHAR_LEFT_CURLY_BRACE|CHAR_ZERO_WIDTH_NOBREAK_SPACE' dist supabase/functions
+```
+
+Saída: **zero ocorrências, exit 1 esperado**. Uma inspeção dos imports pela
+AST TypeScript, excluindo arquivos `*.test.ts`, encontrou **19 arquivos
+produtivos, 52 imports e zero imports não relativos** nas Edge Functions.
+Não há cadeia externa de pacote nesses imports que contradiga a busca.
+
+Com essas provas, as duas entradas de `audit-exceptions.json` foram renovadas
+pela decisão humana de 06/10/2026 para **2026-10-20**, 14 dias a partir da
+data da decisão. O filtro considera a exceção vencida no início de
+20/10/2026 UTC; não há tolerância nem renovação automática. As duas evidências
+e o decisor foram atualizados. `scripts/test-audit-high.mjs` e seus fixtures
+permaneceram byte a byte idênticos.
+
+Após os patches, a auditoria mediu **36 registros: 20 high, 16 moderate e
+zero critical**. `serve` deixou de ser high e conserva suas causas moderadas;
+as únicas causas high restantes são node-forge e braces. `test:audit` passou
+com **12 testes, 12 aprovados, zero falhas**; `audit:high` respondeu:
+`Audit aprovado: nenhum alerta alto ou crítico fora das 2 exceções ativas.`
+
+### Validação final desta tarefa
+
+O banco foi recriado exclusivamente pelas **20 migrations** commitadas.
+`db:test`: **1.259 asserções pgTAP, 19 arquivos, PASS**. Os dez harnesses
+obrigatórios passaram: idempotency, gateway, worker, deletion, export,
+invites, groups, membership, rename e members. `auth.users` estava em
+**zero antes e depois** da validação. Browsers **1×**, sem retry: Auth
+8 aprovados/2 skips preexistentes; privacidade 4 aprovados/4 skips preexistentes;
+grupos 62 aprovados; smoke 6 aprovados. Total: **80 aprovações, seis skips
+preexistentes, zero falhas**. Grupos completou em 175,165 s (tempo do comando).
+
+Nenhum documento normativo, migration, teste, workflow ou código do app foi
+alterado. O manifesto permanece intacto. Não se executou Prettier para
+reescrever documentos. Nenhum projeto Supabase remoto, deploy ou serviço de
+produção foi acessado. Não se alterou contêiner de outro projeto. As escaladas
+foram solicitadas para comandos específicos; nenhuma aprovação foi negada
+nesta retomada. Progresso e logs de execução identificados em
+`~/colete-noite/progresso-sec-audit.md` e `/private/tmp/colete-*`.
+
+Censo final adicional: **storage.objects=0 e zero papéis-sonda**. Os censos
+embutidos nos dez harnesses passaram; a auditoria própria do GoTrue conserva
+somente o resíduo sintético aceito pelos harnesses. Nenhum segredo, e-mail ou
+OTP foi incluído no diff, na documentação ou na evidência de módulos.
+
+AGENTS §5 completo: todos os comandos terminaram com exit 0, inclusive
+`verify:app` final, `scan:docs` (23 arquivos), `scan:secrets` (271 arquivos),
+`test:audit`, `audit:high` e `git diff --check`. Sem alteração no manifesto.
