@@ -1008,11 +1008,23 @@ test.describe('M1-B screen 13 privacy controls', () => {
       const otherTab = await page.context().newPage();
       await otherTab.goto('/perfil');
       await expect(otherTab.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      const documentsByTab: string[][] = [[], []];
+      for (const [index, tab] of [page, otherTab].entries()) {
+        tab.on('request', (sent) => {
+          if (sent.isNavigationRequest() && sent.frame() === tab.mainFrame())
+            documentsByTab[index]!.push(new URL(sent.url()).pathname);
+        });
+      }
       restAuthorization.markLogout();
       await otherTab.getByRole('button', { name: 'Sair com segurança' }).click();
       await expect(otherTab).toHaveURL(/\/entrar$/u);
-      await otherTab.close();
       await expect(page).toHaveURL(/\/entrar$/u);
+      for (const tab of [page, otherTab]) {
+        await tab.waitForLoadState('networkidle');
+        await expect(tab.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible();
+      }
+      expect(documentsByTab).toEqual([['/entrar'], ['/entrar']]);
+      await otherTab.close();
 
       // The second account's own export projection is held at the network, so
       // whatever the card shows meanwhile can only come from the query cache.

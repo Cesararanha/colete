@@ -1,4 +1,5 @@
--- M2-D15: change only the mode of the eight remaining M1-B locks.
+-- M2-D15: change the mode of eight M1-B locks; M2-D21: redefine request_data_export
+-- to revalidate authentication before replay.
 -- CREATE OR REPLACE preserves owners and ACLs; no grant is added.
 begin;
 
@@ -495,5 +496,8 @@ begin
   return jsonb_build_object('outcome',v_outcome,'current',private.data_export_projection(v_profile.id));
 end;
 $function$;
+
+comment on function public.worker_acquire_external_effect(text[]) is
+  'Short READ COMMITTED lease acquisition. Reclassifies expired leases, then locks the first eligible published-handler kind with FOR NO KEY UPDATE SKIP LOCKED and NULLS FIRST ordering.';
 
 commit;

@@ -1836,7 +1836,7 @@ reprova a expectativa 401; restaurada exatamente.
 | A | oito modos NKU, oito sondas explícitas; 49 asserções novas de catálogo abrangem A/B; allowlist exata de 39 rotinas e atributos preservados; oito mutantes reprovam |
 | B | sete casos HTTP, guarda idêntica à chamada nova, outcome original/current fresco; mutante sem revalidação reprova |
 | C | nenhuma produção alterada; sete RPCs conservam prova 409/422 antes do 401; nove combinações indefinidas medidas em set_monthly e movidas para pós-piloto, não normativas |
-| D1 | guarda compartilhada para Auth, logout manual e broadcast; uma navegação e recarga; unitário e heap nos dois viewports |
+| D1 | guarda compartilhada para Auth, logout manual e broadcast; unitário e heap nos dois viewports; contagem de documentos no logout manual, refresh inválido e por aba no logout cruzado; zero recargas adicionais sem sessão e com refresh válido |
 | D2 | AggregateError preserva causa primeira, ordem e SQLSTATE nos quatro catches; dupla falha reprova quando se retorna apenas o rollback |
 | D3 | descrição correta dos sete harnesses; scan:docs compara os sete call sites reais; descrição com três reprova |
 
@@ -1874,3 +1874,43 @@ Nenhuma PERGUNTA nova. As decisões A/B encerraram as duas dúvidas; a decisão 
 manteve explicitamente as precedências indefinidas como pendência pós-piloto,
 sem inferir contrato. Nenhuma dependência criada/atualizada, acesso Supabase
 remoto, deploy ou serviço de produção. Contêineres alheios intactos.
+
+
+### Correção dos três P3 da revisão do PR #57
+
+A correção sobre `cd8debf` não altera comportamento. O cabeçalho da `0020`
+explicita M2-D15 e a revalidação de autenticação antes do replay (M2-D21).
+COMMENT ON FUNCTION de worker_acquire_external_effect agora descreve
+FOR NO KEY UPDATE SKIP LOCKED. Comparação pelo catálogo com `cd8debf`, em
+transação desfeita: nove corpos, ACLs, SECURITY DEFINER e search_path
+idênticos; nenhum dos oito comentários cita o modo antigo.
+
+Os testes contam somente requisições de navegação do frame principal, por
+aba. Refresh inválido exige exatamente uma carga de `/entrar`; o logout em
+duas abas exige exatamente uma em cada aba. Os casos sem sessão na tela de
+login e sessão expirada com refresh válido exigem zero cargas adicionais.
+A contagem permanece até networkidle, com a tela esperada visível. O teste
+anterior de logout manual e heap continua intacto. A prova é uma janela de
+observação até estabilização, sem afirmar ausência de eventos futuros.
+
+Contraprova: mutante temporário marca sessionStorage no logout e executa
+uma segunda carga real na inicialização do documento seguinte. Refresh
+inválido reprova em `e2e/m2-ui-a.spec.ts:1409` com duas cargas; duas abas
+reprova em `e2e/m1-b-privacy.spec.ts:1026` com duas cargas em cada aba.
+Arquivo restaurado byte a byte, build normal refeito. Sem retry, aumento de
+timeout, sleep de sincronização ou enfraquecimento de asserção.
+
+Browsers completos 3× novamente: 240 aprovações, 18 skips preexistentes;
+por série, 8 Auth + 4 privacidade + 62 grupos + 6 smoke. Grupos medidos em
+172,993 /185,156 /174,677 s. Reset pelas vinte migrations, pgTAP 1.259
+asserções em 19 arquivos e os dez harnesses passaram novamente.
+O manifesto foi recalculado e permanece idêntico: nenhum arquivo normativo
+mudou; este registro operacional não faz parte da baseline.
+
+AGENTS §5 completo: todos os comandos exit 0, incluindo verify:app,
+scan:docs, scan:secrets, test:audit, audit:high e diff --check. auth.users
+zero antes e depois; censo final de 54 tabelas e zero papéis-sonda, com linhas
+somente nas cinco tabelas de configuração já listadas. Removidos 4.882
+logs de auditoria e seis fluxos Auth exclusivamente sintéticos desta rodada.
+Tipos regenerados sem diff. Evidências e restauração em
+`~/colete-noite/correcao57-contraprovas.md` e logs `correcao57-*`.
