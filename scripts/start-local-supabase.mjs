@@ -32,6 +32,7 @@ const result = spawnSync(supabaseBinary, ['start'], {
     // The local web export serves the real join route on this loopback origin.
     INVITE_SHARE_URL_BASE: 'http://127.0.0.1:4173/join',
     COLETE_LOCAL_STACK: 'true',
+    APP_ALLOWED_ORIGINS: 'http://127.0.0.1:4173,http://localhost:8081,http://127.0.0.1:8081',
     WORKER_CRON_SECRET: localWorkerCronSecret(),
     SUPABASE_TELEMETRY_DISABLED: '1',
   },

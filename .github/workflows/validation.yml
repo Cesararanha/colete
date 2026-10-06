@@ -113,6 +113,8 @@ jobs:
         run: npm run db:test:idempotency
       - name: Run the identity gateway commit harness
         run: npm run db:test:gateway
+      - name: Prove direct production Edge CORS without Kong
+        run: npm run db:test:cors
       - name: Run the worker lease and lifecycle harness
         run: npm run db:test:worker
       - name: Run the account deletion commit and concurrency harness
@@ -139,6 +141,8 @@ jobs:
         run: npm run test:privacy:web
       - name: Run the UI-A and UI-B group browser flows
         run: npm run test:groups:web
+      - name: Run the direct cross-origin Edge browser flow
+        run: npm run test:cors:web
       # Evidence for a failed browser run: trace, screenshot and error context.
       # The repository is private, and the trace records only traffic to the
       # disposable local stack started above, whose keys are the fixed local

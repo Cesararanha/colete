@@ -1,3 +1,4 @@
+import { withBrowserCors } from '../_shared/browser-cors.ts';
 import { handleDataExportDownload } from '../_shared/data-export-download.ts';
 import { isErrorCode } from '../_shared/errors.ts';
 
@@ -46,33 +47,38 @@ async function rpc<T>(name: string, params: Record<string, unknown>): Promise<T>
   return (await response.json()) as T;
 }
 
-Deno.serve((request) =>
-  handleDataExportDownload(request, {
-    verifyToken: async (token) => {
-      const authResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: { apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
-        redirect: 'error',
-      }).catch(() => undefined);
-      if (authResponse === undefined || !authResponse.ok) return undefined;
-      const user = (await authResponse.json()) as { id?: unknown };
-      const claims = claimsFromVerifiedToken(token);
-      if (typeof user.id !== 'string' || claims === undefined) return undefined;
-      return { authUserId: user.id, claims };
-    },
-    consume: ({ actorAuthUserId, actorSessionId, exportId }) =>
-      rpc('consume_data_export', {
-        p_actor_auth_user_id: actorAuthUserId,
-        p_actor_session_id: actorSessionId,
-        p_export_id: exportId,
+Deno.serve(
+  withBrowserCors(
+    (request) =>
+      handleDataExportDownload(request, {
+        verifyToken: async (token) => {
+          const authResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            headers: { apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
+            redirect: 'error',
+          }).catch(() => undefined);
+          if (authResponse === undefined || !authResponse.ok) return undefined;
+          const user = (await authResponse.json()) as { id?: unknown };
+          const claims = claimsFromVerifiedToken(token);
+          if (typeof user.id !== 'string' || claims === undefined) return undefined;
+          return { authUserId: user.id, claims };
+        },
+        consume: ({ actorAuthUserId, actorSessionId, exportId }) =>
+          rpc('consume_data_export', {
+            p_actor_auth_user_id: actorAuthUserId,
+            p_actor_session_id: actorSessionId,
+            p_export_id: exportId,
+          }),
+        openObject: (storagePath) => {
+          const encodedPath = storagePath.split('/').map(encodeURIComponent).join('/');
+          return fetch(`${SUPABASE_URL}/storage/v1/object/data-exports/${encodedPath}`, {
+            headers: { apikey: SECRET_KEY, Authorization: `Bearer ${SECRET_KEY}` },
+            redirect: 'error',
+          }).catch(() => undefined);
+        },
+        enqueuePurge: (exportId) =>
+          rpc('enqueue_data_export_purge', { p_export_id: exportId }).then(() => undefined),
       }),
-    openObject: (storagePath) => {
-      const encodedPath = storagePath.split('/').map(encodeURIComponent).join('/');
-      return fetch(`${SUPABASE_URL}/storage/v1/object/data-exports/${encodedPath}`, {
-        headers: { apikey: SECRET_KEY, Authorization: `Bearer ${SECRET_KEY}` },
-        redirect: 'error',
-      }).catch(() => undefined);
-    },
-    enqueuePurge: (exportId) =>
-      rpc('enqueue_data_export_purge', { p_export_id: exportId }).then(() => undefined),
-  }),
+    (name) => Deno.env.get(name),
+    ['GET'],
+  ),
 );

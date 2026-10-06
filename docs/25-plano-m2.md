@@ -1787,6 +1787,19 @@ mudança de código e sessão revogada continua recusada.
 - A remoção do fragmento por `history.replaceState`, antes de
   analytics/observabilidade, pertence à prova E2E da UI-A (§6.1).
 
+**Decisão técnica do planejador (06/10/2026) — fatia CORS.**
+
+Autorizar, em PR próprio e sem migration/dependência nova, a camada CORS
+compartilhada definida em `13` §0 e `14` §5.4. APP_ALLOWED_ORIGINS permite
+somente lista explícita de origens; fora do local, HTTPS obrigatório.
+Preflight antes de autenticação/idempotência/limitador; erros reais legíveis
+para a origem aprovada; sem wildcard, Allow-Credentials ou mudança de
+autorização. Worker permanece sem CORS. Medir Kong versus runtime direto,
+provar HTTP real sem Kong, censos sem efeito e E2E entre origens distintas,
+com quatro contraprovas. Staging permanece pausado no WIP `cfbb479` até
+esta fatia ser mergeada por revisão independente. A decisão de CSP fica
+reservada à retomada de staging, sem implementação nesta fatia.
+
 ### 8.2 Gates humanos
 
 A implementação não pode preencher estas respostas:

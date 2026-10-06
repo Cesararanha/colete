@@ -41,6 +41,8 @@
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db --local",
     "db:test:idempotency": "node scripts/test-idempotency-concurrency.mjs",
+    "db:test:cors": "node scripts/test-edge-cors.mjs",
+    "test:cors:web": "playwright test e2e/edge-cors.spec.ts --workers=1",
     "db:test:gateway": "node scripts/test-identity-gateway.mjs",
     "db:test:worker": "node scripts/test-worker-foundation.mjs",
     "db:test:deletion": "node scripts/test-account-deletion.mjs",

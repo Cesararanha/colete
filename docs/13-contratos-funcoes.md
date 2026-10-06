@@ -167,6 +167,48 @@ simultâneo abaixo e mantém casos menores/maiores conforme a operação.
 8. Golden vectors rodam nos três runtimes; casos negativos cobrem ordem de objeto, NFC/NFD,
    `null`/ausência, timestamp com offset, dinheiro, arrays set-like e alteração de um campo.
 
+
+### CORS das Edge Functions de navegador — decisão do planejador de 06/10/2026
+
+`identity`, `groups` e `data-exports` usam uma única camada em
+`supabase/functions/_shared/browser-cors.ts`. `APP_ALLOWED_ORIGINS` é obrigatória
+fora do local: lista separada por vírgulas de origens HTTPS exatas, sem path,
+query, fragmento, credenciais ou curinga. Ausente, vazia ou com qualquer entrada
+inválida permite zero origens, sem aproveitar as entradas válidas restantes.
+Com `COLETE_LOCAL_STACK=true`, a lista explícita também admite HTTP em
+`localhost` e `127.0.0.1`, com qualquer porta; não admite LAN nem permite
+implicitamente todas as origens locais. O valor enviado em Origin precisa
+coincidir exatamente com uma entrada. Não há wildcard nem reflexão livre.
+
+OPTIONS é tratado antes de autenticação, JSON, idempotência e limitador,
+sem efeito no banco. Retorna 204 vazio. Quando origem, método e cabeçalhos
+solicitados são permitidos, inclui `Access-Control-Allow-Origin` igual à
+origem, `Allow-Methods: POST` para identity/groups ou `GET` para data-exports,
+`Allow-Headers: authorization, apikey, content-type, x-client-info`,
+`Max-Age: 600` (calibragem inicial em segundos) e `Vary: Origin`. Origem
+não permitida/ausente ou preflight com método/cabeçalho não previsto não
+recebe nenhum cabeçalho CORS. Vary conserva valores existentes e inclui Origin
+nas respostas reais e de preflight, inclusive negadas.
+
+Todas as respostas reais, inclusive 401/403/404/409/410/422/429/500/503,
+recebem os mesmos cabeçalhos CORS para origem permitida. O corpo/status e os
+cabeçalhos de segurança/cache do handler são preservados. Exceção inesperada
+é convertida em 500 INTERNAL sanitizado, sem mensagem do provedor, com
+`request_id` vazio e `cache-control: no-store`. Não há
+`Access-Control-Allow-Credentials`: o cliente usa Bearer, sem cookie.
+`src/lib/api.ts` lê Content-Type (safelisted) e retry_after no JSON; nenhum
+cabeçalho extra precisa de Expose-Headers. x-client-info é o cabeçalho do
+cliente Supabase instalado; os demais headers opcionais de tracing/REST não
+são enviados às Edge Functions por este app e não são liberados aqui.
+
+CORS é política de transporte do navegador, não autenticação/autorização.
+Uma requisição real sem Origin ou de origem negada continua sujeita ao handler
+original, sem mudar grants, sessão, idempotência ou autoridade de domínio.
+O worker não recebe CORS; OPTIONS continua 405 METHOD_NOT_ALLOWED.
+Provas obrigatórias usam o runtime Edge direto, sem o plugin CORS do Kong,
+e um navegador com app/API em origens distintas, sem proxy. Nenhuma
+configuração ou acesso a ambiente hospedado é autorizado por esta decisão.
+
 ## 1. Lista, fila e reserva
 
 Campos `payment_status` desta API são **rótulos projetados**, não uma segunda autoridade:

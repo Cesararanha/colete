@@ -142,6 +142,7 @@ npm run db:reset
 npm run db:test
 npm run db:test:idempotency
 npm run db:test:gateway
+npm run db:test:cors
 npm run db:test:worker
 npm run db:test:deletion
 npm run db:test:export
@@ -151,6 +152,7 @@ npm run db:test:membership
 npm run db:test:rename
 npm run db:test:members
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
+npm run test:cors:web
 npm run test:groups:web # UI-A e UI-B: Auth, Edge e Postgres locais reais
 npm run build:web:smoke && npm run test:smoke:web
 npm run verify:app
