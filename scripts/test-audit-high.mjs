@@ -62,9 +62,10 @@ function runCli(
       writeFileSync(join(root, 'package-lock.json'), JSON.stringify(lock));
       utimesSync(join(root, 'package-lock.json'), 1, 1);
     }
+    let manifest;
     if (published !== undefined) {
       mkdirSync(join(root, '.expo'));
-      const manifest = {
+      manifest = {
         schema: 1,
         sourceSha256: digest(`package-lock.json\0${digest(JSON.stringify(lock))}`),
         commit: 'fixture-commit',
@@ -77,7 +78,20 @@ function runCli(
       if (invalid === 'hash') manifest.lockSha256 = 'different';
       if (invalid === 'sources') manifest.sourceSha256 = 'different';
       writeFileSync(join(root, '.expo/audit-shipped.json'), JSON.stringify(manifest));
+      // The fixture collector replaces any preexisting file, just like production.
     }
+    writeFileSync(
+      join(root, 'scripts/build-audit-scope.mjs'),
+      `
+      import { mkdirSync, writeFileSync, utimesSync } from 'node:fs';
+      const manifest = ${JSON.stringify(manifest ?? null)};
+      if (manifest && ${JSON.stringify(invalid)} !== 'stale') {
+        mkdirSync('.expo', { recursive: true });
+        writeFileSync('.expo/audit-shipped.json', JSON.stringify(manifest));
+        if (${JSON.stringify(invalid)} === 'mtime') utimesSync('.expo/audit-shipped.json', 0, 0);
+      }
+    `,
+    );
     copyFileSync(
       new URL('./audit-high.mjs', import.meta.url),
       join(root, 'scripts/audit-high.mjs'),
@@ -85,7 +99,7 @@ function runCli(
     writeFileSync(join(root, 'audit-exceptions.json'), JSON.stringify(exceptions));
     writeFileSync(
       join(root, 'bin/npm'),
-      `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(report))}); process.exit(1);\n`,
+      `#!/usr/bin/env node\nconst args=process.argv.slice(2); if (!['--include=dev','--include=optional','--include=peer'].every(x=>args.includes(x)) || Object.keys(process.env).some(x=>/^npm_config_(omit|only|production)$/i.test(x))) { process.stdout.write('{}'); process.exit(2); } process.stdout.write(${JSON.stringify(JSON.stringify(report))}); process.exit(1);\n`,
       { mode: 0o755 },
     );
     // Only the disposable subprocess clock is controlled. The CLI source is
@@ -296,26 +310,76 @@ test('CRITICAL propagado no topo também bloqueia causa HIGH não publicada', ()
   assert.equal(runCli(report, [], today, shipped('other', '1.0.0'), versionLock).status, 1);
 });
 
-test('export estático inclui somente módulos client e deduplica snapshots', async () => {
-  const { publishedWebModules } = await import('./audit-module-graph.mjs');
-  const graphs = [
-    { platform: 'web', environment: 'node', modules: ['/build-only.js'] },
-    { platform: 'web', environment: 'client', modules: ['/published.js'] },
-    { platform: 'web', environment: 'client', modules: ['/published.js', '/other.js'] },
-  ];
-  assert.deepEqual([...publishedWebModules(graphs, 'static')], ['/published.js', '/other.js']);
+test('CRITICAL com exceção válida bloqueia publicado e não publicado', () => {
+  const report = structuredClone(versioned);
+  report.vulnerabilities.vulnerable.via[0].severity = 'critical';
+  for (const name of ['vulnerable', 'other']) {
+    const errors = evaluateAudit(
+      report,
+      [rootException],
+      today,
+      { packages: shipped(name, '1.0.0') },
+      versionLock,
+    );
+    assert.match(errors.join(' '), /Alerta critical não autorizado/);
+  }
 });
-test('grafo ou modo de publicação incerto impede gerar conjunto', async () => {
-  const { publishedWebModules } = await import('./audit-module-graph.mjs');
-  const client = { platform: 'web', environment: 'client', modules: ['/published.js'] };
-  for (const graphs of [
+test('topo publicado com causa não publicada continua aviso', () => {
+  assert.deepEqual(
+    evaluateAudit(versioned, [], today, { packages: shipped('top', '1.0.0') }, versionLock),
     [],
-    [{ ...client, environment: 'node' }],
-    [{ ...client, environment: 'unknown' }],
-    [{ ...client, platform: 'ios' }],
-    [{ ...client, modules: [] }],
-    [{ ...client, modules: [null] }],
-  ])
-    assert.throws(() => publishedWebModules(graphs, 'static'));
-  assert.throws(() => publishedWebModules([client], 'server'));
+  );
+});
+test('prerelease publicado não desaparece atrás de versão estável não publicada', () => {
+  const lock = structuredClone(versionLock);
+  lock.packages['node_modules/top/node_modules/vulnerable'].version = '1.1.0-rc.1';
+  const errors = evaluateAudit(
+    versioned,
+    [],
+    today,
+    { packages: shipped('vulnerable', '1.1.0-rc.1') },
+    lock,
+  );
+  assert.match(errors.join(' '), /não autorizado/);
+});
+test('Edge casa por nome em qualquer versão, PWA usa igualdade textual', () => {
+  const scope = { packages: [{ ...shipped('vulnerable', '9.0.0')[0], target: 'edge' }] };
+  assert.match(evaluateAudit(versioned, [], today, scope, versionLock).join(' '), /não autorizado/);
+  scope.packages[0].target = 'metro';
+  assert.deepEqual(evaluateAudit(versioned, [], today, scope, versionLock), []);
+});
+test('mtime anterior ao lock reprova com generatedAt válido', () => {
+  const result = runCli(versioned, [], today, shipped('other', '1.0.0'), versionLock, 'mtime');
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /todos os HIGH bloqueiam/);
+});
+test('arquivo preexistente não é aceito sem geração nesta execução', () => {
+  const result = runCli(versioned, [], today, shipped('other', '1.0.0'), versionLock, 'stale');
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /todos os HIGH bloqueiam/);
+});
+test('omit=dev no ambiente não esconde HIGH ou CRITICAL', () => {
+  const original = process.env.npm_config_omit;
+  try {
+    process.env.npm_config_omit = 'dev';
+    assert.equal(
+      runCli(versioned, [], today, shipped('vulnerable', '1.0.0'), versionLock).status,
+      1,
+    );
+    assert.equal(runCli(versioned, [], today, shipped('other', '1.0.0'), versionLock).status, 0);
+    const report = structuredClone(versioned);
+    report.vulnerabilities.vulnerable.via[0].severity = 'critical';
+    const result = runCli(report, [], today, shipped('other', '1.0.0'), versionLock);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Alerta critical não autorizado/);
+  } finally {
+    if (original === undefined) delete process.env.npm_config_omit;
+    else process.env.npm_config_omit = original;
+  }
+});
+
+test('identidade PWA preserva texto de nome e versão sem normalizar', () => {
+  for (const packages of [shipped('Vulnerable', '1.0.0'), shipped('vulnerable', 'v1.0.0')]) {
+    assert.deepEqual(evaluateAudit(versioned, [], today, { packages }, versionLock), []);
+  }
 });

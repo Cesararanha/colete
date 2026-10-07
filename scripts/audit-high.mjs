@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { readScope } from './audit-scope.mjs';
@@ -86,13 +86,17 @@ export function evaluateAudit(
     );
     if (versions.some(({ version }) => !semver.valid(version))) known = false;
     const affected = known
-      ? versions.filter(({ version }) => semver.satisfies(version, cause.range))
+      ? versions.filter(({ version }) =>
+          semver.satisfies(version, cause.range, { includePrerelease: true, loose: true }),
+        )
       : versions;
     if (!affected.length) known = false;
     const published =
       !known ||
       affected.some(({ version }) =>
-        scope.packages.some((pkg) => pkg.name === cause.name && pkg.version === version),
+        scope.packages.some(
+          (pkg) => pkg.name === cause.name && (pkg.target === 'edge' || pkg.version === version),
+        ),
       );
     return {
       blocking: cause.severity === 'critical' || published,
@@ -139,10 +143,26 @@ export function evaluateAudit(
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
-    const result = spawnSync('npm', ['audit', '--json', '--audit-level=high'], {
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    const result = spawnSync(
+      'npm',
+      [
+        'audit',
+        '--json',
+        '--audit-level=high',
+        '--include=dev',
+        '--include=optional',
+        '--include=peer',
+      ],
+      {
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+        env: Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([key]) => !/^(npm_config_(omit|only|production|include)|node_env)$/i.test(key),
+          ),
+        ),
+      },
+    );
     if (result.error || ![0, 1].includes(result.status))
       throw new Error('Não foi possível executar npm audit.');
     const report = JSON.parse(result.stdout);
@@ -150,7 +170,23 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
       readFileSync(new URL('../audit-exceptions.json', import.meta.url), 'utf8'),
     );
     const root = resolve(new URL('..', import.meta.url).pathname);
-    const scope = readScope(root);
+    // Never trust an existing file: collect again in this very invocation.
+    rmSync(resolve(root, '.expo/audit-shipped.json'), { force: true });
+    const collection = spawnSync(
+      process.execPath,
+      [resolve(root, 'scripts/build-audit-scope.mjs')],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+    if (collection.stdout) console.log(collection.stdout.trim());
+    if (collection.status !== 0) {
+      if (collection.stderr) console.error(collection.stderr.trim());
+      console.error('Coletor falhou; todos os HIGH bloqueiam.');
+    }
+    const scope = collection.status === 0 ? readScope(root) : null;
     let lock = null;
     try {
       lock = JSON.parse(readFileSync(resolve(root, 'package-lock.json')));

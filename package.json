@@ -17,7 +17,7 @@
     "android": "cross-env EXPO_NO_TELEMETRY=1 expo start --android",
     "ios": "cross-env EXPO_NO_TELEMETRY=1 expo start --ios",
     "web": "cross-env EXPO_NO_TELEMETRY=1 expo start --web",
-    "build:web": "cross-env EXPO_NO_TELEMETRY=1 expo export --platform web --clear",
+    "build:web": "cross-env EXPO_NO_TELEMETRY=1 expo export --platform web --clear --source-maps && node scripts/map-public-code.mjs",
     "build:web:smoke": "cross-env EXPO_NO_TELEMETRY=1 EXPO_PUBLIC_SMOKE_MODE=true expo export --platform web --clear",
     "build:web:auth-e2e": "node scripts/build-auth-e2e.mjs",
     "serve:web": "serve --single dist --listen 4173 --no-clipboard",
@@ -52,7 +52,7 @@
     "db:test:rename": "node scripts/test-group-rename.mjs",
     "db:stop": "supabase stop --no-backup",
     "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets",
-    "test:audit": "node --test scripts/test-audit-high.mjs",
+    "test:audit": "node --test scripts/test-audit-high.mjs scripts/test-audit-scope.mjs",
     "build:audit-scope": "node scripts/build-audit-scope.mjs"
   },
   "dependencies": {

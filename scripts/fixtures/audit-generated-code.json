@@ -1,0 +1,20 @@
+{
+  "inline": [
+    "de4ae1e26d87e0dbce7f6f469a0389aadde8f531767b047492b95ba95ac111f5",
+    "1e4323cbfb325d8bb23e1924ebef8e9e72ee2366b1151bd24414b09a950fa580",
+    "229f3dcf510a7d1d5bf29f57acc79d359e6342f3dcc7fbc2a91b06d84dafb130"
+  ],
+  "generators": [
+    "node_modules/metro",
+    "node_modules/expo/node_modules/@expo/cli",
+    "node_modules/expo/node_modules/@expo/cli/node_modules/@expo/router-server"
+  ],
+  "virtualOwners": {
+    "__prelude__": "node_modules/metro",
+    "\u0000polyfill:external-require": "node_modules/expo/node_modules/@expo/cli",
+    "\u0000polyfill:environment-variables": "node_modules/expo/node_modules/@expo/cli",
+    "\u0000polyfill:assets-registry": "node_modules/expo/node_modules/@expo/cli",
+    "\u0000shim:react-native-web/dist/exports/AppRegistry/AppContainer.js": "node_modules/expo/node_modules/@expo/cli",
+    "\u0000shim:react-native-web/dist/exports/BackHandler/index.js": "node_modules/expo/node_modules/@expo/cli"
+  }
+}

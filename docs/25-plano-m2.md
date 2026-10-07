@@ -1226,13 +1226,40 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Decisões técnicas do planejador de 07/10/2026 — correção do PR #60.**
+  O conjunto publicado sai do resultado do build; na dúvida, o pacote conta como
+  publicado. (A) A fonte da verdade no PWA são os source maps do mesmo export de
+  produção de `build:web`, incluindo prelude, runtime e polyfills. Código em
+  `dist` sem mapa correspondente, mapa que não fecha com o código ou divergência
+  de eventual hook de conferência reprovam. (B) Código gerado e embutido no HTML
+  ou JS servido conta como publicado. A lista explícita e pequena de geradores
+  embutidos só adiciona bloqueio; inclui `@expo/router-server`, `@expo/cli` e os
+  demais identificados pela medição. Scripts inline são comparados com assinaturas
+  conhecidas; qualquer script novo ou diferente reprova até revisão da lista.
+  (C) Nas Edge Functions, sem `deno.lock`, o casamento é conservador por nome,
+  em qualquer versão, incluindo dependências transitivas, peers e opcionais.
+  O conjunto é calculado por alcance dos pontos de entrada `index.*` das funções
+  publicadas, conforme `supabase/config.toml` e a convenção de diretórios. O coletor
+  segue imports estáticos, dinâmicos literais e reexports, inclusive `_shared`,
+  usando import maps e `deno.json`. Lista entradas e arquivos não alcançados;
+  estes ficam fora do conjunto, inclusive testes. Função sem entrada, teste
+  alcançado, import não calculável ou extensão desconhecida alcançada reprovam.
+  (D) Identidade no PWA é igualdade exata de texto de nome e versão;
+  prerelease conta como qualquer versão. (E) O relatório usa `npm audit` com
+  `--include=dev --include=optional --include=peer`, ignorando `npm_config_omit`
+  e variáveis equivalentes; `omit=dev` não pode esconder alerta.
+  O CLI gera sempre o conjunto novamente na própria execução, sem aceitar
+  arquivo existente. Nenhuma nova exceção nem atualização de dependência está
+  autorizada nesta correção; HIGH publicado exige parar e relatar.
+
+
 - **Decisão humana de César em 06/10/2026 — trava de dependências pelo escopo
   publicado (AGENTS §8).** `audit:high` bloqueia todo CRITICAL e todo HIGH cuja
   causa raiz e versão instalada chegam ao PWA exportado ou às Edge Functions.
   HIGH somente de build, teste ou desenvolvimento vira aviso, listado na saída
-  e no relatório da rodada quinzenal. O conjunto publicado é calculado pelo
-  grafo real do export Metro de produção e pelos imports npm das Edge Functions,
-  nunca por lista manual. Se não puder ser calculado, estiver vazio, anterior ao
+  e no relatório da rodada quinzenal. O mecanismo inicial baseado no hook do Metro foi substituído pelas
+  decisões técnicas de 07/10/2026 abaixo; o resultado publicado do build é a fonte
+  da verdade. Se não puder ser calculado, estiver vazio, anterior ao
   lockfile ou não corresponder ao commit auditado, todo HIGH bloqueia. Na dúvida
   sobre causa ou versão, bloqueia; não se classifica pelo topo da cadeia.
   Exceção HIGH publicado conserva ID exato, pacote, validade e rejeição de órfã;
