@@ -1446,3 +1446,167 @@ OTP foi incluído no diff, na documentação ou na evidência de módulos.
 AGENTS §5 completo: todos os comandos terminaram com exit 0, inclusive
 `verify:app` final, `scan:docs` (23 arquivos), `scan:secrets` (271 arquivos),
 `test:audit`, `audit:high` e `git diff --check`. Sem alteração no manifesto.
+
+## Auditoria por momento — decisão humana de 07/10/2026
+
+A decisão de César de 07/10/2026 substitui a política de 06/10/2026.
+O PR #60 foi abandonado após três rodadas de revisão: não foi possível provar
+com segurança tudo que chega ao app publicado, pois transformadores de build
+podem injetar código sem rastro. Será fechado sem merge, conservando a branch.
+Não se classifica pacote como publicado para decidir a trava.
+`scripts/audit-high.mjs` permanece intacto: todo high/critical reprova, salvo
+exceção datada, com as mesmas verificações de vencimento e entrada órfã.
+
+Em PR, `scripts/audit-needed.mjs` compara base e head pela diferença de três
+pontos, com detecção de renomes desabilitada para verificar os dois caminhos.
+A lista protegida é `package.json`, `package-lock.json`, `audit-exceptions.json`,
+`.npmrc`, `.node-version`, `scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`,
+`scripts/fixtures/audit-*`, `scripts/audit-needed.mjs` e `.github/workflows/**`.
+Base/head ausente ou inválido, erro do git, saída vazia/inválida e evento
+não reconhecido exigem auditoria. O log informa o motivo ou a dispensa.
+`Repository guardrails` continua em todo PR, conservando os cinco jobs;
+`test:audit` roda sempre. Localmente, mesmo fora da lista, o agente executa e
+relata `audit:high`, mas não interrompe a fatia por esse alerta.
+
+### Procedimento diário e rodada quinzenal
+
+`.github/workflows/dependency-audit.yml` executa sobre `main`, diariamente
+às 06:17 UTC (03:17 em America/Maceio), e por `workflow_dispatch`, com `npm ci`
+e `audit:high`. Actions fixadas por SHA, somente `contents: read`, sem segredos
+e sem trigger de push. A auditoria deixa de rodar no guardrail de push em main.
+César, dono do projeto, confere a execução diária no GitHub Actions e registra
+qualquer alerta novo. Falha de consulta ou instalação é investigada como falha
+de execução; não equivale a audit aprovado.
+
+Critical novo é tratado no mesmo dia, mediante patch mínimo ou decisão humana
+expressa. High novo entra na rodada quinzenal de dependências: conferir advisory,
+versão corrigida, caminho por `npm ls`, prova e validade das exceções, corrigir
+por patch/minor autorizado e validar a fatia. Referência da rodada: 07/10/2026;
+próximas em 21/10 e 04/11. Uma exceção nunca se renova automaticamente; ausência
+de patch, major ou presença no artefato exige decisão humana. As exceções desta
+rodada vencem no início de 06/11/2026 UTC. César aceitou que um alerta novo não
+impeça merge de trabalho que não altera dependências ou a trava.
+
+### Alertas e lockfile conferidos em 07/10/2026
+
+Auditoria inicial: **38 registros, 21 high, um critical e 16 moderate**.
+Os quatro advisories de origem eram os esperados; nenhuma outra causa
+high/critical apareceu. Após os patches: **36 registros, 20 high, zero
+critical e 16 moderate**. As únicas causas high restantes são node-forge
+e braces, com exceções até 2026-11-06.
+
+| Alerta | Correção ou exceção | Validade |
+| --- | --- | --- |
+| GHSA-pqg4-j6r4-53mv (critical, shell-quote) | 1.10.0 → 1.11.0, override escopado a react-devtools-core 6.1.5 | corrigido; sem exceção |
+| [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w) (high, sharp) | dependência direta 0.35.4 → 0.35.5; advisory/API oficial confirmam primeira versão corrigida 0.35.5 | corrigido; sem exceção |
+| GHSA-86w9-cpqp-85rv (high, node-forge) | 1.4.0, sem versão corrigida no registry/advisory; exceção humana datada | 2026-11-06 |
+| GHSA-vfj7-8cjw-p6xm (high, braces) | 3.0.3, sem versão corrigida no registry/advisory; exceção humana datada | 2026-11-06 |
+
+O lockfile alterou a referência de sharp na raiz e somente as **28 entradas**
+abaixo. Não criou nem removeu entradas. Cada `resolved` e `integrity` foi
+comparado com `npm view <pacote>@<versão> dist --json`: **28/28 conferidos**.
+Os scripts publicados de sharp 0.35.4 e 0.35.5 são idênticos, sem `install`
+ou `postinstall` em ambas as versões. `npm ci` limpo passou com Node 24.20.0
+e npm 11.19.0. Versão/tarball/integrity são atualizados em todas as entradas;
+sharp também passa a referenciar os novos binários e libvips.
+
+| Entrada (prefixo `node_modules/`) | Antes | Depois |
+| --- | --- | --- |
+| `@img/sharp-darwin-arm64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-darwin-x64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-freebsd-wasm32` | 0.35.4 | 0.35.5 |
+| `@img/sharp-libvips-darwin-arm64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-darwin-x64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-arm` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-arm64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-ppc64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-riscv64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-s390x` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linux-x64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linuxmusl-arm64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-libvips-linuxmusl-x64` | 1.3.3 | 1.3.4 |
+| `@img/sharp-linux-arm` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linux-arm64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linux-ppc64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linux-riscv64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linux-s390x` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linux-x64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linuxmusl-arm64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-linuxmusl-x64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-wasm32` | 0.35.4 | 0.35.5 |
+| `@img/sharp-webcontainers-wasm32` | 0.35.4 | 0.35.5 |
+| `@img/sharp-win32-arm64` | 0.35.4 | 0.35.5 |
+| `@img/sharp-win32-ia32` | 0.35.4 | 0.35.5 |
+| `@img/sharp-win32-x64` | 0.35.4 | 0.35.5 |
+| `sharp` | 0.35.4 | 0.35.5 |
+| `shell-quote` | 1.10.0 | 1.11.0 |
+
+`npm ls --all` confirmou: Expo 57.0.18 → @expo/cli 57.0.20 →
+node-forge 1.4.0 (também por @expo/code-signing-certificates 0.0.6);
+@expo/metro-file-map 57.0.2 → micromatch 4.0.8 → braces 3.0.3.
+`npm view <pacote> versions --json` não encontrou patch posterior;
+a API oficial dos dois advisories retornou `first_patched_version: null`.
+
+Após `build:web` normal, a busca abaixo em `dist` e `supabase/functions`
+terminou com **zero ocorrências, exit 1 esperado**:
+
+```sh
+rg -n -o 'node-forge|DigestAlgorithm|emsaPkcs1v15|digestFromOid|forge\.pki|forge\.asn1|forge\.md|_modPow|pki\.rsa|DigestInfo.DigestAlgorithm|Invalid RSAES-OAEP|Encryption block is invalid|Unknown message digest algorithm|node_modules/braces|npm:braces|micromatch|expanded array length exceeds range limit|encloseBrace|CHAR_LEFT_CURLY_BRACE|CHAR_ZERO_WIDTH_NOBREAK_SPACE' dist supabase/functions
+```
+
+Essa busca textual é a evidência refeita para a exceção humana, não uma
+classificação completa do código que transformadores podem injetar. A limitação
+explica o abandono do #60; a trava conserva o limiar global e a exceção datada.
+Relatórios de registry, scripts, npm ls e buscas estão em
+`~/colete-noite/audit-timing-*`; nenhum resultado anterior foi usado como
+medição desta rodada.
+
+### Provas do seletor e validação final desta rodada
+
+`test:audit`: **33 testes aprovados**, sendo 12 da trava preservada e 21 do
+seletor. Cobrem app/banco/docs dispensados, cada caminho protegido exigido,
+renomes para dentro/fora da lista com git real, base ausente, erro/exceção do
+git, saída vazia e evento diferente de pull_request. Em cópias isoladas da
+fonte final, os mutantes “dispensar sempre”, “dispensar quando git falha” e
+“omitir package-lock.json” terminaram com **exit 1**, cada um.
+
+Dois commits temporários locais, desfeitos após a prova, exercitaram o CLI,
+`GITHUB_EVENT_PATH`, `GITHUB_OUTPUT` e a condição idêntica à do workflow. Não
+são execuções GitHub; a CI do PR final verifica separadamente o passo exigido.
+Base local comum: `8e889f0b658fd1c1bce5b2f42521f8e27007a4d7`.
+
+| Commit temporário | Único arquivo alterado | Resultado do seletor | Passo audit:high |
+| --- | --- | --- | --- |
+| `6bebdbe426f6dac1432f484bf8b497018b197410` | `audit-timing-proof.md` | `required=false`, dispensa explícita no log | não invocado |
+| `9a2191eac46099cef68658ffe922912d35f3fc28` | `package.json` | `required=true`, arquivo protegido no log | invocado, exit 0 |
+
+Reset recriou somente pelas **20 migrations**, em **25,150 s**. pgTAP:
+**1.259 asserções em 19 arquivos, PASS**. Passaram os dez harnesses de banco:
+idempotency, gateway, worker, deletion, export, invites, groups, membership,
+rename e members. `verify:app` passou em **16,425 s**, com **197 unitários em
+23 arquivos**, lint, formato, tipos, build web, PWA, configuração Auth e scans.
+`npm ci` limpo, `build:web`, `build:web:smoke`, `scan:docs`, `scan:secrets`,
+`test:audit`, `audit:high` e `git diff --check` passaram. O manifesto recalcula
+somente docs/25; AGENTS e docs/23 foram editados manualmente. Nenhum formatador
+executado em docs/ ou AGENTS.
+
+Browsers **1×**, sem retry: Auth **8 aprovados/2 skips preexistentes**;
+privacidade **4 aprovados/4 skips preexistentes**; grupos **62 aprovados**;
+smoke **6 aprovados**. Total: **80 aprovações, seis skips preexistentes, zero
+falhas**. Grupos medidos em **171,926 s**. Nenhum trace de falha foi gerado;
+o executor estava preparado para preservá-lo antes de outra suíte.
+
+`auth.users`: **0 antes e depois**. Censo final: **54 tabelas**, somente as
+cinco tabelas de configuração com linhas; **storage.objects=0 e zero
+papéis-sonda**. Foram medidos e removidos, após confirmar Auth vazio, **1.764
+registros de auth.audit_log_entries e dois auth.flow_state**, exclusivamente
+sintéticos desta rodada após db:reset. Censos e logs em
+`~/colete-noite/audit-timing-*`; contraprovas em
+`~/colete-noite/audit-timing-contraprovas.md`.
+
+Nenhum segredo, dado pessoal real, OTP, projeto Supabase remoto, deploy ou
+serviço de produção foi usado. Nenhuma migration, regra de domínio, teste de
+app ou parâmetro de timeout/retry foi alterado. Contêineres alheios não foram
+operados. Houve rejeição automática do comando documental combinado; César
+reautorizou explicitamente AGENTS §5/§8, docs/25 §8.1, docs/23 e manifesto,
+exigindo separar formatação de código e vedando formatador em documentos.

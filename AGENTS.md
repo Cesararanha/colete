@@ -161,6 +161,17 @@ npm run audit:high
 git diff --check
 ```
 
+**Auditoria de dependências — decisão humana de 07/10/2026.** `audit:high`
+é obrigatório e precisa terminar com exit 0 quando a fatia altera
+`package.json`, `package-lock.json`, `audit-exceptions.json`, `.npmrc`,
+`.node-version`, `scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`,
+`scripts/fixtures/audit-*`, `scripts/audit-needed.mjs` ou
+`.github/workflows/**`. Nos demais casos, execute o comando e relate o resultado,
+mas um alerta de auditoria não bloqueia a fatia. `test:audit` roda sempre.
+Na CI, os cinco jobs continuam em todo PR; somente o passo de `audit:high`
+é condicional. Diferença incalculável exige auditoria. O procedimento diário,
+a rodada quinzenal e as exceções datadas estão em `docs/23`.
+
 Todo harness novo de fatia entra no `package.json`, neste bloco e no job
 `database-security` do workflow no mesmo commit que o cria.
 
@@ -214,6 +225,12 @@ máquina não é.
 ## 8. Quando parar e perguntar
 
 Pare e reporte, sem tentar resolver sozinho:
+
+A auditoria local segue §5: quando a fatia não altera os arquivos ali listados,
+um alerta de `audit:high` é relatado e não exige parar. Quando altera, exit 0
+continua obrigatório; alerta novo ou exceção que dependa de decisão humana
+segue este gate. A execução diária segue o procedimento de `docs/23`:
+critical no mesmo dia; high na rodada quinzenal.
 
 - qualquer decisão que altere um documento normativo (`docs/01`–`docs/18`, `docs/22`
   ou `docs/25`);

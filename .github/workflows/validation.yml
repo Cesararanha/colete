@@ -1,11 +1,7 @@
 name: Colete validation
 
-# Actions minutes on a private repository are limited, so the triggers are not
-# uniform. Every job runs on a pull request, because that is where the change
-# is reviewed. Only Repository guardrails also runs on a push to main and on a
-# weekly schedule: it is the only job whose result can change while the code
-# does not, since it scans for newly published dependency advisories and for
-# drift in the normative baseline.
+# Every PR retains all five validation jobs. Dependency advisories are
+# checked conditionally here and daily in dependency-audit.yml.
 on:
   pull_request:
   push:
@@ -171,6 +167,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Use the pinned Node runtime
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -185,7 +182,14 @@ jobs:
         run: npm run verify:auth-config
       - name: Scan for committed secrets
         run: npm run scan:secrets
+      - name: Prove the dependency audit boundaries
+        run: npm run test:audit
+      - name: Decide whether this PR requires the dependency audit
+        id: audit-needed
+        if: github.event_name == 'pull_request'
+        run: node scripts/audit-needed.mjs
       - name: Reject high or critical dependency advisories
+        if: github.event_name == 'pull_request' && steps.audit-needed.outputs.required != 'false'
         run: npm run audit:high
 
   pwa-smoke:

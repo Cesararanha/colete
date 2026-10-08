@@ -1226,6 +1226,23 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Auditoria de dependências — decisão humana de César, 07/10/2026,
+  AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
+  somente o que chega ao app publicado: transformadores de build podem injetar
+  código sem rastro suficiente para provar a fronteira. O PR #60 será fechado
+  sem merge após três rodadas de revisão. `scripts/audit-high.mjs` conserva
+  a rejeição de todo alerta high/critical salvo exceção datada. Em PR, o passo
+  só é obrigatório para os arquivos de dependência/trava listados em AGENTS §5;
+  os cinco jobs permanecem. Diferença incalculável exige auditoria. Um workflow
+  separado verifica `main` diariamente e sob demanda, sem trigger de push.
+  César confere a execução diária: critical é tratado no mesmo dia; high entra
+  na rodada quinzenal. Aceito o risco de alerta novo não impedir merge de
+  trabalho que não mexe em dependências. Localmente, fatias fora da lista rodam
+  e relatam `audit:high`, sem parar por alerta. Autorizados shell-quote 1.11.0
+  por override escopado a react-devtools-core, patch direto sharp 0.35.5 com
+  somente seus binários/libvips no lockfile, e exceções para node-forge/braces
+  sem patch até 2026-11-06, mediante evidência refeita em 07/10/2026.
+
 - **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
   `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva
   o papel gravado em `group_members`; para quem criou o grupo, organizador.
