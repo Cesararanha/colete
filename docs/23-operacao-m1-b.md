@@ -1452,18 +1452,34 @@ AGENTS §5 completo: todos os comandos terminaram com exit 0, inclusive
 A decisão de César de 07/10/2026 substitui a política de 06/10/2026.
 O PR #60 foi abandonado após três rodadas de revisão: não foi possível provar
 com segurança tudo que chega ao app publicado, pois transformadores de build
-podem injetar código sem rastro. Será fechado sem merge, conservando a branch.
+podem injetar código sem rastro. O #60 foi fechado sem merge, conservando a branch.
 Não se classifica pacote como publicado para decidir a trava.
 `scripts/audit-high.mjs` permanece intacto: todo high/critical reprova, salvo
 exceção datada, com as mesmas verificações de vencimento e entrada órfã.
 
 Em PR, `scripts/audit-needed.mjs` compara base e head pela diferença de três
 pontos, com detecção de renomes desabilitada para verificar os dois caminhos.
-A lista protegida é `package.json`, `package-lock.json`, `audit-exceptions.json`,
-`.npmrc`, `.node-version`, `scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`,
-`scripts/fixtures/audit-*`, `scripts/audit-needed.mjs` e `.github/workflows/**`.
-Base/head ausente ou inválido, erro do git, saída vazia/inválida e evento
-não reconhecido exigem auditoria. O log informa o motivo ou a dispensa.
+A lista protegida, ampliada pelas decisões técnicas do planejador de 08/10/2026,
+vale em qualquer pasta: `package.json`, `package-lock.json`, `npm-shrinkwrap.json`,
+`.npmrc`, `.nvmrc`, `.node-version`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`,
+`deno.json`, `deno.jsonc`, `import_map.json`, `deno.lock`, `audit-exceptions.json`,
+`scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`, `scripts/audit-needed.mjs`,
+`scripts/test-audit-needed.mjs`, `scripts/fixtures/audit-*`, `patches/**`,
+`.github/workflows/**` e `.github/actions/**`. Os nomes valem em qualquer pasta;
+os caminhos estruturados também valem sob subpastas. A extensão é conservadora,
+mesmo quando a configuração atual não usa outro gerenciador ou workspace.
+
+Base/head ausente ou inválido, base diferente de `main`, erro do git, saída
+vazia/inválida, árvore do head indisponível e evento não reconhecido exigem
+auditoria. A árvore Git inteira do head é lida com `ls-tree -r -z`: link protegido
+herdado exige auditoria mesmo quando só um .md muda. Symlinks internos, externos
+e dos diretórios protegidos exigem auditoria sem seguir seus alvos.
+O workflow busca a cópia do seletor de `origin/main` e a executa fora da árvore
+do PR. Se o seletor não existe na base, como neste #61, ou o git não permite
+obtê-lo, o fallback escreve `required=true` sem executar o head. A base diferente
+de main exige auditoria antes dessa busca. O log informa o motivo ou a dispensa;
+sem `GITHUB_OUTPUT`, informa auditoria exigida e nenhuma saída gravada, coerente
+com a condição do workflow (`'' != 'false'`).
 `Repository guardrails` continua em todo PR, conservando os cinco jobs;
 `test:audit` roda sempre. Localmente, mesmo fora da lista, o agente executa e
 relata `audit:high`, mas não interrompe a fatia por esse alerta.
@@ -1473,7 +1489,9 @@ relata `audit:high`, mas não interrompe a fatia por esse alerta.
 `.github/workflows/dependency-audit.yml` executa sobre `main`, diariamente
 às 06:17 UTC (03:17 em America/Maceio), e por `workflow_dispatch`, com `npm ci`
 e `audit:high`. Actions fixadas por SHA, somente `contents: read`, sem segredos
-e sem trigger de push. A auditoria deixa de rodar no guardrail de push em main.
+e sem trigger de push. Em `validation.yml`, a auditoria só roda em PR: não roda
+no push em main, no agendamento semanal nem no workflow_dispatch desse workflow.
+O workflow_dispatch de `dependency-audit.yml` sempre audita main.
 César, dono do projeto, confere a execução diária no GitHub Actions e registra
 qualquer alerta novo. Falha de consulta ou instalação é investigada como falha
 de execução; não equivale a audit aprovado.
@@ -1610,3 +1628,67 @@ app ou parâmetro de timeout/retry foi alterado. Contêineres alheios não foram
 operados. Houve rejeição automática do comando documental combinado; César
 reautorizou explicitamente AGENTS §5/§8, docs/25 §8.1, docs/23 e manifesto,
 exigindo separar formatação de código e vedando formatador em documentos.
+
+## Correção da revisão independente do PR #61 — 08/10/2026
+
+As decisões técnicas do planejador de 08/10 detalham a decisão humana de 07/10
+sem alterar limiar ou exceções. A lista vale em qualquer pasta, inclui shrinkwrap,
+demais lockfiles, Node/Deno, patches, actions locais e o teste do seletor.
+Base diferente de main exige auditoria. O head inteiro é inspecionado para links
+herdados, sem seguir alvos internos/externos. O workflow obtém o seletor de
+origin/main fora da árvore do PR e só executa blob regular (100644/100755).
+Sem blob disponível, ou com symlink na origem, exige sem executar o head.
+No bootstrap deste PR, main ainda não tem o seletor.
+
+A reprodução real adicionou somente npm-shrinkwrap.json a uma cópia isolada,
+com package.json e package-lock.json idênticos ao PR. O shrinkwrap rebaixou
+node_modules/expo/node_modules/ws de 8.21.3 para 8.17.0; resolved/integrity
+foram conferidos no registry. npm ci --ignore-scripts instalou 8.17.0, e
+**audit:high exit 1** citou GHSA-3h5v-q93c-6h6q e GHSA-96hv-2xvq-fx4p.
+No mesmo evento, o seletor anterior dispensava; o corrigido exige. O pacote
+vulnerável permaneceu exclusivamente na cópia de contraprova.
+
+`test:audit`: **88 aprovações** (12 da trava preservada, 76 do seletor), incluindo
+CLI e execução real do trecho YAML do workflow em repositórios isolados.
+Cada arquivo exige também em subpasta; base não main exige; main só .md dispensa;
+symlink herdado interno/externo exige; main sem seletor ou com symlink exige.
+A fixture R3c adultera seletor e teste do PR, comprova que o teste do head passa,
+e exige auditoria pela versão main. O teste externo continua imutável.
+Sem GITHUB_OUTPUT, a CLI informa que nenhuma saída é gravada e a condição do
+workflow exige auditoria, corrigindo a mensagem contraditória.
+
+**19 mutantes reprovados com exit 1**: os 12 do revisor reconstruídos das
+mutações documentadas, inclusive os seis sobreviventes, as três contraprovas
+antigas e quatro adicionais para shrinkwrap, base, symlinks e teste do seletor.
+R3c é exercitado pelo PR adversarial na fixture; restaurar o fluxo antigo que
+executa o head reprova a asserção externa. Logs TAP, fontes e tabela com linhas
+estão em ~/colete-noite/corr61-contraprovas.md e corr61-mutants/.
+R2b reprova com main divergente: dois pontos exigem indevidamente por arquivo
+só alterado no main; três pontos dispensam o PR que só altera .md. R2c cobre
+nome vazio; R4a usa evento não PR com SHAs válidos; R4b/R4c exercitam evento e
+GITHUB_OUTPUT pela CLI real. Remover cada arquivo da lista, inclusive o teste
+do seletor, reprova os casos independentes de caminho na raiz/subpasta.
+
+AGENTS §8 mantém a frase introdutória imediatamente antes da lista; o parágrafo
+da auditoria foi movido após os bullets. O histórico do #60 informa fechamento
+sem merge e branch preservada. Triggers documentados: validation.yml dispensa
+em push, schedule e workflow_dispatch; dependency-audit.yml sempre audita main.
+
+Validação local completa de AGENTS §5, todos os comandos exit 0. Reset pelas
+**20 migrations em 26,346 s**; pgTAP **1.259 asserções em 19 arquivos**; dez
+harnesses aprovados. verify:app **17,683 s**, **197 unitários em 23 arquivos**,
+lint, formato, tipos, builds/PWA, configuração Auth e scans aprovados. Auditoria
+do worktree exit 0; audit-high.mjs, fixtures, dependências e exceções intactos.
+
+Browsers **1×**, **80 aprovações e seis skips preexistentes**, zero falhas:
+Auth 8/2 skips; privacidade 4/4 skips; grupos 62; smoke 6. Grupos **180,381 s**.
+Nenhum retry, timeout maior, sleep ou skip novo. auth.users **0 antes/depois**;
+censo **54 tabelas**, Storage **0**, papéis-sonda **0**. Medidos e removidos
+**1.764 audit_log_entries e dois flow_state**, somente dados sintéticos após
+nosso db:reset. Nenhum objeto ou registro de teste ficou residual.
+
+Documentos editados manualmente, sem reformatação automática; somente checksum
+de docs/25 alterado no manifesto. Sem Supabase remoto, deploy, serviço de
+produção ou contêiner de outro projeto. Correção em commit separado de f8a35d4;
+PR permanece draft, sem merge. Progresso e validação em
+~/colete-noite/progresso-corr61.md e corr61-validation*.log/json.

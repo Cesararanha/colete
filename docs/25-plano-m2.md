@@ -1229,7 +1229,7 @@ código produtivo.
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar
-  código sem rastro suficiente para provar a fronteira. O PR #60 será fechado
+  código sem rastro suficiente para provar a fronteira. O PR #60 foi fechado
   sem merge após três rodadas de revisão. `scripts/audit-high.mjs` conserva
   a rejeição de todo alerta high/critical salvo exceção datada. Em PR, o passo
   só é obrigatório para os arquivos de dependência/trava listados em AGENTS §5;
@@ -1242,6 +1242,18 @@ código produtivo.
   por override escopado a react-devtools-core, patch direto sharp 0.35.5 com
   somente seus binários/libvips no lockfile, e exceções para node-forge/braces
   sem patch até 2026-11-06, mediante evidência refeita em 07/10/2026.
+
+- **Auditoria — decisões técnicas do planejador de 08/10/2026.** Detalham
+  a decisão humana de 07/10 e somente ampliam os casos exigidos. A lista de
+  AGENTS §5 vale em qualquer pasta: inclui npm-shrinkwrap, os demais lockfiles,
+  configuração npm/Node/Deno, patches, actions locais e o teste do seletor.
+  Base do PR diferente de `main` exige auditoria, com o motivo no log. Arquivo
+  protegido como link simbólico no head, mesmo herdado, ou apontando para fora
+  exige auditoria. O workflow obtém `scripts/audit-needed.mjs` de `origin/main`
+  e executa essa cópia, nunca a do PR; sem cópia disponível, exige auditoria.
+  Isso cobre o bootstrap deste #61, pois o arquivo ainda não existe em `main`.
+  Os testes da CLI verificam o evento, a mensagem e `GITHUB_OUTPUT`; sem esse
+  output, o log informa que nenhuma saída é gravada e a condição exige auditoria.
 
 - **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
   `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva

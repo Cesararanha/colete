@@ -187,7 +187,20 @@ jobs:
       - name: Decide whether this PR requires the dependency audit
         id: audit-needed
         if: github.event_name == 'pull_request'
-        run: node scripts/audit-needed.mjs
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if [ "$PR_BASE_REF" != main ]; then
+            echo 'auditoria exigida: base do PR diferente de main ou ausente'
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          elif selector_entry=$(git ls-tree origin/main -- scripts/audit-needed.mjs) &&
+               [[ "$selector_entry" == '100644 blob '* || "$selector_entry" == '100755 blob '* ]] &&
+               git show origin/main:scripts/audit-needed.mjs > "$RUNNER_TEMP/audit-needed.mjs"; then
+            node "$RUNNER_TEMP/audit-needed.mjs"
+          else
+            echo 'auditoria exigida: seletor de origin/main ausente ou indisponível (ou não regular)'
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Reject high or critical dependency advisories
         if: github.event_name == 'pull_request' && steps.audit-needed.outputs.required != 'false'
         run: npm run audit:high
