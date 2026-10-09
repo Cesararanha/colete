@@ -1466,23 +1466,45 @@ vale em qualquer pasta: `package.json`, `package-lock.json`, `npm-shrinkwrap.jso
 `scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`, `scripts/audit-needed.mjs`,
 `scripts/test-audit-needed.mjs`, `scripts/fixtures/audit-*`, `patches/**`,
 `.github/workflows/**` e `.github/actions/**`. Os nomes valem em qualquer pasta;
-os caminhos estruturados também valem sob subpastas. A extensão é conservadora,
-mesmo quando a configuração atual não usa outro gerenciador ou workspace.
+os caminhos estruturados também valem sob subpastas. Por decisão de 09/10/2026,
+o caminho inteiro é comparado em minúsculas, sem distinguir caixa. A extensão
+é conservadora, mesmo quando a configuração atual não usa outro gerenciador ou workspace.
 
-Base/head ausente ou inválido, base diferente de `main`, erro do git, saída
-vazia/inválida, árvore do head indisponível e evento não reconhecido exigem
+Base/head ausente ou inválido, erro do git, saída vazia/inválida, árvore do head indisponível e evento não reconhecido exigem
 auditoria. A árvore Git inteira do head é lida com `ls-tree -r -z`: link protegido
 herdado exige auditoria mesmo quando só um .md muda. Symlinks internos, externos
 e dos diretórios protegidos exigem auditoria sem seguir seus alvos.
-O workflow busca a cópia do seletor de `origin/main` e a executa fora da árvore
-do PR. Se o seletor não existe na base, como neste #61, ou o git não permite
-obtê-lo, o fallback escreve `required=true` sem executar o head. A base diferente
-de main exige auditoria antes dessa busca. O log informa o motivo ou a dispensa;
-sem `GITHUB_OUTPUT`, informa auditoria exigida e nenhuma saída gravada, coerente
+O workflow busca a cópia do seletor pelo SHA da base do evento
+(`github.event.pull_request.base.sha`) e a executa fora da árvore do PR.
+Uma tag chamada `origin/main` não participa da busca. Se o seletor não existe
+na base, como neste #61, ou o git não permite obtê-lo, o fallback escreve `required=true` sem executar o head. Pela decisão
+humana de 09/10/2026, base diferente de `main` reprova `Repository guardrails`,
+com a mensagem "Este PR precisa apontar para main. Redirecione a base e rode a CI
+de novo." A única guarda fica no workflow, antes da busca; o seletor não a duplica.
+Isso substitui a regra de 08/10 de exigir auditoria para outra base.
+O log informa o motivo ou a dispensa; sem `GITHUB_OUTPUT`, informa auditoria exigida e nenhuma saída gravada, coerente
 com a condição do workflow (`'' != 'false'`).
 `Repository guardrails` continua em todo PR, conservando os cinco jobs;
 `test:audit` roda sempre. Localmente, mesmo fora da lista, o agente executa e
 relata `audit:high`, mas não interrompe a fatia por esse alerta.
+
+### Limites aceitos — decisão humana de César, 09/10/2026
+
+A trava de auditoria protege contra erro honesto: trocar uma dependência e trazer
+uma versão vulnerável sem perceber. Não promete resistir a um PR feito de
+propósito para enganá-la. Contra isso, as defesas são a revisão independente e
+o merge feito só pelo César. Corrige-se o que pode acontecer por engano e
+documenta-se o restante.
+
+N1: um PR que altera arquivos executados antes do seletor, como scripts de
+verificação, pode influenciar a decisão de má-fé. Isso fica fora do modelo de
+ameaça aceito. Um PR que altera o próprio workflow também pode dispensar a
+auditoria no `pull_request`; isso fica fora do mesmo modelo. A execução diária
+no `main` pega o resultado em até 24 h.
+
+A proteção real é a revisão independente de todo PR que toca a lista protegida
+e o merge somente com os cinco jobs verdes, conferidos pelo César. Esta decisão
+não muda a lista, as asserções, as exceções datadas nem o procedimento diário.
 
 ### Procedimento diário e rodada quinzenal
 
@@ -1692,3 +1714,41 @@ de docs/25 alterado no manifesto. Sem Supabase remoto, deploy, serviço de
 produção ou contêiner de outro projeto. Correção em commit separado de f8a35d4;
 PR permanece draft, sem merge. Progresso e validação em
 ~/colete-noite/progresso-corr61.md e corr61-validation*.log/json.
+
+
+## Correção final da conferência do PR #61 — 09/10/2026
+
+Decisão humana de César registrada na política acima e em `docs/25` §8.1.
+N2: a lista e os diretórios ancestrais de symlinks são comparados em minúsculas.
+A CLI e o trecho real do workflow exigem PACKAGE-LOCK.JSON, Package.json e
+NPM-SHRINKWRAP.JSON em subpasta, além dos prefixos estruturados com caixa diferente.
+A reprodução APFS adiciona somente PACKAGE-LOCK.JSON por plumbing: o seletor
+661532b dispensa; o corrigido exige. O clone macOS existente recebe o conteúdo
+rebaixado, instala ws 8.17.0 com npm ci --ignore-scripts (exit 0), e audit:high
+reprova (exit 1) pelos dois advisories de ws já registrados na conferência.
+N3: outra base reprova o job com a mensagem exigida, antes de executar o seletor;
+a única guarda fica no workflow. N4: a cópia vem do SHA da base do evento;
+a tag origin/main falsa dispensa no passo antigo e exige no corrigido. O teste
+adicional também falsifica a referência remota, conservando o SHA do evento.
+
+Os 27 mutantes reprovam: 19 anteriores, K1–K4, três novos (caixa sensível, base
+aceita e nome origin/main) e K2b, que antes sobrevivia à guarda duplicada.
+C-base-main e K2 foram adaptados à guarda única do workflow; não há guarda
+redundante para mascarar a contraprova. Nenhum teste externo foi adulterado.
+N1 e alteração deliberada do workflow permanecem limites aceitos, sem mudança
+de código para tentar cobri-los.
+
+Validação local refeita em 09/10: npm ci limpo; 20 migrations; 1.259 asserções
+pgTAP em 19 arquivos; dez harnesses; 197 unitários em 23 arquivos; 94 testes de
+auditoria (12 da trava e 82 do seletor); verify:app, builds, scans, manifesto,
+audit:high exit 0 e git diff --check aprovados. Browsers uma execução:
+Auth 8, privacidade 4, grupos 62, smoke 6; seis skips preexistentes, zero falhas,
+sem retry nem timeout aumentado. auth.users 0 antes e depois. Censo de 54 tabelas:
+1.764 registros sintéticos de auth.audit_log_entries e dois de auth.flow_state
+foram removidos após a prova; o estado final é idêntico à baseline anterior,
+inclusive as 82 linhas de auth.schema_migrations (metadados, não resíduo de teste).
+O helper inicialmente cobrou zero desses metadados; o censo salvo foi conferido
+por igualdade integral com a baseline, preservando a evidência anterior à limpeza.
+Nenhuma suíte foi repetida. Supabase local encerrado; nenhum serviço de produção
+acessado. Dependências, exceções e migrations permanecem idênticas a 661532b.
+Provas, stacks e executores em ~/colete-noite/corr61b-contraprovas.md.

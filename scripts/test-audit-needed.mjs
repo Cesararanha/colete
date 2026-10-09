@@ -72,8 +72,6 @@ for (const file of protectedPaths) {
 }
 for (const [name, overrides] of [
   ['base ausente', { base: undefined }],
-  ['base diferente de main', { baseRef: 'dep' }],
-  ['ref da base ausente', { baseRef: undefined }],
   ['erro git', { git: () => ({ status: 128, stdout: '' }) }],
   [
     'exceção git',
@@ -157,6 +155,7 @@ function execute(
     missingEvent = false,
     missingOutput = false,
     gitMissing = false,
+    expectedStatus = 0,
   } = {},
 ) {
   const eventPath = join(fixture.runner, 'event.json');
@@ -179,13 +178,14 @@ function execute(
     GITHUB_OUTPUT: outputPath,
     RUNNER_TEMP: fixture.runner,
     PR_BASE_REF: baseRef,
+    PR_BASE_SHA: base,
   };
   if (missingOutput) delete env.GITHUB_OUTPUT;
   if (gitMissing) env.PATH = '';
   const result = trusted
     ? spawnSync('bash', ['-e', '-c', trustedStep.run], { cwd: fixture.dir, env, encoding: 'utf8' })
     : spawnSync(process.execPath, [selectorPath], { cwd: fixture.dir, env, encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, expectedStatus, result.stderr);
   return { output: readFileSync(outputPath, 'utf8'), log: result.stdout };
 }
 
@@ -207,7 +207,6 @@ for (const [name, options] of [
   ['evento sem PR', { eventContent: '{}' }],
   ['evento desconhecido com SHAs válidos (R4a)', { eventName: 'merge_group' }],
   ['git ausente', { gitMissing: true }],
-  ['base fora de main', { baseRef: 'dep' }],
 ])
   test(`CLI exige: ${name}`, () =>
     repository((f) => {
@@ -292,18 +291,26 @@ test('workflow sem seletor no main exige sem executar o head (bootstrap #61)', (
       f.commit();
       const result = execute(f, { trusted: true });
       assert.equal(result.output, 'required=true\n');
-      assert.match(result.log, /seletor de origin\/main ausente ou indisponível/);
+      assert.match(result.log, /seletor do SHA da base ausente ou indisponível/);
     },
     { mainSelector: false },
   ));
-test('workflow base diferente de main exige antes de executar seletor', () =>
-  repository((f) => {
-    f.write('docs/a.md', 'only docs\n');
-    f.commit();
-    const result = execute(f, { trusted: true, baseRef: 'dep' });
-    assert.equal(result.output, 'required=true\n');
-    assert.match(result.log, /base do PR diferente de main/);
-  }));
+for (const baseRef of ['dep', 'Main', ''])
+  test(`workflow rejeita base ${baseRef || 'ausente'} antes de executar seletor (N3)`, () =>
+    repository((f) => {
+      f.git('checkout', '-q', 'main');
+      f.write('scripts/audit-needed.mjs', "throw new Error('selector must not execute');\n");
+      const base = f.commit();
+      f.git('checkout', '-q', 'pr');
+      f.write('docs/a.md', 'only docs\n');
+      f.commit();
+      const result = execute(f, { trusted: true, baseRef, base, expectedStatus: 1 });
+      assert.equal(result.output, '');
+      assert.match(
+        result.log,
+        /Este PR precisa apontar para main\. Redirecione a base e rode a CI de novo\./,
+      );
+    }));
 test('workflow main com só .md dispensa pela versão de main', () =>
   repository((f) => {
     f.write('docs/a.md', 'only docs\n');
@@ -325,3 +332,41 @@ test('workflow recusa seletor de main como symlink sem executar seu conteúdo', 
     assert.equal(result.output, 'required=true\n');
     assert.match(result.log, /não regular/);
   }));
+
+for (const file of [
+  'PACKAGE-LOCK.JSON',
+  'Package.json',
+  'NPM-SHRINKWRAP.JSON',
+  '.GITHUB/WORKFLOWS/ci.yml',
+  'SCRIPTS/FIXTURES/AUDIT-x.json',
+])
+  test(`CLI e workflow exigem caixa diferente em subpasta: ${file} (N2)`, () =>
+    repository((f) => {
+      f.write(`tools/nested/${file}`, '{}\n');
+      f.commit();
+      assert.equal(execute(f).output, 'required=true\n');
+      assert.equal(execute(f, { trusted: true }).output, 'required=true\n');
+    }));
+
+test('workflow usa SHA do evento apesar de tag e remote origin/main falsos (N4)', () =>
+  repository((f) => {
+    f.write('package-lock.json', '{}\n');
+    const head = f.commit();
+    f.git('checkout', '-qb', 'fake-main');
+    f.write(
+      'scripts/audit-needed.mjs',
+      "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.GITHUB_OUTPUT, 'required=false\\n');\n",
+    );
+    const fake = f.commit();
+    f.git('tag', 'origin/main', fake);
+    f.git('update-ref', 'refs/remotes/origin/main', fake);
+    f.git('checkout', '-q', head);
+    const result = execute(f, { trusted: true });
+    assert.equal(result.output, 'required=true\n');
+    assert.match(result.log, /arquivo protegido alterado: package-lock.json/);
+  }));
+
+test('workflow vincula a cópia ao SHA da base no contexto do evento (N4)', () => {
+  assert.equal(trustedStep.env.PR_BASE_SHA, '${{ github.event.pull_request.base.sha }}');
+  assert.equal(trustedStep.env.PR_BASE_REF, '${{ github.event.pull_request.base.ref }}');
+});

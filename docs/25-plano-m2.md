@@ -1255,6 +1255,21 @@ código produtivo.
   Os testes da CLI verificam o evento, a mensagem e `GITHUB_OUTPUT`; sem esse
   output, o log informa que nenhuma saída é gravada e a condição exige auditoria.
 
+- **Auditoria — decisão humana de César, 09/10/2026, AGENTS §8.** A trava
+  protege contra erro honesto ao trocar dependência por versão vulnerável;
+  não promete resistir a PR deliberadamente feito para enganá-la. Revisão
+  independente de todo PR que toca a lista e merge somente pelo César, após
+  conferir os cinco jobs verdes, são as defesas contra isso. N1 (código do PR
+  executado antes do seletor) e alteração deliberada do workflow ficam como
+  limites aceitos, detalhados na política de `docs/23`; a execução diária em
+  `main` pega o resultado em até 24 h. A comparação da lista usa o caminho
+  inteiro em minúsculas. Base diferente de `main` reprova `Repository
+  guardrails` com "Este PR precisa apontar para main. Redirecione a base e rode
+  a CI de novo.", substituindo a exigência de auditoria de 08/10; há uma única
+  guarda no workflow. A cópia do seletor vem do SHA da base do evento
+  (`github.event.pull_request.base.sha`), sem resolver o nome `origin/main`.
+  As demais regras e os cinco jobs permanecem.
+
 - **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
   `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva
   o papel gravado em `group_members`; para quem criou o grupo, organizador.

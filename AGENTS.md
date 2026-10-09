@@ -170,11 +170,14 @@ pasta, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `.npmrc`,
 `scripts/test-audit-needed.mjs`, `scripts/fixtures/audit-*`, `patches/**`,
 `.github/workflows/**` ou `.github/actions/**`. Os nomes de arquivo valem em
 qualquer pasta; os caminhos estruturados também valem sob subpastas.
-PR com base diferente de `main`, link simbólico protegido no head (inclusive
-herdado ou apontando para fora), ou diferença/árvore indisponível exige auditoria.
-O workflow executa somente a cópia do seletor de `origin/main`; se ela não
-existir ou não puder ser obtida, exige auditoria sem executar o seletor do PR.
-São detalhes técnicos do planejador de 08/10/2026 da decisão de 07/10/2026.
+A comparação usa o caminho inteiro em minúsculas. Link simbólico protegido no
+head (inclusive herdado ou apontando para fora), ou diferença/árvore indisponível
+exige auditoria. Pela decisão humana de 09/10/2026, PR com base diferente de
+`main` reprova `Repository guardrails`; a guarda fica somente no workflow.
+O workflow executa somente a cópia do seletor do SHA da base do evento; se ela
+não existir ou não puder ser obtida, exige auditoria sem executar o seletor do PR.
+São detalhes de 08/10/2026, ajustados pela decisão humana de 09/10/2026,
+da decisão de 07/10/2026. Os limites aceitos estão em `docs/23`.
 Nos demais casos, execute o comando e relate o resultado, mas um alerta de
 auditoria não bloqueia a fatia. `test:audit` roda sempre.
 Na CI, os cinco jobs continuam em todo PR; somente o passo de `audit:high`

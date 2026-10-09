@@ -25,6 +25,7 @@ export const auditFiles = [
 ];
 
 export function isAuditFile(file) {
+  file = file.toLowerCase();
   const rooted = `/${file}`;
   return (
     auditFiles.some((item) => posix.basename(item) === posix.basename(file)) ||
@@ -34,10 +35,9 @@ export function isAuditFile(file) {
   );
 }
 
-export function needsAudit({ eventName, baseRef, base, head, git = spawnSync }) {
+export function needsAudit({ eventName, base, head, git = spawnSync }) {
   const required = (reason) => ({ required: true, reason });
   if (eventName !== 'pull_request') return required('evento diferente de pull_request');
-  if (baseRef !== 'main') return required('base do PR diferente de main ou ausente');
   if (![base, head].every((sha) => /^[a-f0-9]{40}$/.test(sha ?? '')))
     return required('base ou head ausente ou inválido');
   try {
@@ -65,7 +65,9 @@ export function needsAudit({ eventName, baseRef, base, head, git = spawnSync }) 
         return required('árvore do head inválida');
       const [, mode, , , file] = match;
       const ancestor =
-        /(^|\/)(patches|scripts(?:\/fixtures)?|\.github(?:\/(?:actions|workflows))?)$/.test(file);
+        /(^|\/)(patches|scripts(?:\/fixtures)?|\.github(?:\/(?:actions|workflows))?)$/.test(
+          file.toLowerCase(),
+        );
       if (mode === '120000' && (isAuditFile(file) || ancestor))
         return required(`arquivo protegido no head é link simbólico: ${file}`);
     }
@@ -82,7 +84,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     decision = needsAudit({
       eventName: process.env.GITHUB_EVENT_NAME,
-      baseRef: event.pull_request?.base?.ref,
       base: event.pull_request?.base?.sha,
       head: event.pull_request?.head?.sha,
     });

@@ -189,16 +189,18 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "$PR_BASE_REF" != main ]; then
-            echo 'auditoria exigida: base do PR diferente de main ou ausente'
-            echo 'required=true' >> "$GITHUB_OUTPUT"
-          elif selector_entry=$(git ls-tree origin/main -- scripts/audit-needed.mjs) &&
+            echo 'Este PR precisa apontar para main. Redirecione a base e rode a CI de novo.'
+            exit 1
+          elif [[ "$PR_BASE_SHA" =~ ^[a-f0-9]{40}$ ]] &&
+               selector_entry=$(git ls-tree "$PR_BASE_SHA" -- scripts/audit-needed.mjs) &&
                [[ "$selector_entry" == '100644 blob '* || "$selector_entry" == '100755 blob '* ]] &&
-               git show origin/main:scripts/audit-needed.mjs > "$RUNNER_TEMP/audit-needed.mjs"; then
+               git show "$PR_BASE_SHA:scripts/audit-needed.mjs" > "$RUNNER_TEMP/audit-needed.mjs"; then
             node "$RUNNER_TEMP/audit-needed.mjs"
           else
-            echo 'auditoria exigida: seletor de origin/main ausente ou indisponível (ou não regular)'
+            echo 'auditoria exigida: seletor do SHA da base ausente ou indisponível (ou não regular)'
             echo 'required=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Reject high or critical dependency advisories
