@@ -2074,3 +2074,55 @@ fixtures temporárias e não foi usada como evidência de fronteira.
 Logs medidos: ~/colete-noite/cors-validacao-2026-10-09; contraprovas e
 progresso preservados em ~/colete-noite. PR continua draft para revisão
 independente; nenhum merge, deploy, projeto remoto ou staging retomado.
+
+### Correção da revisão independente do PR #59 — 09/10/2026
+
+Correção separada do commit `3d7c9e9`, limitada a testes e documentos.
+A produção CORS aprovada pelo revisor permanece byte a byte idêntica
+(SHA-256 `8610d714edddaac2eecd61b8ad0c1ec414bb3088683b0da1882011865abf7ee1`).
+A decisão do planejador de 09/10, registrada em `13` e `25` §8.1,
+explicita trim por item e falha fechada da lista inteira para item vazio,
+espaço interno ou item inválido. Os três casos têm prova unitária e HTTP.
+
+Achado P2: unitário e db:test:cors agora reprovam as sete regressões
+R01/R02/R05/R06/R14/R18/R25: comparação sem maiúsculas, ponto final, primeiro
+Origin repetido/lista, null, handler executado com Authorization no
+preflight, método post minúsculo e origem negada lendo um 200. Origin
+repetido em duas linhas usa HTTP/1.1 cru por TCP, reaproveitando a sonda
+do revisor; a comparação unitária também usa Headers.append.
+
+Achados P3: os 48 preflights de censo levam Bearer válido e corpo; as 11
+contagens (idempotência, limitador, efeitos, jobs, perfis, grupos, members,
+invites, privacy_requests, auth.sessions e audit_log_entries) ficam iguais.
+O E2E negativo serve o app numa origem não listada, exige TypeError no
+fetch nativo, mostra a mensagem de rede real da página e prova zero grupos
+criados. O mutante A-reflection reprova por asserção explícita na linha 129
+nos dois projetos, com traces copiados antes da próxima suíte.
+
+AGENTS §5 completo passou, incluindo audit:high e os 94 testes de auditoria.
+Browser 1×: Auth 8 pass/2 skips existentes, privacidade 4 pass/4 skips
+existentes, grupos 62 pass, CORS 4 pass e smoke 6 pass (84 aprovações,
+seis skips preexistentes). pgTAP: 1.259 asserções em 19 arquivos. Unitário
+CORS: 53 casos; suíte completa: 250 casos em 24 arquivos. HTTP direto:
+89 verificações aprovadas, sem Kong. Não houve falha na suíte normal de
+navegador; as falhas esperadas são somente as contraprovas.
+
+Os 25 mutantes do revisor e quatro do autor reprovam nas suítes da CI,
+sem depender da sonda externa. As sete regressões P2 reprovam nas duas
+suítes. O spy de preflight é assíncrono para que R14 reprove pela asserção
+de handler não chamado, e não por TypeError incidental de catch; o HTTP
+reprova pelo censo alterado. R23 reprova porque a exceção escapa do teste
+que exige 500 sanitizado. Após esse ajuste, as contraprovas foram repetidas
+e verify:app, HTTP direto e auditoria passaram novamente. Nenhum retry,
+timeout ampliado, sleep de sincronização, novo skip ou asserção enfraquecida.
+
+Censo final sem testes concorrentes: 54 tabelas, auth.users=0, zero
+papéis-sonda e resíduos de domínio/operação/Storage; somente as cinco
+tabelas de seeds/histórico acima ficaram não vazias. Fixtures CORS
+confirmam auth.users=0 antes e depois. O último censo removeu 94 registros
+sintéticos de audit_log_entries e zero flow_state do controle final.
+
+Evidências e tabela mutante → teste → linha: ~/colete-noite/corr59-contraprovas.md
+e corr59/mutants/results.json; logs em corr59; progresso em
+~/colete-noite/progresso-corr59.md. Commit de correção próprio; PR permanece
+draft, sem merge, deploy, projeto remoto ou retomada de staging.

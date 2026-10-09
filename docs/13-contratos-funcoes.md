@@ -173,7 +173,10 @@ simultâneo abaixo e mantém casos menores/maiores conforme a operação.
 `identity`, `groups` e `data-exports` usam uma única camada em
 `supabase/functions/_shared/browser-cors.ts`. `APP_ALLOWED_ORIGINS` é obrigatória
 fora do local: lista separada por vírgulas de origens HTTPS exatas, sem path,
-query, fragmento, credenciais ou curinga. Ausente, vazia ou com qualquer entrada
+query, fragmento, credenciais ou curinga. Pela decisão do planejador de
+09/10/2026, espaços em volta de cada item separado por vírgula são removidos;
+item vazio, espaço dentro da origem ou qualquer item inválido invalidam a
+lista inteira. Ausente, vazia ou com qualquer entrada
 inválida permite zero origens, sem aproveitar as entradas válidas restantes.
 Com `COLETE_LOCAL_STACK=true`, a lista explícita também admite HTTP em
 `localhost` e `127.0.0.1`, com qualquer porta; não admite LAN nem permite

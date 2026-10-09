@@ -1800,6 +1800,14 @@ com quatro contraprovas. Staging permanece pausado no WIP `cfbb479` até
 esta fatia ser mergeada por revisão independente. A decisão de CSP fica
 reservada à retomada de staging, sem implementação nesta fatia.
 
+**Decisão técnica do planejador (09/10/2026) — conferência CORS.**
+
+APP_ALLOWED_ORIGINS remove espaços em volta de cada item separado por
+vírgula. Item vazio, espaço dentro da origem ou qualquer item inválido
+invalidam a lista inteira (nenhuma origem permitida). Provar os três casos
+na suíte da CI. A correção do PR #59 é restrita a testes e documentos;
+o comportamento CORS aprovado pela revisão independente permanece.
+
 ### 8.2 Gates humanos
 
 A implementação não pode preencher estas respostas:

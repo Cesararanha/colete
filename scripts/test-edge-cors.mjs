@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { startDirectEdge } from './local-edge-runtime.mjs';
 import { corsFixture } from './cors-fixture.mjs';
 
@@ -29,10 +30,71 @@ function headers(response, origin, method) {
       : {},
   );
 }
+function raw(baseUrl, method, target, headerLines, body) {
+  const { hostname, port } = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(Number(port), hostname);
+    const chunks = [];
+    const timer = setTimeout(() => socket.destroy(new Error('raw request timeout')), 15000);
+    socket.on('data', (c) => chunks.push(c));
+    socket.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    socket.on('close', () => {
+      clearTimeout(timer);
+      const text = Buffer.concat(chunks).toString('latin1');
+      const split = text.indexOf('\r\n\r\n');
+      const head = split < 0 ? text : text.slice(0, split);
+      let rest = split < 0 ? '' : text.slice(split + 4);
+      const [statusLine, ...lines] = head.split('\r\n');
+      const headers = {};
+      for (const line of lines) {
+        const i = line.indexOf(':');
+        const k = line.slice(0, i).trim().toLowerCase();
+        const v = line.slice(i + 1).trim();
+        headers[k] = headers[k] === undefined ? v : `${headers[k]} | ${v}`;
+      }
+      if ((headers['transfer-encoding'] ?? '').toLowerCase() === 'chunked') {
+        let decoded = '';
+        for (;;) {
+          const eol = rest.indexOf('\r\n');
+          const size = parseInt(rest.slice(0, eol), 16);
+          if (!(size > 0)) break;
+          decoded += rest.slice(eol + 2, eol + 2 + size);
+          rest = rest.slice(eol + 2 + size + 2);
+        }
+        rest = decoded;
+      }
+      resolve({
+        status: Number(statusLine.split(' ')[1]),
+        headers,
+        body: Buffer.from(rest, 'latin1').toString('utf8'),
+      });
+    });
+    const parts = [Buffer.from(`${method} ${target} HTTP/1.1\r\nHost: ${hostname}:${port}\r\n`)];
+    for (const [k, v] of headerLines) {
+      parts.push(
+        Buffer.concat([
+          Buffer.from(`${k}: `),
+          Buffer.isBuffer(v) ? v : Buffer.from(v, 'latin1'),
+          Buffer.from('\r\n'),
+        ]),
+      );
+    }
+    const payload = body === undefined ? Buffer.alloc(0) : Buffer.from(body);
+    if (body !== undefined) parts.push(Buffer.from(`content-length: ${payload.length}\r\n`));
+    parts.push(Buffer.from('connection: close\r\n\r\n'), payload);
+    // No half-close: the Docker port proxy drops the upstream on client FIN.
+    socket.write(Buffer.concat(parts));
+  });
+}
+
 const fixture = await corsFixture();
 let runtime;
 try {
   runtime = await startDirectEdge(configuration);
+  const owner = await fixture.actor(runtime.url);
   const census = async () =>
     (
       await fixture.db.query(`select
@@ -43,7 +105,10 @@ try {
     (select count(*) from public.profiles)::integer as profiles,
     (select count(*) from public.groups)::integer as groups,
     (select count(*) from public.group_members)::integer as members,
-    (select count(*) from public.group_invites)::integer as invites`)
+    (select count(*) from public.group_invites)::integer as invites,
+    (select count(*) from public.privacy_requests)::integer as privacy,
+    (select count(*) from auth.sessions)::integer as sessions,
+    (select count(*) from auth.audit_log_entries)::integer as auth_audit`)
     ).rows[0];
   const before = await census();
   for (const [route, method] of [
@@ -59,6 +124,12 @@ try {
       [`${ORIGIN}:8443`, method, HEADERS, false],
       ['http://colete.example.invalid', method, HEADERS, false],
       [`${ORIGIN}.evil.com`, method, HEADERS, false],
+      ['https://COLETE.example.invalid', method, HEADERS, false],
+      ['HTTPS://colete.example.invalid', method, HEADERS, false],
+      [`${ORIGIN}.`, method, HEADERS, false],
+      [`${ORIGIN}, https://evil.example.invalid`, method, HEADERS, false],
+      ['null', method, HEADERS, false],
+      [ORIGIN, 'post', HEADERS, false],
       [ORIGIN, 'DELETE', HEADERS, false],
       [ORIGIN, method, 'x-unexpected', false],
     ]) {
@@ -66,9 +137,16 @@ try {
         method: 'OPTIONS',
         headers: {
           ...(origin ? { Origin: origin } : {}),
+          Authorization: `Bearer ${owner.token}`,
+          'content-type': 'application/json',
           'Access-Control-Request-Method': requestedMethod,
           'Access-Control-Request-Headers': requestedHeaders,
         },
+        body: JSON.stringify(
+          route.startsWith('groups/')
+            ? { request_id: crypto.randomUUID(), name: 'Preflight must not create a group' }
+            : { request_id: crypto.randomUUID(), profile: { name: 'Preflight fixture' } },
+        ),
       });
       assert.equal(response.status, 204, `${route}: preflight must run before authentication`);
       assert.equal(await response.text(), '');
@@ -76,9 +154,36 @@ try {
       checks++;
     }
   }
+  for (const [route, method] of [
+    ['identity/complete_profile', 'POST'],
+    ['groups/create_group', 'POST'],
+    ['data-exports/00000000-0000-4000-8000-000000000001/content', 'GET'],
+  ]) {
+    const response = await raw(
+      runtime.url,
+      'OPTIONS',
+      `/${route}`,
+      [
+        ['Origin', ORIGIN],
+        ['Origin', 'https://evil.example.invalid'],
+        ['Authorization', `Bearer ${owner.token}`],
+        ['content-type', 'application/json'],
+        ['Access-Control-Request-Method', method],
+        ['Access-Control-Request-Headers', HEADERS],
+      ],
+      JSON.stringify({ request_id: crypto.randomUUID(), name: 'Repeated origin fixture' }),
+    );
+    assert.equal(response.status, 204, `${route}: repeated Origin preflight`);
+    headers(
+      new Response(null, { status: response.status, headers: response.headers }),
+      undefined,
+      method,
+    );
+    checks++;
+  }
   assert.deepEqual(await census(), before, 'all preflights have zero database effects');
   console.log(
-    'ok - 27 direct preflights, strict origins/methods/headers, database census unchanged',
+    'ok - 48 credentialed direct preflights, strict origins/methods/headers, database census unchanged',
   );
   const worker = await fetch(`${runtime.url}/worker/process_external_effects`, {
     method: 'OPTIONS',
@@ -139,7 +244,6 @@ try {
     'https://evil.example.invalid',
   );
   await call('identity/complete_profile', {}, undefined, 401, 'UNAUTHENTICATED', '');
-  const owner = await fixture.actor(runtime.url);
   const other = await fixture.actor(runtime.url);
   await call('identity/update_profile', {}, owner.token, 422, 'VALIDATION');
   await call(
@@ -148,6 +252,38 @@ try {
     owner.token,
     200,
   );
+  for (const origin of [
+    'https://evil.example.invalid',
+    'https://COLETE.example.invalid',
+    'HTTPS://colete.example.invalid',
+    `${ORIGIN}.`,
+    `${ORIGIN}, https://evil.example.invalid`,
+    'null',
+  ]) {
+    await call(
+      'identity/update_profile',
+      { request_id: crypto.randomUUID(), patch: { name: 'Denied-origin successful fixture' } },
+      owner.token,
+      200,
+      undefined,
+      origin,
+    );
+  }
+  const repeatedSuccess = await raw(
+    runtime.url,
+    'POST',
+    '/identity/update_profile',
+    [
+      ['Origin', ORIGIN],
+      ['Origin', 'https://evil.example.invalid'],
+      ['Authorization', `Bearer ${owner.token}`],
+      ['content-type', 'application/json'],
+    ],
+    JSON.stringify({ request_id: crypto.randomUUID(), patch: { name: 'Repeated origin success' } }),
+  );
+  assert.equal(repeatedSuccess.status, 200, 'authenticated real 200 with repeated Origin');
+  headers(new Response(null, { status: 200, headers: repeatedSuccess.headers }), undefined, 'POST');
+  checks++;
   const requestId = crypto.randomUUID();
   const created = await call(
     'groups/create_group',
@@ -306,7 +442,15 @@ try {
   console.log('ok - real handler 500 with missing synthetic HMAC retains CORS');
   await runtime.stop();
   runtime = undefined;
-  for (const invalid of [undefined, '', '*', `${ORIGIN}/path`, `${ORIGIN},*`]) {
+  for (const invalid of [
+    undefined,
+    '',
+    '*',
+    `${ORIGIN}/path`,
+    `${ORIGIN},*`,
+    `${ORIGIN},`,
+    `${ORIGIN},https://co lete.example.invalid`,
+  ]) {
     runtime = await startDirectEdge({
       APP_ALLOWED_ORIGINS: invalid,
       COLETE_LOCAL_STACK: undefined,
@@ -327,6 +471,17 @@ try {
     await runtime.stop();
     runtime = undefined;
   }
+  runtime = await startDirectEdge({
+    APP_ALLOWED_ORIGINS: `  ${ORIGIN}  , https://other.example.invalid  `,
+    COLETE_LOCAL_STACK: undefined,
+  });
+  const trimmed = await fetch(`${runtime.url}/identity/complete_profile`, {
+    method: 'OPTIONS',
+    headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST' },
+  });
+  assert.equal(trimmed.status, 204, 'outer item whitespace is removed');
+  headers(trimmed, ORIGIN, 'POST');
+  checks++;
   console.log(
     `ok - missing/empty/wildcard/path/mixed invalid deployment configuration fails closed; ${checks} HTTP checks`,
   );

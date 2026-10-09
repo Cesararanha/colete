@@ -10,9 +10,10 @@ const environment =
       : name === 'COLETE_LOCAL_STACK'
         ? String(local)
         : undefined;
-const request = (origin: string | undefined, method = 'POST', headers = {}) =>
+const request = (origin: string | undefined, method = 'POST', headers = {}, body?: string) =>
   new Request('https://api.example.invalid/identity/complete_profile', {
     method,
+    ...(body === undefined ? {} : { body }),
     headers: { ...(origin === undefined ? {} : { Origin: origin }), ...headers },
   });
 
@@ -38,6 +39,9 @@ describe('browser CORS transport', () => {
     'null',
     'http://localhost:4173',
     `${ORIGIN},`,
+    `,${ORIGIN}`,
+    `${ORIGIN},,https://other.example.invalid`,
+    `${ORIGIN},https://co lete.example.invalid`,
   ])('fails closed for invalid config %s', (value) => {
     expect(allowedBrowserOrigins(environment(value))).toEqual(new Set());
   });
@@ -52,12 +56,19 @@ describe('browser CORS transport', () => {
     expect(allowedBrowserOrigins(environment(undefined, true)).size).toBe(0);
   });
   it('handles preflight before the real handler without authentication or effects', async () => {
-    const handler = vi.fn(() => new Response(null, { status: 401 }));
+    const handler = vi.fn(async () => new Response(null, { status: 401 }));
     const response = await withBrowserCors(handler, environment(ORIGIN), ['POST'])(
-      request(ORIGIN, 'OPTIONS', {
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'Authorization, Apikey, Content-Type, X-Client-Info',
-      }),
+      request(
+        ORIGIN,
+        'OPTIONS',
+        {
+          Authorization: 'Bearer valid-local-fixture',
+          'content-type': 'application/json',
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'Authorization, Apikey, Content-Type, X-Client-Info',
+        },
+        JSON.stringify({ request_id: 'preflight-fixture', name: 'No effects' }),
+      ),
     );
     expect(response.status).toBe(204);
     expect(await response.text()).toBe('');
@@ -75,6 +86,12 @@ describe('browser CORS transport', () => {
     [`${ORIGIN}:8443`, 'POST', 'apikey'],
     ['http://colete.example.invalid', 'POST', 'apikey'],
     [`${ORIGIN}.evil.com`, 'POST', 'apikey'],
+    ['https://COLETE.example.invalid', 'POST', 'apikey'],
+    ['HTTPS://colete.example.invalid', 'POST', 'apikey'],
+    [`${ORIGIN}.`, 'POST', 'apikey'],
+    [`${ORIGIN}, https://evil.example.invalid`, 'POST', 'apikey'],
+    ['null', 'POST', 'apikey'],
+    [ORIGIN, 'post', 'apikey'],
     [undefined, 'POST', 'apikey'],
     [ORIGIN, 'DELETE', 'apikey'],
     [ORIGIN, 'POST', 'x-unexpected'],
@@ -128,6 +145,27 @@ describe('browser CORS transport', () => {
     );
     expect(handler).toHaveBeenCalledOnce();
     expect(response.status).toBe(401);
+    expect(cors(response)).toEqual({});
+  });
+  it.each([
+    'https://evil.example.invalid',
+    'https://COLETE.example.invalid',
+    'HTTPS://colete.example.invalid',
+    `${ORIGIN}.`,
+    `${ORIGIN}, https://evil.example.invalid`,
+    'null',
+  ])('keeps a real 200 unreadable to denied origin %s', async (origin) => {
+    const handler = vi.fn(() => new Response('private success', { status: 200 }));
+    const response = await withBrowserCors(handler, environment(ORIGIN), ['POST'])(request(origin));
+    expect(handler).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('private success');
+    expect(cors(response)).toEqual({});
+  });
+  it('rejects repeated Origin headers instead of selecting the first', async () => {
+    const repeated = request(ORIGIN, 'OPTIONS', { 'Access-Control-Request-Method': 'POST' });
+    repeated.headers.append('Origin', 'https://evil.example.invalid');
+    const response = await withBrowserCors(vi.fn(), environment(ORIGIN), ['POST'])(repeated);
     expect(cors(response)).toEqual({});
   });
   it('makes unexpected errors readable without leaking the exception', async () => {
