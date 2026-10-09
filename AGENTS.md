@@ -161,6 +161,29 @@ npm run audit:high
 git diff --check
 ```
 
+**Auditoria de dependências — decisão humana de 07/10/2026.** `audit:high`
+é obrigatório e precisa terminar com exit 0 quando a fatia altera, em qualquer
+pasta, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `.npmrc`,
+`.nvmrc`, `.node-version`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`, `deno.json`,
+`deno.jsonc`, `import_map.json`, `deno.lock`, `audit-exceptions.json`,
+`scripts/audit-high.mjs`, `scripts/test-audit-high.mjs`, `scripts/audit-needed.mjs`,
+`scripts/test-audit-needed.mjs`, `scripts/fixtures/audit-*`, `patches/**`,
+`.github/workflows/**` ou `.github/actions/**`. Os nomes de arquivo valem em
+qualquer pasta; os caminhos estruturados também valem sob subpastas.
+A comparação usa o caminho inteiro em minúsculas. Link simbólico protegido no
+head (inclusive herdado ou apontando para fora), ou diferença/árvore indisponível
+exige auditoria. Pela decisão humana de 09/10/2026, PR com base diferente de
+`main` reprova `Repository guardrails`; a guarda fica somente no workflow.
+O workflow executa somente a cópia do seletor do SHA da base do evento; se ela
+não existir ou não puder ser obtida, exige auditoria sem executar o seletor do PR.
+São detalhes de 08/10/2026, ajustados pela decisão humana de 09/10/2026,
+da decisão de 07/10/2026. Os limites aceitos estão em `docs/23`.
+Nos demais casos, execute o comando e relate o resultado, mas um alerta de
+auditoria não bloqueia a fatia. `test:audit` roda sempre.
+Na CI, os cinco jobs continuam em todo PR; somente o passo de `audit:high`
+é condicional. O procedimento diário, a rodada quinzenal e as exceções datadas
+estão em `docs/23`.
+
 Todo harness novo de fatia entra no `package.json`, neste bloco e no job
 `database-security` do workflow no mesmo commit que o cria.
 
@@ -223,3 +246,9 @@ Pare e reporte, sem tentar resolver sozinho:
   `main`;
 - qualquer divergência entre o que um documento normativo diz e o que o código
   faz — a divergência em si é o achado, e vale mais do que o conserto.
+
+A auditoria local segue §5: quando a fatia não altera os arquivos ali listados,
+um alerta de `audit:high` é relatado e não exige parar. Quando altera, exit 0
+continua obrigatório; alerta novo ou exceção que dependa de decisão humana
+segue este gate. A execução diária segue o procedimento de `docs/23`:
+critical no mesmo dia; high na rodada quinzenal.
