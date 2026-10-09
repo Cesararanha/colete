@@ -1914,3 +1914,215 @@ somente nas cinco tabelas de configuração já listadas. Removidos 4.882
 logs de auditoria e seis fluxos Auth exclusivamente sintéticos desta rodada.
 Tipos regenerados sem diff. Evidências e restauração em
 `~/colete-noite/correcao57-contraprovas.md` e logs `correcao57-*`.
+
+## Fatia CORS — autoria de 06/10/2026
+
+Base `461fe29`, após o PR #58. Fatia autorizada pelo planejador em
+06/10/2026, registrada em `13` §0, `14` §5.4 e `25` §8.1. Sem migration,
+dependência nova, deploy ou retomada de staging: o WIP `cfbb479` continua
+pausado até o merge independente desta fatia. Risco alto por transportar
+login/sessão, dados pessoais e operações de capacidade/membership de grupos;
+o PR de autoria permanece draft, sem merge,
+para a cerimônia de revisão independente da D63.
+
+### Por que o navegador local passava
+
+O app local usa `http://127.0.0.1:4173` e a API usa a porta `54321`:
+**são origens distintas**. A rota `functions-v1` do `kong.yml` gerado pela
+CLI tem o plugin `cors`. Antes de implementar, uma requisição OPTIONS real
+nesse caminho respondeu **200**, `Access-Control-Allow-Origin: *`, os
+cabeçalhos solicitados e os métodos
+`GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS,TRACE,CONNECT`. Portanto o proxy
+local mascarava a ausência de CORS nos handlers.
+
+A medição separada publicou em loopback o runtime
+`public.ecr.aws/supabase/edge-runtime:v1.76.2`, com o dispatcher original da
+CLI e as fontes reais, sem Kong no caminho de entrada. Antes da mudança,
+OPTIONS respondeu **422 VALIDATION** e POST sem sessão **401
+UNAUTHENTICATED**, ambos sem CORS. Erros anteriores de setup da medição
+(entrypoint/mounts/cwd e 503 de boot) não foram contados como resultados do
+handler. Não foi acessado runtime hospedado.
+
+### O que foi entregue e provado
+
+`browser-cors.ts` concentra a política de transporte em identity, groups e
+data-exports. Lista explícita `APP_ALLOWED_ORIGINS`, validação inteira fechada,
+HTTPS fora do local, loopback HTTP somente em modo local; sem wildcard,
+reflexão livre ou Allow-Credentials. OPTIONS precede o handler e tem corpo
+vazio. Toda resposta real de origem aprovada recebe CORS, inclusive erros;
+status, envelope e headers existentes permanecem. Exceção inesperada recebe
+INTERNAL sanitizado, sem mensagem do provedor. Nenhum grant, guarda de sessão,
+contexto do ator, regra de idempotência ou autorização foi alterado. Worker
+intocado: OPTIONS continua **405 METHOD_NOT_ALLOWED**, sem CORS.
+
+Inventário do cliente instalado: `src/lib/api.ts` envia authorization,
+apikey e content-type às Edge; x-client-info é o header do cliente Supabase.
+REST/retries e tracing opcional da biblioteca não são utilizados nas chamadas
+Edge deste app. O cliente lê Content-Type, já safelisted, e retry_after no
+JSON; não há Expose-Headers extra. Métodos liberados: POST para identity/groups
+e GET para data-exports. Max-Age inicial 600 segundos; Vary conserva valores
+existentes e inclui Origin também nas respostas negadas.
+
+| Prova | Resultado medido antes da suíte completa |
+| --- | --- |
+| unitários de parsing, preflight, preservação e erro inesperado | 37 casos novos; suíte completa com 234 unitários em 24 arquivos |
+| preflight HTTP no runtime direto | 27 casos: três Functions × origem permitida/negada/ausente, subdomínio, porta, HTTP, sufixo malicioso, método/header inesperados |
+| censo de preflight | idempotency_records, invite_rate_limits, external_effects, job_runs, profiles, groups, group_members e group_invites inalterados |
+| respostas HTTP reais | 200/401/403/404/409/410/422/429/500/503, mais CODE_INVALID 400, com CORS exato para origem aprovada; origem negada/ausente sem CORS |
+| configuração fora do modo local | ausente, vazia, wildcard, path e lista mista inválida: zero origens permitidas em OPTIONS e POST |
+| stream real de export | 200 com bytes idênticos do ZIP sintético, private/no-store e Content-Disposition preservados; segundo download 410; objeto e registros removidos |
+| worker | OPTIONS 405 e POST sem credencial 401, nenhum header CORS |
+| E2E direto | app exportado em 4173 cria grupo por fetch nativo na porta direta de Edge; erros 401 de identity e data-exports são legíveis; ambos os viewports passaram |
+
+O harness conta **56 checagens HTTP**, além das sondas do worker e dos
+asserts de censo/limpeza. Configurações diferentes criam runtimes temporários
+novos, removidos ao final, sem cache de isolate da configuração anterior.
+As fixtures exigem `auth.users=0` antes e depois.
+
+O E2E mantém Auth/Data API nos endereços locais reais. Um adaptador **somente
+no teste** seleciona a porta publicada diretamente para `/functions/v1/*`,
+removendo esse prefixo de roteamento; o fetch nativo, corpo, credencial,
+preflight do navegador e handlers produtivos ficam intactos. Nenhuma chamada
+Functions passa por Kong, reverse proxy, route fulfillment ou resposta fake.
+Não foi adicionada configuração alternativa ao app.
+
+### Contraprovas
+
+Cada mutante executou `npm run db:test:cors` contra o runtime real e reprovou
+por AssertionError, sem falha de setup. Fonte restaurada byte a byte entre
+execuções: SHA-256
+`8610d714edddaac2eecd61b8ad0c1ec414bb3088683b0da1882011865abf7ee1`.
+
+| Mutante | Asserção que reprovou |
+| --- | --- |
+| refletir qualquer Origin | origem negada deve ter zero cabeçalhos CORS |
+| Allow-Origin wildcard | origem permitida precisa do valor exato, sem wildcard |
+| erro sem CORS | resposta real 401 também precisa de CORS |
+| preflight depois da autenticação | mutante invoca o handler real como POST antes do preflight; 401 reprova a expectativa de 204 |
+
+Substituições, tempos, hashes e logs em
+`~/colete-noite/cors-contraprovas.md` e `cors-validacao/mutants.json`.
+Sem retry novo, timeout ampliado, sleep de sincronização, skip novo ou asserção
+enfraquecida. A primeira execução de unitários detectou defaults de fixtures
+que escondiam undefined, corrigidos mantendo as expectativas negativas. O
+harness corrigiu expectativas para worker 405, CODE_INVALID 400 e payload
+patch de update_profile, conforme o contrato existente. O carregador do
+Playwright exigiu process.cwd no helper compartilhado, sem import.meta;
+nenhuma mudança de módulo ou dependência no app foi necessária. Um erro de
+variável no launcher de logs interrompeu-o após db:stop, antes dos testes;
+foi registrado e corrigido. Saída de credenciais sintéticas da CLI redigida
+nos logs de inicialização.
+
+### Validação completa e bloqueio de fechamento
+
+A sequência obrigatória passou em db:reset (20 migrations), pgTAP (1.259
+asserções em 19 arquivos), todos os harnesses de banco, verify:app (234
+unitários), scan:docs, scan:secrets e test:audit (12 casos). Três séries de
+Auth/privacidade/grupos/CORS/smoke somaram 246 testes aprovados e 18 skips
+preexistentes, sem novo skip ou retry. Após ajustar o usuário do container
+temporário para preservar permissões no Linux da CI, o HTTP direto passou
+novamente com 56 checagens e dois ciclos adicionais de navegador somaram
+quatro aprovações; o terceiro ciclo com esse helper já estava na série
+completa. Os quatro mutantes foram repetidos e rejeitados, com restauração
+integral da fonte. git diff --check passou.
+
+Censo final: 54 tabelas, auth.users=0, nenhum papel-sonda residual, nenhum
+registro de domínio/operação nem objeto Storage residual. As cinco tabelas
+não vazias são seeds/histórico de migrations: auth.schema_migrations (82),
+private.allowed_proof_mime_types (4), private.app_limits (17), storage.buckets
+(2) e storage.migrations (73). A limpeza exclusiva de fixtures do provedor
+removeu 4.814 audit_log_entries e seis flow_state sintéticos.
+
+**Fechamento bloqueado:** audit:high saiu 1 por dois avisos novos não cobertos
+pelas exceções vigentes: GHSA-wq5f-xc86-pv6w (sharp 0.35.4, high; correção
+0.35.5) e GHSA-pqg4-j6r4-53mv (shell-quote 1.10.0, critical; correção 1.11.0).
+Nenhuma dependência ou exceção foi alterada nesta fatia. AGENTS §8 exige decisão
+humana para ampliar o escopo; o trabalho é preservado como WIP em draft e não
+pode ser declarado validado integralmente. Staging permanece pausado. Evidências
+locais em ~/colete-noite/cors-validacao e progresso-cors.md.
+
+### Retomada após o PR #61 — 09/10/2026
+
+Rebase sobre origin/main `909b44b`, preservando integralmente o comportamento
+CORS. O único conflito foi no manifesto, resolvido recalculando checksums do
+conteúdo combinado. O bloqueio de 06/10 está encerrado: as correções de
+dependências vieram de main, sem alteração de dependência nesta fatia.
+A correção do planejador de 09/10 confirma auditoria **exigida**: este PR
+altera package.json somente em scripts e registra os harnesses no workflow
+e em AGENTS §5. Dependências, overrides e versões são idênticos aos da base;
+package-lock.json foi comparado com origin/main por cmp, exit 0.
+
+Todos os comandos de AGENTS §5 passaram depois do rebase, incluindo
+audit:high (exit 0; duas exceções vigentes), test:audit e diff --check.
+Banco recriado por 20 migrations: 1.259 asserções pgTAP em 19 arquivos.
+verify:app: 234 unitários em 24 arquivos. Browsers 1×: Auth 8 pass/2 skips
+preexistentes, privacidade 4 pass/4 skips preexistentes, grupos 62 pass,
+CORS 2 pass e smoke 6 pass; total 82 aprovações e seis skips existentes.
+Nenhuma falha de navegador, novo skip, retry ou timeout ampliado.
+
+CORS direto no runtime Edge, sem Kong: 56 verificações HTTP passaram.
+Os quatro mutantes (reflexão livre, wildcard, erro sem CORS e autenticação
+antes do preflight) reprovaram por AssertionError no HTTP real; fonte
+restaurada byte a byte após cada execução. Auth zero nas fronteiras das
+fixtures CORS. O censo final examinou 54 tabelas e confirmou auth.users=0,
+zero papéis-sonda e nenhum registro de domínio/operação ou objeto Storage
+residual. Somente as cinco tabelas de seeds/histórico acima ficaram não
+vazias; limpeza do provedor removeu 1.774 audit_log_entries e dois flow_state
+sintéticos desta rodada. Uma consulta avulsa durante harness ativo viu
+fixtures temporárias e não foi usada como evidência de fronteira.
+
+Logs medidos: ~/colete-noite/cors-validacao-2026-10-09; contraprovas e
+progresso preservados em ~/colete-noite. PR continua draft para revisão
+independente; nenhum merge, deploy, projeto remoto ou staging retomado.
+
+### Correção da revisão independente do PR #59 — 09/10/2026
+
+Correção separada do commit `3d7c9e9`, limitada a testes e documentos.
+A produção CORS aprovada pelo revisor permanece byte a byte idêntica
+(SHA-256 `8610d714edddaac2eecd61b8ad0c1ec414bb3088683b0da1882011865abf7ee1`).
+A decisão do planejador de 09/10, registrada em `13` e `25` §8.1,
+explicita trim por item e falha fechada da lista inteira para item vazio,
+espaço interno ou item inválido. Os três casos têm prova unitária e HTTP.
+
+Achado P2: unitário e db:test:cors agora reprovam as sete regressões
+R01/R02/R05/R06/R14/R18/R25: comparação sem maiúsculas, ponto final, primeiro
+Origin repetido/lista, null, handler executado com Authorization no
+preflight, método post minúsculo e origem negada lendo um 200. Origin
+repetido em duas linhas usa HTTP/1.1 cru por TCP, reaproveitando a sonda
+do revisor; a comparação unitária também usa Headers.append.
+
+Achados P3: os 48 preflights de censo levam Bearer válido e corpo; as 11
+contagens (idempotência, limitador, efeitos, jobs, perfis, grupos, members,
+invites, privacy_requests, auth.sessions e audit_log_entries) ficam iguais.
+O E2E negativo serve o app numa origem não listada, exige TypeError no
+fetch nativo, mostra a mensagem de rede real da página e prova zero grupos
+criados. O mutante A-reflection reprova por asserção explícita na linha 129
+nos dois projetos, com traces copiados antes da próxima suíte.
+
+AGENTS §5 completo passou, incluindo audit:high e os 94 testes de auditoria.
+Browser 1×: Auth 8 pass/2 skips existentes, privacidade 4 pass/4 skips
+existentes, grupos 62 pass, CORS 4 pass e smoke 6 pass (84 aprovações,
+seis skips preexistentes). pgTAP: 1.259 asserções em 19 arquivos. Unitário
+CORS: 53 casos; suíte completa: 250 casos em 24 arquivos. HTTP direto:
+89 verificações aprovadas, sem Kong. Não houve falha na suíte normal de
+navegador; as falhas esperadas são somente as contraprovas.
+
+Os 25 mutantes do revisor e quatro do autor reprovam nas suítes da CI,
+sem depender da sonda externa. As sete regressões P2 reprovam nas duas
+suítes. O spy de preflight é assíncrono para que R14 reprove pela asserção
+de handler não chamado, e não por TypeError incidental de catch; o HTTP
+reprova pelo censo alterado. R23 reprova porque a exceção escapa do teste
+que exige 500 sanitizado. Após esse ajuste, as contraprovas foram repetidas
+e verify:app, HTTP direto e auditoria passaram novamente. Nenhum retry,
+timeout ampliado, sleep de sincronização, novo skip ou asserção enfraquecida.
+
+Censo final sem testes concorrentes: 54 tabelas, auth.users=0, zero
+papéis-sonda e resíduos de domínio/operação/Storage; somente as cinco
+tabelas de seeds/histórico acima ficaram não vazias. Fixtures CORS
+confirmam auth.users=0 antes e depois. O último censo removeu 94 registros
+sintéticos de audit_log_entries e zero flow_state do controle final.
+
+Evidências e tabela mutante → teste → linha: ~/colete-noite/corr59-contraprovas.md
+e corr59/mutants/results.json; logs em corr59; progresso em
+~/colete-noite/progresso-corr59.md. Commit de correção próprio; PR permanece
+draft, sem merge, deploy, projeto remoto ou retomada de staging.

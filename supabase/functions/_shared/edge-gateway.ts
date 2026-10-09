@@ -17,6 +17,8 @@
 // The secret key authenticates this component, not the person. That is why the
 // actor travels as an explicit argument and the RPC revalidates everything.
 
+import { withBrowserCors } from './browser-cors.ts';
+
 import { runOperation, requestIdHintFrom } from './gateway.ts';
 import type { ActorContext, RpcCaller } from './gateway.ts';
 import { keyResolverFromEnvironment } from './hmac.ts';
@@ -149,72 +151,78 @@ export function serveGateway(served: readonly string[]): void {
     return profiles[0].id;
   }
 
-  Deno.serve(async (request: Request): Promise<Response> => {
-    if (request.method !== 'POST') {
-      return errorResponse('VALIDATION', '');
-    }
+  Deno.serve(
+    withBrowserCors(
+      async (request: Request): Promise<Response> => {
+        if (request.method !== 'POST') {
+          return errorResponse('VALIDATION', '');
+        }
 
-    const segments = new URL(request.url).pathname.split('/').filter((s) => s.length > 0);
-    const name = segments[segments.length - 1] ?? '';
-    const operation = served.find((candidate) => candidate === name);
-    if (operation === undefined) {
-      return errorResponse('NOT_FOUND', '');
-    }
+        const segments = new URL(request.url).pathname.split('/').filter((s) => s.length > 0);
+        const name = segments[segments.length - 1] ?? '';
+        const operation = served.find((candidate) => candidate === name);
+        if (operation === undefined) {
+          return errorResponse('NOT_FOUND', '');
+        }
 
-    const header = request.headers.get('Authorization') ?? '';
-    const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
-    if (token.length === 0) {
-      return errorResponse('UNAUTHENTICATED', '');
-    }
+        const header = request.headers.get('Authorization') ?? '';
+        const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
+        if (token.length === 0) {
+          return errorResponse('UNAUTHENTICATED', '');
+        }
 
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return errorResponse('VALIDATION', '');
-    }
-    const requestIdHint = requestIdHintFrom(body);
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return errorResponse('VALIDATION', '');
+        }
+        const requestIdHint = requestIdHintFrom(body);
 
-    const actor = await verifyActor(token);
-    if (actor === undefined) {
-      return errorResponse('UNAUTHENTICATED', requestIdHint);
-    }
+        const actor = await verifyActor(token);
+        if (actor === undefined) {
+          return errorResponse('UNAUTHENTICATED', requestIdHint);
+        }
 
-    let inviteKey: Uint8Array | undefined;
-    if (isInviteOperation(operation)) {
-      try {
-        inviteKey = inviteKeyFromEnvironment(readEnv);
-      } catch {
-        return errorResponse('INTERNAL', requestIdHint);
-      }
-    }
-    const result = isInviteOperation(operation)
-      ? await dispatchInvite(
-          {
-            actor,
-            resolveKey,
-            inviteKey: inviteKey!,
-            callRpc,
-            profileId: () => ownProfileId(token),
-            shareUrl: (inviteToken) =>
-              inviteShareUrl(
-                readEnv('INVITE_SHARE_URL_BASE'),
-                inviteToken,
-                readEnv('COLETE_LOCAL_STACK') === 'true',
-              ),
-          },
-          operation,
-          body,
-        )
-      : await runOperation(
-          { resolveKey, callRpc },
-          operation as Operation,
-          body,
-          actor,
-          requestIdHint,
-        );
-    return jsonResponse(result.status, result.body);
-  });
+        let inviteKey: Uint8Array | undefined;
+        if (isInviteOperation(operation)) {
+          try {
+            inviteKey = inviteKeyFromEnvironment(readEnv);
+          } catch {
+            return errorResponse('INTERNAL', requestIdHint);
+          }
+        }
+        const result = isInviteOperation(operation)
+          ? await dispatchInvite(
+              {
+                actor,
+                resolveKey,
+                inviteKey: inviteKey!,
+                callRpc,
+                profileId: () => ownProfileId(token),
+                shareUrl: (inviteToken) =>
+                  inviteShareUrl(
+                    readEnv('INVITE_SHARE_URL_BASE'),
+                    inviteToken,
+                    readEnv('COLETE_LOCAL_STACK') === 'true',
+                  ),
+              },
+              operation,
+              body,
+            )
+          : await runOperation(
+              { resolveKey, callRpc },
+              operation as Operation,
+              body,
+              actor,
+              requestIdHint,
+            );
+        return jsonResponse(result.status, result.body);
+      },
+      readEnv,
+      ['POST'],
+    ),
+  );
 }
 
 export { GatewayError };

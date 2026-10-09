@@ -258,6 +258,19 @@ papéis cliente e limita DML direto do papel administrativo nas tabelas do M1-A;
 somente os endpoints/RPCs nomeados. `security definer`, quando necessário, fixa `search_path`
 e qualifica cada objeto.
 
+### 5.4 CORS de navegador
+
+Decisão técnica do planejador de 06/10/2026: o contrato completo está em
+`13` §0, “CORS das Edge Functions de navegador”. A origem pública de convite
+não substitui a lista de origens que podem ler respostas no navegador.
+`APP_ALLOWED_ORIGINS` vive nos secrets da Edge, com origens exatas separadas
+por vírgulas; HTTPS fora do local, HTTP de loopback somente com
+`COLETE_LOCAL_STACK=true`. Configuração ausente ou inválida permite zero
+origens. A camada compartilhada atende identity/groups/data-exports; worker
+não participa. Não há wildcard ou cookies. O preflight precede autenticação
+e não tem efeitos; respostas de erro também recebem CORS para origem aprovada.
+Essa configuração não autoriza deploy nem custódia de credencial por agente.
+
 ## 6. Hospedagem e administração
 
 1. **PWA no beta pessoal:** Vercel Hobby pode servir o export estático com domínio e
