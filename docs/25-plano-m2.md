@@ -1808,6 +1808,17 @@ invalidam a lista inteira (nenhuma origem permitida). Provar os três casos
 na suíte da CI. A correção do PR #59 é restrita a testes e documentos;
 o comportamento CORS aprovado pela revisão independente permanece.
 
+**Decisão técnica do planejador de 10/10/2026 — Zod/CSP.**
+
+Configurar o Zod do PWA com jitless em módulo único carregado antes de criar
+qualquer schema, para manter script-src sem unsafe-eval. Esta alteração entra
+no mesmo PR do staging, em commit próprio isolado. Provar ordem, zero chamadas
+a Function na inicialização/uso, testes existentes sem alterar asserções e
+contraprova sem configuração, inclusive browser com CSP. Edge Functions não
+mudam. Unsafe-inline somente em style-src, por evidência medida do RN Web;
+política e resultados ficam em `14` §5.5 e `28`. A autorização substitui a
+PERGUNTA sobre uma fatia separada para a sonda Zod.
+
 ### 8.2 Gates humanos
 
 A implementação não pode preencher estas respostas:

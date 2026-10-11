@@ -271,6 +271,22 @@ não participa. Não há wildcard ou cookies. O preflight precede autenticação
 e não tem efeitos; respostas de erro também recebem CORS para origem aprovada.
 Essa configuração não autoriza deploy nem custódia de credencial por agente.
 
+### 5.5 Zod sem JIT no app web
+
+**Decisão técnica do planejador de 10/10/2026:** o PWA configura Zod com
+jitless em módulo único carregado antes de qualquer schema, para permitir
+CSP com script-src sem unsafe-eval. src/lib/zod.ts configura e exporta z;
+os consumidores frontend importam essa fachada. Não muda validação nem Edge.
+
+A sonda de capacidade new Function mesmo capturada em try/catch gera violação
+CSP; jitless evita a sonda e a compilação dinâmica. Provas próprias afirmam a
+ordem antes dos builders e zero Function na inicialização/uso de login, perfil,
+grupo e convite. Retirar a configuração reprova ambas. Os testes existentes de
+schemas passam sem alterar asserções. O commit da preparação de staging mede
+os headers do export e a contraprova do browser; scripts não recebem
+unsafe-inline nem unsafe-eval. Alteração em commit próprio isolado por decisão
+humana, no mesmo PR da preparação.
+
 ## 6. Hospedagem e administração
 
 1. **PWA no beta pessoal:** Vercel Hobby pode servir o export estático com domínio e
