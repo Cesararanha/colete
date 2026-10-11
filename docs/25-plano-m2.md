@@ -1808,6 +1808,32 @@ invalidam a lista inteira (nenhuma origem permitida). Provar os três casos
 na suíte da CI. A correção do PR #59 é restrita a testes e documentos;
 o comportamento CORS aprovado pela revisão independente permanece.
 
+**Decisões humanas de César — staging (06/10 e 10/10/2026).**
+
+Vercel Hobby no endereço gratuito `*.vercel.app`; domínio próprio depois.
+`INVITE_SHARE_URL_BASE` aponta para essa origem. Supabase Free em São Paulo.
+Deploy manual pelo César no seu Terminal, sem credencial manipulada por agente
+ou workflow de deploy. Envio padrão de confirmação somente para a equipe de
+staging; SMTP próprio é bloqueante antes de convidar o grupo.
+
+Em 10/10, César aceitou exclusivamente para staging, usado por ele e contas de
+teste com dados fictícios, a ausência de garantia de vida máxima de sessão de
+90 dias no Free. JWT de 3600s, rotação e detecção de reuso não substituem o limite
+sincronizado com a retenção das revogações de `13` §5.5. Não alterar a migration,
+a calibragem local ou o código para simular a garantia. Antes do primeiro
+convite, assinar Pro e ativar o limite no painel, ou entregar uma fatia de código
+que garanta a propriedade sem depender do plano. A escolha permanece humana.
+O roteiro e a lista bloqueante estão em `28-staging.md`.
+
+**Decisão técnica do planejador de 06/10/2026 — CSP de staging.**
+
+Medir a política mais restrita suportada pelo export; scripts inline recebem
+hashes gerados no build, sem `unsafe-inline`/`unsafe-eval` em script-src.
+Destinos HTTPS/WSS vêm de EXPO_PUBLIC_SUPABASE_URL, sem projeto fixo no repo.
+Style inline somente com evidência do React Native Web. Servir o export com
+headers e provar zero violação na suíte completa. Política medida em `14` §5.5;
+nenhuma garantia de hospedagem é declarada pela prova local.
+
 **Decisão técnica do planejador de 10/10/2026 — Zod/CSP.**
 
 Configurar o Zod do PWA com jitless em módulo único carregado antes de criar

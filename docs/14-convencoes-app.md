@@ -271,21 +271,50 @@ não participa. Não há wildcard ou cookies. O preflight precede autenticação
 e não tem efeitos; respostas de erro também recebem CORS para origem aprovada.
 Essa configuração não autoriza deploy nem custódia de credencial por agente.
 
-### 5.5 Zod sem JIT no app web
+### 5.5 CSP do staging — política e provas
 
-**Decisão técnica do planejador de 10/10/2026:** o PWA configura Zod com
-jitless em módulo único carregado antes de qualquer schema, para permitir
-CSP com script-src sem unsafe-eval. src/lib/zod.ts configura e exporta z;
-os consumidores frontend importam essa fachada. Não muda validação nem Edge.
+Decisão técnica do planejador de 06/10/2026: aplicar a política mais restrita
+que o export suportar, com hashes para scripts inline, nunca unsafe-inline
+ou unsafe-eval em script-src. HTTPS/WSS do Supabase vêm da variável pública
+de build, não de valor fixo versionado. Cabeçalhos adicionais: nosniff,
+no-referrer e Permissions-Policy negando capacidades não utilizadas.
 
-A sonda de capacidade new Function mesmo capturada em try/catch gera violação
-CSP; jitless evita a sonda e a compilação dinâmica. Provas próprias afirmam a
-ordem antes dos builders e zero Function na inicialização/uso de login, perfil,
-grupo e convite. Retirar a configuração reprova ambas. Os testes existentes de
-schemas passam sem alterar asserções. O commit da preparação de staging mede
-os headers do export e a contraprova do browser; scripts não recebem
-unsafe-inline nem unsafe-eval. Alteração em commit próprio isolado por decisão
-humana, no mesmo PR da preparação.
+Medição local da preparação retomada em 10/10/2026: a tela `/entrar` tem
+29 atributos style e 3 elementos style. Com style-src somente self, Chromium
+registrou 3 violações style-src-elem e 2 style-src-attr; permitindo unsafe-inline
+em style-src, as 5 violações de estilo desapareceram. Isso documenta a
+necessidade do export atual/React Native Web, não autoriza scripts inline
+sem hash. Os traces e JSON da comparação estão no progresso de staging.
+
+**Decisão técnica do planejador de 10/10/2026:** configurar o Zod do PWA
+com jitless em módulo único antes de qualquer schema. `src/lib/zod.ts` chama
+z.config({ jitless: true }); todos os consumidores frontend importam dele.
+As Edge Functions não mudam. O espião Function e a prova de ordem são testes
+próprios; retirar a configuração deve reprovar as duas provas e registrar
+script-src / eval no browser. Não capturar/ignorar a violação nem permitir eval.
+
+A sonda Zod (`new Function("")`, capturada em try/catch) motivou a mudança:
+mesmo capturada, CSP gera securitypolicyviolation. Jitless evita sonda/JIT,
+mantendo a validação. Hashes autorizam somente os scripts inline presentes
+no export (captura de convite, registro do SW e bootstrap exportado), sem
+unsafe-inline ou unsafe-eval em script-src. Unsafe-inline fica exclusivamente
+em style-src, pela medição dos atributos/estilos RN Web acima.
+
+O gerador preparado inclui default-src self; script-src self + hashes
+do export; style-src self unsafe-inline; img-src self data: blob:; font-src
+self; connect-src self + HTTPS/WSS da origem de build; manifest-src
+self; worker-src self; object-src none; base-uri self; form-action self;
+frame-ancestors none; upgrade-insecure-requests. A prova local completa em 11/10/2026 registrou 84 casos aprovados (Auth 8,
+privacy 4, grupos 62, CORS 4, smoke 6), zero violações CSP no console/eventos
+e zero chamadas a Function em todos os contextos. Os seis skips existentes
+de Auth/privacy permanecem, sem novo skip. Dez execuções isoladas adicionais
+também passaram. Sem retry, aumento de timeout ou asserção enfraquecida.
+Retirar jitless reprovou os dois testes próprios e os seis casos de smoke
+com script-src/eval. Os 253 testes unitários passaram, incluindo todos os
+schemas existentes sem alteração. Evidência: `~/colete-noite/staging/`,
+`diagnostico-semeadura.md`, `full/`, `finish/` e logs `mutant-zod-*`.
+Na prova, os destinos loopback exatos substituem a origem HTTPS do hosted
+somente no harness, sem wildcard ou mudança da política de scripts.
 
 ## 6. Hospedagem e administração
 

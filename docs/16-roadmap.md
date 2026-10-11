@@ -393,3 +393,14 @@ interface apenas esconderia dívidas técnicas mais caras.
 **D63:** UI-A vem depois da `0017` e UI-B depois da `0018`; os gates se aplicam
 ao primeiro convite do piloto. Nenhuma preparação de staging nesta PR autoriza
 projeto Supabase remoto, deploy ou segredo.
+
+### Preparação de staging — decisões de 06/10 e 10/10/2026
+
+César executa o deploy manual de `28-staging.md`: Supabase Free em São Paulo
+e Vercel Hobby no domínio gratuito, sem workflow de deploy nem credenciais
+de ambiente por agentes. SMTP padrão somente para testes da equipe; próprio
+antes de convidar alguém. Staging restrito ao César e dados fictícios.
+A vida máxima de sessão de 90 dias não é garantida no Free; exceção humana
+exclusiva do staging, sem mudar a retenção/local (`25` §8.1). Antes do primeiro
+convite, Pro com limite ativo ou fatia que garanta a mesma propriedade.
+Este gate soma-se aos demais, não autoriza o piloto de amigos ou uso real.

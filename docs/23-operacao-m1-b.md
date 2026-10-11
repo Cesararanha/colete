@@ -1752,3 +1752,13 @@ por igualdade integral com a baseline, preservando a evidência anterior à limp
 Nenhuma suíte foi repetida. Supabase local encerrado; nenhum serviço de produção
 acessado. Dependências, exceções e migrations permanecem idênticas a 661532b.
 Provas, stacks e executores em ~/colete-noite/corr61b-contraprovas.md.
+
+## Configuração do staging — retomada em 10/10/2026
+
+O inventário atualizado de Edge/Vault/Auth/PWA e o roteiro manual estão em
+`28-staging.md`. APP_ALLOWED_ORIGINS e INVITE_SHARE_URL_BASE são gravadas antes
+de publicar o app. A preparação não acessa ambiente remoto nem segredo real.
+A guarda `verify:auth-config` prova apenas a igualdade local de 90 dias com
+7776000s do banco; não prova que o Supabase Free ofereça limite de sessão.
+Essa lacuna foi aceita por César só para staging fictício e bloqueia o primeiro
+convite até Pro configurado ou implementação independente de plano (`25` §8.1).

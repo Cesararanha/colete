@@ -2126,3 +2126,44 @@ Evidências e tabela mutante → teste → linha: ~/colete-noite/corr59-contrapr
 e corr59/mutants/results.json; logs em corr59; progresso em
 ~/colete-noite/progresso-corr59.md. Commit de correção próprio; PR permanece
 draft, sem merge, deploy, projeto remoto ou retomada de staging.
+
+
+## Preparação de staging — diagnóstico local de 11/10/2026
+
+A primeira validação de grupos registrou dois HTTP 500 na semeadura
+identity/complete_profile (10/10, 00:07:41Z) e timeout de login no setup de
+vinte membros (00:12:43Z). VERIFICADO: o runtime Edge registrou
+WorkerAlreadyRetired: request cannot be handled because the worker has already
+retired, junto a wall clock duration warning e early termination. Postgres
+não registrou erro de complete_profile nessa janela; o 500 tinha o envelope
+genérico do runtime, não o envelope INTERNAL do gateway. INFERÊNCIA: corrida
+com aposentadoria do worker local per_worker, sem evidência de dado inválido
+ou defeito SQL do app.
+
+VERIFICADO: os sete logins concluídos responderam 200 em 79.75–102.70 ms no
+GoTrue. O oitavo não teve resposta no trace nem conclusão registrada na janela
+consultada; o cliente foi cancelado ao exceder o limite de 30000 ms. Não foi
+observada recusa. INFERÊNCIA: bloqueio/atraso de transporte ou máquina local;
+não há evidência para atribuir 30 segundos de processamento ao GoTrue ou falta
+de RAM. Memória e docker stats foram medidos no diagnóstico e durante os testes,
+não na falha histórica; inspect indicou OOMKilled=false nos três contêineres.
+
+Decisão de execução autorizada por César: testes intactos, cada caso no projeto
+que falhou passou cinco vezes isolado (10/10), depois grupos inteiro passou
+62/62 em 320s, zero CSP/Function em todos os contextos. Nenhum 500 ou timeout
+se repetiu. A configuração jitless é exclusiva do grafo frontend; semeadura
+Node e Edge identity não importam src/lib/zod.ts. Nenhuma mudança de Edge,
+migration, dependência, retry, timeout, asserção ou container feita no diagnóstico.
+
+AGENTS §5 aprovado: db recriado pelas migrations, 1259 pgTAP/19 arquivos,
+harnesses completos; 253 unitários/26 arquivos e checker 33/33; navegadores
+Auth 8, privacy 4, grupos 62, CORS direto 4 e smoke 6 = 84 aprovados, zero
+violação CSP no console/eventos e zero Function. Seis skips anteriores de
+Auth/privacy, nenhum novo. Os grupos foram repetidos somente pelo diagnóstico
+expressamente autorizado. Censo de 54 tabelas: auth.users=0 antes/depois,
+zero papéis-sonda/resíduos; controle final removeu 5045 audit_log_entries
+sintéticos e 2 flow_state. audit:high exit 0, sem novas exceções/dependências.
+
+Evidência: ~/colete-noite/staging/diagnostico-semeadura.md, diagnostico/,
+full/ e finish/. Dois commits finais separados para Zod jitless e preparação;
+PR draft para revisão independente, sem merge ou acesso a hospedagem real.

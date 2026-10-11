@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request } from './support/csp';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,10 +27,6 @@ const { Client } = pg;
 const runSuffix = `${Date.now()}-${process.pid}`;
 const PASSWORD = 'Frase-segura-2026';
 const HEX_64 = /\b[0-9a-f]{64}\b/u;
-const supabaseBrowserBundle = path.join(
-  process.cwd(),
-  'node_modules/@supabase/supabase-js/dist/umd/supabase.js',
-);
 
 test.beforeEach(async ({ page }) => {
   await applyCpuThrottling(page, process.env.COLETE_E2E_CPU_THROTTLE_RATE);
@@ -86,7 +82,7 @@ async function refreshBrowserSession(page: Page, env: LocalEnvironment) {
   const previousToken = await storedAccessToken(page);
   const nextSecond = await page.evaluate(() => (Math.floor(Date.now() / 1_000) + 1) * 1_000);
   await page.waitForFunction((deadline) => Date.now() >= deadline, nextSecond);
-  await page.addScriptTag({ path: supabaseBrowserBundle });
+  await page.addScriptTag({ url: '/__test__/supabase.js' });
   const currentToken = await page.evaluate(
     async ({ apiUrl, publishableKey }) => {
       type RefreshResult = {

@@ -45,3 +45,6 @@ coverage/
 .vscode/
 .idea/
 .claude/
+
+# Generated deployment output and local Vercel metadata
+.vercel/

@@ -4,7 +4,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
-} from '@playwright/test';
+} from './support/csp';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';

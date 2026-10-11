@@ -10,3 +10,6 @@ README.md
 # the formatter, or a local stack makes format:check fail on a file nobody wrote.
 supabase/.temp
 supabase/.branches
+
+# Generated Vercel deployment output
+.vercel

@@ -79,6 +79,11 @@ jobs:
         run: npm ci
       - name: Export the web app
         run: npm run build:web
+      - name: Generate deployment headers using a fictitious HTTPS project
+        run: npm run build:web:staging
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.invalid
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_fixture
       - name: Verify the PWA boundary
         run: npm run verify:pwa
 
@@ -107,6 +112,8 @@ jobs:
         run: npm run db:reset
       - name: Prove the dated audit exception boundary
         run: npm run test:audit
+      - name: Prove the staging checker and CSP generator with fake responses
+        run: npm run test:staging
       - name: Run pgTAP security tests
         run: npm run db:test
       - name: Run the transactional idempotency concurrency harness

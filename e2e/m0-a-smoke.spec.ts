@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/csp';
 import { Buffer } from 'node:buffer';
 
 test('shell supports keyboard, synthetic return, upload and safe caching', async ({ page }) => {
