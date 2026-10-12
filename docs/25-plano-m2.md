@@ -1226,6 +1226,17 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Rachas v1 — decisão humana de César, 12/10/2026, AGENTS §8.**
+  Até a entrega de Desenvolvimento Mobile, modo apresentação: racha simples
+  integrado ao banco, grupo, gateway idempotente e interface. O contrato maior
+  de `13` e o piloto de `27` continuam preservados e mapeados para depois da
+  apresentação. GPS nativo por `expo-location`, instalado por `npx expo install`
+  na versão compatível com o SDK; nenhuma outra dependência direta autorizada.
+  As telas do PR #25 podem fornecer componentes, layout e textos como base
+  visual, adaptados; dados fictícios de `demo-data.ts` não entram, e a branch
+  acadêmica não é mergeada nem rebased. Trabalho em `feat/rachas-v1`, PR draft,
+  sem merge, a partir de `origin/main`.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

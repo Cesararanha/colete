@@ -298,3 +298,19 @@ Pro com limite ativo ou fatia independente de plano; JWT/rotação não substitu
 a garantia (`25` §8.1; `28`). PWA publica automaticamente pela integração Git
 Vercel a cada merge no main; previews desligados. Supabase continua manual pelo
 César. Domínio final primeiro, duas origens na Edge depois, antes de usar app.
+
+## Rachas v1 — modo apresentação, decisão humana de 12/10/2026
+
+César autorizou um corte de demonstração do M3 para Desenvolvimento Mobile:
+racha de grupo com início/fim, local/endereço, coordenadas opcionais, vagas e
+valor por jogador; criação pelo gateway com request_id; leitura de membros
+ativos e escrita por dono/organizador ativo. Lista, detalhe e criação modal,
+GPS por expo-location e abertura no mapa. Todas as listas usam FlatList.
+A base visual pode vir do PR #25, sem importar dados fictícios nem suas
+novas dependências. O piloto completo permanece no mapa acima.
+
+**Depois da apresentação:** recorrência e modelos; Pix e configuração de
+pagamento; goleiros; TP/T0/T1/T2, claims e reconciliação; inscrição, ocupação
+real, fila e adição/remoção de jogadores; ledger, cobrança e devoluções;
+publicação e sorteio; notificações; cancelamento e a matriz integral de
+edição segura do piloto. A demonstração não afirma essas entregas.
