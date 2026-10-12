@@ -1,6 +1,6 @@
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 
-import { pt } from '@/lib/i18n/pt';
+import { pt } from '../../lib/i18n/pt';
 
 export const groupNameSchema = z.string().refine((value) => {
   const raw = value.normalize('NFC');
@@ -10,3 +10,5 @@ export const groupNameSchema = z.string().refine((value) => {
   const length = [...name].length;
   return length >= 2 && length <= 40;
 }, pt.groups.create.invalid);
+
+export const groupCreationSchema = z.object({ name: groupNameSchema });

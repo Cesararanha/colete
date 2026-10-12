@@ -289,3 +289,12 @@ que os emitem; `transfer_financial_authority` integra o M5 do piloto.
 César decidiu que o controle de visibilidade das notas da tela 25 entra no M6,
 junto com as notas, e fica ausente da UI-B do M2. `set_ratings_visibility`
 permanece entregue na `0016`; sua autoridade e confirmação continuam no contrato.
+
+## Staging — decisões humanas de 10/10 e 12/10/2026
+
+Staging Supabase Free restrito ao César e contas fictícias. Vida máxima de sessão
+de 90 dias não garantida: exceção aceita só aqui. Antes do primeiro convite,
+Pro com limite ativo ou fatia independente de plano; JWT/rotação não substituem
+a garantia (`25` §8.1; `28`). PWA publica automaticamente pela integração Git
+Vercel a cada merge no main; previews desligados. Supabase continua manual pelo
+César. Domínio final primeiro, duas origens na Edge depois, antes de usar app.

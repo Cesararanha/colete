@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -47,6 +48,12 @@ const result = spawnSync(expoBinary, ['export', '--platform', 'web', '--clear'],
   },
   stdio: 'inherit',
 });
+
+mkdirSync(path.join(repositoryRoot, '.expo'), { recursive: true });
+writeFileSync(
+  path.join(repositoryRoot, '.expo/staging-local.json'),
+  JSON.stringify({ origin: read('API_URL') }),
+);
 
 if (result.error !== undefined) throw result.error;
 process.exit(result.status ?? 1);

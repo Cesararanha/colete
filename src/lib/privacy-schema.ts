@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod';
 
 // The two owner projections published by 0012 and 0013. They are the only
 // privacy reads the client has; neither carries a Storage path, a digest, an

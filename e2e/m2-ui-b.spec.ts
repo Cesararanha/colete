@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './support/csp';
 import path from 'node:path';
 import pg from 'pg';
 import { assertAccessible, createVerifiedUser, localEnvironment } from './support/local-stack';

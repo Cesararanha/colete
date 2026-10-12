@@ -1808,6 +1808,61 @@ invalidam a lista inteira (nenhuma origem permitida). Provar os três casos
 na suíte da CI. A correção do PR #59 é restrita a testes e documentos;
 o comportamento CORS aprovado pela revisão independente permanece.
 
+**Decisões humanas de César — staging (06/10 e 10/10/2026).**
+
+Vercel Hobby no endereço gratuito `*.vercel.app`; domínio próprio depois.
+`INVITE_SHARE_URL_BASE` aponta para essa origem. Supabase Free em São Paulo.
+Deploy manual pelo César no seu Terminal, sem credencial manipulada por agente
+ou workflow de deploy. Envio padrão de confirmação somente para a equipe de
+staging; SMTP próprio é bloqueante antes de convidar o grupo.
+
+Em 10/10, César aceitou exclusivamente para staging, usado por ele e contas de
+teste com dados fictícios, a ausência de garantia de vida máxima de sessão de
+90 dias no Free. JWT de 3600s, rotação e detecção de reuso não substituem o limite
+sincronizado com a retenção das revogações de `13` §5.5. Não alterar a migration,
+a calibragem local ou o código para simular a garantia. Antes do primeiro
+convite, assinar Pro e ativar o limite no painel, ou entregar uma fatia de código
+que garanta a propriedade sem depender do plano. A escolha permanece humana.
+O roteiro e a lista bloqueante estão em `28-staging.md`.
+
+**Decisão humana de César — 12/10/2026 (AGENTS §8).**
+
+Substitui a publicação manual do PWA: integração Git Vercel publica a cada merge
+no main; previews desligados. Supabase continua manual pelo César. Obter domínio
+final primeiro; configurar APP_ALLOWED_ORIGINS e INVITE_SHARE_URL_BASE depois
+que existir e antes de usar app. Nenhum agente acessa ambiente/segredo real.
+
+**Decisão técnica do planejador — 12/10/2026.**
+
+Novos projetos recusam OpenAPI à chave publicável (changelog #42949). Checker
+sem OpenAPI/chave administrativa. César registra PostgREST >=16.3 em Project
+Settings → General → Service versions → PostgREST version. Negações por
+requisições aos nomes conhecidos:
+401/42501 obrigatórios; PGRST205 não é permissão negada. CSP inteira comparada
+diretiva por diretiva, sem aceitar diferenças mais frouxas ou mais restritas.
+Roteiro/limites em `28`. Autorização expressa de César em 12/10 permite alinhar
+`16`, `25`, `27` e `28` às decisões humanas desta tarefa até entrega da disciplina.
+
+**Decisão técnica do planejador de 06/10/2026 — CSP de staging.**
+
+Medir a política mais restrita suportada pelo export; scripts inline recebem
+hashes gerados no build, sem `unsafe-inline`/`unsafe-eval` em script-src.
+Destinos HTTPS/WSS vêm de EXPO_PUBLIC_SUPABASE_URL, sem projeto fixo no repo.
+Style inline somente com evidência do React Native Web. Servir o export com
+headers e provar zero violação na suíte completa. Política medida em `14` §5.5;
+nenhuma garantia de hospedagem é declarada pela prova local.
+
+**Decisão técnica do planejador de 10/10/2026 — Zod/CSP.**
+
+Configurar o Zod do PWA com jitless em módulo único carregado antes de criar
+qualquer schema, para manter script-src sem unsafe-eval. Esta alteração entra
+no mesmo PR do staging, em commit próprio isolado. Provar ordem, zero chamadas
+a Function na inicialização/uso, testes existentes sem alterar asserções e
+contraprova sem configuração, inclusive browser com CSP. Edge Functions não
+mudam. Unsafe-inline somente em style-src, por evidência medida do RN Web;
+política e resultados ficam em `14` §5.5 e `28`. A autorização substitui a
+PERGUNTA sobre uma fatia separada para a sonda Zod.
+
 ### 8.2 Gates humanos
 
 A implementação não pode preencher estas respostas:

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/csp';
 import { startDirectEdge } from '../scripts/local-edge-runtime.mjs';
 import { corsFixture } from '../scripts/cors-fixture.mjs';
 import { handledObserver } from './support/observers';

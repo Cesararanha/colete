@@ -18,9 +18,9 @@
     "ios": "cross-env EXPO_NO_TELEMETRY=1 expo start --ios",
     "web": "cross-env EXPO_NO_TELEMETRY=1 expo start --web",
     "build:web": "cross-env EXPO_NO_TELEMETRY=1 expo export --platform web --clear",
-    "build:web:smoke": "cross-env EXPO_NO_TELEMETRY=1 EXPO_PUBLIC_SMOKE_MODE=true expo export --platform web --clear",
+    "build:web:smoke": "cross-env EXPO_NO_TELEMETRY=1 EXPO_PUBLIC_SMOKE_MODE=true expo export --platform web --clear && node scripts/prepare-smoke-headers.mjs",
     "build:web:auth-e2e": "node scripts/build-auth-e2e.mjs",
-    "serve:web": "serve --single dist --listen 4173 --no-clipboard",
+    "serve:web": "node scripts/serve-staging-local.mjs",
     "lint": "cross-env EXPO_NO_TELEMETRY=1 expo lint",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
@@ -54,7 +54,10 @@
     "db:test:rename": "node scripts/test-group-rename.mjs",
     "db:stop": "supabase stop --no-backup",
     "verify:app": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build:web && npm run verify:pwa && npm run verify:auth-config && npm run scan:docs && npm run scan:secrets",
-    "test:audit": "node --test scripts/test-audit-high.mjs scripts/test-audit-needed.mjs"
+    "test:audit": "node --test scripts/test-audit-high.mjs scripts/test-audit-needed.mjs",
+    "build:web:staging": "node scripts/build-staging.mjs",
+    "test:staging": "node --test scripts/test-staging*.mjs",
+    "staging:check": "node scripts/staging-check.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.14",

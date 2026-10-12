@@ -6,7 +6,7 @@ import {
   type BrowserContext,
   type Page,
   type Response,
-} from '@playwright/test';
+} from './support/csp';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';

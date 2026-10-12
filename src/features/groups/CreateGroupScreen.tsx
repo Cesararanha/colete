@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useRef } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, View } from 'react-native';
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -18,9 +18,8 @@ import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { spacing } from '@/theme/spacing';
 
 import { groupErrorMessage } from './group-errors';
-import { groupNameSchema } from './group-name-schema';
+import { groupCreationSchema as schema } from './group-name-schema';
 
-const schema = z.object({ name: groupNameSchema });
 type Values = z.infer<typeof schema>;
 
 export function CreateGroupScreen() {

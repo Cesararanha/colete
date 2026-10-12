@@ -2,7 +2,7 @@
 // request rewriting, reverse proxy, CORS shim or fake production handler.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -129,6 +129,7 @@ export async function startDirectEdge(overrides = {}) {
     });
     const port = docker(['port', name, '8081/tcp']).trim().split(':').at(-1);
     assert.match(port, /^\d+$/);
+    await writeFile(path.join(directory, 'origin'), `http://127.0.0.1:${port}`);
     return { url: `http://127.0.0.1:${port}`, stop };
   } catch (error) {
     try {

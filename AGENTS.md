@@ -159,6 +159,7 @@ npm run verify:app
 npm run scan:docs
 npm run scan:secrets
 npm run test:audit
+npm run test:staging
 npm run audit:high
 git diff --check
 ```

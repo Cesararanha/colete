@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from '../../lib/zod';
 
 // docs/22 section 6: once Auth is gone, the shell keeps only the protocol and
 // stops claiming a status it can no longer verify. The protocol is a request
