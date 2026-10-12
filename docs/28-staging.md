@@ -8,8 +8,8 @@ e não executam os comandos remotos abaixo. Todos são para o Terminal de César
 Valores em exemplos são fictícios; não copiar fixtures públicas para o staging.
 
 Decisão humana de 06/10/2026: Supabase Free em São Paulo, Vercel Hobby no endereço
-estável gratuito `*.vercel.app`, domínio próprio depois, deploy manual sem workflow
-de deploy, confirmação padrão somente para a equipe. SMTP próprio antes de convidar.
+estável gratuito `*.vercel.app`, domínio próprio depois, deploy manual sem workflow de deploy (publicação do PWA substituída pela
+decisão humana de 12/10, seção 4.6), confirmação padrão somente para a equipe. SMTP próprio antes de convidar.
 O CORS do PR #59 já está no main; não há mudança de comportamento do app nesta fatia.
 
 **Decisão humana de 10/10/2026 (César, AGENTS §8):** staging usado exclusivamente
@@ -33,8 +33,8 @@ Studio/OAuth/SMS/S3 no config local não são secrets exigidos pelo app.
 | `SUPABASE_SECRET_KEY` / fallback `SUPABASE_SERVICE_ROLE_KEY` | `_shared/edge-gateway.ts:58`, `data-exports/index.ts:17`, `worker/index.ts:149–150` | Somente Edge, variáveis da plataforma | Supabase; César confere | Credencial backend; nunca Vercel/app. Worker prefere JWT service_role para provedores Auth/Storage se disponível. Sem ambas não executa RPCs. |
 | `IDEMPOTENCY_HMAC_KEY_V1` | `_shared/hmac.ts:87`, `_shared/edge-gateway.ts:60` | Edge secrets | César, custódia privada | Chave própria de 32 bytes em 64 caracteres hex; resolução por versão. Falta impede operações idempotentes. Não colocar no Vault/banco. |
 | `INVITE_HMAC_KEY_V1` | `_shared/invite-gateway.ts:452` | Edge secrets | César; dono da custódia aprovado antes do deploy | Exatamente 32 bytes, base64url canônico sem padding (43 caracteres); falta/forma inválida impede convites. Chave distinta da idempotência; nunca no banco. |
-| `INVITE_SHARE_URL_BASE` | `_shared/edge-gateway.ts:205` | Edge secrets, antes de publicar app | César | Origem estável HTTPS `https://app-ficticio.vercel.app`, sem barra final/path/query/fragmento/credenciais; falta/erro impede emitir convite. |
-| `APP_ALLOWED_ORIGINS` | `_shared/browser-cors.ts:25` | Edge secrets, antes de publicar app | César | Lista por vírgula de origens HTTPS exatas. Espaços em volta de cada item removidos; vazio, espaço interno ou item inválido invalidam tudo. No staging: o endereço estável do app `*.vercel.app`, sem barra final. Ausente: app abre, mas ações do navegador nas Edge não funcionam. Sem wildcard nem origem automática de previews. |
+| `INVITE_SHARE_URL_BASE` | `_shared/edge-gateway.ts:205` | Edge secrets, depois do domínio final e antes de usar o app | César | Origem estável HTTPS `https://example.com`, sem barra final/path/query/fragmento/credenciais; falta/erro impede emitir convite. |
+| `APP_ALLOWED_ORIGINS` | `_shared/browser-cors.ts:25` | Edge secrets, depois do domínio final e antes de usar o app | César | Lista por vírgula de origens HTTPS exatas. Espaços em volta de cada item removidos; vazio, espaço interno ou item inválido invalidam tudo. No staging: o endereço estável do app `*.vercel.app`, sem barra final. Ausente: app abre, mas ações do navegador nas Edge não funcionam. Sem wildcard nem origem automática de previews. |
 | `COLETE_LOCAL_STACK` | `_shared/browser-cors.ts:27`, `_shared/edge-gateway.ts:207` | Somente fixture local/CI | Harness local | Nunca `true` no staging; só local permite HTTP loopback. Deixar ausente. |
 | `WORKER_CRON_SECRET` | `worker/index.ts:135` | Edge secrets e Vault `worker_cron_secret` | César | Valor aleatório próprio, idêntico nos dois destinos; falta impede worker, divergência dá 401. |
 | `worker_project_url` | migration `0014:146` | Vault | César | URL do projeto HTTPS; falta impede despacho cron. |
@@ -97,7 +97,11 @@ Os comandos de geração abaixo são **somente para César**, não foram executa
 pelo agente. Gravá-los em arquivos privados fora do repo, sem imprimir valores:
 
 ```sh
+export PRIVATE_CONFIG_DIR="$HOME/.config/colete-staging"
+export STAGING_EDGE_ENV_FILE="$PRIVATE_CONFIG_DIR/edge.env"
 umask 077
+mkdir -p -- "$PRIVATE_CONFIG_DIR"
+chmod 700 -- "$PRIVATE_CONFIG_DIR"
 ```
 
 ```sh
@@ -119,7 +123,7 @@ openssl rand -hex 32 > "$PRIVATE_CONFIG_DIR/worker-cron"
 Resultado: secret independente; César transfere privadamente para Edge e Vault.
 Não executar antes de definir diretório privado existente e custódia.
 
-## 4. Deploy manual, de cima para baixo
+## 4. Supabase manual e PWA automático, de cima para baixo
 
 Cada etapa ocorre só no ambiente novo de staging. Se destino/garantia divergir,
 parar. Nunca apontar o staging para produção ou executar reset remoto.
@@ -135,13 +139,13 @@ show server_version;
 
 Esperado: PostgreSQL major 17, compatível com `supabase/config.toml`. Registrar
 somente versão; divergência vira PERGUNTA, sem mudar migrations.
-PostgREST precisa ser >=16.3 (`23`, checagem antes do deploy): conferir versão
-OpenAPI `info.version` no checker. Se inferior, não publicar nem presumir que Pro
-resolva; perguntar sobre atualização da plataforma.
-
-Criar projeto Vercel Hobby como configuração, ainda **sem publicar**. Escolher nome
-estável e anotar sua origem HTTPS sem barra final; domínio gratuito é a origem do
-app. Previews não entram automaticamente em CORS, Auth ou links.
+PostgREST precisa ser >=16.3 (`23`). César abre **Project Settings → General → Service versions → PostgREST version**,
+confere a versão do serviço **PostgREST**, não PostgreSQL, e registra versão/data
+no checklist. Se a versão não aparecer ou for inferior, **PERGUNTA:** parar e
+pedir esclarecimento à plataforma. Não consultar OpenAPI nem usar chave administrativa.
+[Tela General no código público do dashboard](https://github.com/supabase/supabase/blob/master/apps/studio/pages/project/%5Bref%5D/settings/general.tsx),
+[Service versions / PostgREST version](https://github.com/supabase/supabase/blob/master/apps/studio/components/interfaces/Settings/General/ServiceVersions/ServiceVersionsSection.tsx).
+A origem final do app é obtida em 4.6; não presumir domínio pelo nome do projeto.
 
 ### 4.2 Preparar checkout e CLI
 
@@ -189,27 +193,45 @@ sem private. Conferir Storage buckets criados pelas migrations, privados; não t
 
 ### 4.3 Auth no painel
 
-Aplicar a tabela da seção 2. URL do site/redirects do app estável; confirmação ativa;
+Aplicar a tabela da seção 2; Site URL/redirects ficam para 4.6, depois do domínio
+final existir. Confirmação ativa;
 templates de confirmação/recuperação copiados dos arquivos versionados e com código
 OTP, não link de sessão como substituto. Sem OAuth, SMS ou login anônimo.
 JWT 3600s, rotação ligada, reuso tolerado 10s. **O Free não configura a garantia de
 90 dias: registrar a lacuna, não marcar timebox como aplicado.** O projeto continua
 restrito a César e dados fictícios. Antes de convidar, resolver a seção 6.
 
-### 4.4 Secrets antes do app e publicação das funções
+### 4.4 Secrets privados e publicação manual das funções
 
-César monta arquivo privado 0600 contendo somente:
-IDEMPOTENCY_HMAC_KEY_V1, INVITE_HMAC_KEY_V1, WORKER_CRON_SECRET,
-INVITE_SHARE_URL_BASE e APP_ALLOWED_ORIGINS. As duas origens apontam para o endereço
-estável HTTPS do app, sem barra final. Não incluir COLETE_LOCAL_STACK nem variáveis
-reservadas SUPABASE_. Conferir presença dos fallbacks fornecidos pela plataforma.
+César exporta PRIVATE_CONFIG_DIR e STAGING_EDGE_ENV_FILE, conforme seção 3, fora
+do checkout. Os três arquivos da seção 3 já existem e têm cópia cifrada de recuperação.
+Somente César monta o arquivo 0600, sem imprimir valores ou incluí-los no histórico:
 
 ```sh
-npx supabase secrets set --env-file "$STAGING_EDGE_ENV_FILE" --project-ref "$STAGING_PROJECT_REF"
+umask 077
+python3 - <<'PYTHON'
+import os
+from pathlib import Path
+root = Path(os.environ['PRIVATE_CONFIG_DIR'])
+names = {'IDEMPOTENCY_HMAC_KEY_V1': 'idempotency-hmac',
+         'INVITE_HMAC_KEY_V1': 'invite-hmac', 'WORKER_CRON_SECRET': 'worker-cron'}
+lines = []
+for name, filename in names.items():
+    value = (root / filename).read_text().strip()
+    if not value or any(c in value for c in '\r\n'):
+        raise SystemExit('Arquivo privado inválido; nenhum valor exibido')
+    lines.append(name + '=' + value)
+with open(os.environ['STAGING_EDGE_ENV_FILE'], 'x', opener=lambda p, f: os.open(p, f, 0o600)) as out:
+    out.write('\n'.join(lines) + '\n')
+PYTHON
+npx supabase secrets set --env-file "$STAGING_EDGE_ENV_FILE" --project-ref "$STAGING_PROJECT_REF" && rm -- "$STAGING_EDGE_ENV_FILE"
 ```
 
-Esperado: nomes configurados; nenhum valor registrado. APP_ALLOWED_ORIGINS é gravada
-junto aos secrets **antes de publicar o app**. Remover privadamente o temporário.
+Esperado: somente os três nomes privados configurados. Não incluir
+COLETE_LOCAL_STACK nem variáveis reservadas SUPABASE_. Conferir fallbacks da plataforma.
+APP_ALLOWED_ORIGINS e INVITE_SHARE_URL_BASE entram em 4.6, **depois** que existir
+endereço final e **antes** de usar o app. Até lá o CORS falha fechado: app pode
+abrir, mas nenhuma ação na Edge funciona. Esses comandos não foram executados pelo agente.
 
 ```sh
 npx supabase functions deploy identity --project-ref "$STAGING_PROJECT_REF"
@@ -241,6 +263,9 @@ Esperado: verify_jwt=false, autenticação própria por WORKER_CRON_SECRET, sem 
 No painel Vault, César grava `worker_project_url`, `worker_publishable_key` e
 `worker_cron_secret`, com o cron secret idêntico ao da Edge. Não consultar
 vault.decrypted_secrets para conferir nem mostrar valores. Conferir nomes somente.
+Para transferir o cron secret no macOS, César desliga histórico de clipboard,
+executa `pbcopy < "$PRIVATE_CONFIG_DIR/worker-cron"`, cola só no campo privado do
+Vault e limpa com `printf '' | pbcopy`. Não colar no editor SQL nem em chat.
 As migrations já agendam; não criar agendas duplicadas.
 
 ```sql
@@ -256,21 +281,64 @@ Nomes prefixados `colete_v1_`. Fontes: 0011,0012,0013,0016,0017; 0014 atualiza o
 despacho e os três secrets. Conferir contagens/status de job_runs sem payload,
 credencial ou mensagem livre; ausência de execução/efeitos dead bloqueia smoke.
 
-### 4.6 Publicar PWA
+### 4.6 Vercel: importar o repositório e obter a origem final
 
-No projeto Vercel, configurar `EXPO_PUBLIC_SUPABASE_URL` e
-`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` do staging; SMOKE_MODE ausente/false.
-Framework Other, Node 24, install `npm ci`, build `npm run build:web:staging`.
-Sem override de output directory: Build Output API gera `.vercel/output/static`
-e `.vercel/output/config.json`. O `vercel.json` versionado define o build.
-Não usar valor fixo de projeto em headers versionados. Sem workflow GitHub de deploy.
-César só publica depois de Auth, secrets, funções e Vault conferidos.
+**Decisão humana de 12/10/2026 (César, AGENTS §8):** cada merge no main publica
+o PWA automaticamente pela integração Git da Vercel. Previews desligados.
+Supabase (migrations, funções, secrets) continua manual pelo César.
+Antes de importar, conferir que main contém esta preparação revisada.
 
-Resultado esperado: HTTPS na origem estável, fallback Expo Router para navegação,
-CSP gerada a partir da URL de build e hashes dos scripts inline de todos os HTML;
-HTML/SW/manifest `no-store`, assets hashados `immutable`. Uma mudança de URL pública
-exige rebuild, não basta editar a variável depois do export.
-Fonte: [Vercel Build Output API](https://vercel.com/docs/build-output-api/configuration).
+1. Vercel dashboard: **Add New → Project → Import Git Repository**. Conectar
+   GitHub e importar Colete; conferir proprietário/repositório.
+2. Framework **Other**, root na raiz, Node **24**. Install command `npm ci`;
+   build command `npm run build:web:staging`. Output Directory: **override desligado**.
+   Build Output API lê `.vercel/output`: arquivos em `.vercel/output/static`,
+   rotas/cabeçalhos em `.vercel/output/config.json`. Não configurar `dist`.
+3. Em **Environment Variables**, configurar para **Production**
+   EXPO_PUBLIC_SUPABASE_URL (origem HTTPS exata, sem barra final) e
+   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY. EXPO_PUBLIC_SMOKE_MODE ausente/false;
+   nunca secret/service_role. Conferir valores privadamente antes de Deploy.
+4. Conferir **Settings → Environments → Production → Branch Tracking** = `main`.
+   O vercel.json versionado desliga previews com
+   `git.deploymentEnabled: { "main": true, "*": false }`. Não ativar por override.
+5. Importar/Deploy inicial e esperar build **Production** aprovado. Em
+   **Settings → Domains**, obter a origem estável `https://…vercel.app` atribuída
+   ao projeto e conferir que aponta para Production. Não usar URL única de
+   deployment ou preview. Ainda não usar o app.
+6. Com esse endereço existente, César define STAGING_APP_ORIGIN no Terminal e
+   monta os dois nomes públicos, sem expor os secrets privados:
+
+   ```sh
+   umask 077
+   python3 - <<'PYTHON'
+   import os
+   from urllib.parse import urlsplit
+   value = os.environ['STAGING_APP_ORIGIN']
+   url = urlsplit(value)
+   if (url.scheme != 'https' or not url.hostname or url.username or url.password
+           or url.path or url.query or url.fragment or value != 'https://' + url.netloc):
+       raise SystemExit('Origem inválida; nenhum valor exibido')
+   with open(os.environ['STAGING_EDGE_ENV_FILE'], 'x', opener=lambda p, f: os.open(p, f, 0o600)) as out:
+       out.write('APP_ALLOWED_ORIGINS=' + value + '\nINVITE_SHARE_URL_BASE=' + value + '\n')
+   PYTHON
+   npx supabase secrets set --env-file "$STAGING_EDGE_ENV_FILE" --project-ref "$STAGING_PROJECT_REF" && rm -- "$STAGING_EDGE_ENV_FILE"
+   ```
+
+   secrets set acrescenta esses nomes sem remover os três anteriores.
+   Ordem obrigatória: **domínio existe → duas origens na Edge → Site URL/redirects
+   exatos em Auth → checker → usar app**. Nunca wildcard, barra final ou preview.
+7. Rodar 4.7 e smoke no celular. Próximos merges publicam PWA automaticamente;
+   César aplica backend manualmente antes do merge que depender dele. Sem workflow
+   GitHub de deploy, token Vercel ou deploy pelo agente.
+
+O build recusa URL não exata, wildcard, path, query, fragmento, credenciais e HTTP
+não local. CSP gerada da origem HTTPS/WSS e hashes dos bytes exatos dos scripts
+inline; mudar URL exige rebuild. HTML/SW/manifest no-store; assets hashados
+existentes immutable. Asset inexistente em /_expo/static/ recebe **404/no-store**,
+nunca index.html. Não guardar HTML no cache do service worker como se fosse JS.
+Fontes: [Build Output API](https://vercel.com/docs/build-output-api/configuration),
+[Git deploymentEnabled](https://vercel.com/docs/project-configuration/git-configuration),
+[branch de produção](https://vercel.com/docs/git).
 
 ### 4.7 Conferência somente leitura
 
@@ -284,17 +352,27 @@ npm run staging:check
 
 Esperado: uma linha OK por checagem e exit 0. FAIL/exit 1 bloqueia o smoke até
 entender a causa. O checker não imprime corpos de respostas, URLs ou valores.
-Verifica OpenAPI/versão, ausência de RPCs sensíveis no esquema anônimo, recusa de
-tabelas sensíveis, 401 real de identity/groups/data-exports sem sessão, CORS da
+Não consulta OpenAPI nem mede PostgREST: projetos novos recusam /rest/v1/ à
+chave publicável ([changelog #42949](https://supabase.com/changelog/42949-breaking-change-removing-access-to-openapi-spec-via-the-anon-key)),
+conforme decisão técnica do planejador de 12/10/2026. Consulta RPCs conhecidas por POST com
+assinatura completa/transporte nulo e tabelas por GET limit=0: **401 e 42501**
+obrigatórios. PGRST205/404 (tabela ausente) e PGRST202 (assinatura ausente) reprovam.
+As tabelas sondadas são profiles, groups, group_members e group_invites (0015).
+A 0013 moveu data_exports para private: sondar a projeção pública
+get_own_data_exports(), sem argumentos, exigindo também 401/42501; não inventar
+uma rota de tabela pública nem contar sua inexistência como permissão negada.
+Verifica também 401 real de identity/groups/data-exports sem sessão, CORS da
 origem do app, worker sem credencial cron recusado e sem CORS, e ausência de qualquer header CORS para origem negada (preflight e
 resposta real), HTTPS do share base, headers/CSP/cache/SW/manifest.
 
 **Limites:** sem service_role, não verifica configuração privada de Auth/Vault,
 vida máxima de sessão, versão PostgreSQL, agendas, dados, custódia, SMTP ou restore.
-A reflexão OpenAPI depende da configuração padrão de privilégios do PostgREST;
-não substitui pgTAP. Não executa RPC de mutação nem cria usuário; POSTs Edge sem
-sessão devem ser recusados antes de atingir domínio. O operador confere também
-os gates abaixo. Provas locais não atestam o ambiente hospedado.
+Não enumera todas as rotas nem substitui pgTAP. Os POSTs RPC usam transporte nulo
+que não autoriza mutação mesmo se grants regredirem; não cria usuário. POSTs Edge sem
+sessão devem ser recusados antes de atingir domínio. CSP inteira comparada diretiva por diretiva, incluindo hashes: qualquer
+diferença mais frouxa ou mais restrita reprova. Share base é **entrada do operador**,
+não leitura do secret publicado: conferir o endereço do convite real no smoke.
+O operador confere também os gates abaixo. Provas locais não atestam o ambiente hospedado.
 
 ## 5. Smoke manual em celular (só contas fictícias)
 
@@ -325,7 +403,8 @@ Não executar smoke com pessoas reais para preencher um gate ainda aberto.
   sincronismo com 7776000s; ou entregar/revisar fatia independente de plano que
   preserve a propriedade. Decisão antes do primeiro convite (`25` §8.1, decisão
   humana 10/10; `13` §5.5). A exceção do staging termina aqui.
-- [ ] PostgREST >=16.3 e PostgreSQL compatível; checker e smoke hosted aprovados,
+- [ ] PostgREST >=16.3: versão/data registradas em Project Settings → General → Service versions → PostgREST version;
+  PostgreSQL compatível; checker e smoke hosted aprovados,
   CORS da origem estável, CSP sem violações (`23`, checagem antes do deploy; `14`).
 - [ ] SMTP próprio, provedor/remetente e SPF/DKIM/DMARC validados; envio padrão
   não atende o grupo (`16` §2; `25` §8.1, decisão 06/10).
@@ -354,10 +433,40 @@ Não executar smoke com pessoas reais para preencher um gate ainda aberto.
 
 Nada nesta lista está marcado como cumprido por um teste local ou por este PR.
 
+### Depois da apresentação
+
+Conferir no hosted, sem alegar que config.toml aplicou configurações automaticamente:
+
+- Data API: `api.auto_expose_new_tables=false`; registrar configuração efetiva.
+- Auth MFA: `auth.mfa.totp.enroll_enabled=false` e `verify_enabled=false`.
+- Auth Email Templates: subjects de confirmação/recuperação iguais aos arquivos
+  versionados/config local: “Seu código de verificação do Colete” e “Seu código
+  de recuperação do Colete”; conteúdo OTP continua exigido em 4.3.
+
 ## 7. Como desfazer
 
-César interrompe acesso ao app (despublicar deployment ou remover projeto Vercel)
-e pausa as agendas do staging antes de encerrar o projeto. Fazer só no projeto
+César desconecta o repositório em **Vercel → Settings → Git → Disconnect** para
+novos merges não republicarem o app. Remover o projeto Vercel encerra acesso;
+conferir nome/domínio. Só desconectar Git não tira o app do ar.
+Antes de encerrar Supabase, pausar somente as agendas deste staging no SQL Editor:
+
+```sql
+select cron.alter_job(jobid, active := false)
+from cron.job where jobname like 'colete_v1_%';
+select jobname, active from cron.job where jobname like 'colete_v1_%';
+```
+
+Esperado: jobs conhecidos inativos. Se provisionamento falhar, parar, não usar
+app e seguir essa ordem. Para remover nomes Edge configurados, somente César:
+
+```sh
+npx supabase secrets unset IDEMPOTENCY_HMAC_KEY_V1 INVITE_HMAC_KEY_V1 WORKER_CRON_SECRET APP_ALLOWED_ORIGINS INVITE_SHARE_URL_BASE --project-ref "$STAGING_PROJECT_REF"
+rm -f -- "$STAGING_EDGE_ENV_FILE"
+printf '' | pbcopy
+```
+
+Não apagar custódia cifrada para simular rollback. Retomada exige reprovisionar
+secrets/funções, reativar somente jobs conhecidos e religar Git após revisão. Fazer só no projeto
 isolado; não editar migrations nem apagar produção. Preservar registro sanitizado
 sem valores e respeitar política de retenção mesmo em backup.
 
@@ -432,3 +541,10 @@ por cmp. O PR exige auditoria porque toca package.json e validation.yml.
 Export de staging também gerado localmente com domínio .invalid e chave fictícia;
 Build Output API v3, headers e overrides das 21 rotas exportadas. Nenhum deploy
 ou certificação de configuração hospedada foi realizado.
+
+**Correção após revisão, medida em 12/10/2026:** checker 98/98; 13 sondas REST
+locais aos nomes atuais retornam 401/42501, sem OpenAPI. Dez mutantes sobreviventes
+e sete contraprovas adicionais reprovam. AGENTS §5 aprovado; 84 navegadores uma
+vez cada, seis skips preexistentes, zero CSP/Function; auth.users=0 antes/depois.
+Output de staging fictício gerado novamente; nenhuma configuração hospedada
+certificada. Tabela e logs: ~/colete-noite/corr63-contraprovas.md e corr63/.

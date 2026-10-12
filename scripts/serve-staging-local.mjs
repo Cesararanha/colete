@@ -21,6 +21,8 @@ const types = {
 createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname);
+    const assetRequest = /^(?:\/(?:_expo|icons|assets)(?:\/|$))|\.[^/]+$/.test(pathname);
+    let missing = false;
     let file = path.resolve('dist', '.' + pathname);
     const root = path.resolve('dist');
     if (!file.startsWith(root + '/') && file !== root) {
@@ -36,13 +38,16 @@ createServer(async (request, response) => {
         await stat(file + '.html');
         file += '.html';
       } catch {
-        file = path.join(root, 'index.html');
+        if (assetRequest) missing = true;
+        else file = path.join(root, 'index.html');
       }
     }
     // Existing privacy tests load the locked SDK as an external same-origin fixture.
     // This route exists only in this local proof server, never deployment output.
-    if (pathname === '/__test__/supabase.js')
+    if (pathname === '/__test__/supabase.js') {
       file = path.resolve('node_modules/@supabase/supabase-js/dist/umd/supabase.js');
+      missing = false;
+    }
     const directOrigins = [];
     for (const name of await readdir('.expo')) {
       if (!name.startsWith('cors-direct-')) continue;
@@ -57,6 +62,11 @@ createServer(async (request, response) => {
       directOrigins,
       strictStyles: process.env.COLETE_CSP_STRICT_STYLES === 'true',
     });
+    if (missing) {
+      response.writeHead(404, { ...headers, 'Cache-Control': 'no-store' });
+      response.end();
+      return;
+    }
     response.writeHead(200, {
       ...headers,
       'Content-Type': types[path.extname(file)] ?? 'application/octet-stream',

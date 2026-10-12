@@ -1,23 +1,18 @@
 // Read-only checks. Run by the human operator, never with an administrative key.
 import { pathToFileURL } from 'node:url';
-import { inlineHashes, supabaseOrigin } from './staging-headers.mjs';
+import { inlineHashes, supabaseOrigin, securityHeaders } from './staging-headers.mjs';
 
-export const protectedTables = [
-  'profiles',
-  'groups',
-  'group_memberships',
-  'group_invites',
-  'data_exports',
-];
+export const protectedTables = ['profiles', 'groups', 'group_members', 'group_invites'];
 export const protectedFunctions = [
   'complete_profile',
   'revoke_current_session',
   'delete_account',
   'request_data_export',
+  'get_own_data_exports',
   'create_group',
   'rename_group',
   'issue_group_invite',
-  'dispatch_worker_job',
+  'worker_begin_job',
 ];
 export function configuration(env) {
   const api = supabaseOrigin(env.EXPO_PUBLIC_SUPABASE_URL);
@@ -30,7 +25,7 @@ export function configuration(env) {
     throw new Error(
       'App and invite base must be the same exact HTTPS origin without trailing slash',
     );
-  return { api, key, app };
+  return { api, key, app, share };
 }
 export async function checkStaging(env, fetcher = fetch) {
   const config = configuration(env);
@@ -44,28 +39,60 @@ export async function checkStaging(env, fetcher = fetch) {
     } // Never log response bodies, keys, identities or URLs.
   };
   const headers = { apikey: config.key };
-  let schema;
-  await check('PostgREST >= 16.3', async () => {
-    const response = await fetcher(`${config.api}/rest/v1/`, { headers });
-    if (!response.ok) return false;
-    schema = await response.json();
-    const match = /^([0-9]+)\.([0-9]+)(?:\.[0-9]+)?/.exec(schema.info?.version ?? '');
-    return !!match && (+match[1] > 16 || (+match[1] === 16 && +match[2] >= 3));
-  });
-  await check(
-    'Sensitive RPCs absent from the anonymous OpenAPI schema',
-    async () =>
-      !!schema?.paths &&
-      protectedFunctions.every((name) => !Object.hasOwn(schema.paths, `/rpc/${name}`)),
+  // Complete named signatures reach the permission check, not PGRST202.
+  // Null transport/actor values cannot execute a domain mutation if grants regress.
+  const transport = Object.fromEntries(
+    [
+      'p_actor_auth_user_id',
+      'p_actor_session_id',
+      'p_request_id',
+      'p_input_hmac',
+      'p_canonical_version',
+      'p_hash_key_version',
+    ].map((name) => [name, null]),
   );
+  const extras = {
+    complete_profile: { p_profile: {} },
+    create_group: {
+      p_name: null,
+      p_invite_id: null,
+      p_token_version: null,
+      p_nonce_hex: null,
+      p_token_digest: null,
+      p_code_digest: null,
+    },
+    rename_group: { p_group_id: null, p_name: null },
+    issue_group_invite: {
+      p_group_id: null,
+      p_new_invite_id: null,
+      p_token_version: null,
+      p_nonce_hex: null,
+      p_token_digest: null,
+      p_code_digest: null,
+    },
+  };
+  for (const name of protectedFunctions)
+    await check(`Anonymous RPC denied: ${name}`, async () => {
+      const response = await fetcher(`${config.api}/rest/v1/rpc/${name}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          name === 'worker_begin_job'
+            ? { p_job_name: null }
+            : name === 'get_own_data_exports'
+              ? {}
+              : { ...transport, ...extras[name] },
+        ),
+      });
+      return response.status === 401 && (await response.json()).code === '42501';
+    });
   for (const table of protectedTables)
     await check(`Anonymous table denied: ${table}`, async () => {
       const response = await fetcher(`${config.api}/rest/v1/${table}?select=*&limit=0`, {
         headers,
       });
-      if (![401, 403, 404].includes(response.status)) return false;
-      const code = (await response.json()).code;
-      return code === '42501' || code === 'PGRST205';
+      if (response.status !== 401) return false;
+      return (await response.json()).code === '42501';
     });
   const endpoints = [
     'identity/complete_profile',
@@ -143,7 +170,10 @@ export async function checkStaging(env, fetcher = fetch) {
       ![...response.headers.keys()].some((key) => key.startsWith('access-control-'))
     );
   });
-  await check('HTTPS invite base equals the app origin', async () => true);
+  await check(
+    'Operator input: HTTPS invite base equals the app origin',
+    async () => config.share === config.app,
+  );
   await check('PWA security headers and HTML cache', async () => {
     const response = await fetcher(config.app, { redirect: 'error' });
     const csp = response.headers.get('content-security-policy') ?? '';
@@ -154,29 +184,29 @@ export async function checkStaging(env, fetcher = fetch) {
       .map(([key, ...values]) => [key, values]);
     if (new Set(entries.map(([key]) => key)).size !== entries.length) return false;
     const directives = Object.fromEntries(entries);
-    const htmlHashes = inlineHashes(await response.text());
-    const script = directives['script-src'] ?? [];
-    const connect = directives['connect-src'] ?? [];
+    const hashes = [...new Set(inlineHashes(await response.text()))].sort();
+    const expected = securityHeaders(config.api, hashes);
+    const expectedDirectives = Object.fromEntries(
+      expected['Content-Security-Policy'].split('; ').map((entry) => {
+        const [name, ...values] = entry.split(/\s+/);
+        return [name, values];
+      }),
+    );
     return (
-      response.ok &&
-      response.headers.get('x-content-type-options') === 'nosniff' &&
-      response.headers.get('referrer-policy') === 'no-referrer' &&
-      response.headers.get('cache-control')?.includes('no-store') &&
-      response.headers.get('permissions-policy')?.includes('camera=()') &&
-      script.includes("'self'") &&
-      script.every((value) => value === "'self'" || /^'sha256-[A-Za-z0-9+/]{43}='$/.test(value)) &&
-      htmlHashes.every((hash) => script.includes(hash)) &&
-      connect.length === 3 &&
-      !script.includes("'unsafe-inline'") &&
-      !script.includes("'unsafe-eval'") &&
-      connect.includes(config.api) &&
-      connect.includes(config.api.replace(/^http/, 'ws')) &&
-      directives['object-src']?.join(' ') === "'none'" &&
-      directives['frame-ancestors']?.join(' ') === "'none'" &&
-      ['default-src', 'base-uri', 'form-action', 'manifest-src', 'worker-src'].every(
-        (name) => directives[name]?.join(' ') === "'self'",
+      response.status === 200 &&
+      ['X-Content-Type-Options', 'Referrer-Policy', 'Permissions-Policy'].every(
+        (name) => response.headers.get(name) === expected[name],
       ) &&
-      Object.hasOwn(directives, 'upgrade-insecure-requests')
+      response.headers.get('cache-control') === 'no-store' &&
+      Object.keys(directives).length === Object.keys(expectedDirectives).length &&
+      Object.entries(expectedDirectives).every(([name, values]) => {
+        const actual = directives[name];
+        return (
+          actual &&
+          actual.length === values.length &&
+          [...actual].sort().every((value, index) => value === [...values].sort()[index])
+        );
+      })
     );
   });
   await check('Service worker served without cache', async () => {

@@ -2167,3 +2167,28 @@ sintéticos e 2 flow_state. audit:high exit 0, sem novas exceções/dependência
 Evidência: ~/colete-noite/staging/diagnostico-semeadura.md, diagnostico/,
 full/ e finish/. Dois commits finais separados para Zod jitless e preparação;
 PR draft para revisão independente, sem merge ou acesso a hospedagem real.
+
+## Correção da revisão do PR #63 — 12/10/2026
+
+Checker sem OpenAPI; PostgREST conferido pelo César em Project Settings → General
+→ Service versions → PostgREST version. Sondas usam nomes atuais das migrations:
+quatro tabelas públicas e nove RPCs, incluindo get_own_data_exports, pois a 0013
+moveu exports para private. Todas as 13 requisições REST locais devolveram
+401/42501; PGRST205 continua reprovado. Testes staging finais: 98/98.
+Dez sobreviventes da revisão e sete contraprovas adicionais reprovam (exit 1),
+com baseline verde e sem mutação no worktree. Uma rodada com porta ocupada foi
+desconsiderada; evidência final em ~/colete-noite/corr63-contraprovas.md.
+
+AGENTS §5 completo: 1259 pgTAP/19 arquivos; todos os harnesses de banco;
+253 unitários/26 arquivos. Navegadores uma vez cada: Auth 8, privacy 4, grupos 62,
+CORS direto 4, smoke 6, total 84; seis skips preexistentes. Zero violações CSP
+(console/eventos) e zero chamadas Function. Nenhum retry, timeout ampliado,
+asserção de schema alterada ou novo skip. Censo de 54 tabelas: auth.users=0
+antes/depois/final; zero papéis-sonda e resíduos de domínio/operação/Storage.
+Limpeza dos controles sintéticos: 1780 audit_log_entries e 2 flow_state.
+audit:high exit 0, sem alerta fora das duas exceções já existentes. Manifesto,
+scans e diff aprovados; package.json só scripts e lockfile cmp idêntico a main.
+Nenhuma migration, Edge Function, dependência ou comportamento do app mudou.
+Decisões 10/10 e 12/10 em docs/16,25,27,28; Vercel Git main automático, preview
+desligado, backend manual. Assets ausentes 404/no-store, CSP integral e URLs
+exatas exigidas. Nenhum Supabase/Vercel real ou segredo real acessado.

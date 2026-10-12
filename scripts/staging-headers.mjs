@@ -4,6 +4,13 @@ import path from 'node:path';
 
 export function supabaseOrigin(value, local = false) {
   const url = new URL(value);
+  const labels = url.hostname.split('.');
+  if (
+    value !== url.origin ||
+    !labels.every((label) => /^(?!-)[a-z0-9-]{1,63}(?<!-)$/.test(label)) ||
+    url.hostname.length > 253
+  )
+    throw new Error('Supabase URL must be an exact origin with a DNS hostname');
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/')
     throw new Error('Supabase URL must be an origin');
   if (
@@ -96,6 +103,11 @@ export function deploymentConfiguration(origin, hashes, htmlFiles) {
         continue: true,
       },
       { handle: 'filesystem' },
+      {
+        src: '/(?:_expo|icons|assets)(?:/.*)?|/.*\\.[^/]+$',
+        status: 404,
+        headers: { 'Cache-Control': 'no-store' },
+      },
       { src: '/(.*)', dest: '/index.html' },
     ],
   };

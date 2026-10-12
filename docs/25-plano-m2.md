@@ -1825,6 +1825,24 @@ convite, assinar Pro e ativar o limite no painel, ou entregar uma fatia de códi
 que garanta a propriedade sem depender do plano. A escolha permanece humana.
 O roteiro e a lista bloqueante estão em `28-staging.md`.
 
+**Decisão humana de César — 12/10/2026 (AGENTS §8).**
+
+Substitui a publicação manual do PWA: integração Git Vercel publica a cada merge
+no main; previews desligados. Supabase continua manual pelo César. Obter domínio
+final primeiro; configurar APP_ALLOWED_ORIGINS e INVITE_SHARE_URL_BASE depois
+que existir e antes de usar app. Nenhum agente acessa ambiente/segredo real.
+
+**Decisão técnica do planejador — 12/10/2026.**
+
+Novos projetos recusam OpenAPI à chave publicável (changelog #42949). Checker
+sem OpenAPI/chave administrativa. César registra PostgREST >=16.3 em Project
+Settings → General → Service versions → PostgREST version. Negações por
+requisições aos nomes conhecidos:
+401/42501 obrigatórios; PGRST205 não é permissão negada. CSP inteira comparada
+diretiva por diretiva, sem aceitar diferenças mais frouxas ou mais restritas.
+Roteiro/limites em `28`. Autorização expressa de César em 12/10 permite alinhar
+`16`, `25`, `27` e `28` às decisões humanas desta tarefa até entrega da disciplina.
+
 **Decisão técnica do planejador de 06/10/2026 — CSP de staging.**
 
 Medir a política mais restrita suportada pelo export; scripts inline recebem
