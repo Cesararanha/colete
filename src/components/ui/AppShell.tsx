@@ -12,7 +12,8 @@ import { BrandBand, BrandWordmark } from './BrandBand';
 import { ThemeToggle } from './ThemeToggle';
 
 type AppShellProps = PropsWithChildren<{
-  activeRoute: 'foundation' | 'home';
+  /** Omitted on public pages outside the navigation, such as /design-system. */
+  activeRoute?: 'foundation' | 'home';
 }>;
 
 export function AppShell({ activeRoute, children }: AppShellProps) {

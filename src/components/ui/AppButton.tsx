@@ -18,8 +18,10 @@ type AppButtonProps = {
    * by adjacent text associated here, and the press explains itself.
    */
   describedBy?: string | undefined;
-  /** Decorative Feather icon before the label; the label carries the meaning. */
+  /** Decorative Feather icon; the label carries the meaning. */
   icon?: IconName;
+  /** `trailing` (e.g. a chevron) puts the icon at the end and starts the label. */
+  iconPosition?: 'leading' | 'trailing';
   label: string;
   onPress: () => void;
   pressed?: boolean;
@@ -33,6 +35,7 @@ export function AppButton({
   children,
   describedBy,
   icon,
+  iconPosition = 'leading',
   label,
   onPress,
   pressed,
@@ -65,7 +68,12 @@ export function AppButton({
           : variant === 'tertiary'
             ? colors.link
             : colors.text;
-  const leadingIcon: IconName | undefined = selected ? 'check' : icon;
+  const leadingIcon: IconName | undefined = selected
+    ? 'check'
+    : iconPosition === 'leading'
+      ? icon
+      : undefined;
+  const trailingIcon = !selected && iconPosition === 'trailing' ? icon : undefined;
 
   // Pressable overwrites aria-disabled from its native `disabled` prop on web.
   // A real button with aria-disabled remains in keyboard order and keeps the
@@ -136,7 +144,16 @@ export function AppButton({
           <AppIcon color={textColor} name={leadingIcon} size={20} />
         </View>
       ) : null}
-      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+      <Text
+        style={[styles.label, trailingIcon ? styles.labelStart : undefined, { color: textColor }]}
+      >
+        {label}
+      </Text>
+      {trailingIcon ? (
+        <View style={styles.icon}>
+          <AppIcon color={textColor} name={trailingIcon} size={20} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -160,5 +177,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'center',
   },
+  labelStart: { flex: 1, textAlign: 'left' },
   textOnly: { minHeight: size.target, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
 });

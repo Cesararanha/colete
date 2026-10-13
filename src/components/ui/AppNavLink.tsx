@@ -61,7 +61,8 @@ export function AppNavLink({
         accessibilityLabel={label}
         accessibilityRole="link"
         accessibilityState={{ selected: active }}
-        style={({ pressed }) => [tab ? styles.tab : styles.rail, { opacity: pressed ? 0.72 : 1 }]}
+        // Link asChild merges styles as an array, so a style function would be dropped.
+        style={tab ? styles.tab : styles.rail}
       >
         <View
           style={[

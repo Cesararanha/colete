@@ -98,6 +98,7 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
           <SectionHeading eyebrow={roleLabel(group.role)} title={group.name} />
           <AppButton
             icon="chevron-right"
+            iconPosition="trailing"
             label={`${pt.groups.list.open}: ${group.name}`}
             onPress={() => router.push(`/grupos/${group.id}`)}
             variant="secondary"

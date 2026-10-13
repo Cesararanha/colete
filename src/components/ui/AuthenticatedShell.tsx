@@ -109,7 +109,7 @@ export function AuthenticatedShell({
 }
 
 const styles = StyleSheet.create({
-  band: { gap: spacing.lg, paddingBottom: spacing.xl, paddingHorizontal: spacing.lg },
+  band: { gap: spacing.lg, paddingBottom: spacing.lg, paddingHorizontal: spacing.lg },
   body: { flex: 1, minWidth: 0 },
   bodyWide: { alignSelf: 'center', flexDirection: 'row', maxWidth: 1160, width: '100%' },
   content: { gap: spacing.lg, padding: spacing.lg },

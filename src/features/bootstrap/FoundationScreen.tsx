@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppCard } from '@/components/ui/AppCard';
+import { AppNavLink } from '@/components/ui/AppNavLink';
 import { AppShell } from '@/components/ui/AppShell';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { pt } from '@/lib/i18n/pt';
@@ -33,6 +34,9 @@ export function FoundationScreen() {
           </AppCard>
         ))}
       </View>
+      <View style={styles.catalog}>
+        <AppNavLink href="/design-system" label={pt.designSystem.link} />
+      </View>
     </AppShell>
   );
 }
@@ -41,6 +45,7 @@ const styles = StyleSheet.create({
   body: {
     ...typography.body,
   },
+  catalog: { alignItems: 'flex-start' },
   cards: {
     gap: spacing.md,
   },
