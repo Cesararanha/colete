@@ -55,8 +55,10 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       {data && !allowed ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
       <AppButton
         testID="management-refresh"
+        icon="refresh-cw"
         label={pt.groups.members.refresh}
         onPress={() => void administration.refresh()}
+        variant="secondary"
       />
       {allowed ? (
         <AppCard testID="group-management-card">

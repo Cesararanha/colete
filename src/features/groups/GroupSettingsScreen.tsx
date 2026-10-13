@@ -67,9 +67,11 @@ export function GroupSettingsScreen({
       {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
       {data && !group ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
       <AppButton
+        icon="refresh-cw"
         label={pt.groups.members.refresh}
         testID="settings-refresh"
         onPress={() => void administration.refresh()}
+        variant="secondary"
       />
       {group ? (
         <AppCard testID="group-settings-card">

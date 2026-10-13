@@ -72,6 +72,7 @@ const globalStyles = `
   html, body, #root { min-height: 100%; margin: 0; }
   *, *::before, *::after { box-sizing: border-box; }
   body { font-synthesis: none; }
+  ::selection { background-color: ${light.brandBand}; color: ${light.onBand}; }
   :focus-visible { outline: 2px solid ${light.focus}; outline-offset: 2px; }
   [data-band] :focus-visible { outline-color: ${light.focusOnBand}; }
   @media (prefers-color-scheme: dark) {
@@ -80,6 +81,7 @@ const globalStyles = `
   }
   :root[data-theme="dark"] { background-color: ${dark.background}; }
   :root[data-theme="dark"] :focus-visible { outline-color: ${dark.focus}; }
+  :root[data-theme="dark"] ::selection { background-color: ${dark.text}; color: ${dark.background}; }
   :root[data-theme="dark"] [data-band] :focus-visible { outline-color: ${dark.focusOnBand}; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

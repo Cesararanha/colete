@@ -7,14 +7,17 @@ import { typography } from '@/theme/typography';
 import { AppIcon } from './AppIcon';
 
 // docs/15: state is icon + text, never colour alone. The icon stays outside the
-// live region so the announced text is exactly the message.
+// live region so the announced text is exactly the message; an empty region,
+// kept mounted so later messages are announced, shows no icon.
 export function AppAlert({ message, testID }: { message: string; testID?: string }) {
   const { colors } = useTheme();
   return (
     <View style={styles.row}>
-      <View style={styles.icon}>
-        <AppIcon color={colors.critical} name="alert-circle" />
-      </View>
+      {message === '' ? null : (
+        <View style={styles.icon}>
+          <AppIcon color={colors.critical} name="alert-circle" />
+        </View>
+      )}
       <Text
         accessibilityLiveRegion="assertive"
         role="alert"
@@ -31,9 +34,11 @@ export function AppStatus({ message, testID }: { message: string; testID?: strin
   const { colors } = useTheme();
   return (
     <View style={styles.row}>
-      <View style={styles.icon}>
-        <AppIcon color={colors.positive} name="check-circle" />
-      </View>
+      {message === '' ? null : (
+        <View style={styles.icon}>
+          <AppIcon color={colors.positive} name="check-circle" />
+        </View>
+      )}
       <Text
         accessibilityLiveRegion="polite"
         role="status"
