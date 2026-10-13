@@ -1,8 +1,11 @@
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
+
+import { BOARD_PADDING, fitTiles, SEPARATOR_WIDTH, TILE_GAP } from './scoreboard-fit';
 
 export type ScoreboardGroup = {
   chars: string;
@@ -25,10 +28,9 @@ const tiles = {
   xl: { height: 80, width: 50, font: typography.scoreboard.fontSize },
   lg: { height: 70, width: 44, font: typography.inviteCode.fontSize },
 } as const;
-const tileGap = 6;
-const separatorWidth = 28;
-const boardPadding = spacing.md;
-const screenMargin = spacing.lg;
+const tileGap = TILE_GAP;
+const separatorWidth = SEPARATOR_WIDTH;
+const boardPadding = BOARD_PADDING;
 const maxBoardWidth = 420;
 
 /**
@@ -46,23 +48,18 @@ export function Scoreboard({
   testID,
 }: ScoreboardProps) {
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
-  const base = tiles[size];
+  // Measured on the board itself, so a board inside a card fits that card.
+  const [boardWidth, setBoardWidth] = useState<number | undefined>();
+  const onLayout = (event: LayoutChangeEvent) => setBoardWidth(event.nativeEvent.layout.width);
   const rows = layout === 'stacked' ? groups.map((group) => [group]) : [groups];
-  const widest = Math.max(
-    ...rows.map((row) => {
-      const count = row.reduce((total, group) => total + group.chars.length, 0);
-      const separators = layout === 'inline' ? row.length - 1 : 0;
-      return count * base.width + (count - 1) * tileGap + separators * separatorWidth;
-    }),
+  const { scale, tile } = fitTiles(
+    tiles[size],
+    rows.map((row) => ({
+      separators: layout === 'inline' ? row.length - 1 : 0,
+      tiles: row.reduce((total, group) => total + group.chars.length, 0),
+    })),
+    boardWidth,
   );
-  const available = Math.min(width, maxBoardWidth) - 2 * screenMargin - 2 * boardPadding;
-  const scale = Math.min(1, available / widest);
-  const tile = {
-    height: Math.round(base.height * scale),
-    width: Math.round(base.width * scale),
-    font: Math.round(base.font * scale),
-  };
 
   const board = rows.map((row, rowIndex) => (
     <View key={rowIndex} style={styles.row}>
@@ -120,6 +117,7 @@ export function Scoreboard({
         accessibilityElementsHidden
         aria-hidden
         importantForAccessibility="no-hide-descendants"
+        onLayout={onLayout}
         style={[styles.board, { backgroundColor: colors.scoreboard }]}
         testID={testID}
       >
@@ -132,6 +130,7 @@ export function Scoreboard({
     <View
       accessibilityLabel={accessibilityLabel}
       accessible
+      onLayout={onLayout}
       role="img"
       style={[styles.board, { backgroundColor: colors.scoreboard }]}
       testID={testID}
@@ -154,6 +153,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     borderRadius: radius.scoreboard,
     maxWidth: maxBoardWidth,
+    overflow: 'hidden',
     paddingHorizontal: boardPadding,
     paddingVertical: spacing.md + spacing.xs,
     width: '100%',
