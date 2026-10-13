@@ -11,6 +11,7 @@ import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { api, AppError, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
+import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { groupNameSchema } from './group-name-schema';
@@ -203,6 +204,6 @@ export function GroupSettingsScreen({
   );
 }
 const styles = StyleSheet.create({
-  body: { fontSize: 16, lineHeight: 24 },
-  heading: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  body: { ...typography.body },
+  heading: { ...typography.title },
 });

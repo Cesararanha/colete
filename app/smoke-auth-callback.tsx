@@ -6,6 +6,7 @@ import { pt } from '@/lib/i18n/pt';
 import { isSmokeMode, SYNTHETIC_IDENTITY } from '@/lib/runtime';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 export default function SmokeAuthCallback() {
   const { colors } = useTheme();
@@ -31,8 +32,7 @@ export default function SmokeAuthCallback() {
 
 const styles = StyleSheet.create({
   body: {
-    fontSize: 17,
-    lineHeight: 26,
+    ...typography.body,
   },
   content: {
     alignSelf: 'center',
@@ -46,8 +46,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 32,
-    fontWeight: '900',
-    lineHeight: 40,
+    ...typography.display,
   },
 });

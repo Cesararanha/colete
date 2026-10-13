@@ -6,6 +6,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 export function FoundationScreen() {
   const { colors } = useTheme();
@@ -38,15 +39,12 @@ export function FoundationScreen() {
 
 const styles = StyleSheet.create({
   body: {
-    fontSize: 16,
-    lineHeight: 25,
+    ...typography.body,
   },
   cards: {
     gap: spacing.md,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 28,
+    ...typography.title,
   },
 });

@@ -2,6 +2,7 @@ import { ScrollViewStyleReset } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
 
 import { pt } from '@/lib/i18n/pt';
+import { colors } from '@/theme/colors';
 
 const serviceWorkerRegistration = `
 (() => {
@@ -60,14 +61,26 @@ const consumeInviteFragment = `
 })();
 `;
 
+const { dark, light } = colors;
+
+// docs/29 §2/§4: 2 px focus ring with 2 px offset, in the app theme (set on
+// <html data-theme> by ThemeProvider; before hydration, the system preference).
+// Inside the light brand band the ring uses focusOnBand. Barlow ships one file
+// per weight, so the browser must never synthesize bold or italic on top.
 const globalStyles = `
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light dark; background-color: ${light.background}; }
   html, body, #root { min-height: 100%; margin: 0; }
   *, *::before, *::after { box-sizing: border-box; }
-  :focus-visible { outline: 3px solid #A33D00; outline-offset: 3px; }
+  body { font-synthesis: none; }
+  :focus-visible { outline: 2px solid ${light.focus}; outline-offset: 2px; }
+  [data-band] :focus-visible { outline-color: ${light.focusOnBand}; }
   @media (prefers-color-scheme: dark) {
-    :focus-visible { outline-color: #FFB37D; }
+    :root:not([data-theme="light"]) { background-color: ${dark.background}; }
+    :root:not([data-theme="light"]) :focus-visible { outline-color: ${dark.focus}; }
   }
+  :root[data-theme="dark"] { background-color: ${dark.background}; }
+  :root[data-theme="dark"] :focus-visible { outline-color: ${dark.focus}; }
+  :root[data-theme="dark"] [data-band] :focus-visible { outline-color: ${dark.focusOnBand}; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
@@ -89,7 +102,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
           name="viewport"
         />
         <meta content="no-referrer" name="referrer" />
-        <meta content="#0A6335" name="theme-color" />
+        <meta content={colors.light.brandBand} name="theme-color" />
         <meta content="yes" name="mobile-web-app-capable" />
         <meta content="yes" name="apple-mobile-web-app-capable" />
         <meta content={pt.app.name} name="apple-mobile-web-app-title" />

@@ -2,7 +2,10 @@ import { forwardRef, useId } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing } from '@/theme/spacing';
+import { size, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
+
+import { AppIcon } from './AppIcon';
 
 type AppCheckboxProps = {
   checked: boolean;
@@ -55,28 +58,33 @@ export const AppCheckbox = forwardRef<View, AppCheckboxProps>(function AppCheckb
           style={[
             styles.box,
             {
-              backgroundColor: checked ? colors.primary : colors.surface,
-              borderColor: invalid ? colors.critical : checked ? colors.primary : colors.border,
+              backgroundColor: checked ? colors.primary : colors.surfaceRaised,
+              borderColor: invalid
+                ? colors.critical
+                : checked
+                  ? colors.primary
+                  : colors.fieldBorder,
             },
           ]}
         >
-          {checked ? (
-            <Text style={[styles.mark, { color: colors.onPrimary }]} aria-hidden>
-              ✓
-            </Text>
-          ) : null}
+          {checked ? <AppIcon color={colors.onPrimary} name="check" size={16} /> : null}
         </View>
         <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
       </Pressable>
       {invalid ? (
-        <Text
-          accessibilityLiveRegion="assertive"
-          nativeID={errorId}
-          role="alert"
-          style={[styles.error, { color: colors.critical }]}
-        >
-          {error}
-        </Text>
+        <View style={styles.errorRow}>
+          <View style={styles.errorIcon}>
+            <AppIcon color={colors.critical} name="alert-circle" size={16} />
+          </View>
+          <Text
+            accessibilityLiveRegion="assertive"
+            nativeID={errorId}
+            role="alert"
+            style={[styles.error, { color: colors.critical }]}
+          >
+            {error}
+          </Text>
+        </View>
       ) : null}
     </View>
   );
@@ -85,21 +93,22 @@ export const AppCheckbox = forwardRef<View, AppCheckboxProps>(function AppCheckb
 const styles = StyleSheet.create({
   box: {
     alignItems: 'center',
-    borderRadius: radius.sm,
+    borderRadius: 6,
     borderWidth: 2,
-    height: 28,
+    height: 24,
     justifyContent: 'center',
-    width: 28,
+    width: 24,
   },
-  error: { fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  error: { ...typography.supportStrong, flex: 1, minWidth: 0 },
+  errorIcon: { paddingTop: 2 },
+  errorRow: { flexDirection: 'row', gap: spacing.xs + 2 },
   group: { gap: spacing.xs, minWidth: 0, width: '100%' },
-  label: { flex: 1, fontSize: 16, lineHeight: 24, minWidth: 0 },
-  mark: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  label: { ...typography.body, flex: 1, minWidth: 0 },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
-    minHeight: 48,
+    gap: spacing.ms,
+    minHeight: size.target,
     minWidth: 0,
     paddingVertical: spacing.sm,
     width: '100%',

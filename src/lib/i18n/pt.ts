@@ -25,6 +25,9 @@ export const pt = {
       owner: 'Dono',
       organizer: 'Organizador',
       player: 'Membro',
+      activeOverline: 'Grupos ativos',
+      activeCount: (count: number, limit: number) =>
+        `${count} de ${limit} ${limit === 1 ? 'grupo ativo' : 'grupos ativos'}`,
     },
     detail: {
       eyebrow: 'Seu grupo',
@@ -38,6 +41,8 @@ export const pt = {
       invites: 'Convites do grupo',
       left: 'Você saiu do grupo.',
       missing: 'Não foi possível abrir este grupo. Volte à lista e atualize os dados.',
+      activeMembers: (count: number) =>
+        `${count} ${count === 1 ? 'membro ativo' : 'membros ativos'}`,
     },
     members: {
       eyebrow: 'Organização',

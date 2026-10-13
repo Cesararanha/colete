@@ -1,19 +1,24 @@
 import Head from 'expo-router/head';
 import { usePathname } from 'expo-router';
-import type { PropsWithChildren } from 'react';
+import type { PropsWithChildren, ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { pt } from '@/lib/i18n/pt';
+import { navigationShadow } from '@/theme/elevation';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
-import { AppButton } from './AppButton';
 import { AppNavLink } from './AppNavLink';
+import { BrandBand, BrandWordmark } from './BrandBand';
+import { ThemeToggle } from './ThemeToggle';
 
 type AuthenticatedShellProps = PropsWithChildren<{
   description: string;
   eyebrow: string;
+  /** The screen's one scoreboard (docs/29 §1.2), shown in the band under the title. */
+  hero?: ReactNode;
   title: string;
 }>;
 
@@ -21,13 +26,14 @@ export function AuthenticatedShell({
   children,
   description,
   eyebrow,
+  hero,
   title,
 }: AuthenticatedShellProps) {
-  const { colors, mode, toggleMode } = useTheme();
+  const { colors, mode } = useTheme();
   const pathname = usePathname();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
-  const themeLabel = mode === 'dark' ? pt.theme.useLight : pt.theme.useDark;
+  // The navigation keeps its DOM place (focus order, docs/15); only its look changed.
   const navigation = (
     <View
       accessibilityLabel={pt.navigation.label}
@@ -35,18 +41,23 @@ export function AuthenticatedShell({
       style={[
         styles.navigation,
         wide ? styles.navigationWide : styles.navigationNarrow,
-        { backgroundColor: colors.background, borderColor: colors.border },
+        { backgroundColor: colors.surface },
+        wide ? undefined : navigationShadow(mode),
       ]}
     >
       <AppNavLink
         active={pathname.startsWith('/grupos') || pathname === '/join'}
         href="/grupos"
+        icon="users"
         label={pt.navigation.groups}
+        variant={wide ? 'rail' : 'tab'}
       />
       <AppNavLink
         active={pathname.startsWith('/perfil')}
         href="/perfil"
+        icon="user"
         label={pt.navigation.profile}
+        variant={wide ? 'rail' : 'tab'}
       />
     </View>
   );
@@ -57,16 +68,12 @@ export function AuthenticatedShell({
         <title>{pt.app.pageTitle(title)}</title>
       </Head>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-        <View role="banner" style={[styles.header, { borderColor: colors.border }]}>
-          <Text style={[styles.brand, { color: colors.text }]}>{pt.app.name}</Text>
-          <AppButton
-            label={themeLabel}
-            onPress={toggleMode}
-            pressed={mode === 'dark'}
-            testID="theme-toggle"
-            variant="secondary"
-          />
-        </View>
+        <BrandBand>
+          <View role="banner" style={styles.header}>
+            <BrandWordmark />
+            <ThemeToggle testID="theme-toggle" />
+          </View>
+        </BrandBand>
         <View style={[styles.body, wide ? styles.bodyWide : undefined]}>
           {wide ? navigation : null}
           <ScrollView
@@ -75,14 +82,23 @@ export function AuthenticatedShell({
             style={styles.scrollView}
           >
             <View role="main" style={styles.main} testID="authenticated-main">
-              <View style={styles.intro}>
-                <Text style={[styles.eyebrow, { color: colors.primary }]}>{eyebrow}</Text>
-                <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
-                  {title}
-                </Text>
-                <Text style={[styles.description, { color: colors.textMuted }]}>{description}</Text>
-              </View>
-              {children}
+              <BrandBand rounded style={styles.band}>
+                <View style={styles.intro}>
+                  <Text style={[styles.eyebrow, { color: colors.onBandMuted }]}>{eyebrow}</Text>
+                  <Text
+                    aria-level={1}
+                    role="heading"
+                    style={[styles.title, { color: colors.onBand }]}
+                  >
+                    {title}
+                  </Text>
+                  <Text style={[styles.description, { color: colors.onBandMuted }]}>
+                    {description}
+                  </Text>
+                </View>
+                {hero}
+              </BrandBand>
+              <View style={styles.content}>{children}</View>
             </View>
           </ScrollView>
           {wide ? null : navigation}
@@ -93,37 +109,36 @@ export function AuthenticatedShell({
 }
 
 const styles = StyleSheet.create({
+  band: { gap: spacing.lg, paddingBottom: spacing.xl, paddingHorizontal: spacing.lg },
   body: { flex: 1, minWidth: 0 },
   bodyWide: { alignSelf: 'center', flexDirection: 'row', maxWidth: 1160, width: '100%' },
-  brand: { flexShrink: 1, fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  description: { fontSize: 16, lineHeight: 24, maxWidth: 680 },
-  eyebrow: { fontSize: 14, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+  content: { gap: spacing.lg, padding: spacing.lg },
+  description: { ...typography.body, maxWidth: 680 },
+  eyebrow: { ...typography.supportStrong },
   header: {
     alignItems: 'center',
     alignSelf: 'center',
-    borderBottomWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
     justifyContent: 'space-between',
-    maxWidth: 980,
-    padding: spacing.md,
+    maxWidth: 1160,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.ms,
     width: '100%',
   },
-  intro: { gap: spacing.sm, minWidth: 0 },
-  main: {
-    alignSelf: 'center',
-    gap: spacing.lg,
-    maxWidth: 820,
-    minWidth: 0,
-    padding: spacing.md,
-    width: '100%',
+  intro: { gap: spacing.xs, minWidth: 0, paddingTop: spacing.sm },
+  main: { alignSelf: 'center', maxWidth: 820, minWidth: 0, width: '100%' },
+  navigation: { gap: spacing.xs },
+  navigationNarrow: { flexDirection: 'row', justifyContent: 'space-around' },
+  navigationWide: {
+    alignSelf: 'stretch',
+    minWidth: 200,
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.lg,
   },
   safeArea: { flex: 1 },
-  scrollView: { flex: 1, minWidth: 0 },
-  navigation: { borderWidth: 1, gap: spacing.xs, padding: spacing.sm },
-  navigationNarrow: { flexDirection: 'row', justifyContent: 'space-around' },
-  navigationWide: { alignSelf: 'stretch', minWidth: 152, paddingTop: spacing.lg },
   scrollContent: { flexGrow: 1, paddingBottom: spacing.xxl },
-  title: { fontSize: 38, fontWeight: '900', letterSpacing: -1, lineHeight: 46 },
+  scrollView: { flex: 1, minWidth: 0 },
+  title: { ...typography.display },
 });

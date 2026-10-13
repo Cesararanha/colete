@@ -8,6 +8,7 @@ import { pt } from '@/lib/i18n/pt';
 import { isSmokeMode } from '@/lib/runtime';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { PwaUpdateNotice } from '../pwa/PwaUpdateNotice';
 import { SyntheticSmokePanel } from '../smoke/SyntheticSmokePanel';
@@ -24,7 +25,7 @@ export function HomeScreen() {
         eyebrow={pt.home.eyebrow}
         title={pt.home.title}
       />
-      <View style={[styles.status, { backgroundColor: colors.surfaceStrong }]}>
+      <View style={[styles.status, { backgroundColor: colors.surfaceRaised }]}>
         <Text style={[styles.statusLabel, { color: colors.positive }]}>{pt.home.statusLabel}</Text>
         <Text aria-level={2} role="heading" style={[styles.statusTitle, { color: colors.text }]}>
           {pt.home.statusTitle}
@@ -41,7 +42,7 @@ export function HomeScreen() {
               <View key={principle} style={styles.listItem}>
                 <Text
                   accessibilityElementsHidden
-                  style={[styles.bullet, { color: colors.primary }]}
+                  style={[styles.bullet, { color: colors.textMuted }]}
                 >
                   •
                 </Text>
@@ -68,17 +69,13 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   body: {
-    fontSize: 16,
-    lineHeight: 25,
+    ...typography.body,
   },
   bullet: {
-    fontSize: 22,
-    lineHeight: 25,
+    ...typography.title,
   },
   cardTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 28,
+    ...typography.title,
   },
   grid: {
     gap: spacing.md,
@@ -95,19 +92,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   status: {
-    borderRadius: radius.md,
+    borderRadius: radius.row,
     gap: spacing.sm,
     padding: spacing.lg,
   },
   statusLabel: {
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-    textTransform: 'uppercase',
+    ...typography.supportStrong,
   },
   statusTitle: {
-    fontSize: 26,
-    fontWeight: '900',
-    lineHeight: 32,
+    ...typography.display,
   },
 });

@@ -27,7 +27,8 @@ import {
   usePrivateQuery,
 } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import {
   formatAbsoluteInstant,
@@ -210,10 +211,7 @@ export function DataExportCard({ email }: { email: string | null }) {
             accessibilityLiveRegion="polite"
             ref={stateRef}
             role="status"
-            style={[
-              styles.state,
-              { backgroundColor: colors.surfaceStrong, borderColor: colors.border },
-            ]}
+            style={[styles.state, { backgroundColor: colors.background }]}
             tabIndex={-1}
             testID="export-state"
           >
@@ -381,8 +379,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
-  body: { fontSize: 15, lineHeight: 22 },
+  body: { ...typography.support },
   reauth: { gap: spacing.sm },
-  state: { borderRadius: 18, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
-  stateTitle: { fontSize: 20, fontWeight: '800', lineHeight: 26 },
+  state: { borderRadius: radius.field, gap: spacing.xs, padding: spacing.md },
+  stateTitle: { ...typography.title },
 });

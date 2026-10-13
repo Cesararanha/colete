@@ -1,45 +1,92 @@
 export type ThemeMode = 'light' | 'dark';
 
+/**
+ * Placar premium tokens (docs/29). Areas separate by layer, not by outline:
+ * background → surface → surfaceRaised. The only outline is fieldBorder, on
+ * form fields. Scoreboard tokens are identical in both themes.
+ */
 export type ThemeColors = {
   background: string;
   surface: string;
-  surfaceStrong: string;
+  surfaceRaised: string;
+  scoreboard: string;
+  scoreTileTop: string;
+  scoreTileBottom: string;
+  digit: string;
+  digitDim: string;
+  brandBand: string;
+  onBand: string;
+  onBandMuted: string;
+  bandRaised: string;
   text: string;
   textMuted: string;
   primary: string;
   onPrimary: string;
-  border: string;
+  indicator: string;
+  link: string;
+  fieldBorder: string;
   focus: string;
+  focusOnBand: string;
   positive: string;
+  warning: string;
   critical: string;
+  info: string;
 };
+
+const scoreboard = {
+  scoreboard: '#050A14',
+  scoreTileTop: '#142039',
+  scoreTileBottom: '#0F182C',
+  digit: '#FFB940',
+  digitDim: '#7E8AA5',
+} as const;
 
 export const colors: Record<ThemeMode, ThemeColors> = {
   light: {
-    background: '#F4F8F5',
-    surface: '#FFFFFF',
-    surfaceStrong: '#E5F1E9',
-    text: '#10261A',
-    textMuted: '#40594A',
-    primary: '#0A6335',
+    background: '#EEF1F6',
+    surface: '#F7F8FB',
+    surfaceRaised: '#FFFFFF',
+    ...scoreboard,
+    brandBand: '#14224A',
+    onBand: '#FFFFFF',
+    onBandMuted: '#C9D0DE',
+    bandRaised: '#22336A',
+    text: '#0D1630',
+    textMuted: '#4A556E',
+    primary: '#14224A',
     onPrimary: '#FFFFFF',
-    border: '#718478',
-    focus: '#A33D00',
-    positive: '#075C31',
-    critical: '#8F1515',
+    indicator: '#14224A',
+    link: '#14224A',
+    fieldBorder: '#7A859C',
+    focus: '#14224A',
+    focusOnBand: '#FFFFFF',
+    positive: '#1D6B43',
+    warning: '#9A4A00',
+    critical: '#B3202A',
+    info: '#2B4FB8',
   },
   dark: {
-    background: '#07150D',
-    surface: '#10251A',
-    surfaceStrong: '#193526',
-    text: '#F2FAF5',
-    textMuted: '#B7CABD',
-    primary: '#79E5A9',
-    onPrimary: '#062C17',
-    border: '#849A8B',
-    focus: '#FFB37D',
-    positive: '#90EEB7',
-    critical: '#FFB4AB',
+    background: '#0A1120',
+    surface: '#111A2E',
+    surfaceRaised: '#18233B',
+    ...scoreboard,
+    brandBand: '#0A1120',
+    onBand: '#F1F2F4',
+    onBandMuted: '#A8B2C6',
+    bandRaised: '#18233B',
+    text: '#F1F2F4',
+    textMuted: '#A8B2C6',
+    primary: '#FFB940',
+    onPrimary: '#1A1203',
+    indicator: '#FFB940',
+    link: '#F1F2F4',
+    fieldBorder: '#6E7B98',
+    focus: '#F1F2F4',
+    focusOnBand: '#F1F2F4',
+    positive: '#7CD3A0',
+    warning: '#FFA46B',
+    critical: '#FF9C96',
+    info: '#9DB6FF',
   },
 };
 

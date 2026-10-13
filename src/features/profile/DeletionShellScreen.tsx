@@ -7,7 +7,8 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import type { DeletionRequestProjection } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { formatAbsoluteInstant } from './data-export-state';
 import type { StoredDeletionProtocol } from './deletion-protocol';
@@ -73,10 +74,7 @@ export function DeletionShellScreen({
           accessibilityLabel={shell.statusLabel}
           accessibilityLiveRegion="polite"
           role="status"
-          style={[
-            styles.state,
-            { backgroundColor: colors.surfaceStrong, borderColor: colors.border },
-          ]}
+          style={[styles.state, { backgroundColor: colors.background }]}
           testID="deletion-shell-status"
         >
           <Text style={[styles.stateTitle, { color: colors.text }]}>{copy.title}</Text>
@@ -111,8 +109,8 @@ export function DeletionShellScreen({
 
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  body: { fontSize: 15, lineHeight: 22 },
-  protocol: { fontSize: 18, fontVariant: ['tabular-nums'], fontWeight: '700', lineHeight: 26 },
-  state: { borderRadius: 18, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
-  stateTitle: { fontSize: 20, fontWeight: '800', lineHeight: 26 },
+  body: { ...typography.support },
+  protocol: { ...typography.row, fontVariant: ['tabular-nums'] },
+  state: { borderRadius: radius.field, gap: spacing.xs, padding: spacing.md },
+  stateTitle: { ...typography.title },
 });

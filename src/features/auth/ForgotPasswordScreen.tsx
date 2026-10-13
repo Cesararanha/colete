@@ -14,6 +14,7 @@ import { api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
@@ -247,5 +248,5 @@ export function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
   form: { gap: spacing.md },
-  status: { fontSize: 15, lineHeight: 22 },
+  status: { ...typography.support },
 });

@@ -15,6 +15,7 @@ import { AppError, api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 import { hasPendingInvite } from '@/features/groups/join-fragment';
 
 import { useAuthFlowStore } from './auth-flow-store';
@@ -172,8 +173,8 @@ export function VerifyCodeScreen() {
 }
 
 const styles = StyleSheet.create({
-  destination: { fontSize: 15, fontWeight: '700', lineHeight: 22 },
+  destination: { ...typography.supportStrong },
   form: { gap: spacing.md },
   resendStatus: { gap: spacing.xs },
-  status: { fontSize: 14, lineHeight: 20 },
+  status: { ...typography.support },
 });

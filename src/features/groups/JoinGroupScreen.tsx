@@ -15,6 +15,7 @@ import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 
@@ -202,5 +203,5 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
 
 const styles = StyleSheet.create({
   confirm: { gap: spacing.md },
-  title: { fontSize: 22, fontWeight: '800', lineHeight: 30 },
+  title: { ...typography.title },
 });

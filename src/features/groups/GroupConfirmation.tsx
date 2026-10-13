@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 export function focusGroupControl(testId: string) {
   if (typeof document !== 'undefined')
@@ -34,10 +35,11 @@ export function GroupConfirmation({
           tabIndex={-1}
           data-testid={`${testID}-heading`}
           style={{
-            fontFamily: 'system-ui, sans-serif',
+            fontFamily: typography.title.fontFamily,
+            fontWeight: 600,
             color: colors.text,
-            fontSize: 22,
-            lineHeight: '30px',
+            fontSize: typography.title.fontSize,
+            lineHeight: `${typography.title.lineHeight}px`,
             margin: 0,
           }}
         >
@@ -54,5 +56,5 @@ export function GroupConfirmation({
 }
 const styles = StyleSheet.create({
   container: { gap: spacing.md },
-  title: { fontSize: 22, fontWeight: '700', lineHeight: 30 },
+  title: { ...typography.title },
 });

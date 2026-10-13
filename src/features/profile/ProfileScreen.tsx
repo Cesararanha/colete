@@ -15,6 +15,7 @@ import { applySessionChange } from '@/lib/private-queries';
 import { announceLocalSignOut, reloadAfterSignOut } from '@/lib/session-broadcast';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { DataExportCard } from './DataExportCard';
 import { DeleteAccountCard } from './DeleteAccountCard';
@@ -135,6 +136,6 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
 }
 
 const styles = StyleSheet.create({
-  provider: { fontSize: 16, fontWeight: '700', lineHeight: 24 },
+  provider: { ...typography.bodyStrong },
   providers: { gap: spacing.sm },
 });

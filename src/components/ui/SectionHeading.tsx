@@ -2,19 +2,35 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
+
+import { AppIcon, type IconName } from './AppIcon';
 
 type SectionHeadingProps = {
   description?: string;
   eyebrow: string;
+  /** A state eyebrow (e.g. pending) gains an icon so it is not told by colour alone. */
+  eyebrowTone?: 'muted' | 'warning';
+  eyebrowIcon?: IconName;
   title: string;
 };
 
-export function SectionHeading({ description, eyebrow, title }: SectionHeadingProps) {
+export function SectionHeading({
+  description,
+  eyebrow,
+  eyebrowIcon,
+  eyebrowTone = 'muted',
+  title,
+}: SectionHeadingProps) {
   const { colors } = useTheme();
+  const eyebrowColor = eyebrowTone === 'warning' ? colors.warning : colors.textMuted;
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.eyebrow, { color: colors.primary }]}>{eyebrow}</Text>
+      <View style={styles.eyebrowRow}>
+        {eyebrowIcon ? <AppIcon color={eyebrowColor} name={eyebrowIcon} size={18} /> : null}
+        <Text style={[styles.eyebrow, { color: eyebrowColor }]}>{eyebrow}</Text>
+      </View>
       <Text aria-level={2} role="heading" style={[styles.title, { color: colors.text }]}>
         {title}
       </Text>
@@ -26,27 +42,9 @@ export function SectionHeading({ description, eyebrow, title }: SectionHeadingPr
 }
 
 const styles = StyleSheet.create({
-  container: {
-    gap: spacing.sm,
-    minWidth: 0,
-  },
-  description: {
-    fontSize: 18,
-    lineHeight: 28,
-    maxWidth: 680,
-  },
-  eyebrow: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 1.1,
-    lineHeight: 20,
-    textTransform: 'uppercase',
-  },
-  title: {
-    fontSize: 38,
-    fontWeight: '900',
-    letterSpacing: -1.2,
-    lineHeight: 44,
-    maxWidth: 720,
-  },
+  container: { gap: spacing.xs, minWidth: 0 },
+  description: { ...typography.body, maxWidth: 680 },
+  eyebrow: { ...typography.supportStrong, flexShrink: 1 },
+  eyebrowRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  title: { ...typography.title, maxWidth: 720 },
 });
