@@ -1,5 +1,5 @@
-import { AppError, TransportError } from '@/lib/api';
-import { pt } from '@/lib/i18n/pt';
+import { AppError, TransportError } from '../../lib/api';
+import { pt } from '../../lib/i18n/pt';
 
 const validationMessages: Record<string, string> = {
   email: pt.validation.email,
@@ -34,4 +34,29 @@ export function authErrorMessage(error: unknown): string {
     }
   }
   return pt.auth.errors.generic;
+}
+
+/**
+ * Sign-in failure. Supabase Auth answers a wrong password and an unknown
+ * e-mail with the same `invalid_credentials`, and so does this message: it
+ * never says which of the two was wrong, so it never reveals that an account
+ * exists. Any other Auth refusal keeps the general wording.
+ */
+export function loginErrorMessage(error: unknown): string {
+  if (
+    error instanceof AppError &&
+    error.code === 'UNAUTHENTICATED' &&
+    (error.authCode === undefined || error.authCode === 'invalid_credentials')
+  ) {
+    return pt.auth.errors.credentials;
+  }
+  return authErrorMessage(error);
+}
+
+/** Password update (recovery): Supabase Auth refuses an unchanged password with `same_password`. */
+export function passwordUpdateErrorMessage(error: unknown): string {
+  if (error instanceof AppError && error.authCode === 'same_password') {
+    return pt.auth.errors.samePassword;
+  }
+  return authErrorMessage(error);
 }

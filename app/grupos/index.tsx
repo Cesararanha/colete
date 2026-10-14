@@ -8,7 +8,8 @@ export default function GroupsRoute() {
   const { left } = useLocalSearchParams<{ left?: string }>();
   return (
     <AuthGateScreen
-      page={pt.groups.list}
+      // Grupos shows only its title and scoreboard: no eyebrow, no description.
+      page={{ description: '', eyebrow: '', title: pt.groups.list.title }}
       renderAuthenticated={(profile) => <GroupsListScreen left={left === '1'} profile={profile} />}
     />
   );

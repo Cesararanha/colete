@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -45,7 +46,28 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
     if (origin) focusGroupControl(`remove-${origin}`);
   };
   return (
-    <AuthenticatedShell {...pt.groups.members}>
+    <AuthenticatedShell
+      {...pt.groups.members}
+      back={{
+        label: pt.groups.members.back,
+        onPress: () => router.navigate(`/grupos/${groupId}`),
+        testID: 'members-back',
+      }}
+    >
+      {/* Navigation only, to a route that already exists. It is offered to the
+          same people the settings screen admits, an active owner or organizer,
+          per the authority of this screen's last server read. */}
+      {allowed ? (
+        <View style={styles.navigation}>
+          <AppButton
+            icon="settings"
+            label={pt.groups.settings.title}
+            onPress={() => router.push(`/grupos/${groupId}/configuracoes`)}
+            testID="members-settings"
+            variant="tertiary"
+          />
+        </View>
+      ) : null}
       {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="administration-error" />
@@ -215,6 +237,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
 }
 const styles = StyleSheet.create({
   body: { ...typography.body },
+  navigation: { alignItems: 'flex-start', marginHorizontal: -spacing.md },
   heading: { ...typography.title },
   row: { gap: spacing.sm, marginBottom: spacing.md },
 });

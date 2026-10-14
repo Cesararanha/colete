@@ -339,6 +339,29 @@ describe('lib/api authentication boundaries', () => {
     expect(setHeader).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the Supabase Auth error code on the refusal it raises', async () => {
+    const updateUser = vi.fn(async () => ({
+      data: { user: null },
+      error: { code: 'same_password', message: 'New password should be different', status: 422 },
+    }));
+    const signInWithPassword = vi.fn(async () => ({
+      data: { session: null, user: null },
+      error: { code: 'invalid_credentials', message: 'Invalid login credentials', status: 400 },
+    }));
+    const client = createApiClient({
+      supabase: { auth: { signInWithPassword, updateUser } } as unknown as ColeteSupabaseClient,
+    });
+
+    await expect(client.updatePassword('Frase-segura-2026')).rejects.toMatchObject({
+      authCode: 'same_password',
+      code: 'VALIDATION',
+    });
+    await expect(client.signInWithPassword('a@colete.test', 'x')).rejects.toMatchObject({
+      authCode: 'invalid_credentials',
+      code: 'UNAUTHENTICATED',
+    });
+  });
+
   it('signs out only the current session', async () => {
     const signOut = vi.fn(async () => ({ error: null }));
     const client = createApiClient({

@@ -1,27 +1,70 @@
 import { useQuery } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Link, router } from 'expo-router';
+import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
+import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { Scoreboard } from '@/components/ui/Scoreboard';
-import { SectionHeading } from '@/components/ui/SectionHeading';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
+import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { listGap, radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { MAX_ACTIVE_GROUPS } from './group-limits';
+import { roleIcon, roleName } from './group-roles';
 
-function roleLabel(role: string) {
-  if (role === 'owner') return pt.groups.list.owner;
-  if (role === 'organizer') return pt.groups.list.organizer;
-  return pt.groups.list.player;
+/** One group: the whole row opens it. Name, role (icon + text) and a chevron. */
+function GroupRow({ id, name, role }: { id: string; name: string; role: string }) {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
+  return (
+    <Link asChild href={`/grupos/${id}`}>
+      <Pressable
+        accessibilityLabel={pt.groups.list.view(name)}
+        accessibilityRole="link"
+        style={styles.rowTarget}
+        testID="group-list-card"
+      >
+        {({ pressed }) => (
+          <View
+            style={[
+              styles.row,
+              {
+                backgroundColor: colors.surfaceRaised,
+                opacity: pressed ? 0.86 : 1,
+                transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }],
+              },
+              Platform.OS === 'web'
+                ? ({
+                    transitionDuration: pressed ? '100ms' : '160ms',
+                    transitionProperty: 'transform, opacity',
+                  } as ViewStyle)
+                : null,
+            ]}
+          >
+            <View style={styles.rowText}>
+              <Text aria-level={2} role="heading" style={[styles.rowName, { color: colors.text }]}>
+                {name}
+              </Text>
+              <View style={styles.meta}>
+                <AppIcon color={colors.textMuted} name={roleIcon(role)} size={16} />
+                <Text style={[styles.metaText, { color: colors.textMuted }]}>
+                  {roleName(role, pt.groups.list.player)}
+                </Text>
+              </View>
+            </View>
+            <AppIcon color={colors.textMuted} name="chevron-right" size={24} />
+          </View>
+        )}
+      </Pressable>
+    </Link>
+  );
 }
 
 export function GroupsListScreen({ left, profile }: { left?: boolean; profile: OwnProfile }) {
@@ -72,7 +115,7 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
       </View>
     );
   return (
-    <AuthenticatedShell {...pt.groups.list} hero={hero}>
+    <AuthenticatedShell hero={hero} title={pt.groups.list.title}>
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? (
@@ -93,31 +136,39 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
           action={() => router.push('/grupos/criar')}
         />
       ) : null}
-      {listing.data?.groups.map((group) => (
-        <AppCard key={group.id} testID="group-list-card">
-          <SectionHeading eyebrow={roleLabel(group.role)} title={group.name} />
-          <AppButton
-            icon="chevron-right"
-            iconPosition="trailing"
-            label={`${pt.groups.list.open}: ${group.name}`}
-            onPress={() => router.push(`/grupos/${group.id}`)}
-            variant="secondary"
-          />
-        </AppCard>
-      ))}
-      {listing.data?.pending.map((pending) => (
-        <AppCard key={pending.group_id} testID="pending-group-card">
-          <SectionHeading
-            eyebrow={pt.groups.list.pending}
-            eyebrowIcon="clock"
-            eyebrowTone="warning"
-            title={pending.group_name}
-          />
-          <Text style={[styles.body, { color: colors.textMuted }]}>
-            {pt.groups.join.pendingBody}
-          </Text>
-        </AppCard>
-      ))}
+      {listing.data && (listing.data.groups.length > 0 || listing.data.pending.length > 0) ? (
+        <View style={styles.list}>
+          {listing.data.groups.map((group) => (
+            <GroupRow id={group.id} key={group.id} name={group.name} role={group.role} />
+          ))}
+          {listing.data.pending.map((pending) => (
+            <View
+              key={pending.group_id}
+              style={[styles.row, styles.pendingRow, { backgroundColor: colors.surface }]}
+              testID="pending-group-card"
+            >
+              <View style={styles.rowText}>
+                <Text
+                  aria-level={2}
+                  role="heading"
+                  style={[styles.rowName, { color: colors.text }]}
+                >
+                  {pending.group_name}
+                </Text>
+                <View style={styles.meta}>
+                  <AppIcon color={colors.warning} name="clock" size={16} />
+                  <Text style={[styles.metaText, styles.metaStrong, { color: colors.warning }]}>
+                    {pt.groups.list.pending}
+                  </Text>
+                </View>
+                <Text style={[styles.body, { color: colors.textMuted }]}>
+                  {pt.groups.join.pendingBody}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {listing.data && (listing.data.groups.length > 0 || listing.data.pending.length > 0)
         ? actions
         : null}
@@ -135,7 +186,25 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
 
 const styles = StyleSheet.create({
   actions: { gap: spacing.sm, paddingTop: spacing.sm },
-  body: { ...typography.body },
+  body: { ...typography.support },
   hero: { gap: spacing.ms },
+  list: { gap: listGap },
+  meta: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  metaStrong: { ...typography.supportStrong },
+  metaText: { ...typography.support, flexShrink: 1 },
   overline: { ...typography.overline },
+  pendingRow: { alignItems: 'flex-start' },
+  row: {
+    alignItems: 'center',
+    borderRadius: radius.row,
+    flexDirection: 'row',
+    gap: spacing.md,
+    minHeight: size.row + spacing.ms,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  rowName: { ...typography.row },
+  rowTarget: { borderRadius: radius.row },
+  rowText: { flex: 1, gap: spacing.xs, minWidth: 0 },
 });
