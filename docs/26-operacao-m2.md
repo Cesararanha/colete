@@ -2395,3 +2395,354 @@ Contraprovas: a sonda da revisão contra a 0023 e o `geocode.ts` anteriores
 mediu 248 ms entre saídas; o mutante só da leitura do corpo derruba o teste
 novo de corpo interrompido; sem `flexWrap`, o e2e a 200% mede 12 px no
 horário. O Nominatim nunca foi chamado.
+
+## PR B — QR do convite acadêmico (decisão humana de 15/10/2026)
+
+Convites mostra QR do `share_url` emitido pela Edge, com módulos pretos sobre branco,
+quatro módulos de margem e escala inteira, junto do código/link existentes. A
+matriz permanece no componente de vida curta; regenerar substitui e revogar remove.
+“Ler QR do convite”, em `/join`, valida origem exata, `/join`, ausência de query e
+credenciais, e `#token=` com os 88 símbolos base64url do formato atual. Outro
+conteúdo mostra **Este QR não é um convite do Colete**, sem abrir/exibir/logar ou
+transmitir o conteúdo. Token válido entra em memória no preview/confirmar já
+existentes; a câmera não resgata automaticamente. Negação/indisponibilidade oferece
+“Digitar código” com foco no campo.
+
+**Decisão humana de César, 15/10/2026, AGENTS §8:** plano da Fase 0 aprovado;
+`qrcode-generator@2.0.4` (MIT) e `jsqr@1.4.0` (Apache-2.0) aprovados com versões
+exatas, sem ^/~; expo-camera já autorizado e fixado em `57.0.6` (SDK 57).
+Ambas as bibliotecas QR têm zero dependências próprias; audit isolado zero
+vulnerabilidades e proposta completa zero advisories novos. `audit:high` mantém
+somente as duas exceções humanas existentes. Geração/leitura são locais depois
+do carregamento; preview/resgate permanecem online.
+
+Web: `getUserMedia` sem áudio, vídeo muted/playsInline, canvas limitado a 480 px
+no maior lado, intervalo mínimo de 125 ms (até 8 decodificações/s, menos o tempo
+de processamento) e import dinâmico de jsqr. Não usa Expo scanner, WASM, CDN,
+worker externo ou geração de código por Function. Nativo: CameraView traseira, apenas QR, autofocus,
+permissão de câmera sem microfone. Build nativo exige `EXPO_PUBLIC_INVITE_ORIGIN`
+igual à origem pública exata da Edge, sem path/query/fragmento (`.env.example`).
+Web usa a origem da página. Testes cobrem o window sem location do React Native;
+a rota também evita o listener/fragmento do browser nesse caso.
+
+### Provas medidas e incidentes preservados
+
+`test:qr:web`: **30/30**, 15 Chromium em 320 px e 15 WebKit iPhone, **47,89 s**.
+Pixels reais de canvas entram no decoder produtivo; API/transporte de câmera simulados, com
+Auth/Edge/Postgres locais reais. PNG do QR exibido foi decodificado independentemente
+do gerador e comparado com o link exato; regeneração e revogação passaram.
+Preview uma vez, zero resgate antes da confirmação, resultado pending depois.
+
+Duas tracks por stream, incluindo clone, ficam ended após leitura, cancelar,
+digitar, navegar, documento oculto, pagehide, erro de vídeo, track encerrada
+e permissão resolvida depois de cancelar. Reabrir cria novas tracks; contador de
+frames não avança depois de parar. Frames positivos comprovam até cinco leituras
+em 500 ms e lado máximo 480 px. Decoder: zero requests antes da abertura e uma
+do chunk ao abrir; nenhuma tentativa de WASM/CDN. Censo cobre token/código em URL,
+referrer, histórico, título, console, Cache API e storages; token em body somente
+nas rotas contratadas. Sentinela em localStorage reprova o censo. QR externo não
+abre página nem aparece em tela/request/log. Axe, foco e reflow passaram.
+
+Contraprova sem track.stop no caminho normal: **6/9** unitários da câmera falharam
+(exit 1); arquivo restaurado em finally. Unitários finais: **32 arquivos/368 testes**,
+incluindo gerador/decoder independentes, parser, origem nativa, posse do stream,
+cancelamento antes do import e erro sanitizado.
+
+Primeira rodada WebKit, local e CI, falhou antes do login. Diagnóstico com página
+vazia mostrou JS/fontes/sw promovidos a HTTPS por upgrade-insecure-requests do
+servidor de staging HTTP loopback, com erro TLS. Trocar click por tap não resolveu.
+Corrigiu-se somente o harness QR: servidor estático HTTP dedicado (serve já existente),
+sem depender dos headers, conforme condição humana 5. CSP e Permissions-Policy de
+produção ficaram byte a byte intactas; test:staging e instrumentação de Function
+no cspGuard permanecem. Produção exige HTTPS; a automação não prova policy física.
+
+A primeira execução integral local parou em m1-a-auth.spec.ts:450: ArrowRight
+selecionou Atacante, mas não conservou foco. Nenhum arquivo de Perfil nem asserção
+foi alterado. A retomada repetiu Auth inteiro sem flags especiais e passou 10 + 2
+skips; ambas as CI anteriores também passaram Auth. O incidente permanece registrado
+como intermitente, sem alegar correção. Banco e QR já verdes não foram repetidos
+na retomada; as demais verificações terminaram sob nova aquisição atômica da trava.
+
+### Bundle web (gzip nível 9 por arquivo, mtime=0)
+
+`build:web` sem configuração Auth, mesma toolchain; baseline 998c5f3. Somente JS,
+sem as fontes/imagens estáticas existentes. E2E comprovou carregamento sob demanda.
+
+| Artefato | Antes bytes | Depois bytes | Antes gzip | Depois gzip |
+| --- | ---: | ---: | ---: | ---: |
+| Entrada inicial | 2.281.462 | 2.311.886 | 547.850 | 558.840 |
+| Decoder lazy | 0 | 130.264 | 0 | 46.322 |
+| Total JS | 2.281.462 | 2.442.150 | 547.850 | 605.162 |
+
+Aumento inicial **30.424 / 10.990 gzip**; total **160.688 / 57.312 gzip**.
+Exportações JavaScript/Hermes iOS e Android finais passaram; não comprovam sensor
+nem build instalável de loja.
+
+### Validação local concluída sobre a mesma fatia
+
+| Verificação | Resultado |
+| --- | --- |
+| db:start / db:reset | PASS, somente migrations 0001–0020 |
+| db:test | PASS, 19 arquivos / 1.259 asserções |
+| db:test:idempotency | PASS |
+| db:test:gateway | PASS |
+| db:test:cors | PASS |
+| db:test:worker | PASS |
+| db:test:deletion | PASS |
+| db:test:export | PASS |
+| db:test:invites | PASS |
+| db:test:groups | PASS |
+| db:test:membership | PASS |
+| db:test:rename | PASS |
+| db:test:members | PASS |
+| build:web:auth-e2e | PASS |
+| test:auth:web | PASS, 10 + 2 skips após retomada sem mudança |
+| test:privacy:web | PASS, 4 + 4 skips |
+| test:cors:web | PASS, 4 |
+| test:groups:web | PASS, 62 |
+| test:qr:web | PASS, 30 |
+| build:web:smoke / test:smoke:web | PASS, 6 |
+| verify:app / equivalente final | verify:app anterior PASS; final com todos os passos individuais e formatter limitado PASS, 368 unitários; aviso herdado View não usado em PrivacyAccountScreen |
+| scan:docs / scan:secrets | PASS |
+| test:audit | PASS, 94 |
+| test:staging | PASS, 98 |
+| audit:high | PASS, mesmas duas exceções existentes |
+| git diff --check | PASS |
+| Censo local | users/profiles/groups/members/invites/idempotency/rate limits = 0; schemas fixture/probe = 0 |
+| db:stop / trava | exit 0; somente nossa pilha encerrada e nossa trava removida |
+
+Depois do registro operacional, a revisão automática rejeitou format:check global
+por interpretar que invoca Prettier em docs/AGENTS, proibido pelo usuário. A checagem
+final foi limitada explicitamente aos arquivos de código/configuração; docs e AGENTS
+não foram formatados. Os comandos verify:app anteriormente executados foram read-only
+quanto ao formato, com docs já excluídos pelo .prettierignore; nenhum formatter alterou
+arquivos desses caminhos.
+
+### Arquivos e evidência
+
+UI/fluxo, em src/features/groups: GroupInvitesScreen.tsx, JoinGroupScreen.tsx,
+InviteQrCode.tsx, InviteQrScanner.tsx, InviteQrScanner.web.tsx, invite-camera.web.ts,
+invite-qr.ts, invite-scanner-types.ts, join-fragment.ts; app/join.tsx e
+src/lib/i18n/pt.ts. Testes: invite-qr.test.ts e invite-camera.test.ts na mesma pasta,
+e2e/invite-qr.spec.ts e playwright.qr.config.ts. Configuração/registro: .env.example,
+app.json, package.json, package-lock.json, .github/workflows/validation.yml,
+AGENTS.md (uma linha da validação QR, sem prettier), este documento e 12 PNGs em
+docs/evidence/qr-convite. Não houve migration, mudança normativa, header, aba ou FlatList.
+
+Capturas escuras sintéticas por Chromium/WebKit: Convites, câmera aberta,
+confirmação, permissão negada, câmera ausente e erro do decoder. Inspeção visual
+incluiu QR/código/link, câmera e fallback; legibilidade foi provada pelos pixels.
+Exemplos: [Convites](evidence/qr-convite/qr-chromium-convites.png),
+[câmera](evidence/qr-convite/qr-webkit-camera.png),
+[fallback](evidence/qr-convite/qr-webkit-fallback-denied.png),
+[confirmação](evidence/qr-convite/qr-webkit-confirmacao.png).
+
+### Gates
+
+PR #69 permanece draft, sem merge/ready/main até liberação humana. Autor Codex;
+revisão independente pelo Claude Code realizada em 804ffb3; conferência da correção
+pendente (risco alto
+por transporte do convite e entrada em grupo, AGENTS §4.12). Nenhum Supabase remoto,
+staging ou Vercel real foi acessado por esta sessão. Pilha só sob criação exclusiva
+atômica de pilha.lock com identificação; encerramento/remoção em finally a cada rodada.
+
+camera=(self) pertence ao PR Rachas. César fará validação física após os dois merges:
+PWA instalado no Chrome Android e Safari iPhone, HTTPS, permissões, foco/background,
+leitura/regeneração/revogação, orientação, teclado/fallback. Sensor nativo também
+pendente, com origem pública e permissão do plugin no build. WebKit/canvas e exportação
+nativa não substituem aparelhos. Headers, abas/FlatList e banco permanecem fora desta fatia.
+
+A segunda CI mostrou uma diferença adicional de mídia: WebKit Linux criava as tracks
+mas não reproduzia de forma confiável o MediaStream de canvas; os frames ficavam
+a zero e o app encerrava com câmera indisponível. O harness passou a simular também
+srcObject/play/metadados do vídeo e encaminhar drawImage ao canvas de origem. Pixels,
+getImageData, decoder, parser, Auth/Edge e tracks/readyState permanecem reais; nenhum
+token/resultado de decoder é mockado. Isso evita depender do backend de vídeo do
+runner. [Playwright documenta diferenças de mídia entre plataformas](https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md).
+
+Rodada final depois da correção do transporte e da limpeza da entrada manual: **39/39
+comandos exit 0**, incluindo banco, QR, Auth/privacidade/CORS/grupos/smoke, cada passo
+do app (formatter explicitamente limitado), scanners, audit/staging e censo.
+`test:qr:web` 30/30 em 47,89 s. QR válido zera o campo manual/erro anterior; o novo
+e2e começa por código inválido e prova essa troca. Prova QR foi antecipada na CI
+logo após reset/build Auth, conservando todos os cinco jobs e demais verificações.
+No run 38636420854 a prova QR Linux passou. O run 38637589283 de 804ffb3
+concluiu os cinco jobs com sucesso antes da revisão independente.
+
+
+### Correção da revisão #69 — permissão, ciclo de vida, foco e origem
+
+A revisão independente de Claude Code em 804ffb3 encontrou P1-1: blur causado pelo
+prompt de permissão encerrava o leitor antes de a pessoa permitir. O teste antigo
+"stops on blur" afirmava o comportamento defeituoso. Foi substituído pela prova de
+que blur é ignorado durante a permissão e depois de concedida. Web encerra por
+visibilitychange somente quando hidden e por pagehide, além de leitura, cancelar,
+digitar, navegação/desmontagem e erros. Nativo cancela no AppState background;
+inactive, usado pelo alerta iOS de permissão, não cancela.
+
+Ao abrir no web, useLayoutEffect foca Cancelar leitura. Erros de negação, câmera
+indisponível, decoder e QR alheio focam a região da mensagem com tabIndex=-1.
+Digitar código limpa o alerta e volta ao campo. A suíte afirma o foco por elemento,
+sem aceitar BODY. Origem nativa ausente ou inválida é recusada antes de montar o
+leitor, com "A leitura de QR não está configurada neste aplicativo. Digite o código
+do convite para continuar." A origem configurada deve ser HTTPS exata, sem barra,
+path, query, fragmento ou credenciais; web continua usando a origem da página.
+Validação em runtime, sem novo app.config ou dependência. Sensor/alerta iOS real
+continuam no gate físico; unitários não são prova de hardware.
+
+Prova local da correção sob trava exclusiva atômica: db:start e db:reset exit 0;
+**30/30 e2e QR**, 15 Chromium e 15 WebKit, **46,06 s** do harness (45,7 s do runner).
+Inclui getUserMedia pendente, blur, concessão, leitor ainda aberto, frames reais,
+novo blur após ready com tracks live e leitura do QR, encerrando todas as tracks.
+Os oito cenários de término por evento/ação preservados e os fallbacks passaram.
+**378 unitários / 32 arquivos PASS**, lint e tipos exit 0; somente o aviso herdado
+de View não usado em PrivacyAccountScreen. Formato foi checado apenas no código;
+scan:docs, scan:secrets e diff --check passaram. Censo numérico de users, profiles,
+groups, members, invites, idempotency, rate limits e schemas fixture/probe: zero.
+db:stop exit 0 e a própria trava removida no finally; sem acesso à pilha de outra sessão.
+
+Contraprovas executáveis, sem enfraquecer asserções:
+
+- Repor somente invite-camera.web.ts de 804ffb3: o e2e novo falha nos **dois**
+  navegadores após blur + concessão, porque invite-camera não existe (linha 569).
+  Build antigo exit 0, teste exit 1, **2 falhas** em 14,69 s.
+- Restaurar a correção no finally, rebuild e repetir o mesmo e2e: **2/2 PASS**,
+  exit 0 em 6,38 s; depois unitários, lint e tipos novamente verdes.
+- Unitário com a câmera antiga: **1 falha / 8 PASS**, onInactive foi chamado no blur.
+- Unitários com join-fragment antigo: **10 falhas / 22 PASS**, origens nativas
+  malformadas/não HTTPS deixavam de ser recusadas. Arquivos restaurados em finally.
+
+Logs completos e resultados preservados em ~/colete-noite/qr69-correcao e progresso
+em ~/colete-noite/progresso-qr-convite.md. O bundle web padrão da correção mede:
+entrada **2.312.250 bytes / 558.896 gzip**, decoder lazy **130.264 / 46.322**, total
+**2.442.514 / 605.218** (mesmo método anterior). Contra 804ffb3: +364 bytes / +56 gzip
+na entrada; contra baseline 998c5f3: +30.788 / +11.046 na entrada e +161.052 / +57.368
+total. Nenhum chunk adicional nem nova dependência.
+
+Sem rebase: base continua 998c5f3, conforme pedido humano até #70 entrar e nova
+liberação. PR continua draft, sem merge/ready. Headers de produção no harness e
+ordem dos passos da CI ficam explicitamente para depois; não foram alterados.
+Expo-camera já estava autorizado expressamente nas mensagens humanas da tarefa,
+além da aprovação posterior das duas bibliotecas QR. Próxima etapa: cinco jobs
+do SHA corrigido e conferência independente; validação física permanece com César.
+
+
+### Rebase do #69 após o merge do #70
+
+Novo pedido humano liberou git fetch e rebase de feat/qr-convite sobre origin/main,
+que estava em **daad76a**, merge do #70 (06c6798). Rebase concluído; somente workflow
+e AGENTS.md conflitaram. No job Database security ficou um único bloco antecipado
+de instalação Chromium+WebKit/build Auth/QR, mais db:test:matches após members e
+matches:web após groups:web; os dois passos tardios duplicados foram removidos.
+AGENTS §5 conserva matches:web e qr:web. Nenhum Prettier em docs/AGENTS.
+
+Package/lock e tela mesclaram automaticamente, mas o lock foi regenerado por npm
+install a partir do lock de main, sem upgrade. A primeira resolução deduplicava
+read-pkg para type-fest 5.10.0; uma restrição temporária, removida antes da instalação
+final, preservou **read-pkg → type-fest 5.9.0**, deixando 5.10.0 só na nova cadeia de
+expo-camera. Nenhum override temporário entrou no commit. Comparação por caminho e
+versão: **zero nós existentes de main alterados/removidos**. npm ci reproduziu a
+instalação; npm ls --all encontrou **956 pares pacote/versão distintos**, zero
+versões fora dos dois locks originais. Diretas resolvidas: expo-location **57.0.21**
+(declaração ~57.0.21 herdada do #70), expo-camera **57.0.6**, qrcode-generator
+**2.0.4**, jsqr **1.4.0**; as três do QR seguem sem ^/~. A nova cadeia transitiva
+mantém exatamente as versões do #69 antes do rebase. As duas atualizações Expo
+presentes em main foram herdadas, sem outra atualização nesta sessão.
+
+A rota app/(tabs)/grupos/[groupId]/convites.tsx continua renderizando
+GroupInvitesScreen, que mantém InviteQrCode junto de código/link e o Voltar ao grupo
+do #70. O e2e de geração/regeneração/revogação passou nessa rota; a navegação pelas
+abas também passou. A correção P1 de blur, o AppState nativo, parser de origem, foco
+e e2e de permissão ficaram byte a byte iguais a 33d98d4.
+
+Provas locais depois do rebase, sob a mesma pilha com trava exclusiva atômica:
+
+| Verificação | Resultado medido |
+| --- | --- |
+| db:start / db:reset | PASS, migrations até 0021 |
+| build:web:auth-e2e | PASS |
+| QR Chromium/WebKit | **30/30 PASS**, 48,95 s do harness |
+| QR Chromium com headers de produção locais | **15/15 PASS**, 21,91 s |
+| API real getUserMedia, dispositivo Chromium simulado | PASS: camera=(self), allows=true, uma track live e depois ended |
+| matches:web | **6/6 PASS**, 10,96 s |
+| groups:web | **64/64 PASS**, 173,57 s |
+| db:test:invites | PASS com limites intactos, 18,19 s incluindo limpeza |
+| Vitest | **400/400 PASS**, 36 arquivos |
+| Lint / tipos / formato limitado ao código | PASS; só o aviso View não usado em PrivacyAccountScreen herdado |
+| test:staging | **102/102 PASS**, aceita camera=(self) e rejeita a negação antiga |
+| test:audit / audit:high | **94 PASS** / exit 0 com as mesmas duas exceções |
+| scan:docs / scan:secrets / diff --check | PASS |
+| Censo local final | users/profiles/groups/members/invites/idempotency/rate limits e schemas fixture/probe: zero |
+| db:stop e trava | exit 0; própria trava removida em finally |
+
+A prova de headers usou config temporária ignorada em .expo, reutilizando o mesmo
+suite QR e serve:web, sem alterar CSP, policy ou configuração permanente. A sonda
+separada chamou getUserMedia real com fake device do Chromium e parou todas as
+tracks antes de fechar o browser. Não é câmera física nem acesso ao staging real.
+Reprodução/evidências preservadas em ~/colete-noite/qr69-rebase; os headers são
+exatamente os gerados localmente pelo código de produção de main.
+
+A falha da CI de 33d98d4 permanece registrada: db:test:invites concluiu as asserções
+mas a limpeza de group_members excedeu statement_timeout de 15 s e sofreu rollback;
+a pilha descartável foi encerrada. Não houve alteração do harness, timeout ou
+asserções para obter este PASS local, nem diagnóstico conclusivo daquela demora.
+O rebase e nova validação foram explicitamente autorizados pelo pedido humano.
+Próximo gate: cinco jobs no SHA publicado após rebase e conferência independente.
+PR permanece draft, sem merge/ready; nenhum Supabase remoto ou Vercel real acessado.
+
+
+### Rebase do #69 após os PRs #71 e #72
+
+Pedido humano: git fetch e rebase de feat/qr-convite sobre origin/main com racha
+completo e usabilidade. Base buscada **de267cd**, merge do #72 sobre o #71.
+Conflitos apenas em workflow, AGENTS.md e neste registro operacional. Nenhum em
+Convites/Join: as telas, câmera, parser e e2e QR ficaram byte a byte iguais a
+f0845e5. A rota (tabs)/grupos/[groupId]/convites continua com QR, código/link e
+Voltar ao grupo; o teste de geração/regeneração/revogação passou nessa rota.
+
+Workflow conserva instalação Chromium+WebKit/build Auth/QR antecipados, todos os
+harnesses matches, match-players e geocode de main, e os testes web dos três cortes
+de Rachas. Só os passos tardios duplicados de Chromium/build Auth saíram. AGENTS §5
+mantém todos os comandos e a descrição atualizada de matches:web, além de qr:web.
+Este documento reúne integralmente os registros de #71, #72 e QR, nessa ordem;
+nenhum documento normativo ou migration foi modificado por esta resolução.
+
+Npm install regenerou o lock a partir da mesclagem, sem upgrade nem restrição nova.
+Npm ci reproduziu a instalação. Comparação de versões por caminho: **zero nós
+existentes de main e zero nós do QR anterior alterados/removidos**. Npm ls --all
+antes/depois e após ci: **956 pares pacote/versão distintos**, zero versões fora
+dos locks originais. Diretas resolvidas permanecem expo-location **57.0.21**,
+expo-camera **57.0.6**, qrcode-generator **2.0.4**, jsqr **1.4.0**. Read-pkg continua
+com type-fest **5.9.0**; a cadeia da câmera mantém **5.10.0**. Declarações diretas e
+overrides preservados, nenhuma dependência atualizada nesta rodada.
+
+| Prova local após o rebase | Resultado medido |
+| --- | --- |
+| db:start / db:reset / build:web:auth-e2e | PASS, migrations até 0023 |
+| QR Chromium/WebKit | **30/30 PASS**, 49,85 s |
+| QR Chromium sob headers de produção locais | **15/15 PASS**, 22,61 s |
+| API real getUserMedia, dispositivo Chromium simulado | PASS, camera=(self), allows=true, uma track live e depois ended |
+| matches:web, incluindo racha completo e usabilidade | **18/18 PASS**, 41,03 s |
+| groups:web | **64/64 PASS**, 166,44 s |
+| Vitest | **510/510 PASS**, 43 arquivos |
+| Lint / tipos / formato limitado a código/configuração | PASS; mesmo aviso herdado View em PrivacyAccountScreen |
+| test:staging | **102/102 PASS**, camera=(self) aceito e negação antiga recusada |
+| test:audit / audit:high | **94 PASS** / exit 0 com as mesmas duas exceções |
+| scan:docs / scan:secrets / diff --check | PASS |
+| Censo de nove conjuntos e schemas fixture/probe | Zero |
+| db:stop | exit 0, própria trava removida no finally |
+
+Pilha usada exclusivamente sob pilha.lock criada atomicamente com a identificação
+codex-rebase69-pos72-01a13bcf. Censo cobre auth.users, profiles, groups,
+group_members, group_invites, idempotency_records, invite_rate_limits, matches e
+match_players. Nenhuma posição/busca enviada a serviço real: search_address é
+simulado nos e2e; nenhum Nominatim, Supabase ou Vercel real acessado.
+
+A prova sob headers reutilizou serve:web e a mesma suíte QR por configuração
+local ignorada em .expo. API real testada com fake device; não é câmera física.
+CSP e Permissions-Policy permanecem as de main, sem alteração no PR. Logs,
+comparações npm ls, configuração e scripts de reprodução estão preservados em
+~/colete-noite/qr69-rebase72; progresso em ~/colete-noite/progresso-qr-convite.md.
+Capturas e medições de bundle das etapas anteriores continuam identificadas como
+tais. Próximo gate: cinco jobs do SHA publicado após este rebase e conferência
+independente. PR continua draft, sem merge/ready; físico segue com César.

@@ -16,6 +16,17 @@
     "web": {
       "output": "static"
     },
-    "plugins": ["expo-router", "expo-document-picker"]
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permita que o Colete use a câmera para ler o QR do convite.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ]
   }
 }

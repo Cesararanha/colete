@@ -105,7 +105,7 @@ export const pt = {
     join: {
       eyebrow: 'Convite',
       title: 'Entrar em grupo',
-      description: 'Digite o código recebido ou abra um link de convite.',
+      description: 'Digite o código recebido ou leia o QR do convite.',
       code: 'Código do grupo',
       codeHint: 'Digite os 10 símbolos do código. Espaços e hífen são aceitos.',
       preview: 'Conferir grupo',
@@ -116,6 +116,18 @@ export const pt = {
       active: 'Você já participa deste grupo.',
       invalid: 'Digite um código de grupo válido para continuar.',
       tryAgain: 'Conferir outro código',
+      scanQr: 'Ler QR do convite',
+      cameraTitle: 'Câmera do convite',
+      cameraHint: 'Aponte a câmera para o QR do convite do Colete.',
+      cameraLoading: 'Abrindo a câmera…',
+      cameraDenied:
+        'Permissão da câmera negada. Permita o acesso nas configurações ou digite o código.',
+      cameraNotConfigured:
+        'A leitura de QR não está configurada neste aplicativo. Digite o código do convite para continuar.',
+      cameraUnavailable: 'A câmera não está disponível. Digite o código do convite para continuar.',
+      invalidQr: 'Este QR não é um convite do Colete',
+      typeCode: 'Digitar código',
+      cancelCamera: 'Cancelar leitura',
     },
     create: {
       eyebrow: 'Organização',
@@ -133,6 +145,8 @@ export const pt = {
       back: 'Voltar ao grupo',
       code: 'Código do grupo',
       link: 'Link do convite',
+      qr: 'QR do convite',
+      qrHint: 'Quem recebe pode ler este QR com a câmera para conferir o grupo.',
       copyCode: 'Copiar código',
       copyLink: 'Copiar link',
       copied: 'Copiado.',

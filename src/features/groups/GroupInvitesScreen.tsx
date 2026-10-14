@@ -28,6 +28,7 @@ import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { absoluteInviteTime, groupErrorMessage } from './group-errors';
+import { InviteQrCode } from './InviteQrCode';
 
 // Revocation and use counts are server projections. The sensitive share read
 // decides expiry using the server clock; this screen never compares Date.now().
@@ -119,6 +120,8 @@ function InviteShareMaterial({
         label={pt.groups.invites.copyCode}
         onPress={() => void copy(share.code)}
       />
+      <InviteQrCode value={share.share_url} />
+      <Text style={[styles.body, { color: colors.textMuted }]}>{pt.groups.invites.qrHint}</Text>
       <Text style={[styles.label, { color: colors.text }]}>{pt.groups.invites.link}</Text>
       <Text selectable style={[styles.link, { color: colors.textMuted }]} testID="invite-link">
         {share.share_url}

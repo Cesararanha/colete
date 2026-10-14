@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -18,11 +18,20 @@ import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
+import { InviteQrScanner } from './InviteQrScanner';
+import { inviteAppOrigin, parseInviteLink } from './join-fragment';
 
 export function JoinGroupScreen({ initialToken }: { initialToken: string | null }) {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [token, setToken] = useState(initialToken);
+  const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const cameraErrorRef = useRef<View>(null);
+  useLayoutEffect(() => {
+    if (cameraError) cameraErrorRef.current?.focus();
+  }, [cameraError]);
+  useFocusEffect(useCallback(() => () => setScanning(false), []));
   const [preview, setPreview] = useState<{ group_name: string } | null>(null);
   const [previewError, setPreviewError] = useState<unknown>(null);
   const [previewPending, setPreviewPending] = useState(false);
@@ -34,7 +43,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
   const previewSequence = useRef(0);
   const joiningBusy = useRef(false);
   const intent = useRef<MutationIntent<GroupOutcome> | null>(null);
-  const { control, getValues, setFocus } = useForm<{ code: string }>({
+  const { control, getValues, setFocus, setValue } = useForm<{ code: string }>({
     defaultValues: { code: '' },
     mode: 'onBlur',
     reValidateMode: 'onChange',
@@ -69,7 +78,44 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
     }
   }, [token, previewGroup]);
 
+  const cancelCamera = useCallback(() => {
+    setScanning(false);
+    setCameraError(null);
+    requestAnimationFrame(() => setFocus('code'));
+  }, [setFocus]);
+  const cameraFailed = useCallback((reason: 'denied' | 'unavailable') => {
+    setScanning(false);
+    setCameraError(
+      reason === 'denied' ? pt.groups.join.cameraDenied : pt.groups.join.cameraUnavailable,
+    );
+  }, []);
+  const readQr = useCallback(
+    (value: string) => {
+      setScanning(false);
+      const scannedToken = parseInviteLink(value, inviteAppOrigin());
+      if (scannedToken === null) {
+        setCameraError(pt.groups.join.invalidQr);
+        return;
+      }
+      previewSequence.current += 1;
+      setValue('code', '');
+      setFieldError(undefined);
+      setCameraError(null);
+      setPreview(null);
+      setPreviewError(null);
+      setJoiningError(null);
+      setResult(null);
+      intent.current = null;
+      previewStarted.current = true;
+      setToken(scannedToken);
+      void previewGroup('token', scannedToken);
+    },
+    [previewGroup, setValue],
+  );
+
   const checkCode = () => {
+    setScanning(false);
+    setCameraError(null);
     const code = getValues('code');
     if (code.replace(/[\s-]/gu, '').length !== 10) {
       setFieldError(pt.groups.join.invalid);
@@ -116,6 +162,41 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
   return (
     <AuthenticatedShell {...pt.groups.join}>
       <AppCard testID="join-group-card">
+        {cameraError ? (
+          <View ref={cameraErrorRef} tabIndex={-1} testID="invite-camera-error-focus">
+            <AppAlert message={cameraError} testID="invite-camera-error" />
+          </View>
+        ) : null}
+        {cameraError ? (
+          <AppButton label={pt.groups.join.typeCode} onPress={cancelCamera} variant="secondary" />
+        ) : null}
+        {scanning ? (
+          <InviteQrScanner onRead={readQr} onError={cameraFailed} onCancel={cancelCamera} />
+        ) : (
+          <AppButton
+            label={pt.groups.join.scanQr}
+            icon="camera"
+            testID="read-invite-qr"
+            variant="secondary"
+            onPress={() => {
+              if (joiningBusy.current) return;
+              if (inviteAppOrigin() === null) {
+                setCameraError(pt.groups.join.cameraNotConfigured);
+                return;
+              }
+              previewSequence.current += 1;
+              setPreviewPending(false);
+              setPreview(null);
+              setPreviewError(null);
+              setJoiningError(null);
+              setResult(null);
+              setToken(null);
+              intent.current = null;
+              setCameraError(null);
+              setScanning(true);
+            }}
+          />
+        )}
         <Controller
           control={control}
           name="code"
@@ -131,6 +212,8 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
                   setFieldError(pt.groups.join.invalid);
               }}
               onChangeText={(value) => {
+                setScanning(false);
+                setCameraError(null);
                 previewSequence.current += 1;
                 setPreviewPending(false);
                 field.onChange(value);

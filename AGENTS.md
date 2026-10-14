@@ -158,6 +158,7 @@ npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
 npm run test:cors:web
 npm run test:groups:web # UI-A e UI-B: Auth, Edge e Postgres locais reais
 npm run test:matches:web # Rachas v1, Racha completo e usabilidade: Agenda, modal, busca de endereço, distância, presença, espera e pagamento
+npm run test:qr:web # QR real com câmera simulada, Chromium e WebKit
 npm run build:web:smoke && npm run test:smoke:web
 npm run verify:app
 npm run scan:docs
