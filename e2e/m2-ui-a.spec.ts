@@ -302,6 +302,12 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     }
     const groupId = page.url().match(/\/grupos\/([^/]+)\/convites/u)?.[1];
     expect(groupId).toBeDefined();
+    // Creation replaced the history with /convites, so the way back must navigate.
+    const invitesBack = page.getByTestId('invites-back');
+    await expect(invitesBack).toHaveAccessibleName('Voltar ao grupo');
+    await invitesBack.click();
+    await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}$`, 'u'));
+    await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 2 })).toBeVisible();
     await page.goto('/grupos');
     await expect(page.getByTestId('group-list-card')).toBeVisible();
     await assertUiAccessible(page);

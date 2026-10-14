@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -186,7 +187,14 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
   });
 
   return (
-    <AuthenticatedShell {...pt.groups.invites}>
+    <AuthenticatedShell
+      {...pt.groups.invites}
+      back={{
+        label: pt.groups.invites.back,
+        onPress: () => router.navigate(`/grupos/${groupId}`),
+        testID: 'invites-back',
+      }}
+    >
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? (
         <AsyncNotice

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
@@ -57,7 +58,14 @@ export function GroupSettingsScreen({
     if (id) focusGroupControl(`transfer-${id}`);
   };
   return (
-    <AuthenticatedShell {...pt.groups.settings}>
+    <AuthenticatedShell
+      {...pt.groups.settings}
+      back={{
+        label: pt.groups.settings.back,
+        onPress: () => router.navigate(`/grupos/${groupId}`),
+        testID: 'settings-back',
+      }}
+    >
       {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
       <AppStatus message={message ?? ''} testID="settings-result" />
       {error ? (
