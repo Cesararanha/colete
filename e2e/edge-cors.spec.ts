@@ -36,7 +36,7 @@ test('the exported app creates a group across origins through the direct product
     await page.getByTestId('login-email').fill(actor.email);
     await page.getByTestId('login-password').fill(actor.password);
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
     await page.goto('/grupos');
     await page.getByRole('button', { name: 'Criar grupo', exact: true }).click();
     await page.getByTestId('group-name').fill('Direct CORS group');
@@ -113,7 +113,7 @@ test('an exported app on a denied origin cannot read Edge and displays the trans
     await page.getByTestId('login-email').fill(actor.email);
     await page.getByTestId('login-password').fill(actor.password);
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
     const blocked = await page.evaluate(async (direct) => {
       try {
         const response = await fetch(`${direct}/identity/complete_profile`, {

@@ -302,7 +302,9 @@ test.describe('M1-A authentication', () => {
       const firstProfileGate = waitForProfileGate(page);
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
 
-      await expect(page).toHaveURL(/\/perfil$/u);
+      // First access (decisão humana de 14/10/2026): the home is Grupos, and
+      // its gate asks for the profile first while there is none.
+      await expect(page).toHaveURL(/\/grupos$/u);
       await firstProfileGate;
       expect(await sessionPropagationGapWasApplied(page)).toBe(true);
       await expect(
@@ -321,17 +323,39 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByLabel('Nome')).toHaveValue(account.name);
       const reloadedProfileGate = waitForProfileGate(page);
       await page.reload();
-      await expect(page).toHaveURL(/\/perfil$/u);
+      await expect(page).toHaveURL(/\/grupos$/u);
       await reloadedProfileGate;
       await expect(
         page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();
       await expect(page.getByLabel('Nome')).toHaveValue(account.name);
       await page.getByRole('button', { name: 'Concluir perfil' }).click();
+      await expect(page).toHaveTitle('Grupos · Colete');
+      await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+      await expect(page).toHaveURL(/\/grupos$/u);
+      await page.getByRole('link', { name: 'Perfil', exact: true }).click();
       await expect(page).toHaveTitle('Perfil · Colete');
       await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
-      await expect(page.getByLabel('Nome')).toHaveValue(account.name);
-      await expect(page.getByTestId('profile-provider-card')).toContainText('E-mail e senha');
+      // Read mode: the data is text, not open fields, and leaving is at the top.
+      await expect(page.getByTestId('profile-value-name')).toHaveText(account.name);
+      await expect(page.getByTestId('profile-value-nickname')).toHaveText('Sem apelido');
+      await expect(page.getByTestId('profile-data-card').getByRole('textbox')).toHaveCount(0);
+      await expect(page.getByTestId('profile-account')).toContainText(
+        `Conectado como ${account.email}`,
+      );
+      await expect(page.getByRole('button', { name: 'Sair da conta' })).toBeVisible();
+      await page.getByRole('link', { name: 'Privacidade e conta' }).click();
+      await expect(page).toHaveURL(/\/perfil\/privacidade$/u);
+      await expect(page).toHaveTitle('Privacidade e conta · Colete');
+      await expect(page.getByTestId('access-method')).toHaveText('Você entra com e-mail e senha.');
+      await expect(page.getByTestId('profile-export-card')).toBeVisible();
+      await expect(page.getByTestId('profile-deletion-card')).toBeVisible();
+      await assertAccessible(page);
+      await page.getByRole('link', { name: 'Voltar ao perfil' }).click();
+      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(page.getByTestId('profile-export-card')).toHaveCount(0);
+      await expect(page.getByTestId('profile-deletion-card')).toHaveCount(0);
+      await expect(page.getByTestId('profile-provider-card')).toHaveCount(0);
       const profileAfterReloadedCompletion = await db.query<{ count: number; name: string }>(
         `select count(*)::int as count, min(profile.name) as name
            from public.profiles as profile
@@ -345,12 +369,31 @@ test.describe('M1-A authentication', () => {
       await assertAccessible(page);
       await page.getByRole('button', { name: 'Usar tema claro' }).click();
 
+      await page.getByRole('button', { name: 'Editar' }).click();
+      await expect(page.getByLabel('Nome', { exact: true })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Limpar apelido' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Limpar número da camisa' })).toHaveCount(0);
       await page.getByLabel('Apelido', { exact: true }).fill('Capitã');
-      await page.getByRole('button', { name: 'Meio-campista' }).click();
-      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      const position = page.getByTestId('profile-position');
+      await expect(position).toHaveAttribute('role', 'radiogroup');
+      await expect(position.getByRole('radio', { name: 'Não informar' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      );
+      await position.getByRole('radio', { name: 'Meio-campista' }).click();
+      await expect(position.getByRole('radio', { name: 'Meio-campista' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      );
+      await expect(position.getByRole('radio', { checked: true })).toHaveCount(1);
+      await assertAccessible(page);
+      await page.getByRole('button', { name: 'Salvar', exact: true }).click();
       await expect(page.getByTestId('profile-data-card').getByRole('status')).toContainText(
         'Dados do perfil salvos.',
       );
+      await expect(page.getByTestId('profile-value-nickname')).toHaveText('Capitã');
+      await expect(page.getByTestId('profile-value-position')).toHaveText('Meio-campista');
+      await expect(page.getByTestId('profile-data-card').getByRole('textbox')).toHaveCount(0);
       expect(profileBodies.at(-1)?.patch).toEqual({
         nickname: 'Capitã',
         position: 'midfielder',
@@ -368,12 +411,15 @@ test.describe('M1-A authentication', () => {
       );
       expect(editedProfile.rows).toEqual([{ nickname: 'Capitã', position: 'midfielder' }]);
 
-      await page.getByRole('button', { name: 'Limpar apelido' }).click();
-      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      // Emptying the field is how a nickname is removed now; it sends null.
+      await page.getByRole('button', { name: 'Editar' }).click();
+      await page.getByLabel('Apelido', { exact: true }).fill('');
+      await page.getByRole('button', { name: 'Salvar', exact: true }).click();
       await expect(page.getByTestId('profile-data-card').getByRole('status')).toContainText(
         'Dados do perfil salvos.',
       );
       expect(profileBodies.at(-1)?.patch).toEqual({ nickname: null });
+      await expect(page.getByTestId('profile-value-nickname')).toHaveText('Sem apelido');
 
       const clearedProfile = await db.query<{
         nickname: string | null;
@@ -388,14 +434,29 @@ test.describe('M1-A authentication', () => {
       expect(clearedProfile.rows).toEqual([{ nickname: null, position: 'midfielder' }]);
 
       const transmittedBeforeBlank = profileBodies.length;
+      await page.getByRole('button', { name: 'Editar' }).click();
       await page.getByLabel('Apelido', { exact: true }).fill('   ');
-      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      await page.getByRole('button', { name: 'Salvar', exact: true }).click();
       await expect(page.getByLabel('Apelido', { exact: true })).toBeFocused();
       await expect(page.getByTestId('profile-data-card').getByRole('alert')).toContainText(
         'Apague o campo ou escreva pelo menos um caractere.',
       );
       expect(profileBodies).toHaveLength(transmittedBeforeBlank);
-      await page.getByRole('button', { name: 'Limpar apelido' }).click();
+      // Arrows move the one checked radio; Cancel discards every unsaved edit.
+      const midfielder = page
+        .getByTestId('profile-position')
+        .getByRole('radio', { name: 'Meio-campista' });
+      await midfielder.focus();
+      await page.keyboard.press('ArrowRight');
+      const forward = page.getByTestId('profile-position').getByRole('radio', { name: 'Atacante' });
+      await expect(forward).toBeFocused();
+      await expect(forward).toHaveAttribute('aria-checked', 'true');
+      await expect(midfielder).toHaveAttribute('aria-checked', 'false');
+      await page.getByRole('button', { name: 'Cancelar' }).click();
+      await expect(page.getByTestId('profile-summary')).toBeFocused();
+      await expect(page.getByTestId('profile-value-nickname')).toHaveText('Sem apelido');
+      await expect(page.getByTestId('profile-value-position')).toHaveText('Meio-campista');
+      expect(profileBodies).toHaveLength(transmittedBeforeBlank);
 
       const evidence = await db.query<{
         acceptance_count: number;
@@ -458,8 +519,10 @@ test.describe('M1-A authentication', () => {
       await secondPage.getByLabel('E-mail').fill(account.email);
       await secondPage.getByLabel('Senha', { exact: true }).fill(account.password);
       await secondPage.getByRole('button', { name: 'Entrar', exact: true }).click();
-      await expect(secondPage.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
-      await expect(secondPage).toHaveTitle('Perfil · Colete');
+      // A returning account with a profile starts on Grupos.
+      await expect(secondPage.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+      await expect(secondPage).toHaveURL(/\/grupos$/u);
+      await expect(secondPage).toHaveTitle('Grupos · Colete');
       await assertAccessible(secondPage);
       await secondPage.getByRole('button', { name: 'Usar tema escuro' }).click();
       await assertAccessible(secondPage);
@@ -494,13 +557,38 @@ test.describe('M1-A authentication', () => {
       expect(secondSession).toBeDefined();
       expect(secondSession?.active_refresh_tokens).toBeGreaterThan(0);
 
+      // Changing the password inside the app is the recovery flow bound to the
+      // account e-mail (decisão humana de 14/10/2026): code first, then the new
+      // password. There is no direct change without the code.
+      await page.getByRole('link', { name: 'Trocar senha' }).click();
+      await expect(page).toHaveURL(/\/perfil\/senha$/u);
+      await expect(page).toHaveTitle('Trocar senha · Colete');
+      await expect(page.getByTestId('password-destination')).toHaveText(
+        `O código vai para ${account.email}.`,
+      );
+      await expect(page.getByLabel('Nova senha', { exact: true })).toHaveCount(0);
+      await assertAccessible(page);
+      await page.getByRole('button', { name: 'Enviar código' }).click();
+      await expect(page.getByTestId('password-code-sent')).toContainText(account.email);
+      const changeOtp = await readLatestOtp(request, env.mailUrl, account.email);
+      await expect(page.getByLabel('Código de 6 dígitos')).toBeFocused();
+      await page.getByRole('button', { name: 'Verificar código' }).click();
+      await expect(page.getByLabel('Código de 6 dígitos')).toHaveAttribute('aria-invalid', 'true');
+      await expect(page.getByLabel('Nova senha', { exact: true })).toHaveCount(0);
+      await page.getByLabel('Código de 6 dígitos').fill(changeOtp);
+      await page.getByRole('button', { name: 'Verificar código' }).click();
+      await expect(page.getByTestId('password-change-card').getByRole('status')).toContainText(
+        'Código confirmado. Agora escolha uma nova senha.',
+      );
       await page.getByLabel('Nova senha', { exact: true }).fill(account.newPassword);
       await page.getByLabel('Confirmar nova senha', { exact: true }).fill(account.newPassword);
       await page.getByRole('button', { name: 'Salvar nova senha' }).click();
-      await expect(page.getByTestId('profile-password-card').getByRole('status')).toContainText(
+      await expect(page.getByTestId('password-complete').getByRole('status')).toContainText(
         'Senha atualizada.',
       );
 
+      // The code signs this device in again; the new password then ends every
+      // other session, the second device included, and keeps only this one.
       const sessionsAfterPasswordChange = await db.query<{ id: string }>(
         `select session.id
            from auth.sessions as session
@@ -508,10 +596,16 @@ test.describe('M1-A authentication', () => {
           where lower(users.email) = lower($1)`,
         [account.email],
       );
-      expect(sessionsAfterPasswordChange.rows).toEqual(initialSessions.rows);
+      expect(sessionsAfterPasswordChange.rows).toHaveLength(1);
+      const currentSessionId = sessionsAfterPasswordChange.rows[0]?.id;
+      expect(currentSessionId).toBeDefined();
+      expect(currentSessionId).not.toBe(secondSession?.id);
+      expect(initialSessionIds.has(currentSessionId ?? '')).toBe(false);
       await expect(
         refreshStoredSession(secondPage, env.apiUrl, env.publishableKey),
       ).resolves.toEqual({ ok: false, status: 400 });
+      await page.getByRole('button', { name: 'Voltar ao perfil' }).click();
+      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
 
       thirdContext = await browser.newContext({
         colorScheme: 'light',
@@ -524,7 +618,7 @@ test.describe('M1-A authentication', () => {
       await thirdPage.getByLabel('E-mail').fill(account.email);
       await thirdPage.getByLabel('Senha', { exact: true }).fill(account.newPassword);
       await thirdPage.getByRole('button', { name: 'Entrar', exact: true }).click();
-      await expect(thirdPage.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(thirdPage.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
 
       const authenticatedState = await thirdContext.storageState();
       await thirdContext.close();
@@ -617,7 +711,7 @@ test.describe('M1-A authentication', () => {
       );
       expect(leavingAccount.rows).toHaveLength(1);
       restAuthorization.markLogout(leavingAccount.rows[0]?.id);
-      await page.getByRole('button', { name: 'Sair com segurança' }).click();
+      await page.getByRole('button', { name: 'Sair da conta' }).click();
       await expect(page).toHaveURL(/\/entrar$/u);
       const sessionsAfterLogout = await db.query<{
         active_refresh_tokens: number;
@@ -634,10 +728,8 @@ test.describe('M1-A authentication', () => {
           order by session.id`,
         [account.email],
       );
-      const originalSessionId = initialSessions.rows[0]?.id;
-      expect(originalSessionId).toBeDefined();
       expect(sessionsAfterLogout.rows).toEqual(
-        sessionsBeforeSafeLogout.rows.filter((session) => session.id !== originalSessionId),
+        sessionsBeforeSafeLogout.rows.filter((session) => session.id !== currentSessionId),
       );
 
       const revocation = await db.query<{
@@ -650,7 +742,7 @@ test.describe('M1-A authentication', () => {
           where lower(users.email) = lower($1)`,
         [account.email],
       );
-      expect(revocation.rows).toEqual([{ session_id: originalSessionId }]);
+      expect(revocation.rows).toEqual([{ session_id: currentSessionId }]);
 
       await page.goto('/esqueci-senha');
       await page.getByLabel('E-mail').fill(account.email);
@@ -791,14 +883,17 @@ test.describe('M1-A authentication', () => {
       await page.getByLabel('Senha', { exact: true }).fill(profileless.password);
       await page.getByRole('button', { name: 'Entrar', exact: true }).click();
 
-      await expect(page).toHaveURL(/\/perfil$/u);
+      // First access: no profile yet, so the sign-in asks for it before Grupos.
+      await expect(page).toHaveURL(/\/grupos$/u);
       await expect(
         page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();
       await expect(page.getByLabel('Nome')).toHaveValue(profileless.name);
       await expect(page.getByRole('button', { name: 'Tentar de novo' })).toHaveCount(0);
       await page.getByRole('button', { name: 'Concluir perfil' }).click();
-      await expect(page.getByTestId('profile-data-card')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+      await expect(page).toHaveURL(/\/grupos$/u);
+      await expect(page.getByTestId('profile-completion-card')).toHaveCount(0);
 
       const completed = await db.query<{ name: string; profiles: number }>(
         `select min(profile.name) as name, count(profile.id)::int as profiles

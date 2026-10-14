@@ -69,9 +69,9 @@ Colete
     │   └── 🔧 25. Configurações do grupo
     │
     ├── 👤 PERFIL
-    │   ├── 13. Meus dados (+ vínculo de contas)
-    │   ├── 14. Preferências de notificação
-    │   └── (Sair · Excluir conta)
+    │   ├── 13. Meus dados (leitura · editar) · trocar senha · Sair
+    │   │   └── 13.1 Privacidade e conta (meus dados · forma de acesso · excluir conta)
+    │   └── 14. Preferências de notificação
     │
     └── 🔔 15. Central de notificações
 ```
@@ -214,16 +214,38 @@ com seus erros de racha sem vaga/cancelado.
 O token não entra em analytics, Sentry, título da página nem storage persistente do app.
 
 ### 13 · Perfil — meus dados
-Nome, apelido, foto, posição preferida (com texto: "aparece no cartão do time"), perna,
-número da camisa · **Vínculo de contas**: conectar/desconectar Google no beta (Apple
-quando houver app nativo) · trocar senha · **Sair** · **Excluir conta** (com explicação
-da anonimização LGPD, dupla confirmação; bloqueada para dono/caso financeiro sem substituto,
-com aviso acionável "transfira a titularidade/caso antes"; grupo realmente solo e sem caso
-é arquivado). Vincular um provedor exige reautenticação e confirmação explícita
-quando o e-mail já estiver associado a outro perfil. **Baixar meus dados** mostra
-`preparando|pronto|expirado`, exige reautenticação para um download único em até 24 h e
-explica exclusões. A exclusão vira pedido acompanhado: ao confirmar, o acesso é bloqueado
-imediatamente; limpeza de Storage/Auth pode concluir por retry sem reabrir a conta.
+Decisão humana de 14/10/2026. **Sair da conta** fica visível no topo da tela e revoga a
+sessão atual antes de encerrar o acesso local. A tela abre em **modo leitura**: nome,
+apelido, foto, posição preferida, perna e número da camisa aparecem como texto, com o valor
+ausente dito por extenso, e um botão **Editar**. Os campos só ficam abertos no **modo
+edição**, com **Salvar** e **Cancelar**; cancelar descarta o que não foi salvo. Posição
+preferida (com texto: "aparece no cartão do time") e perna são escolha única em pílulas,
+com "Não informar" como opção, e a escolhida é marcada por ícone + texto. Apelido e número
+da camisa se apagam esvaziando o campo, sem botão de limpar. As validações são as mesmas e
+somente os campos alterados são enviados ao salvar.
+**Trocar senha** inicia o fluxo da tela 4 para o e-mail da conta: código de 6 dígitos →
+nova senha. Não há troca direta sem código. **Privacidade e conta** (13.1) é aberta a
+partir daqui.
+**Primeiro acesso:** depois de entrar, se o perfil ainda não foi completado, o próximo
+passo é completá-lo; nas outras vezes, a página inicial é Grupos.
+
+### 13.1 · Privacidade e conta
+Desdobramento da tela 13, aberto a partir dela (decisão humana de 14/10/2026). Reúne, nesta
+ordem:
+- **Baixar meus dados** mostra `preparando|pronto|expirado`, exige reautenticação para um
+  download único em até 24 h e explica exclusões.
+- **Forma de acesso** (vínculo de contas) diz como a pessoa entra: "Você entra com e-mail e
+  senha" ou o provedor real. Conectar/desconectar Google no beta (Apple quando houver app
+  nativo). Vincular um provedor exige reautenticação e confirmação explícita quando o
+  e-mail já estiver associado a outro perfil.
+- **Excluir conta** (com explicação da anonimização LGPD, dupla confirmação; bloqueada para
+  dono/caso financeiro sem substituto, com aviso acionável "transfira a titularidade/caso
+  antes"; grupo realmente solo e sem caso é arquivado). A exclusão vira pedido
+  acompanhado: ao confirmar, o acesso é bloqueado imediatamente; limpeza de Storage/Auth
+  pode concluir por retry sem reabrir a conta.
+
+Comportamento, reautenticação, estados e contratos são os mesmos de quando esses três
+blocos ficavam na tela 13; só mudam o lugar e a apresentação.
 
 ### 14 · Preferências de alertas externos
 Interruptor de **push/e-mail por tipo de evento** (lista abriu, prazo do Pix, times

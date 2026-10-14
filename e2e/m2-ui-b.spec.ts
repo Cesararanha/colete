@@ -151,7 +151,7 @@ async function login(page: Page, actor: Actor) {
   );
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   expect((await response).status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
 }
 
 async function heapContains(page: Page, markers: string[]): Promise<boolean[]> {
@@ -757,14 +757,14 @@ test('UI-B logout releases member names from heap caches and persistent storage 
           frame === page.mainFrame() && new URL(frame.url()).pathname === '/entrar',
       }),
     );
-    await page.getByRole('button', { name: 'Sair com segurança' }).click();
+    await page.getByRole('button', { name: 'Sair da conta' }).click();
     await unloaded;
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     // Do not navigate or reload here: the application's logout must release the heap.
     await page.getByTestId('login-email').fill(other.email);
     await page.getByTestId('login-password').fill(password);
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
     expect(await heapContains(page, [unique])).toEqual([false]);
     expect(
       await page.evaluate(async (marker) => {
@@ -1014,7 +1014,7 @@ test('UI-B role matrix CP3 checks administrative network traffic for player pend
         expect(names.filter((name) => name !== own && text.includes(name))).toEqual([]);
       }
       await page.getByRole('link', { name: 'Perfil', exact: true }).click();
-      await page.getByRole('button', { name: 'Sair com segurança' }).click();
+      await page.getByRole('button', { name: 'Sair da conta' }).click();
       await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     }
   } finally {
