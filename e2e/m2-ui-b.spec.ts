@@ -318,6 +318,11 @@ test('UI-B role matrix and direct routes do not disclose administration to playe
           await expect(page.getByTestId(`transfer-${s.owner.profileId}`)).toHaveCount(0);
           await accessible(page);
           await capture(page, role === 'owner' ? '25-dono.png' : '25-organizador.png');
+          const settingsBack = page.getByTestId('settings-back');
+          await expect(settingsBack).toHaveAccessibleName('Voltar ao grupo');
+          await settingsBack.click();
+          await expect(page).toHaveURL(new RegExp(`/grupos/${s.groupId}$`, 'u'));
+          await expect(page.getByTestId('group-members-list')).toBeVisible();
         }
       }
     }
