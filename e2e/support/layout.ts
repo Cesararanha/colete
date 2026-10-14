@@ -77,3 +77,40 @@ export async function assertMinimumInteractiveTargets(page: Page, selector: stri
     expect(box.width).toBeGreaterThanOrEqual(44);
   }
 }
+
+/**
+ * docs/29 §0, phantom scroll: on a screen whose content fits, neither the
+ * document nor any scroll container can move, and the page never bounces.
+ */
+export async function assertNoPhantomScroll(page: Page) {
+  await waitForStableLayout(page);
+  const state = () =>
+    page.evaluate(() => {
+      const root = document.scrollingElement ?? document.documentElement;
+      const scrollable = [...document.querySelectorAll<HTMLElement>('*')].filter(
+        (element) =>
+          /(auto|scroll)/u.test(getComputedStyle(element).overflowY) &&
+          element.scrollHeight > element.clientHeight + 1,
+      );
+      return {
+        documentOverflow: root.scrollHeight - root.clientHeight,
+        htmlOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+        bodyOverscroll: getComputedStyle(document.body).overscrollBehaviorY,
+        scrollable: scrollable.length,
+        scrolled: window.scrollY + scrollable.reduce((sum, element) => sum + element.scrollTop, 0),
+      };
+    });
+  const before = await state();
+  expect(before).toEqual({
+    documentOverflow: 0,
+    htmlOverscroll: 'none',
+    bodyOverscroll: 'none',
+    scrollable: 0,
+    scrolled: 0,
+  });
+  const viewport = page.viewportSize();
+  await page.mouse.move((viewport?.width ?? 0) / 2, (viewport?.height ?? 0) / 2);
+  await page.mouse.wheel(0, 600);
+  await waitForStableLayout(page);
+  expect((await state()).scrolled).toBe(0);
+}

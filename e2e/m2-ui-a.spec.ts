@@ -18,7 +18,6 @@ const password = 'Synthetic-group-test-2026';
 const prefix = `ui-a-${Date.now()}-${process.pid}`;
 const screenshotRoot = process.env['COLETE_UI_A_SCREENSHOTS_DIR'];
 type Actor = { authId: string; profileId: string; token: string; email: string };
-const darkRoutes = new WeakMap<Page, Set<string>>();
 
 async function assertUiAccessible(page: Page) {
   await assertAccessible(page);
@@ -36,16 +35,6 @@ async function assertUiAccessible(page: Page) {
     });
   }
   expect(visibleKeyboardFocus).toBe(true);
-  const route = new URL(page.url()).pathname.replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}/gu, '/:id');
-  const checked = darkRoutes.get(page) ?? new Set<string>();
-  if (!checked.has(route)) {
-    const darkTheme = page.getByRole('button', { name: 'Usar tema escuro' });
-    await darkTheme.click();
-    await assertAccessible(page);
-    await page.getByRole('button', { name: 'Usar tema claro' }).click();
-    checked.add(route);
-    darkRoutes.set(page, checked);
-  }
 }
 
 async function mobileWidth(page: Page, project: string) {
@@ -1305,10 +1294,14 @@ test('0019 screen 11 shows active roles and pending names with keyboard and 320p
     await login(page, owner);
     await page.goto(`/grupos/${outcome.group_id}`);
     const list = page.getByTestId('group-members-list');
-    await expect(list).toContainText('Pessoa members-active · Jogador');
-    await expect(list).toContainText('Pessoa members-owner · Dono');
+    const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
+    await expect(row('Pessoa members-active')).toContainText('Jogador');
+    await expect(row('Pessoa members-active')).toContainText('Ativo');
+    await expect(row('Pessoa members-owner')).toContainText('Dono');
     const requests = page.getByTestId('group-pending-members-list');
+    await expect(requests.getByRole('listitem')).toHaveCount(1);
     await expect(requests).toContainText('Pessoa members-pending');
+    await expect(requests).toContainText('Aguardando aprovação');
     await expect(requests).not.toContainText('Jogador');
     await expect(page.getByRole('button', { name: /^(Aprovar|Recusar)$/ })).toHaveCount(0);
     await assertUiAccessible(page);

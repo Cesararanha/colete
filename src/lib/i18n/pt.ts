@@ -13,15 +13,14 @@ export const pt = {
   },
   groups: {
     list: {
-      eyebrow: 'Seus espaços',
       title: 'Grupos',
-      description: 'Encontre seus grupos e acompanhe seus pedidos de entrada.',
       emptyTitle: 'Você ainda não participa de um grupo',
       emptyBody: 'Crie um grupo ou entre com um código de convite.',
       create: 'Criar grupo',
       join: 'Entrar com código',
       pending: 'Aguardando aprovação',
       open: 'Abrir grupo',
+      view: (name: string) => `Ver grupo: ${name}`,
       owner: 'Dono',
       organizer: 'Organizador',
       player: 'Membro',
@@ -35,6 +34,7 @@ export const pt = {
       members: 'Membros',
       pendingMembers: 'Pendentes de aprovação',
       player: 'Jogador',
+      active: 'Ativo',
       description: 'Confira o grupo e suas ações disponíveis.',
       leave: 'Sair do grupo',
       ownerLeaveReason: 'Transfira a titularidade primeiro para sair deste grupo.',
@@ -48,6 +48,7 @@ export const pt = {
       eyebrow: 'Organização',
       title: 'Gestão de membros',
       description: 'Decida pedidos de entrada e cuide dos membros do grupo.',
+      back: 'Voltar ao grupo',
       approve: 'Aprovar',
       refuse: 'Recusar',
       promote: 'Promover a organizador',
@@ -179,12 +180,6 @@ export const pt = {
       expiredRequest: 'O prazo desta tentativa terminou. Inicie uma nova ação.',
     },
   },
-  theme: {
-    useLight: 'Usar tema claro',
-    useDark: 'Usar tema escuro',
-    currentLight: 'Tema claro ativo',
-    currentDark: 'Tema escuro ativo',
-  },
   home: {
     eyebrow: 'M0-A · Fundação local',
     title: 'Organize o racha antes de a bola rolar.',
@@ -302,9 +297,6 @@ export const pt = {
   auth: {
     shell: {
       eyebrow: 'Identidade protegida',
-      asideTitle: 'Seu racha começa com uma conta segura.',
-      asideBody:
-        'A autenticação usa a caixa de entrada; seus dados de perfil só são criados depois da verificação.',
     },
     fields: {
       name: 'Nome',
@@ -316,7 +308,8 @@ export const pt = {
       hidePassword: 'Ocultar senha',
     },
     errors: {
-      credentials: 'Confira o e-mail e a senha e tente entrar novamente.',
+      credentials: 'E-mail ou senha incorretos.',
+      samePassword: 'A nova senha precisa ser diferente da atual.',
       invalidCode: 'Digite o código mais recente enviado para seu e-mail.',
       validation: 'Revise os campos indicados e tente novamente.',
       unauthenticated: 'Entre novamente para continuar com segurança.',

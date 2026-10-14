@@ -95,16 +95,24 @@ export function AppButton({
           cursor: 'default',
           display: 'inline-flex',
           fontFamily: typography.button.fontFamily,
+          gap: spacing.ms,
           fontSize: typography.button.fontSize,
           fontWeight: 700,
           justifyContent: 'center',
           lineHeight: `${typography.button.lineHeight}px`,
           minHeight: textOnly ? size.target : size.button,
           minWidth: size.target,
-          padding: `${spacing.sm}px ${spacing.lg}px`,
+          padding: `${spacing.sm}px ${textOnly ? spacing.md : spacing.lg}px`,
         }}
       >
+        {/* The disabled look keeps its icon, so the action reads the same. */}
+        {icon && iconPosition === 'leading' ? (
+          <AppIcon color={colors.textMuted} name={icon} size={20} />
+        ) : null}
         {label}
+        {icon && iconPosition === 'trailing' ? (
+          <AppIcon color={colors.textMuted} name={icon} size={20} />
+        ) : null}
       </button>
     );
   }

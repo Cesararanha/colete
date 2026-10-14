@@ -168,9 +168,6 @@ async function heapContains(page: Page, markers: string[]): Promise<boolean[]> {
 
 async function accessible(page: Page) {
   await assertAccessible(page);
-  await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-  await assertAccessible(page);
-  await page.getByRole('button', { name: 'Usar tema claro' }).click();
   await page.setViewportSize({ width: 320, height: 700 });
   await assertAccessible(page);
   const textStyles = await page

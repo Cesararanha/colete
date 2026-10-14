@@ -16,6 +16,7 @@ import {
   applyCpuThrottling,
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
+  assertNoPhantomScroll,
 } from './support/layout';
 import { handledObserver } from './support/observers';
 import { observeRestAuthorization } from './support/rest-authorization';
@@ -365,9 +366,6 @@ test.describe('M1-A authentication', () => {
       );
       expect(profileAfterReloadedCompletion.rows).toEqual([{ count: 1, name: account.name }]);
       await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-      await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema claro' }).click();
 
       await page.getByRole('button', { name: 'Editar' }).click();
       await expect(page.getByLabel('Nome', { exact: true })).toBeFocused();
@@ -523,8 +521,6 @@ test.describe('M1-A authentication', () => {
       await expect(secondPage.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
       await expect(secondPage).toHaveURL(/\/grupos$/u);
       await expect(secondPage).toHaveTitle('Grupos · Colete');
-      await assertAccessible(secondPage);
-      await secondPage.getByRole('button', { name: 'Usar tema escuro' }).click();
       await assertAccessible(secondPage);
 
       const sessionsBeforePasswordChange = await db.query<{
@@ -764,6 +760,15 @@ test.describe('M1-A authentication', () => {
         page.getByText('Código confirmado. Agora escolha uma nova senha.'),
       ).toBeVisible();
 
+      // Supabase Auth refuses the current password with same_password (422);
+      // the form names that refusal instead of the generic validation text.
+      await page.getByLabel('Senha', { exact: true }).fill(account.newPassword);
+      await page.getByLabel('Confirmar senha').fill(account.newPassword);
+      await page.getByRole('button', { name: 'Salvar nova senha' }).click();
+      await expect(page.getByRole('alert')).toHaveText(
+        'A nova senha precisa ser diferente da atual.',
+      );
+
       await page.getByLabel('Senha', { exact: true }).fill(account.password);
       await page.getByLabel('Confirmar senha').fill(account.password);
       await page.route('**/auth/v1/user**', (route) => route.abort('connectionfailed'));
@@ -878,7 +883,28 @@ test.describe('M1-A authentication', () => {
       );
       expect(beforeLogin.rows).toEqual([{ profiles: 0 }]);
 
+      // A wrong password and an e-mail without an account get the same answer,
+      // so the sign-in form never reveals whether an account exists.
       await page.goto('/entrar');
+      const refusals: string[] = [];
+      for (const attempt of [
+        { email: profileless.email, password: 'Senha-errada-2026' },
+        { email: `sem-conta-${runSuffix}@colete.test`, password: profileless.password },
+      ]) {
+        await page.getByLabel('E-mail').fill(attempt.email);
+        await page.getByLabel('Senha', { exact: true }).fill(attempt.password);
+        const refused = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === '/auth/v1/token' &&
+            response.request().method() === 'POST',
+        );
+        await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+        expect((await refused).status()).toBe(400);
+        await expect(page.getByRole('alert')).toHaveText('E-mail ou senha incorretos.');
+        refusals.push((await page.getByRole('alert').textContent()) ?? '');
+      }
+      expect(new Set(refusals).size).toBe(1);
+
       await page.getByLabel('E-mail').fill(profileless.email);
       await page.getByLabel('Senha', { exact: true }).fill(profileless.password);
       await page.getByRole('button', { name: 'Entrar', exact: true }).click();
@@ -954,16 +980,25 @@ test.describe('M1-A authentication', () => {
       await page.goto(route.path);
       await expect(page).toHaveTitle(route.title);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-      await expect(page.getByTestId('auth-wide-aside')).toHaveCount(
-        testInfo.project.name === 'wide-chromium' ? 1 : 0,
-      );
+      // No side text on wide layouts and no theme switch: dark is the only
+      // theme, even under the light system preference emulated above.
+      await expect(page.getByTestId('auth-wide-aside')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /tema/u })).toHaveCount(0);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-      await expect(page.getByRole('button', { name: 'Usar tema claro' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      );
-      await assertAccessible(page);
+    }
+
+    // Phantom scroll: at 390×844 the sign-in and recovery screens fit, so
+    // nothing scrolls or bounces.
+    if (testInfo.project.name === 'mobile-chromium') {
+      const viewport = page.viewportSize();
+      await page.setViewportSize({ height: 844, width: 390 });
+      for (const path of ['/entrar', '/esqueci-senha']) {
+        await page.goto(path);
+        await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+        await assertNoPhantomScroll(page);
+      }
+      if (viewport !== null) await page.setViewportSize(viewport);
     }
 
     await page.goto('/criar-conta');
@@ -1011,12 +1046,16 @@ test.describe('M1-A authentication', () => {
     await expect(name).toHaveAttribute('aria-describedby', alertId ?? 'missing-alert-id');
     await expect(alert).not.toBeEmpty();
 
-    const theme = page.getByRole('button', { name: 'Usar tema escuro' });
-    await theme.click();
-    await expect(page.getByRole('button', { name: 'Usar tema claro' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    // The password switch is an icon whose state is in its name, not in a colour.
+    const password = page.getByLabel('Senha', { exact: true });
+    const show = page.getByRole('button', { name: 'Mostrar senha' }).first();
+    await expect(show).not.toContainText('Mostrar');
+    await expect(password).toHaveAttribute('type', 'password');
+    await show.click();
+    await expect(password).not.toHaveAttribute('type', 'password');
+    await expect(page.getByRole('button', { name: 'Ocultar senha' })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Ocultar senha' }).click();
+    await expect(password).toHaveAttribute('type', 'password');
   });
 
   test('a network failure is honest and offers a retry', async ({ page }) => {

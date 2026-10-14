@@ -23,7 +23,8 @@ test('shell supports keyboard, synthetic return, upload and safe caching', async
   });
   expect(focusedOutline).not.toBe('none');
 
-  await page.getByTestId('theme-toggle').click();
+  // Dark is the only theme (human decision of 14/10/2026): the primary action is
+  // amber without any switch, under Playwright's default light preference.
   const syntheticAuthLink = page.getByRole('link', {
     name: 'Simular retorno de autenticação',
   });
@@ -74,17 +75,18 @@ test('shell supports keyboard, synthetic return, upload and safe caching', async
   ).toEqual([]);
 });
 
-test('shell reflows and exposes a working theme control', async ({ page }) => {
+test('shell reflows and stays dark with no theme control', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/foundation');
   const wide = (page.viewportSize()?.width ?? 0) >= 768;
   await expect(page.getByTestId(wide ? 'wide-navigation' : 'narrow-navigation')).toBeVisible();
   await expect(page.getByTestId(wide ? 'narrow-navigation' : 'wide-navigation')).toHaveCount(0);
 
+  await expect(page.getByTestId('theme-toggle')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(10, 17, 32)');
   const brand = page.getByRole('heading', { level: 1, name: 'Colete' });
-  const before = await brand.evaluate((element) => getComputedStyle(element).color);
-  await page.getByTestId('theme-toggle').click();
-  const after = await brand.evaluate((element) => getComputedStyle(element).color);
-  expect(after).not.toBe(before);
+  await expect(brand).toHaveCSS('color', 'rgb(241, 242, 244)');
 });
 
 test('reduced motion preference is respected by the web shell', async ({ page }) => {
