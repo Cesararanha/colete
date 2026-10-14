@@ -2,7 +2,10 @@ import { forwardRef, useId, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing } from '@/theme/spacing';
+import { radius, size, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
+
+import { AppIcon } from './AppIcon';
 
 type AppTextFieldProps = Omit<TextInputProps, 'style'> & {
   error?: string | undefined;
@@ -18,8 +21,11 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
 ) {
   const { colors } = useTheme();
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [toggleWidth, setToggleWidth] = useState(140);
   const fieldId = useId().replace(/[^A-Za-z0-9_-]/gu, '');
   const describedBy = `app-field-${fieldId}-description`;
+  const invalid = error !== undefined;
+  const toggleText = passwordVisible ? passwordToggleLabel?.hide : passwordToggleLabel?.show;
 
   return (
     <View style={styles.group}>
@@ -30,43 +36,60 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
           ref={ref}
           accessibilityLabel={label}
           aria-describedby={error !== undefined || hint !== undefined ? describedBy : undefined}
-          aria-invalid={error !== undefined}
+          aria-invalid={invalid}
+          placeholderTextColor={colors.textMuted}
           secureTextEntry={secureTextEntry === true && !passwordVisible}
           style={[
             styles.input,
-            passwordToggleLabel === undefined ? undefined : styles.inputWithButton,
-            { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
+            passwordToggleLabel === undefined ? undefined : { paddingRight: toggleWidth + 8 },
+            {
+              backgroundColor: colors.surfaceRaised,
+              // docs/29 §6: error = 2 px critical border, plus the message and icon below.
+              borderColor: invalid ? colors.critical : colors.fieldBorder,
+              borderWidth: invalid ? 2 : 1,
+              color: colors.text,
+            },
           ]}
           testID={testID}
         />
         {passwordToggleLabel === undefined ? null : (
           <Pressable
-            accessibilityLabel={
-              passwordVisible ? passwordToggleLabel.hide : passwordToggleLabel.show
-            }
+            accessibilityLabel={toggleText}
             accessibilityRole="button"
+            onLayout={(event) => setToggleWidth(Math.ceil(event.nativeEvent.layout.width))}
             onPress={() => setPasswordVisible((visible) => !visible)}
-            style={[styles.passwordToggle, { borderColor: colors.border }]}
+            style={({ pressed }) => [styles.passwordToggle, { opacity: pressed ? 0.72 : 1 }]}
           >
-            <Text style={[styles.passwordToggleText, { color: colors.text }]}>
-              {passwordVisible ? passwordToggleLabel.hide : passwordToggleLabel.show}
-            </Text>
+            <AppIcon
+              color={colors.textMuted}
+              name={passwordVisible ? 'eye-off' : 'eye'}
+              size={20}
+            />
+            <Text style={[styles.passwordToggleText, { color: colors.link }]}>{toggleText}</Text>
           </Pressable>
         )}
       </View>
       <View style={styles.descriptionRow}>
         {error === undefined && hint === undefined ? null : (
-          <Text
-            accessibilityLiveRegion={error === undefined ? 'none' : 'assertive'}
-            nativeID={describedBy}
-            role={error === undefined ? undefined : 'alert'}
-            style={[
-              styles.description,
-              { color: error === undefined ? colors.textMuted : colors.critical },
-            ]}
-          >
-            {error ?? hint}
-          </Text>
+          <>
+            {invalid ? (
+              <View style={styles.descriptionIcon}>
+                <AppIcon color={colors.critical} name="alert-circle" size={16} />
+              </View>
+            ) : null}
+            <Text
+              accessibilityLiveRegion={error === undefined ? 'none' : 'assertive'}
+              nativeID={describedBy}
+              role={error === undefined ? undefined : 'alert'}
+              style={[
+                styles.description,
+                invalid ? styles.descriptionError : undefined,
+                { color: error === undefined ? colors.textMuted : colors.critical },
+              ]}
+            >
+              {error ?? hint}
+            </Text>
+          </>
         )}
       </View>
     </View>
@@ -74,40 +97,36 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
 });
 
 const styles = StyleSheet.create({
-  description: { fontSize: 14, lineHeight: 20 },
-  descriptionRow: { minHeight: 20 },
-  group: { gap: spacing.xs, minWidth: 0, width: '100%' },
+  description: { ...typography.support, flex: 1, minWidth: 0 },
+  descriptionError: { ...typography.supportStrong },
+  descriptionIcon: { paddingTop: 2 },
+  descriptionRow: { flexDirection: 'row', gap: spacing.xs + 2, minHeight: 21 },
+  group: { gap: spacing.sm, minWidth: 0, width: '100%' },
   input: {
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    ...typography.body,
+    borderRadius: radius.field,
     flex: 1,
-    fontSize: 16,
     maxWidth: '100%',
-    minHeight: 48,
+    minHeight: size.field,
     minWidth: 0,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
-  inputRow: {
-    alignItems: 'stretch',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    minWidth: 0,
-    width: '100%',
-  },
-  inputWithButton: { flexBasis: 160 },
-  label: { fontSize: 15, fontWeight: '700', lineHeight: 21 },
+  inputRow: { minWidth: 0, position: 'relative', width: '100%' },
+  label: { ...typography.supportStrong },
   passwordToggle: {
     alignItems: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexShrink: 1,
+    borderRadius: radius.field - 4,
+    bottom: 4,
+    flexDirection: 'row',
+    gap: spacing.xs + 2,
     justifyContent: 'center',
-    maxWidth: '100%',
-    minHeight: 48,
-    minWidth: 72,
-    paddingHorizontal: spacing.sm,
+    minHeight: size.target,
+    minWidth: size.target,
+    paddingHorizontal: spacing.ms,
+    position: 'absolute',
+    right: 4,
+    top: 4,
   },
-  passwordToggleText: { fontSize: 14, fontWeight: '700' },
+  passwordToggleText: { ...typography.supportStrong },
 });

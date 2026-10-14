@@ -8,7 +8,8 @@ import { AppCard } from '@/components/ui/AppCard';
 import { pt } from '@/lib/i18n/pt';
 import { SYNTHETIC_IDENTITY } from '@/lib/runtime';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, size, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 type SyntheticSmokePanelProps = {
   identity?: string;
@@ -48,7 +49,7 @@ export function SyntheticSmokePanel({ identity }: SyntheticSmokePanelProps) {
   return (
     <AppCard testID="synthetic-smoke-panel">
       <View style={styles.copy}>
-        <Text style={[styles.eyebrow, { color: colors.primary }]}>{pt.smoke.eyebrow}</Text>
+        <Text style={[styles.eyebrow, { color: colors.textMuted }]}>{pt.smoke.eyebrow}</Text>
         <Text aria-level={2} role="heading" style={[styles.title, { color: colors.text }]}>
           {pt.smoke.title}
         </Text>
@@ -62,7 +63,6 @@ export function SyntheticSmokePanel({ identity }: SyntheticSmokePanelProps) {
             styles.authLink,
             {
               backgroundColor: colors.primary,
-              borderColor: colors.primary,
             },
           ]}
         >
@@ -105,50 +105,37 @@ const styles = StyleSheet.create({
   },
   authLink: {
     alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
+    borderRadius: radius.row,
     display: 'flex',
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: size.button,
     minWidth: 48,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     textDecorationLine: 'none',
   },
   authLinkText: {
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
+    ...typography.bodyStrong,
   },
   body: {
-    fontSize: 16,
-    lineHeight: 24,
+    ...typography.body,
   },
   copy: {
     gap: spacing.sm,
   },
   eyebrow: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    lineHeight: 18,
-    textTransform: 'uppercase',
+    ...typography.supportStrong,
   },
   result: {
     gap: spacing.xs,
   },
   resultLabel: {
-    fontSize: 15,
-    fontWeight: '800',
-    lineHeight: 21,
+    ...typography.supportStrong,
   },
   resultText: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...typography.support,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '900',
-    lineHeight: 30,
+    ...typography.title,
   },
 });

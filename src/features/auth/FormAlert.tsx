@@ -1,6 +1,7 @@
 import { StyleSheet, Text } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
+import { typography } from '@/theme/typography';
 
 export function FormAlert({ message, testID }: { message: string; testID?: string }) {
   const { colors } = useTheme();
@@ -17,5 +18,5 @@ export function FormAlert({ message, testID }: { message: string; testID?: strin
 }
 
 const styles = StyleSheet.create({
-  alert: { fontSize: 15, fontWeight: '700', lineHeight: 22 },
+  alert: { ...typography.supportStrong },
 });

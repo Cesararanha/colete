@@ -12,7 +12,7 @@ export function AppSkeleton({ lines = 3 }: { lines?: number }) {
           key={index}
           style={[
             styles.line,
-            { backgroundColor: colors.surfaceStrong, width: index === lines - 1 ? '68%' : '100%' },
+            { backgroundColor: colors.fieldBorder, width: index === lines - 1 ? '68%' : '100%' },
           ]}
         />
       ))}
@@ -22,5 +22,5 @@ export function AppSkeleton({ lines = 3 }: { lines?: number }) {
 
 const styles = StyleSheet.create({
   container: { gap: spacing.sm, paddingVertical: spacing.sm },
-  line: { borderRadius: radius.sm, height: 18 },
+  line: { borderRadius: radius.tile, height: 18, opacity: 0.28 },
 });

@@ -11,6 +11,7 @@ import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
@@ -54,8 +55,10 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       {data && !allowed ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
       <AppButton
         testID="management-refresh"
+        icon="refresh-cw"
         label={pt.groups.members.refresh}
         onPress={() => void administration.refresh()}
+        variant="secondary"
       />
       {allowed ? (
         <AppCard testID="group-management-card">
@@ -211,7 +214,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
   );
 }
 const styles = StyleSheet.create({
-  body: { fontSize: 16, lineHeight: 24 },
-  heading: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  body: { ...typography.body },
+  heading: { ...typography.title },
   row: { gap: spacing.sm, marginBottom: spacing.md },
 });

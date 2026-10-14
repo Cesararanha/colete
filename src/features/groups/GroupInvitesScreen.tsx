@@ -5,9 +5,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
+import { AppIcon } from '@/components/ui/AppIcon';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { Scoreboard } from '@/components/ui/Scoreboard';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import {
   AppError,
@@ -23,6 +25,7 @@ import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { absoluteInviteTime, groupErrorMessage } from './group-errors';
 
@@ -100,22 +103,31 @@ function InviteShareMaterial({
   }
   if (share === null) return <AppSkeleton lines={2} />;
 
+  // docs/29 §6: the board is decorative; the selectable code right below it is
+  // what readers, copy-by-hand (copyFailed) and tests rely on.
+  const codeGroups = share.code.split('-').map((chars) => ({ chars }));
   return (
     <View style={styles.material}>
       {copyMessage ? <AppStatus message={copyMessage} /> : null}
-      <Text style={[styles.label, { color: colors.text }]}>{pt.groups.invites.code}</Text>
+      <Text style={[styles.overline, { color: colors.textMuted }]}>{pt.groups.invites.code}</Text>
+      <Scoreboard decorative groups={codeGroups} layout="stacked" size="lg" />
       <Text selectable style={[styles.code, { color: colors.text }]} testID="invite-code">
         {share.code}
       </Text>
-      <AppButton label={pt.groups.invites.copyCode} onPress={() => void copy(share.code)} />
+      <AppButton
+        icon="copy"
+        label={pt.groups.invites.copyCode}
+        onPress={() => void copy(share.code)}
+      />
       <Text style={[styles.label, { color: colors.text }]}>{pt.groups.invites.link}</Text>
-      <Text selectable style={[styles.body, { color: colors.text }]} testID="invite-link">
+      <Text selectable style={[styles.link, { color: colors.textMuted }]} testID="invite-link">
         {share.share_url}
       </Text>
       <AppButton
+        icon="link"
         label={pt.groups.invites.copyLink}
         onPress={() => void copy(share.share_url)}
-        variant="secondary"
+        variant="tertiary"
       />
     </View>
   );
@@ -195,12 +207,20 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
           {change.error ? <AppAlert message={groupErrorMessage(change.error)} /> : null}
           {active ? (
             <>
-              <Text style={[styles.body, { color: colors.text }]}>
-                {pt.groups.invites.expires(absoluteInviteTime(active.expires_at))}
-              </Text>
-              <Text style={[styles.body, { color: colors.text }]}>
-                {pt.groups.invites.remaining(active.max_uses - active.used_count)}
-              </Text>
+              <View style={styles.facts}>
+                <View style={styles.fact}>
+                  <AppIcon color={colors.textMuted} name="clock" size={18} />
+                  <Text style={[styles.factText, { color: colors.text }]}>
+                    {pt.groups.invites.expires(absoluteInviteTime(active.expires_at))}
+                  </Text>
+                </View>
+                <View style={styles.fact}>
+                  <AppIcon color={colors.textMuted} name="users" size={18} />
+                  <Text style={[styles.factText, { color: colors.text }]}>
+                    {pt.groups.invites.remaining(active.max_uses - active.used_count)}
+                  </Text>
+                </View>
+              </View>
               <InviteShareMaterial
                 key={`${active.id}:${shareVersion}`}
                 inviteId={active.id}
@@ -210,6 +230,7 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
                 {pt.groups.invites.regenerateInfo}
               </Text>
               <AppButton
+                icon="refresh-cw"
                 label={pt.groups.invites.regenerate}
                 onPress={() => {
                   if (!change.isPending) change.mutate('regenerate');
@@ -226,6 +247,7 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
                     {pt.groups.invites.confirmRevoke}
                   </Text>
                   <AppButton
+                    icon="slash"
                     label={pt.groups.invites.confirmRevokeAction}
                     onPress={() => {
                       if (!change.isPending) change.mutate('revoke');
@@ -240,6 +262,7 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
                 </View>
               ) : (
                 <AppButton
+                  icon="slash"
                   label={pt.groups.invites.revoke}
                   onPress={() => setConfirmRevoke(true)}
                   variant="destructive"
@@ -267,8 +290,13 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
 }
 
 const styles = StyleSheet.create({
-  body: { fontSize: 16, lineHeight: 24 },
-  code: { fontSize: 22, fontWeight: '800', letterSpacing: 2, lineHeight: 30 },
-  label: { fontSize: 16, fontWeight: '700', lineHeight: 24 },
-  material: { gap: spacing.sm, minWidth: 0 },
+  body: { ...typography.support },
+  code: { ...typography.row, letterSpacing: 2, textAlign: 'center' },
+  fact: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  factText: { ...typography.support, flex: 1, minWidth: 0 },
+  facts: { gap: spacing.sm },
+  label: { ...typography.supportStrong, paddingTop: spacing.sm },
+  link: { ...typography.support },
+  material: { gap: spacing.ms, minWidth: 0 },
+  overline: { ...typography.overline },
 });

@@ -1,8 +1,13 @@
 import type { ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
+import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing } from '@/theme/spacing';
+import { radius, size, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
+
+import { AppIcon, type IconName } from './AppIcon';
+import { useSurfaceLayer } from './SurfaceContext';
 
 type AppButtonProps = {
   accessibilityLabel?: string;
@@ -13,11 +18,15 @@ type AppButtonProps = {
    * by adjacent text associated here, and the press explains itself.
    */
   describedBy?: string | undefined;
+  /** Decorative Feather icon; the label carries the meaning. */
+  icon?: IconName;
+  /** `trailing` (e.g. a chevron) puts the icon at the end and starts the label. */
+  iconPosition?: 'leading' | 'trailing';
   label: string;
   onPress: () => void;
   pressed?: boolean;
   testID?: string;
-  variant?: 'primary' | 'secondary' | 'destructive';
+  variant?: 'primary' | 'secondary' | 'tertiary' | 'destructive';
 };
 
 export function AppButton({
@@ -25,6 +34,8 @@ export function AppButton({
   ariaDisabled = false,
   children,
   describedBy,
+  icon,
+  iconPosition = 'leading',
   label,
   onPress,
   pressed,
@@ -32,9 +43,37 @@ export function AppButton({
   variant = 'primary',
 }: AppButtonProps) {
   const { colors } = useTheme();
-  const primary = variant === 'primary';
-  const destructive = variant === 'destructive';
-  const textColor = primary ? colors.onPrimary : destructive ? colors.critical : colors.text;
+  const layer = useSurfaceLayer();
+  const reducedMotion = useReducedMotion();
+  const selected = pressed === true;
+  const textOnly = variant === 'tertiary' || variant === 'destructive';
+  // docs/29 §6: a selected option is never told by colour alone — it gains a check.
+  const background = selected
+    ? colors.indicator
+    : variant === 'primary'
+      ? colors.primary
+      : variant === 'secondary'
+        ? layer === 'raised'
+          ? colors.background
+          : colors.surfaceRaised
+        : 'transparent';
+  const textColor = selected
+    ? colors.onPrimary
+    : ariaDisabled
+      ? colors.textMuted
+      : variant === 'primary'
+        ? colors.onPrimary
+        : variant === 'destructive'
+          ? colors.critical
+          : variant === 'tertiary'
+            ? colors.link
+            : colors.text;
+  const leadingIcon: IconName | undefined = selected
+    ? 'check'
+    : iconPosition === 'leading'
+      ? icon
+      : undefined;
+  const trailingIcon = !selected && iconPosition === 'trailing' ? icon : undefined;
 
   // Pressable overwrites aria-disabled from its native `disabled` prop on web.
   // A real button with aria-disabled remains in keyboard order and keeps the
@@ -49,18 +88,19 @@ export function AppButton({
         type="button"
         style={{
           alignItems: 'center',
-          backgroundColor: colors.surface,
-          border: `1px solid ${colors.border}`,
-          borderRadius: radius.pill,
-          color: textColor,
+          backgroundColor: textOnly ? 'transparent' : colors.surface,
+          border: 'none',
+          borderRadius: radius.row,
+          color: colors.textMuted,
           cursor: 'default',
           display: 'inline-flex',
-          fontSize: 16,
+          fontFamily: typography.button.fontFamily,
+          fontSize: typography.button.fontSize,
           fontWeight: 700,
           justifyContent: 'center',
-          lineHeight: '22px',
-          minHeight: 48,
-          minWidth: 48,
+          lineHeight: `${typography.button.lineHeight}px`,
+          minHeight: textOnly ? size.target : size.button,
+          minWidth: size.target,
           padding: `${spacing.sm}px ${spacing.lg}px`,
         }}
       >
@@ -83,18 +123,37 @@ export function AppButton({
       onPress={onPress}
       style={({ pressed: isPressed }) => [
         styles.base,
+        textOnly ? styles.textOnly : styles.filled,
         {
-          backgroundColor: primary ? colors.primary : colors.surface,
-          borderColor: primary ? colors.primary : destructive ? colors.critical : colors.border,
-          borderWidth: destructive ? 2 : 1,
-          opacity: isPressed ? 0.78 : 1,
-          transform: [{ scale: isPressed ? 0.99 : 1 }],
+          backgroundColor: background,
+          opacity: isPressed && textOnly ? 0.72 : 1,
+          transform: [{ scale: isPressed && !reducedMotion ? 0.98 : 1 }],
         } satisfies ViewStyle,
+        Platform.OS === 'web'
+          ? ({
+              transitionDuration: isPressed ? '100ms' : '160ms',
+              transitionProperty: 'transform, opacity',
+            } as ViewStyle)
+          : null,
       ]}
       testID={testID}
     >
       {children}
-      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+      {leadingIcon ? (
+        <View style={styles.icon}>
+          <AppIcon color={textColor} name={leadingIcon} size={20} />
+        </View>
+      ) : null}
+      <Text
+        style={[styles.label, trailingIcon ? styles.labelStart : undefined, { color: textColor }]}
+      >
+        {label}
+      </Text>
+      {trailingIcon ? (
+        <View style={styles.icon}>
+          <AppIcon color={textColor} name={trailingIcon} size={20} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -102,22 +161,22 @@ export function AppButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: 'center',
-    borderRadius: radius.pill,
-    borderWidth: 1,
+    borderRadius: radius.row,
     flexDirection: 'row',
     flexShrink: 1,
+    gap: spacing.ms,
     justifyContent: 'center',
     maxWidth: '100%',
-    minHeight: 48,
-    minWidth: 48,
+    minWidth: size.target,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
   },
+  filled: { minHeight: size.button, paddingVertical: spacing.sm },
+  icon: { flexShrink: 0 },
   label: {
+    ...typography.button,
     flexShrink: 1,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
     textAlign: 'center',
   },
+  labelStart: { flex: 1, textAlign: 'left' },
+  textOnly: { minHeight: size.target, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
 });

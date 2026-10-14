@@ -4,6 +4,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { usePwaUpdate } from './usePwaUpdate';
 
@@ -18,7 +19,7 @@ export function PwaUpdateNotice() {
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={[styles.notice, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }]}
+      style={[styles.notice, { backgroundColor: colors.surfaceRaised }]}
     >
       <View style={styles.copy}>
         <Text aria-level={2} role="heading" style={[styles.title, { color: colors.text }]}>
@@ -33,8 +34,7 @@ export function PwaUpdateNotice() {
 
 const styles = StyleSheet.create({
   body: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...typography.support,
   },
   copy: {
     flex: 1,
@@ -42,16 +42,13 @@ const styles = StyleSheet.create({
   },
   notice: {
     alignItems: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
+    borderRadius: radius.row,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
     padding: spacing.md,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '800',
-    lineHeight: 24,
+    ...typography.row,
   },
 });

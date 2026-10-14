@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 export function ProfileChoiceField<T extends string>({
   clearLabel,
@@ -50,7 +51,7 @@ export function ProfileChoiceField<T extends string>({
 
 const styles = StyleSheet.create({
   group: { gap: spacing.xs, minWidth: 0, width: '100%' },
-  hint: { fontSize: 14, lineHeight: 20 },
-  label: { fontSize: 15, fontWeight: '700', lineHeight: 21 },
+  hint: { ...typography.support },
+  label: { ...typography.supportStrong },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, minWidth: 0, width: '100%' },
 });

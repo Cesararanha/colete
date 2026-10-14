@@ -19,7 +19,8 @@ import { pt } from '@/lib/i18n/pt';
 import { deletionRequestProjectionSchema } from '@/lib/privacy-schema';
 import { privateQueryKeys } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { deletionProtocolStore } from './deletion-protocol';
 import { profileErrorMessage } from './profile-errors';
@@ -114,7 +115,7 @@ export function DeleteAccountCard() {
           ref={summaryRef}
           style={[
             styles.summary,
-            { backgroundColor: colors.surfaceStrong, borderColor: colors.critical },
+            { backgroundColor: colors.background, borderColor: colors.critical },
           ]}
           tabIndex={-1}
           testID="deletion-summary"
@@ -184,15 +185,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
   },
-  body: { fontSize: 15, lineHeight: 22 },
+  body: { ...typography.support },
   list: { gap: spacing.sm },
   summary: {
-    borderRadius: 18,
+    borderRadius: radius.field,
     borderWidth: 2,
     gap: spacing.sm,
     minWidth: 0,
     padding: spacing.md,
     width: '100%',
   },
-  summaryTitle: { fontSize: 20, fontWeight: '800', lineHeight: 26 },
+  summaryTitle: { ...typography.title },
 });

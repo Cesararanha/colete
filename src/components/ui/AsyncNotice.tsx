@@ -1,10 +1,14 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { raisedShadow } from '@/theme/elevation';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { AppButton } from './AppButton';
+import { AppIcon } from './AppIcon';
 import { AppSkeleton } from './AppSkeleton';
+import { SurfaceContext } from './SurfaceContext';
 
 type AsyncNoticeProps =
   | { kind: 'loading'; message: string }
@@ -17,7 +21,7 @@ type AsyncNoticeProps =
     };
 
 export function AsyncNotice(props: AsyncNoticeProps) {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   if (props.kind === 'loading') {
     return (
       <View accessibilityLiveRegion="polite" style={styles.loading}>
@@ -27,22 +31,33 @@ export function AsyncNotice(props: AsyncNoticeProps) {
     );
   }
 
+  const network = props.kind === 'network';
   return (
-    <View
-      accessibilityLiveRegion={props.kind === 'network' ? 'assertive' : 'polite'}
-      role={props.kind === 'network' ? 'alert' : undefined}
-      style={[styles.notice, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }]}
-    >
-      <Text style={[styles.title, { color: colors.text }]}>{props.title}</Text>
-      <Text style={[styles.message, { color: colors.textMuted }]}>{props.message}</Text>
-      <AppButton label={props.actionLabel} onPress={props.action} variant="secondary" />
+    <View style={[styles.notice, { backgroundColor: colors.surfaceRaised }, raisedShadow(mode)]}>
+      <AppIcon
+        color={network ? colors.critical : colors.textMuted}
+        name={network ? 'wifi-off' : 'inbox'}
+        size={24}
+      />
+      <View
+        accessibilityLiveRegion={network ? 'assertive' : 'polite'}
+        role={network ? 'alert' : undefined}
+        style={styles.body}
+      >
+        <Text style={[styles.title, { color: colors.text }]}>{props.title}</Text>
+        <Text style={[styles.message, { color: colors.textMuted }]}>{props.message}</Text>
+        <SurfaceContext.Provider value="raised">
+          <AppButton label={props.actionLabel} onPress={props.action} variant="secondary" />
+        </SurfaceContext.Provider>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  body: { gap: spacing.sm, minWidth: 0 },
   loading: { gap: spacing.sm },
-  message: { fontSize: 15, lineHeight: 22 },
-  notice: { borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  title: { fontSize: 18, fontWeight: '800', lineHeight: 24 },
+  message: { ...typography.support },
+  notice: { borderRadius: radius.row, gap: spacing.ms, padding: spacing.lg },
+  title: { ...typography.row },
 });

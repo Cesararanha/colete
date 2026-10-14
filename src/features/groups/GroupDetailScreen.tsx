@@ -6,13 +6,17 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
+import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { Scoreboard } from '@/components/ui/Scoreboard';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { AppError, TransportError, api, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
+import { spacing } from '@/theme/spacing';
+import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 
@@ -56,8 +60,24 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
     },
   });
   const group = detail.data;
+  // docs/29 §5: the count comes from the getGroupMembers read the screen
+  // already makes; no capacity is shown because the contract has none.
+  const activeMembers = members.data?.filter((member) => member.status === 'active').length;
+  const hero =
+    group && activeMembers !== undefined ? (
+      <View style={styles.hero}>
+        <Text aria-hidden style={[styles.overline, { color: colors.onBandMuted }]}>
+          {pt.groups.detail.members}
+        </Text>
+        <Scoreboard
+          accessibilityLabel={pt.groups.detail.activeMembers(activeMembers)}
+          groups={[{ chars: String(activeMembers).padStart(2, '0') }]}
+          testID="members-scoreboard"
+        />
+      </View>
+    ) : undefined;
   return (
-    <AuthenticatedShell {...pt.groups.detail}>
+    <AuthenticatedShell {...pt.groups.detail} hero={hero}>
       {detail.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {detail.isError ? (
         <AsyncNotice
@@ -83,6 +103,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           />
           {group.role === 'owner' || group.role === 'organizer' ? (
             <AppButton
+              icon="user-plus"
               label={pt.groups.detail.invites}
               onPress={() => router.push(`/grupos/${group.id}/convites`)}
             />
@@ -90,12 +111,16 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           {group.role === 'owner' || group.role === 'organizer' ? (
             <>
               <AppButton
+                icon="users"
                 label={pt.groups.members.title}
                 onPress={() => router.push(`/grupos/${group.id}/membros`)}
+                variant="secondary"
               />
               <AppButton
+                icon="settings"
                 label={pt.groups.settings.title}
                 onPress={() => router.push(`/grupos/${group.id}/configuracoes`)}
+                variant="secondary"
               />
             </>
           ) : null}
@@ -110,7 +135,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
             />
           ) : null}
           {members.data ? (
-            <View testID="group-members-list">
+            <View style={styles.list} testID="group-members-list">
               <SectionHeading eyebrow={pt.groups.detail.eyebrow} title={pt.groups.detail.members} />
               {members.data
                 .filter((member) => member.status === 'active')
@@ -125,14 +150,17 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
                   </Text>
                 ))}
               {members.data.some((member) => member.status === 'pending') ? (
-                <View testID="group-pending-members-list">
-                  <Text
-                    aria-level={3}
-                    role="heading"
-                    style={[styles.section, { color: colors.text }]}
-                  >
-                    {pt.groups.detail.pendingMembers}
-                  </Text>
+                <View style={styles.list} testID="group-pending-members-list">
+                  <View style={styles.pendingHeading}>
+                    <AppIcon color={colors.warning} name="clock" />
+                    <Text
+                      aria-level={3}
+                      role="heading"
+                      style={[styles.section, { color: colors.text }]}
+                    >
+                      {pt.groups.detail.pendingMembers}
+                    </Text>
+                  </View>
                   {members.data
                     .filter((member) => member.status === 'pending')
                     .map((member) => (
@@ -154,12 +182,13 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           <AppButton
             ariaDisabled={group.role === 'owner'}
             describedBy={group.role === 'owner' ? 'owner-leave-reason' : undefined}
+            icon="log-out"
             label={pt.groups.detail.leave}
             onPress={() => {
               if (group.role !== 'owner' && !leaving.isPending) leaving.mutate();
             }}
             testID="leave-group"
-            variant="secondary"
+            variant="destructive"
           />
         </AppCard>
       ) : null}
@@ -168,6 +197,15 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
 }
 
 const styles = StyleSheet.create({
-  section: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
-  reason: { fontSize: 16, lineHeight: 24 },
+  hero: { gap: spacing.ms },
+  list: { gap: spacing.sm, paddingTop: spacing.sm },
+  overline: { ...typography.overline },
+  pendingHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  reason: { ...typography.body },
+  section: { ...typography.row, flexShrink: 1 },
 });

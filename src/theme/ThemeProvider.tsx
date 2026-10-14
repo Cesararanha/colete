@@ -1,5 +1,12 @@
-import { createContext, type PropsWithChildren, useContext, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import {
+  createContext,
+  type PropsWithChildren,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Platform, useColorScheme } from 'react-native';
 
 import { colors, type ThemeColors, type ThemeMode } from './colors';
 
@@ -15,6 +22,14 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   const systemMode = useColorScheme();
   const [override, setOverride] = useState<ThemeMode | null>(null);
   const mode: ThemeMode = override ?? (systemMode === 'dark' ? 'dark' : 'light');
+
+  // The web focus ring lives in +html's stylesheet; it follows the app theme,
+  // which can differ from the system preference after the toggle.
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.documentElement.dataset['theme'] = mode;
+    }
+  }, [mode]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({

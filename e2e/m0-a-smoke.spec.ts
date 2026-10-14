@@ -27,7 +27,7 @@ test('shell supports keyboard, synthetic return, upload and safe caching', async
   const syntheticAuthLink = page.getByRole('link', {
     name: 'Simular retorno de autenticação',
   });
-  await expect(syntheticAuthLink).toHaveCSS('background-color', 'rgb(121, 229, 169)');
+  await expect(syntheticAuthLink).toHaveCSS('background-color', 'rgb(255, 185, 64)');
   await syntheticAuthLink.click();
   await expect(page.getByTestId('synthetic-auth-result')).toContainText('synthetic-user-001');
 
