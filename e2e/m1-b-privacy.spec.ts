@@ -507,9 +507,6 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await expect(card).toContainText(/Válido até \d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}\./u);
       await expect(card).toContainText('Tentativa única');
       await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-      await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema claro' }).click();
 
       await page.evaluate(() => {
         document.body.style.zoom = '2';
@@ -885,9 +882,6 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await expect(page.getByTestId('profile-deletion-card')).toHaveCount(0);
       await expect(shell.getByTestId('deletion-shell-support')).toHaveCount(0);
       await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema escuro' }).click();
-      await assertAccessible(page);
-      await page.getByRole('button', { name: 'Usar tema claro' }).click();
 
       const storedProtocol = await page.evaluate(() =>
         localStorage.getItem('colete.deletion-protocol.v1'),

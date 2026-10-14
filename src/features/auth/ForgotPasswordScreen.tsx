@@ -18,7 +18,7 @@ import { typography } from '@/theme/typography';
 
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
-import { authErrorMessage, fieldMessage } from './messages';
+import { authErrorMessage, fieldMessage, passwordUpdateErrorMessage } from './messages';
 import {
   forgotEmailSchema,
   newPasswordSchema,
@@ -167,7 +167,9 @@ export function ForgotPasswordScreen() {
             <Text accessibilityLiveRegion="polite" style={[styles.status, { color: colors.text }]}>
               {pt.auth.forgot.verified}
             </Text>
-            {update.error === null ? null : <FormAlert message={authErrorMessage(update.error)} />}
+            {update.error === null ? null : (
+              <FormAlert message={passwordUpdateErrorMessage(update.error)} />
+            )}
             <Controller
               control={passwordForm.control}
               name="password"

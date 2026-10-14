@@ -61,28 +61,22 @@ const consumeInviteFragment = `
 })();
 `;
 
-const { dark, light } = colors;
+const { dark } = colors;
 
-// docs/29 §2/§4: 2 px focus ring with 2 px offset, in the app theme (set on
-// <html data-theme> by ThemeProvider; before hydration, the system preference).
-// Inside the light brand band the ring uses focusOnBand. Barlow ships one file
-// per weight, so the browser must never synthesize bold or italic on top.
+// docs/29 §2/§4: 2 px focus ring with 2 px offset. Human decision of 14/10/2026:
+// the app is dark only, so the document is dark from the first paint, whatever
+// the system preference. Barlow ships one file per weight, so the browser must
+// never synthesize bold or italic on top. Phantom scroll (docs/29 §0): each
+// shell scrolls inside its own ScrollView, so the document itself is exactly
+// one viewport tall and never scrolls, bounces or pulls to refresh.
 const globalStyles = `
-  :root { color-scheme: light dark; background-color: ${light.background}; }
-  html, body, #root { min-height: 100%; margin: 0; }
+  :root { color-scheme: dark; background-color: ${dark.background}; }
+  html, body, #root { height: 100%; margin: 0; overscroll-behavior: none; }
   *, *::before, *::after { box-sizing: border-box; }
   body { font-synthesis: none; }
-  ::selection { background-color: ${light.brandBand}; color: ${light.onBand}; }
-  :focus-visible { outline: 2px solid ${light.focus}; outline-offset: 2px; }
-  [data-band] :focus-visible { outline-color: ${light.focusOnBand}; }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { background-color: ${dark.background}; }
-    :root:not([data-theme="light"]) :focus-visible { outline-color: ${dark.focus}; }
-  }
-  :root[data-theme="dark"] { background-color: ${dark.background}; }
-  :root[data-theme="dark"] :focus-visible { outline-color: ${dark.focus}; }
-  :root[data-theme="dark"] ::selection { background-color: ${dark.text}; color: ${dark.background}; }
-  :root[data-theme="dark"] [data-band] :focus-visible { outline-color: ${dark.focusOnBand}; }
+  ::selection { background-color: ${dark.text}; color: ${dark.background}; }
+  :focus-visible { outline: 2px solid ${dark.focus}; outline-offset: 2px; }
+  [data-band] :focus-visible { outline-color: ${dark.focusOnBand}; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
@@ -95,7 +89,7 @@ const globalStyles = `
 
 export default function RootHtml({ children }: PropsWithChildren) {
   return (
-    <html lang="pt-BR">
+    <html data-theme="dark" lang="pt-BR">
       <head>
         <meta charSet="utf-8" />
         <meta content="IE=edge" httpEquiv="X-UA-Compatible" />
@@ -104,7 +98,7 @@ export default function RootHtml({ children }: PropsWithChildren) {
           name="viewport"
         />
         <meta content="no-referrer" name="referrer" />
-        <meta content={colors.light.brandBand} name="theme-color" />
+        <meta content={colors.dark.background} name="theme-color" />
         <meta content="yes" name="mobile-web-app-capable" />
         <meta content="yes" name="apple-mobile-web-app-capable" />
         <meta content={pt.app.name} name="apple-mobile-web-app-title" />

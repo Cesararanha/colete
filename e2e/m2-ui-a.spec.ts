@@ -18,7 +18,6 @@ const password = 'Synthetic-group-test-2026';
 const prefix = `ui-a-${Date.now()}-${process.pid}`;
 const screenshotRoot = process.env['COLETE_UI_A_SCREENSHOTS_DIR'];
 type Actor = { authId: string; profileId: string; token: string; email: string };
-const darkRoutes = new WeakMap<Page, Set<string>>();
 
 async function assertUiAccessible(page: Page) {
   await assertAccessible(page);
@@ -36,16 +35,6 @@ async function assertUiAccessible(page: Page) {
     });
   }
   expect(visibleKeyboardFocus).toBe(true);
-  const route = new URL(page.url()).pathname.replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}/gu, '/:id');
-  const checked = darkRoutes.get(page) ?? new Set<string>();
-  if (!checked.has(route)) {
-    const darkTheme = page.getByRole('button', { name: 'Usar tema escuro' });
-    await darkTheme.click();
-    await assertAccessible(page);
-    await page.getByRole('button', { name: 'Usar tema claro' }).click();
-    checked.add(route);
-    darkRoutes.set(page, checked);
-  }
 }
 
 async function mobileWidth(page: Page, project: string) {
@@ -454,13 +443,41 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     expect(approved.status).toBe(200);
     await page.goto(`/grupos/${groupId}`);
     await expect(page.getByTestId('leave-group')).not.toHaveAttribute('aria-disabled', 'true');
+    const leaveRequests: string[] = [];
+    page.on('request', (item) => {
+      if (new URL(item.url()).pathname === '/functions/v1/groups/leave_group')
+        leaveRequests.push(item.postData() ?? '');
+    });
+    await page.getByTestId('leave-group').press('Enter');
+    const confirmation = page.getByTestId('leave-confirmation');
+    await expect(confirmation).toBeVisible();
+    await expect(
+      confirmation.getByRole('heading', { name: 'Sair de Racha da Firma?' }),
+    ).toBeFocused();
+    expect(leaveRequests).toHaveLength(0);
+    await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await expect(confirmation).toHaveCount(0);
+    await expect(page.getByTestId('leave-group')).toBeFocused();
+    expect(leaveRequests).toHaveLength(0);
+    expect(
+      (
+        await db.query(
+          'select status from public.group_members where group_id=$1 and profile_id=$2',
+          [groupId, joiner.profileId],
+        )
+      ).rows,
+    ).toEqual([{ status: 'active' }]);
+    await page.getByTestId('leave-group').press('Enter');
+    await expect(confirmation).toBeVisible();
+    expect(leaveRequests).toHaveLength(0);
     const playerLeave = handledObserver(
       page.waitForResponse(
         (response) => new URL(response.url()).pathname === '/functions/v1/groups/leave_group',
       ),
     );
-    await page.getByTestId('leave-group').press('Enter');
+    await confirmation.getByRole('button', { name: 'Sair do grupo', exact: true }).click();
     expect((await playerLeave).status()).toBe(200);
+    expect(leaveRequests).toHaveLength(1);
     await expect(page.getByTestId('group-left-status')).toBeVisible();
     await expect(page.getByTestId('group-list-card')).toHaveCount(1);
     await page.getByRole('link', { name: 'Perfil' }).click();
@@ -1305,10 +1322,14 @@ test('0019 screen 11 shows active roles and pending names with keyboard and 320p
     await login(page, owner);
     await page.goto(`/grupos/${outcome.group_id}`);
     const list = page.getByTestId('group-members-list');
-    await expect(list).toContainText('Pessoa members-active · Jogador');
-    await expect(list).toContainText('Pessoa members-owner · Dono');
+    const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
+    await expect(row('Pessoa members-active')).toContainText('Jogador');
+    await expect(row('Pessoa members-active')).toContainText('Ativo');
+    await expect(row('Pessoa members-owner')).toContainText('Dono');
     const requests = page.getByTestId('group-pending-members-list');
+    await expect(requests.getByRole('listitem')).toHaveCount(1);
     await expect(requests).toContainText('Pessoa members-pending');
+    await expect(requests).toContainText('Aguardando aprovação');
     await expect(requests).not.toContainText('Jogador');
     await expect(page.getByRole('button', { name: /^(Aprovar|Recusar)$/ })).toHaveCount(0);
     await assertUiAccessible(page);

@@ -9,6 +9,75 @@ A especificação visual foi aprovada pelo César em 13/10/2026 e fica fora do
 repositório, junto com as 7 telas de referência (390×844). Este documento resume o que
 entrou no código e onde está cada coisa.
 
+## 0. Decisões de 14/10/2026 (polimento pré-apresentação)
+
+- **Só tema escuro (decisão humana de 14/10/2026).** A interface fica só no tema escuro,
+  qualquer que seja a preferência do sistema, e o seletor de tema saiu de todas as telas
+  (o componente `ThemeToggle` foi removido). O `ThemeProvider` fixa o modo escuro e o
+  `app/+html.tsx` entrega `<html data-theme="dark">` com o CSS global escuro desde a
+  primeira pintura. Os tokens do tema claro continuam em `src/theme/colors.ts` e no
+  teste de contraste. O `docs/15` ainda pede "tema claro e escuro"; ele é normativo e será
+  atualizado numa fatia de documentação. Até lá, esta decisão humana prevalece sobre
+  aquele trecho. As regras 3, 4 e 5 da seção 1 e as menções ao tema claro abaixo
+  descrevem o tema que segue no código, mas não aparece na interface.
+- **Rolagem fantasma.** Cada shell rola dentro do próprio `ScrollView`. O documento tem
+  exatamente a altura da janela, e `html`, `body` e `#root` têm `overscroll-behavior:
+  none`. Por isso a página não rola nem "quica" quando o conteúdo cabe. A prova está em
+  `assertNoPhantomScroll` (`e2e/support/layout.ts`), em 390×844.
+- **Autenticação.** O texto lateral do layout largo saiu. O placar COLETE fica na faixa
+  em todas as larguras.
+- **Mostrar senha.** O botão mostra só o ícone (olho, e olho cortado com a senha
+  visível), num alvo de 48×48. O nome acessível continua "Mostrar senha"/"Ocultar senha".
+- **Grupos.** Entre o topo e o primeiro grupo ficam só o título e o placar: saíram o
+  rótulo "Seus espaços" e a descrição. Cada grupo é uma linha inteira tocável, com nome,
+  papel (ícone e texto) e chevron. O nome acessível é "Ver grupo: <nome>". O pedido
+  pendente segue com relógio e texto, numa linha da camada `surface`, que não é tocável.
+- **Detalhe do grupo.** Os membros aparecem em lista (`MemberRow`): iniciais decorativas,
+  nome, papel e estado, cada um com ícone e texto. "Sair do grupo" fica separado das
+  ferramentas, como ação destrutiva com ícone, mesmo quando desabilitado para o dono.
+- **Gestão de membros.** O `AuthenticatedShell` aceita `back`, um botão de volta acima do
+  título ("Voltar ao grupo"). O atalho "Configurações do grupo" aparece só para quem a
+  tela de configurações já admite: dono ou organizador ativo.
+
+### Correção dos P1 da revisão do PR #66 — 14/10/2026
+
+Autorizada pelo César depois de `rev66.md`, com rebase sobre o merge do #67
+(`a496197`). O rebase foi automático, sem conflitos manuais: os textos e fluxos de
+perfil/privacidade do #67 e o polimento do #66 ficaram juntos. Entrar e verificar
+cadastro continuam levando a `/grupos`, ou a `/join` com convite pendente.
+
+- Credenciais: o texto “E-mail ou senha incorretos.” exige o código Auth exato
+  `invalid_credentials`; código ausente não implica credencial incorreta.
+- Quota Auth: HTTP 429, `over_request_rate_limit` e
+  `over_email_send_rate_limit` recebem “Muitas tentativas. Aguarde alguns minutos e
+  tente de novo.”. Rede e 5xx continuam `TransportError`; as demais recusas mantêm
+  o tratamento anterior. `same_password` só nomeia uma recusa de validação na
+  recuperação, sem sobrepor o texto de quota.
+- Saída: `GroupConfirmation` mostra “Sair de <grupo>?” dentro do detalhe, com
+  “Sair do grupo” destrutivo e “Cancelar”. Abrir/cancelar não chama a Edge;
+  cancelar devolve o foco e conserva a membership. O dono continua bloqueado;
+  confirmação chama a mesma RPC com o mesmo intent idempotente.
+
+Contraprovas no código rebaseado antes das correções: 4 unitários falharam pelos
+motivos esperados (ausência de código e quotas); 2 e2e móveis falharam porque o
+429 sem código mostrou credenciais incorretas e a saída não tinha confirmação.
+Depois das correções, os mesmos 31 unitários relevantes passaram e o e2e prova
+zero chamadas ao abrir/cancelar, membership ainda ativa e uma chamada ao confirmar.
+
+Validação medida nesta correção:
+
+- `verify:app`: exit 0, 30 arquivos / 337 testes unitários; 1 aviso de lint herdado
+  do #67 (`View` não usado em `PrivacyAccountScreen`), sem erro.
+- Auth: 10 passaram / 2 pulados; privacidade: 4 passaram / 4 pulados; grupos: 62
+  passaram; CORS web: 4 passaram; smoke: 6 passaram.
+- pgTAP: 19 arquivos / 1259 asserções; os 11 harnesses `db:test:*` passaram.
+- `test:staging`: 98 passaram; `test:audit`: 94 passaram; `audit:high`: exit 0
+  com as 2 exceções ativas existentes, sem mudança de dependência.
+- Censo final: `auth.users`, `profiles`, `groups`, `group_members`,
+  `idempotency_records` e `invite_rate_limits` em 0. Resíduos de auditoria Auth,
+  prova automatizada de rolagem longa e consolidação de tema nos normativos
+  permanecem fora desta correção, por decisão humana.
+
 ## 1. Regras de composição
 
 1. **Sem contorno.** As áreas se separam por camada (`background` → `surface` →
@@ -70,12 +139,12 @@ global é um `<style>` e não um `<script>`, então os hashes de script da CSP n
 |---|---|
 | `Scoreboard` (novo) | Placar estático com grupos de caracteres, grupo de referência em `digitDim`, tamanhos `xl` (64) e `lg` (56) e layouts `inline` (com "/") ou `stacked`. Placar com número real tem `role="img"` e rótulo legível; as pastilhas ficam fora da árvore de acessibilidade. Placar `decorative` fica inteiro fora dela. As pastilhas encolhem em telas estreitas (320 px) |
 | `AppIcon` (novo) | Ícone Feather sempre decorativo. Fica fora de elementos com `role` ou `testID` cujo texto é anunciado ou testado, porque o glifo é um caractere de uso privado |
-| `ThemeToggle` (novo) | Mesmo nome acessível, mesmo `aria-pressed` e mesmo `testID` do botão antigo. Usa os tokens da faixa e mostra o ícone do tema de destino |
+| `ThemeToggle` | Removido em 14/10/2026 (seção 0) |
 | `BrandBand` (novo) | A faixa do tema claro (`data-band`) e a marca COLETE |
 | `SurfaceContext` (novo) | Dentro de um cartão, o botão secundário usa a cor do fundo para não sumir no cartão |
 | `AppButton` | Variantes `primary`, `secondary`, `tertiary` (novo) e `destructive`. A opção selecionada (`pressed`) ganha o fundo `indicator` e um ícone de check. A assinatura antiga continua valendo; `icon` e `iconPosition` são opcionais. O toque reduz a escala para 0,98 em 100 ms e volta em 160 ms; com movimento reduzido, não há escala |
 | `AppCard` | Sem borda, `surfaceRaised`, raio 18, sombra só no tema claro |
-| `AppTextField` | Altura 56, borda `fieldBorder` de 1 px, raio 14. No erro, borda `critical` de 2 px e mensagem com ícone. O botão de mostrar senha fica dentro do campo, com ícone e o mesmo texto |
+| `AppTextField` | Altura 56, borda `fieldBorder` de 1 px, raio 14. No erro, borda `critical` de 2 px e mensagem com ícone. O botão de mostrar senha fica dentro do campo e mostra só o ícone (seção 0) |
 | `AppCheckbox` | Caixa de 24 com `fieldBorder`. Marcada: fundo `primary` e ícone de check |
 | `AppNavLink` | Variantes `link`, `tab` (barra inferior) e `rail` (lateral larga). O item ativo tem indicador de 4 px e rótulo mais forte |
 | `AppAlert`, `AppStatus`, `AsyncNotice`, `AppSkeleton`, `SectionHeading` | Só tokens. Todo estado mostra ícone e texto |

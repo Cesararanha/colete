@@ -2,6 +2,7 @@ import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 
 import type { Database } from './database.types';
 import { isErrorCode, type ErrorCode } from './error-codes';
+import { pt } from './i18n/pt';
 import {
   dataExportProjectionSchema,
   deletionRequestProjectionSchema,
@@ -98,6 +99,8 @@ export type AccountDeletionResult = {
 };
 
 export class AppError extends Error {
+  /** The Supabase Auth error code (e.g. `same_password`), when Auth produced the error. */
+  readonly authCode?: string;
   readonly code: ErrorCode;
   readonly current?: unknown;
   readonly fields?: Readonly<Record<string, string>>;
@@ -110,6 +113,7 @@ export class AppError extends Error {
     code: ErrorCode,
     message: string,
     options: {
+      authCode?: string;
       current?: unknown;
       fields?: Readonly<Record<string, string>>;
       requestId?: string;
@@ -121,6 +125,7 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
     this.code = code;
+    if (options.authCode !== undefined) this.authCode = options.authCode;
     if (Object.hasOwn(options, 'current')) this.current = options.current;
     if (options.fields !== undefined) this.fields = options.fields;
     this.requestId = options.requestId ?? '';
@@ -274,13 +279,23 @@ function successFromEnvelope<T>(value: unknown, expectedRequestId: string): Gate
 }
 
 function authFailure(
-  error: { message: string; status: number | undefined },
+  error: { code?: string | undefined; message: string; status: number | undefined },
   code: ErrorCode,
 ): never {
   if (error.status === undefined || error.status === 0 || error.status >= 500) {
     throw new TransportError();
   }
-  throw new AppError(code, error.message);
+  // Auth quotas can arrive without a code, or under the request/e-mail code.
+  // Transport failures keep precedence; only an actual Auth refusal reaches here.
+  const rateLimited =
+    error.status === 429 ||
+    error.code === 'over_request_rate_limit' ||
+    error.code === 'over_email_send_rate_limit';
+  throw new AppError(
+    rateLimited ? 'RATE_LIMITED' : code,
+    rateLimited ? pt.auth.errors.rateLimit : error.message,
+    error.code === undefined ? {} : { authCode: error.code },
+  );
 }
 
 export type MutationIntent<T> = {

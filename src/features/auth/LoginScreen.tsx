@@ -18,7 +18,7 @@ import { hasPendingInvite } from '@/features/groups/join-fragment';
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
-import { authErrorMessage, fieldMessage } from './messages';
+import { fieldMessage, loginErrorMessage } from './messages';
 import { loginSchema, type LoginValues } from './schemas';
 
 export function LoginScreen() {
@@ -56,7 +56,7 @@ export function LoginScreen() {
       title={pt.auth.login.title}
     >
       <AppCard>
-        {login.error === null ? null : <FormAlert message={authErrorMessage(login.error)} />}
+        {login.error === null ? null : <FormAlert message={loginErrorMessage(login.error)} />}
         <View style={styles.form}>
           <Controller
             control={control}

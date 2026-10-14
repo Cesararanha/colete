@@ -9,7 +9,6 @@ import { spacing } from '@/theme/spacing';
 
 import { AppNavLink } from './AppNavLink';
 import { BrandBand, BrandWordmark } from './BrandBand';
-import { ThemeToggle } from './ThemeToggle';
 
 type AppShellProps = PropsWithChildren<{
   /** Omitted on public pages outside the navigation, such as /design-system. */
@@ -59,7 +58,6 @@ export function AppShell({ activeRoute, children }: AppShellProps) {
           <View style={[styles.header, wide ? styles.headerWide : styles.headerNarrow]}>
             <BrandWordmark heading />
             {wide ? navigation : null}
-            <ThemeToggle testID="theme-toggle" />
           </View>
         </BrandBand>
         {!wide ? navigation : null}

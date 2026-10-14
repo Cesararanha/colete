@@ -10,19 +10,23 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
+import { AppButton } from './AppButton';
 import { AppNavLink } from './AppNavLink';
 import { BrandBand, BrandWordmark } from './BrandBand';
-import { ThemeToggle } from './ThemeToggle';
 
 type AuthenticatedShellProps = PropsWithChildren<{
-  description: string;
-  eyebrow: string;
+  /** A way back to the parent screen, shown above the title. */
+  back?: { label: string; onPress: () => void; testID?: string };
+  /** Omitted (or empty) where the title and the scoreboard say enough, as on Grupos. */
+  description?: string;
+  eyebrow?: string;
   /** The screen's one scoreboard (docs/29 §1.2), shown in the band under the title. */
   hero?: ReactNode;
   title: string;
 }>;
 
 export function AuthenticatedShell({
+  back,
   children,
   description,
   eyebrow,
@@ -71,7 +75,6 @@ export function AuthenticatedShell({
         <BrandBand>
           <View role="banner" style={styles.header}>
             <BrandWordmark />
-            <ThemeToggle testID="theme-toggle" />
           </View>
         </BrandBand>
         <View style={[styles.body, wide ? styles.bodyWide : undefined]}>
@@ -83,8 +86,21 @@ export function AuthenticatedShell({
           >
             <View role="main" style={styles.main} testID="authenticated-main">
               <BrandBand rounded style={styles.band}>
+                {back ? (
+                  <View style={styles.back}>
+                    <AppButton
+                      icon="arrow-left"
+                      label={back.label}
+                      onPress={back.onPress}
+                      {...(back.testID === undefined ? {} : { testID: back.testID })}
+                      variant="tertiary"
+                    />
+                  </View>
+                ) : null}
                 <View style={styles.intro}>
-                  <Text style={[styles.eyebrow, { color: colors.onBandMuted }]}>{eyebrow}</Text>
+                  {eyebrow ? (
+                    <Text style={[styles.eyebrow, { color: colors.onBandMuted }]}>{eyebrow}</Text>
+                  ) : null}
                   <Text
                     aria-level={1}
                     role="heading"
@@ -92,9 +108,11 @@ export function AuthenticatedShell({
                   >
                     {title}
                   </Text>
-                  <Text style={[styles.description, { color: colors.onBandMuted }]}>
-                    {description}
-                  </Text>
+                  {description ? (
+                    <Text style={[styles.description, { color: colors.onBandMuted }]}>
+                      {description}
+                    </Text>
+                  ) : null}
                 </View>
                 {hero}
               </BrandBand>
@@ -109,6 +127,8 @@ export function AuthenticatedShell({
 }
 
 const styles = StyleSheet.create({
+  // The text-only button keeps its 48 px target; its text lines up with the title.
+  back: { alignItems: 'flex-start', marginBottom: -spacing.sm, marginLeft: -spacing.md },
   band: { gap: spacing.lg, paddingBottom: spacing.lg, paddingHorizontal: spacing.lg },
   body: { flex: 1, minWidth: 0 },
   bodyWide: { alignSelf: 'center', flexDirection: 'row', maxWidth: 1160, width: '100%' },

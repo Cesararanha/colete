@@ -1,45 +1,22 @@
-import {
-  createContext,
-  type PropsWithChildren,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-import { Platform, useColorScheme } from 'react-native';
+import { createContext, type PropsWithChildren, useContext } from 'react';
 
 import { colors, type ThemeColors, type ThemeMode } from './colors';
 
 type ThemeContextValue = {
   colors: ThemeColors;
   mode: ThemeMode;
-  toggleMode: () => void;
 };
+
+// Human decision of 14/10/2026 (docs/29 §0): the interface runs in the dark
+// theme only, whatever the system preference, and offers no theme switch. The
+// light tokens stay in colors.ts; docs/15 is updated by a later docs slice.
+const mode: ThemeMode = 'dark';
+const value: ThemeContextValue = { colors: colors[mode], mode };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+// On the web, +html ships <html data-theme="dark"> and dark-only global CSS.
 export function ThemeProvider({ children }: PropsWithChildren) {
-  const systemMode = useColorScheme();
-  const [override, setOverride] = useState<ThemeMode | null>(null);
-  const mode: ThemeMode = override ?? (systemMode === 'dark' ? 'dark' : 'light');
-
-  // The web focus ring lives in +html's stylesheet; it follows the app theme,
-  // which can differ from the system preference after the toggle.
-  useEffect(() => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      document.documentElement.dataset['theme'] = mode;
-    }
-  }, [mode]);
-
-  const value = useMemo<ThemeContextValue>(
-    () => ({
-      colors: colors[mode],
-      mode,
-      toggleMode: () => setOverride((current) => ((current ?? mode) === 'dark' ? 'light' : 'dark')),
-    }),
-    [mode],
-  );
-
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
