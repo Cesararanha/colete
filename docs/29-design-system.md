@@ -39,6 +39,45 @@ entrou no código e onde está cada coisa.
   título ("Voltar ao grupo"). O atalho "Configurações do grupo" aparece só para quem a
   tela de configurações já admite: dono ou organizador ativo.
 
+### Correção dos P1 da revisão do PR #66 — 14/10/2026
+
+Autorizada pelo César depois de `rev66.md`, com rebase sobre o merge do #67
+(`a496197`). O rebase foi automático, sem conflitos manuais: os textos e fluxos de
+perfil/privacidade do #67 e o polimento do #66 ficaram juntos. Entrar e verificar
+cadastro continuam levando a `/grupos`, ou a `/join` com convite pendente.
+
+- Credenciais: o texto “E-mail ou senha incorretos.” exige o código Auth exato
+  `invalid_credentials`; código ausente não implica credencial incorreta.
+- Quota Auth: HTTP 429, `over_request_rate_limit` e
+  `over_email_send_rate_limit` recebem “Muitas tentativas. Aguarde alguns minutos e
+  tente de novo.”. Rede e 5xx continuam `TransportError`; as demais recusas mantêm
+  o tratamento anterior. `same_password` só nomeia uma recusa de validação na
+  recuperação, sem sobrepor o texto de quota.
+- Saída: `GroupConfirmation` mostra “Sair de <grupo>?” dentro do detalhe, com
+  “Sair do grupo” destrutivo e “Cancelar”. Abrir/cancelar não chama a Edge;
+  cancelar devolve o foco e conserva a membership. O dono continua bloqueado;
+  confirmação chama a mesma RPC com o mesmo intent idempotente.
+
+Contraprovas no código rebaseado antes das correções: 4 unitários falharam pelos
+motivos esperados (ausência de código e quotas); 2 e2e móveis falharam porque o
+429 sem código mostrou credenciais incorretas e a saída não tinha confirmação.
+Depois das correções, os mesmos 31 unitários relevantes passaram e o e2e prova
+zero chamadas ao abrir/cancelar, membership ainda ativa e uma chamada ao confirmar.
+
+Validação medida nesta correção:
+
+- `verify:app`: exit 0, 30 arquivos / 337 testes unitários; 1 aviso de lint herdado
+  do #67 (`View` não usado em `PrivacyAccountScreen`), sem erro.
+- Auth: 10 passaram / 2 pulados; privacidade: 4 passaram / 4 pulados; grupos: 62
+  passaram; CORS web: 4 passaram; smoke: 6 passaram.
+- pgTAP: 19 arquivos / 1259 asserções; os 11 harnesses `db:test:*` passaram.
+- `test:staging`: 98 passaram; `test:audit`: 94 passaram; `audit:high`: exit 0
+  com as 2 exceções ativas existentes, sem mudança de dependência.
+- Censo final: `auth.users`, `profiles`, `groups`, `group_members`,
+  `idempotency_records` e `invite_rate_limits` em 0. Resíduos de auditoria Auth,
+  prova automatizada de rolagem longa e consolidação de tema nos normativos
+  permanecem fora desta correção, por decisão humana.
+
 ## 1. Regras de composição
 
 1. **Sem contorno.** As áreas se separam por camada (`background` → `surface` →

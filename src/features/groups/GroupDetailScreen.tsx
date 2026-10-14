@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -18,6 +18,7 @@ import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
+import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
 import { roleIcon, roleName } from './group-roles';
 import { MemberRow } from './MemberRow';
 
@@ -25,6 +26,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   const queryClient = useQueryClient();
   const { colors } = useTheme();
   const intent = useRef<MutationIntent<unknown> | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const detail = useQuery({
     queryKey: [PRIVATE_QUERY_ROOT, 'group-detail', profile.id, groupId],
     queryFn: () =>
@@ -208,12 +210,38 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
               icon="log-out"
               label={pt.groups.detail.leave}
               onPress={() => {
-                if (group.role !== 'owner' && !leaving.isPending) leaving.mutate();
+                if (group.role !== 'owner' && !leaving.isPending) setConfirmLeave(true);
               }}
               testID="leave-group"
               variant="destructive"
             />
           </View>
+          {confirmLeave && group.role !== 'owner' ? (
+            <GroupConfirmation
+              title={pt.groups.detail.confirmLeave(group.name)}
+              testID="leave-confirmation"
+            >
+              <AppButton
+                icon="log-out"
+                label={pt.groups.detail.leave}
+                onPress={() => {
+                  if (group.role !== 'owner' && !leaving.isPending) leaving.mutate();
+                }}
+                testID="confirm-leave-group"
+                variant="destructive"
+              />
+              <AppButton
+                label={pt.groups.members.cancel}
+                onPress={() => {
+                  if (leaving.isPending) return;
+                  setConfirmLeave(false);
+                  focusGroupControl('leave-group');
+                }}
+                testID="cancel-leave-group"
+                variant="secondary"
+              />
+            </GroupConfirmation>
+          ) : null}
         </View>
       ) : null}
     </AuthenticatedShell>

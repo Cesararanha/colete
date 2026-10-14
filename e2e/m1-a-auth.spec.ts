@@ -1058,6 +1058,65 @@ test.describe('M1-A authentication', () => {
     await expect(password).toHaveAttribute('type', 'password');
   });
 
+  test('Auth rate limits have their own message and missing codes never imply invalid credentials', async ({
+    page,
+  }) => {
+    for (const attempt of [
+      {
+        status: 429,
+        code: undefined,
+        message: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+      },
+      {
+        status: 429,
+        code: 'over_request_rate_limit',
+        message: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+      },
+      {
+        status: 400,
+        code: 'over_email_send_rate_limit',
+        message: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+      },
+      { status: 400, code: undefined, message: 'Entre novamente para continuar com segurança.' },
+      { status: 400, code: 'invalid_credentials', message: 'E-mail ou senha incorretos.' },
+    ]) {
+      await page.route('**/auth/v1/token**', (route) =>
+        route.fulfill({
+          status: attempt.status,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            msg: 'RAW_SERVER_SENTINEL',
+            ...(attempt.code === undefined ? {} : { error_code: attempt.code }),
+          }),
+        }),
+      );
+      await page.goto('/entrar');
+      await page.getByTestId('login-email').fill('synthetic@colete.test');
+      await page.getByTestId('login-password').fill('Synthetic-2026');
+      await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await expect(page.getByRole('alert')).toHaveText(attempt.message);
+      await expect(page.locator('body')).not.toContainText('RAW_SERVER_SENTINEL');
+      await page.unroute('**/auth/v1/token**');
+    }
+    // Other auth screens share authFailure and the general message mapper.
+    await page.route('**/auth/v1/recover**', (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error_code: 'over_email_send_rate_limit',
+          msg: 'RAW_SERVER_SENTINEL',
+        }),
+      }),
+    );
+    await page.goto('/esqueci-senha');
+    await page.getByTestId('recovery-email').fill('synthetic@colete.test');
+    await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+    await expect(page.getByRole('alert')).toHaveText(
+      'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+    );
+  });
+
   test('a network failure is honest and offers a retry', async ({ page }) => {
     await page.route('**/auth/v1/token**', (route) => route.abort('connectionfailed'));
     await page.goto('/entrar');

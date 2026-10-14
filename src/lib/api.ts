@@ -2,6 +2,7 @@ import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 
 import type { Database } from './database.types';
 import { isErrorCode, type ErrorCode } from './error-codes';
+import { pt } from './i18n/pt';
 import {
   dataExportProjectionSchema,
   deletionRequestProjectionSchema,
@@ -284,7 +285,17 @@ function authFailure(
   if (error.status === undefined || error.status === 0 || error.status >= 500) {
     throw new TransportError();
   }
-  throw new AppError(code, error.message, error.code === undefined ? {} : { authCode: error.code });
+  // Auth quotas can arrive without a code, or under the request/e-mail code.
+  // Transport failures keep precedence; only an actual Auth refusal reaches here.
+  const rateLimited =
+    error.status === 429 ||
+    error.code === 'over_request_rate_limit' ||
+    error.code === 'over_email_send_rate_limit';
+  throw new AppError(
+    rateLimited ? 'RATE_LIMITED' : code,
+    rateLimited ? pt.auth.errors.rateLimit : error.message,
+    error.code === undefined ? {} : { authCode: error.code },
+  );
 }
 
 export type MutationIntent<T> = {

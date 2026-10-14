@@ -37,6 +37,7 @@ export const pt = {
       active: 'Ativo',
       description: 'Confira o grupo e suas ações disponíveis.',
       leave: 'Sair do grupo',
+      confirmLeave: (name: string) => `Sair de ${name}?`,
       ownerLeaveReason: 'Transfira a titularidade primeiro para sair deste grupo.',
       invites: 'Convites do grupo',
       left: 'Você saiu do grupo.',
@@ -310,6 +311,7 @@ export const pt = {
     errors: {
       credentials: 'E-mail ou senha incorretos.',
       samePassword: 'A nova senha precisa ser diferente da atual.',
+      rateLimit: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
       invalidCode: 'Digite o código mais recente enviado para seu e-mail.',
       validation: 'Revise os campos indicados e tente novamente.',
       unauthenticated: 'Entre novamente para continuar com segurança.',

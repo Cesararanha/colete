@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AppError, createApiClient } from './api';
+import { createClient } from '@supabase/supabase-js';
+
+import { AppError, createApiClient, TransportError } from './api';
 import type { ColeteSupabaseClient } from './supabase';
 
 const REQUEST_ID = '01890f7e-e948-7c53-b13a-4a36e4b7d21e';
@@ -360,6 +362,52 @@ describe('lib/api authentication boundaries', () => {
       authCode: 'invalid_credentials',
       code: 'UNAUTHENTICATED',
     });
+  });
+
+  it.each([
+    { status: 429, authCode: undefined },
+    { status: 429, authCode: 'over_request_rate_limit' },
+    { status: 400, authCode: 'over_email_send_rate_limit' },
+  ])('classifies an Auth rate limit safely ($status / $authCode)', async ({ status, authCode }) => {
+    const sdk = createClient('http://127.0.0.1:54321', 'sb_publishable_synthetic', {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: {
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              msg: 'RAW_SERVER_SENTINEL',
+              ...(authCode === undefined ? {} : { error_code: authCode }),
+            }),
+            { status, headers: { 'content-type': 'application/json' } },
+          ),
+      },
+    });
+    const client = createApiClient({ supabase: sdk as ColeteSupabaseClient });
+    await expect(
+      client.signInWithPassword('synthetic@colete.test', 'Synthetic-2026'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+      ...(authCode === undefined ? {} : { authCode }),
+    });
+  });
+
+  it('keeps network and server failures as TransportError even with a rate-limit code', async () => {
+    for (const status of [undefined, 0, 503]) {
+      const client = createApiClient({
+        supabase: {
+          auth: {
+            signInWithPassword: async () => ({
+              data: { session: null, user: null },
+              error: { status, code: 'over_request_rate_limit', message: 'RAW_SERVER_SENTINEL' },
+            }),
+          },
+        } as unknown as ColeteSupabaseClient,
+      });
+      await expect(
+        client.signInWithPassword('synthetic@colete.test', 'Synthetic-2026'),
+      ).rejects.toBeInstanceOf(TransportError);
+    }
   });
 
   it('signs out only the current session', async () => {

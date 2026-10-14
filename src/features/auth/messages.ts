@@ -46,7 +46,7 @@ export function loginErrorMessage(error: unknown): string {
   if (
     error instanceof AppError &&
     error.code === 'UNAUTHENTICATED' &&
-    (error.authCode === undefined || error.authCode === 'invalid_credentials')
+    error.authCode === 'invalid_credentials'
   ) {
     return pt.auth.errors.credentials;
   }
@@ -55,7 +55,11 @@ export function loginErrorMessage(error: unknown): string {
 
 /** Password update (recovery): Supabase Auth refuses an unchanged password with `same_password`. */
 export function passwordUpdateErrorMessage(error: unknown): string {
-  if (error instanceof AppError && error.authCode === 'same_password') {
+  if (
+    error instanceof AppError &&
+    error.code === 'VALIDATION' &&
+    error.authCode === 'same_password'
+  ) {
     return pt.auth.errors.samePassword;
   }
   return authErrorMessage(error);

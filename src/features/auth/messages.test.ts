@@ -12,10 +12,13 @@ const invalidCredentials = new AppError('UNAUTHENTICATED', 'Invalid login creden
 describe('auth messages', () => {
   it('answers a refused sign-in with one message that never tells which field was wrong', () => {
     expect(loginErrorMessage(invalidCredentials)).toBe('E-mail ou senha incorretos.');
-    expect(loginErrorMessage(new AppError('UNAUTHENTICATED', 'Invalid login credentials'))).toBe(
-      'E-mail ou senha incorretos.',
-    );
     expect(pt.auth.errors.credentials).not.toBe(pt.auth.errors.unauthenticated);
+  });
+
+  it('never guesses invalid credentials when Auth did not provide that code', () => {
+    expect(loginErrorMessage(new AppError('UNAUTHENTICATED', 'RAW_SERVER_SENTINEL'))).toBe(
+      'Entre novamente para continuar com segurança.',
+    );
   });
 
   it('keeps the general wording for any other sign-in refusal', () => {
