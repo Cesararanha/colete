@@ -40,7 +40,7 @@ export function LoginScreen() {
       // Whoever signs in here owns this device now; a protocol kept by an
       // earlier account must not shadow their own gate.
       deletionProtocolStore.clear();
-      router.replace(hasPendingInvite() ? '/join' : '/perfil');
+      router.replace(hasPendingInvite() ? '/join' : '/grupos');
     },
   });
 

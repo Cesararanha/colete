@@ -231,7 +231,7 @@ async function login(page: Page, actor: Actor) {
   );
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   expect((await response).status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
 }
 
 test('UI-A creates, lists, shares, previews and requests membership with a clean URL', async ({
@@ -1220,7 +1220,7 @@ test('UI-A clears old account group and invite material from the browser heap', 
       if (request.isNavigationRequest() && request.frame() === page.mainFrame())
         logoutDocuments.push(new URL(request.url()).pathname);
     });
-    await page.getByRole('button', { name: 'Sair com segurança' }).click();
+    await page.getByRole('button', { name: 'Sair da conta' }).click();
     await unloaded;
     await page.waitForLoadState('load');
     expect(logoutDocuments).toEqual(['/entrar']);
@@ -1236,7 +1236,7 @@ test('UI-A clears old account group and invite material from the browser heap', 
     );
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     expect((await signedB).status()).toBe(200);
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
     expect(
       await page.evaluate(
         (needle) => document.body.textContent?.includes(needle) ?? false,
@@ -1462,7 +1462,7 @@ test('UI-A expired session with valid refresh keeps its document', async ({ page
     });
     expect((await refresh).status()).toBe(200);
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
     expect(documents).toEqual([]);
   } finally {
     await cleanActors(authIds, db);

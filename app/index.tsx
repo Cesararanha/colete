@@ -3,5 +3,5 @@ import { isSmokeMode } from '@/lib/runtime';
 import { Redirect } from 'expo-router';
 
 export default function IndexScreen() {
-  return isSmokeMode() ? <HomeScreen /> : <Redirect href="/perfil" />;
+  return isSmokeMode() ? <HomeScreen /> : <Redirect href="/grupos" />;
 }

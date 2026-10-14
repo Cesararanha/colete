@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Controller, type FieldErrors, useForm } from 'react-hook-form';
 import { StyleSheet, TextInput, View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
@@ -48,7 +48,21 @@ export function changedProfilePatch(
   return profilePatchSchema.parse(patch);
 }
 
-export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
+/**
+ * The edit mode of the profile card. Same schema, same dirty-field patch and
+ * the same idempotent update command as before; only the way in (Edit) and
+ * out (Save or Cancel) is new. An emptied optional field is sent as null, the
+ * value the old "clear" buttons wrote.
+ */
+export function ProfileDataForm({
+  onCancel,
+  onSaved,
+  profile,
+}: {
+  onCancel: () => void;
+  onSaved: (current: OwnProfile) => void;
+  profile: OwnProfile;
+}) {
   const queryClient = useQueryClient();
   const inputRefs = useRef<Partial<Record<'name' | 'nickname' | 'shirt_number', TextInput>>>({});
   const [focusRequest, setFocusRequest] = useState<{
@@ -82,6 +96,7 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
       setIntent(null);
       queryClient.setQueryData(privateQueryKeys.ownProfile, result.current);
       reset(formValues(result.current));
+      onSaved(result.current);
       await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });
     },
   });
@@ -110,6 +125,10 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
     if (focusRequest === null) return;
     inputRefs.current[focusRequest.target]?.focus();
   }, [focusRequest]);
+  // Opening the edit mode moves focus to its first field.
+  useEffect(() => {
+    inputRefs.current.name?.focus();
+  }, []);
   const submit = handleSubmit((values) => {
     const patch = changedProfilePatch(values, dirtyFields);
     const command = api.updateProfile(patch);
@@ -123,7 +142,6 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
   return (
     <View style={styles.form}>
       {update.error === null ? null : <AppAlert message={profileErrorMessage(update.error)} />}
-      {update.isSuccess ? <AppStatus message={pt.profile.data.saved} /> : null}
       <Controller
         control={control}
         name="name"
@@ -148,29 +166,20 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
         control={control}
         name="nickname"
         render={({ field }) => (
-          <View style={styles.optionalField}>
-            <AppTextField
-              autoCapitalize="words"
-              error={fieldMessage(errors.nickname?.message)}
-              label={pt.profile.fields.nickname}
-              onBlur={field.onBlur}
-              onChangeText={(value) => {
-                changed();
-                field.onChange(value);
-              }}
-              ref={registerInput('nickname', field.ref)}
-              testID="profile-nickname"
-              value={typeof field.value === 'string' ? field.value : ''}
-            />
-            <AppButton
-              label={pt.profile.clear.nickname}
-              onPress={() => {
-                changed();
-                field.onChange(null);
-              }}
-              variant="secondary"
-            />
-          </View>
+          <AppTextField
+            autoCapitalize="words"
+            error={fieldMessage(errors.nickname?.message)}
+            hint={pt.profile.fields.optionalHint}
+            label={pt.profile.fields.nickname}
+            onBlur={field.onBlur}
+            onChangeText={(value) => {
+              changed();
+              field.onChange(value === '' ? null : value);
+            }}
+            ref={registerInput('nickname', field.ref)}
+            testID="profile-nickname"
+            value={typeof field.value === 'string' ? field.value : ''}
+          />
         )}
       />
       <Controller
@@ -178,14 +187,15 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
         name="position"
         render={({ field }) => (
           <ProfileChoiceField
-            clearLabel={pt.profile.clear.position}
             hint={pt.profile.fields.positionHint}
             label={pt.profile.fields.position}
+            noneLabel={pt.profile.notInformed}
             onChange={(value) => {
               changed();
               field.onChange(value);
             }}
             options={pt.profile.positionOptions}
+            testID="profile-position"
             value={field.value}
           />
         )}
@@ -195,13 +205,14 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
         name="dominant_foot"
         render={({ field }) => (
           <ProfileChoiceField
-            clearLabel={pt.profile.clear.dominantFoot}
             label={pt.profile.fields.dominantFoot}
+            noneLabel={pt.profile.notInformed}
             onChange={(value) => {
               changed();
               field.onChange(value);
             }}
             options={pt.profile.footOptions}
+            testID="profile-dominant-foot"
             value={field.value}
           />
         )}
@@ -210,50 +221,63 @@ export function ProfileDataForm({ profile }: { profile: OwnProfile }) {
         control={control}
         name="shirt_number"
         render={({ field }) => (
-          <View style={styles.optionalField}>
-            <AppTextField
-              error={fieldMessage(errors.shirt_number?.message)}
-              inputMode="numeric"
-              keyboardType="number-pad"
-              label={pt.profile.fields.shirtNumber}
-              onBlur={field.onBlur}
-              onChangeText={(value) => {
-                changed();
-                field.onChange(/^\d+$/u.test(value) ? Number(value) : value);
-              }}
-              ref={registerInput('shirt_number', field.ref)}
-              testID="profile-shirt-number"
-              value={typeof field.value === 'number' ? String(field.value) : ''}
-            />
-            <AppButton
-              label={pt.profile.clear.shirtNumber}
-              onPress={() => {
-                changed();
-                field.onChange(null);
-              }}
-              variant="secondary"
-            />
-          </View>
+          <AppTextField
+            error={fieldMessage(errors.shirt_number?.message)}
+            hint={pt.profile.fields.optionalHint}
+            inputMode="numeric"
+            keyboardType="number-pad"
+            label={pt.profile.fields.shirtNumber}
+            onBlur={field.onBlur}
+            onChangeText={(value) => {
+              changed();
+              field.onChange(value === '' ? null : /^\d+$/u.test(value) ? Number(value) : value);
+            }}
+            ref={registerInput('shirt_number', field.ref)}
+            testID="profile-shirt-number"
+            value={
+              typeof field.value === 'number'
+                ? String(field.value)
+                : typeof field.value === 'string'
+                  ? field.value
+                  : ''
+            }
+          />
         )}
       />
       {update.isPending ? <AppSkeleton lines={2} /> : null}
-      <AppButton
-        label={update.isPending ? pt.common.sending : pt.profile.data.save}
-        onPress={submit}
-        testID="save-profile"
-      />
-      {canRetry && intent !== null ? (
+      <View style={styles.actions}>
         <AppButton
-          label={pt.common.retry}
-          onPress={() => update.mutate(intent)}
+          label={update.isPending ? pt.common.sending : pt.profile.data.save}
+          onPress={() => {
+            if (!update.isPending) void submit();
+          }}
+          testID="save-profile"
+        />
+        <AppButton
+          label={pt.profile.data.cancel}
+          onPress={() => {
+            if (update.isPending) return;
+            reset(formValues(profile));
+            update.reset();
+            setIntent(null);
+            onCancel();
+          }}
+          testID="cancel-profile-edit"
           variant="secondary"
         />
-      ) : null}
+        {canRetry && intent !== null ? (
+          <AppButton
+            label={pt.common.retry}
+            onPress={() => update.mutate(intent)}
+            variant="secondary"
+          />
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, minWidth: 0, width: '100%' },
   form: { gap: spacing.md, minWidth: 0, width: '100%' },
-  optionalField: { gap: spacing.sm, minWidth: 0, width: '100%' },
 });

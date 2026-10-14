@@ -255,7 +255,17 @@ async function signInAndCompleteProfile(page: Page, email: string) {
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Complete seu perfil' })).toBeVisible();
   await page.getByRole('button', { name: 'Concluir perfil' }).click();
+  // First access ends on Grupos (decisão humana de 14/10/2026); the profile is one tab away.
+  await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+  await page.getByRole('link', { name: 'Perfil', exact: true }).click();
   await expect(page.getByTestId('profile-data-card')).toBeVisible();
+}
+
+/** Export, sign-in method and deletion live on "Privacidade e conta", linked from the profile. */
+async function openPrivacyAndAccount(page: Page) {
+  await page.getByRole('link', { name: 'Privacidade e conta' }).click();
+  await expect(page).toHaveURL(/\/perfil\/privacidade$/u);
+  await expect(page.getByRole('heading', { level: 1, name: 'Privacidade e conta' })).toBeVisible();
   await expect(page.getByTestId('export-state-title')).toBeVisible();
 }
 
@@ -439,8 +449,10 @@ test.describe('M1-B screen 13 privacy controls', () => {
         const url = new URL(request.url());
         return request.method() === 'GET' && url.pathname === '/rest/v1/profiles';
       });
-      await page.getByRole('button', { name: 'Salvar dados' }).click();
+      await page.getByRole('button', { name: 'Editar' }).click();
+      await page.getByRole('button', { name: 'Salvar', exact: true }).click();
       assertRequestUsesRefreshedToken(await refreshedProfileRequest, refreshedTokens);
+      await openPrivacyAndAccount(page);
       // The proof covers the privacy journeys; profile completion legitimately
       // carried the name as its business input. The deliberate profile save
       // above exists only to prove the post-refresh gate request.
@@ -724,6 +736,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       expect(passwordGrants).toHaveLength(1);
       const refreshedTokens = await refreshBrowserSession(page, env);
       captured.length = 0;
+      await openPrivacyAndAccount(page);
 
       const card = page.getByTestId('profile-deletion-card');
       await expect(card).toContainText('anonimizados');
@@ -861,13 +874,15 @@ test.describe('M1-B screen 13 privacy controls', () => {
       expect(requested.rows[0]?.account_status).toBe('deletion_pending');
       const protocol = requested.rows[0]?.id ?? '';
 
-      const shell = page.getByTestId('deletion-shell-card');
+      // Grupos, Perfil and this screen are all still in the navigation history, and
+      // every one of them is behind the gate, so each now renders the shell; only
+      // the current one is visible. No card of the profile or of this screen survives.
+      const shell = page.getByRole('main').getByTestId('deletion-shell-card');
       await expect(shell.getByTestId('deletion-shell-protocol')).toHaveText(protocol);
       await expect(shell).toContainText(/Pedido feito em \d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}\./u);
-      await expect(page.getByTestId('profile-data-card')).toHaveCount(0);
       await expect(page.getByTestId('profile-export-card')).toHaveCount(0);
-      await expect(page.getByTestId('profile-password-card')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Salvar dados' })).toHaveCount(0);
+      await expect(page.getByTestId('profile-provider-card')).toHaveCount(0);
+      await expect(page.getByTestId('profile-deletion-card')).toHaveCount(0);
       await expect(shell.getByTestId('deletion-shell-support')).toHaveCount(0);
       await assertAccessible(page);
       await page.getByRole('button', { name: 'Usar tema escuro' }).click();
@@ -887,6 +902,14 @@ test.describe('M1-B screen 13 privacy controls', () => {
         page.getByRole('heading', { level: 1, name: 'Exclusão em andamento' }),
       ).toBeVisible();
       await expect(page.getByTestId('deletion-shell-protocol')).toHaveText(protocol);
+      // The profile itself is behind the same gate: no data, no edit, only the shell.
+      await page.goto('/perfil');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Exclusão em andamento' }),
+      ).toBeVisible();
+      await expect(page.getByTestId('deletion-shell-protocol')).toHaveText(protocol);
+      await expect(page.getByTestId('profile-data-card')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Editar' })).toHaveCount(0);
 
       // An operational delay is shown as delay, without any internal detail.
       await db.query(
@@ -994,6 +1017,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       secondAuthUserId = (await createVerifiedUser(request, env, second)).id;
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
       await signInAndCompleteProfile(page, first.email);
+      await openPrivacyAndAccount(page);
       const card = page.getByTestId('profile-export-card');
       const title = card.getByTestId('export-state-title');
       await card.getByRole('button', { name: 'Gerar export' }).click();
@@ -1012,7 +1036,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
         });
       }
       restAuthorization.markLogout();
-      await otherTab.getByRole('button', { name: 'Sair com segurança' }).click();
+      await otherTab.getByRole('button', { name: 'Sair da conta' }).click();
       await expect(otherTab).toHaveURL(/\/entrar$/u);
       await expect(page).toHaveURL(/\/entrar$/u);
       for (const tab of [page, otherTab]) {
@@ -1045,7 +1069,11 @@ test.describe('M1-B screen 13 privacy controls', () => {
         page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
       ).toBeVisible();
       await page.getByRole('button', { name: 'Concluir perfil' }).click();
+      // Client-side navigation only: the same document, so the same query cache.
+      await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+      await page.getByRole('link', { name: 'Perfil', exact: true }).click();
       await expect(page.getByTestId('profile-data-card')).toBeVisible();
+      await page.getByRole('link', { name: 'Privacidade e conta' }).click();
       await expect(card).toBeVisible();
       await expect(card.getByText('Carregando com segurança…')).toBeVisible();
       await expect(title).toHaveCount(0);
@@ -1090,6 +1118,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await installCallTimeSessionReadFailure(page);
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
       await signInAndCompleteProfile(page, owner.email);
+      await openPrivacyAndAccount(page);
       const card = page.getByTestId('profile-export-card');
       const title = card.getByTestId('export-state-title');
       // The request's own success refetches the projection; that read must

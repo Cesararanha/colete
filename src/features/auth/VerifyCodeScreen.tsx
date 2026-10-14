@@ -55,7 +55,7 @@ export function VerifyCodeScreen() {
       await api.verifyEmailOtp(pendingEmail, code, 'signup');
       clearPendingSignup();
       deletionProtocolStore.clear();
-      router.replace(hasPendingInvite() ? '/join' : '/perfil');
+      router.replace(hasPendingInvite() ? '/join' : '/grupos');
     },
   });
 
