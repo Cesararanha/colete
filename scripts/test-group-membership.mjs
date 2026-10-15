@@ -627,21 +627,33 @@ const EXPECTED_0018_OVERRIDES = new Set([
   'private.validate_idempotency_outcome',
 ]);
 
+// 0021 (Rachas v1) adds create_match to the same four lists, in the current
+// idempotency pattern (D63.5 deferred, docs/25 section 8.1).
+const EXPECTED_0021_OVERRIDES = new Set([
+  'private.acquire_group_idempotency',
+  'private.complete_group_idempotency',
+  'private.enforce_idempotency_conclusion',
+  'private.validate_idempotency_outcome',
+]);
+
 async function proveCanonicalText(admin) {
   const defined = migrationFunctions(MIGRATION);
   const overrides = migrationFunctions('0017_group_invites.sql');
   const renameOverrides = migrationFunctions('0018_rename_group.sql');
+  const matchOverrides = migrationFunctions('0021_matches_v1.sql');
   assert.deepEqual(
     [...defined.keys()].sort(),
     DEFINED_0016,
     'the extractor did not find exactly the functions defined by 0016',
   );
   for (const [qualifiedName, expected] of defined) {
-    const expectedLive = EXPECTED_0018_OVERRIDES.has(qualifiedName)
-      ? renameOverrides.get(qualifiedName)
-      : EXPECTED_0017_OVERRIDES.has(qualifiedName)
-        ? overrides.get(qualifiedName)
-        : expected;
+    const expectedLive = EXPECTED_0021_OVERRIDES.has(qualifiedName)
+      ? matchOverrides.get(qualifiedName)
+      : EXPECTED_0018_OVERRIDES.has(qualifiedName)
+        ? renameOverrides.get(qualifiedName)
+        : EXPECTED_0017_OVERRIDES.has(qualifiedName)
+          ? overrides.get(qualifiedName)
+          : expected;
     assert.ok(expectedLive, `${qualifiedName} has no expected live definition`);
     const differences = compareDefinition(expectedLive, await liveFunction(admin, qualifiedName));
     assert.deepEqual(
@@ -658,7 +670,8 @@ async function proveCanonicalText(admin) {
       if (defined.has(qualifiedName)) {
         assert.ok(
           (file === '0017_group_invites.sql' && EXPECTED_0017_OVERRIDES.has(qualifiedName)) ||
-            (file === '0018_rename_group.sql' && EXPECTED_0018_OVERRIDES.has(qualifiedName)),
+            (file === '0018_rename_group.sql' && EXPECTED_0018_OVERRIDES.has(qualifiedName)) ||
+            (file === '0021_matches_v1.sql' && EXPECTED_0021_OVERRIDES.has(qualifiedName)),
           `${file} unexpectedly redefines ${qualifiedName}`,
         );
       }
@@ -673,6 +686,11 @@ async function proveCanonicalText(admin) {
     [...renameOverrides.keys()].filter((name) => defined.has(name)).sort(),
     [...EXPECTED_0018_OVERRIDES].sort(),
     '0018 must redefine exactly the four expected 0016 functions',
+  );
+  assert.deepEqual(
+    [...matchOverrides.keys()].filter((name) => defined.has(name)).sort(),
+    [...EXPECTED_0021_OVERRIDES].sort(),
+    '0021 must redefine exactly the four expected 0016 functions',
   );
   // Nenhuma função que a 0015 fixou é redefinida pela 0016.
   for (const qualifiedName of migrationFunctions('0015_group_foundation.sql').keys()) {

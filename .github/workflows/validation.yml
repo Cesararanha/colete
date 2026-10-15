@@ -138,6 +138,8 @@ jobs:
         run: npm run db:test:rename
       - name: Run the group member read matrix and value leak counterproofs
         run: npm run db:test:members
+      - name: Run the Rachas v1 HTTP, RLS, authority mutant and lock harness
+        run: npm run db:test:matches
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build
@@ -148,6 +150,8 @@ jobs:
         run: npm run test:privacy:web
       - name: Run the UI-A and UI-B group browser flows
         run: npm run test:groups:web
+      - name: Run the Rachas v1 tabs, modal, GPS and header browser flows
+        run: npm run test:matches:web
       - name: Run the direct cross-origin Edge browser flow
         run: npm run test:cors:web
       # Evidence for a failed browser run: trace, screenshot and error context.

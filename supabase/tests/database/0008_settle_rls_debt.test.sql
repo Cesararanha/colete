@@ -42,6 +42,7 @@ select is(
 -- had, and no private table has RLS any more.
 -- A 0015 acrescenta groups, group_members e group_invites: nascem em public
 -- com RLS forçada porque têm leitor direto autorizado (docs/25 §3.2).
+-- A 0021 cria matches em private, sem RLS: nenhum cliente a lê diretamente.
 
 select set_eq(
   $$select n.nspname || '.' || c.relname

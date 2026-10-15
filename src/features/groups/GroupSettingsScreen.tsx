@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
@@ -62,7 +61,7 @@ export function GroupSettingsScreen({
       {...pt.groups.settings}
       back={{
         label: pt.groups.settings.back,
-        onPress: () => router.navigate(`/grupos/${groupId}`),
+        href: `/grupos/${groupId}`,
         testID: 'settings-back',
       }}
     >

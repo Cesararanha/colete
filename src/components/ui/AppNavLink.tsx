@@ -1,5 +1,5 @@
 import { Link, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
@@ -31,13 +31,20 @@ export function AppNavLink({
   variant = 'link',
 }: AppNavLinkProps) {
   const { colors } = useTheme();
+  // The current route of a navigation link is aria-current="page" on the web;
+  // aria-selected belongs to tab/option roles, not to a link. Native readers
+  // keep the selected state.
+  const current =
+    Platform.OS === 'web'
+      ? { 'aria-current': active ? ('page' as const) : undefined }
+      : { accessibilityState: { selected: active } };
 
   if (variant === 'link') {
     return (
       <Link
         accessibilityLabel={label}
         accessibilityRole="link"
-        accessibilityState={{ selected: active }}
+        {...current}
         href={href}
         style={styles.link}
       >
@@ -60,7 +67,7 @@ export function AppNavLink({
       <Pressable
         accessibilityLabel={label}
         accessibilityRole="link"
-        accessibilityState={{ selected: active }}
+        {...current}
         // Link asChild merges styles as an array, so a style function would be dropped.
         style={tab ? styles.tab : styles.rail}
       >
@@ -111,7 +118,9 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     justifyContent: 'center',
     minHeight: size.button + spacing.sm,
-    minWidth: 96,
+    // Three tabs share the bar: the floor is the touch target, so the bar still
+    // fits a 412 px screen at 200% zoom (docs/15) without horizontal scroll.
+    minWidth: size.target,
     paddingBottom: spacing.sm,
     paddingTop: spacing.ms,
   },

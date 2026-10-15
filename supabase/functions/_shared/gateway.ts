@@ -147,6 +147,12 @@ function rpcParameters(
         p_group_id: canonicalInput['group_id'],
         p_name: canonicalInput['name'],
       };
+    case 'create_match':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_config: canonicalInput['config'],
+      };
   }
 }
 

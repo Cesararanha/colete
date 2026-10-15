@@ -208,6 +208,17 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   expect(failures).toEqual([]);
 }
 
+/**
+ * After a "Voltar", exactly one parent screen is mounted (hidden stack
+ * screens stay in the DOM, so a stacked second parent would count twice),
+ * the child is gone and the app keeps one tab bar.
+ */
+async function expectOneParent(page: Page, parentTestId: string, childTestId: string) {
+  await expect(page.locator(`[data-testid="${parentTestId}"]`)).toHaveCount(1);
+  await expect(page.locator(`[data-testid="${childTestId}"]`)).toHaveCount(0);
+  await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
+}
+
 async function login(page: Page, actor: Actor) {
   await page.goto('/entrar');
   await page.getByTestId('login-email').fill(actor.email);
@@ -302,12 +313,22 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     }
     const groupId = page.url().match(/\/grupos\/([^/]+)\/convites/u)?.[1];
     expect(groupId).toBeDefined();
-    // Creation replaced the history with /convites, so the way back must navigate.
+    // Creation replaced the history with /convites, so no group is in the stack:
+    // the back replaces Convites with the group, never stacking a second one.
     const invitesBack = page.getByTestId('invites-back');
     await expect(invitesBack).toHaveAccessibleName('Voltar ao grupo');
     await invitesBack.click();
     await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}$`, 'u'));
     await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 2 })).toBeVisible();
+    await expectOneParent(page, 'group-detail-card', 'invites-back');
+    // And from that group, a normal round trip still pops back to the same one.
+    await page
+      .getByTestId('group-detail-card')
+      .getByRole('button', { name: 'Convites do grupo' })
+      .click();
+    await page.getByTestId('invites-back').click();
+    await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}$`, 'u'));
+    await expectOneParent(page, 'group-detail-card', 'invites-back');
     await page.goto('/grupos');
     await expect(page.getByTestId('group-list-card')).toBeVisible();
     await assertUiAccessible(page);

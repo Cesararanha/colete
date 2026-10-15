@@ -10,6 +10,7 @@
 
 import { GatewayError, validation } from './errors.ts';
 import { normaliseGroupName } from './group-name.ts';
+import { normaliseMatchConfig } from './match-config.ts';
 
 export const IDENTITY_OPERATIONS = [
   'complete_profile',
@@ -21,7 +22,8 @@ export const IDENTITY_OPERATIONS = [
 ] as const;
 
 // docs/13 section 5, delivered by docs/25 section 4. create_group belongs to
-// the invite slice and is not here.
+// the invite slice and is not here. create_match is the Rachas v1 cut of
+// docs/13 section 3.1 (docs/25 section 8.1).
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -31,6 +33,7 @@ export const GROUP_OPERATIONS = [
   'transfer_ownership',
   'leave_group',
   'rename_group',
+  'create_match',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -287,6 +290,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     transfer_ownership: ['request_id', 'group_id', 'new_owner_id'],
     leave_group: ['request_id', 'group_id'],
     rename_group: ['request_id', 'group_id', 'name'],
+    create_match: ['request_id', 'group_id', 'config'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -413,6 +417,17 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
           name: normaliseGroupName(record['name']),
         },
       };
+    case 'create_match': {
+      if (!Object.hasOwn(record, 'config')) throw validation('config', 'is required');
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          config: { ...normaliseMatchConfig(record['config']) },
+        },
+      };
+    }
   }
 }
 

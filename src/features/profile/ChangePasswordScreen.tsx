@@ -1,6 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { router } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
@@ -15,6 +14,7 @@ import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import { backTo } from '@/lib/navigation';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
@@ -81,7 +81,7 @@ export function ChangePasswordScreen({ session }: { session: Session }) {
     if (stage === 'complete') completeRef.current?.focus();
   }, [otpForm, passwordForm, stage]);
 
-  const cancel = () => router.dismissTo('/perfil');
+  const cancel = () => backTo('/perfil');
   const shell = (children: ReactNode) => (
     <AuthenticatedShell
       description={pt.profile.passwordChange.description}

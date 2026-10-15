@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -50,7 +50,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       {...pt.groups.members}
       back={{
         label: pt.groups.members.back,
-        onPress: () => router.navigate(`/grupos/${groupId}`),
+        href: `/grupos/${groupId}`,
         testID: 'members-back',
       }}
     >
@@ -92,14 +92,14 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
           {!data.members.some((member) => member.status === 'pending') ? (
             <Text style={[styles.body, { color: colors.text }]}>{pt.groups.members.empty}</Text>
           ) : null}
-          {data.members
-            .filter((member) => member.status === 'pending')
-            .map((member) => (
-              <View
-                key={member.profile_id}
-                testID={`member-${member.profile_id}`}
-                style={styles.row}
-              >
+          {/* The rows live inside the management card, which scrolls with the
+              screen: the list itself does not scroll (scrollEnabled false). */}
+          <FlatList
+            data={data.members.filter((member) => member.status === 'pending')}
+            keyExtractor={(member) => member.profile_id}
+            scrollEnabled={false}
+            renderItem={({ item: member }) => (
+              <View testID={`member-${member.profile_id}`} style={styles.row}>
                 <Text style={[styles.body, { color: colors.text }]}>{member.display_name}</Text>
                 {[true, false].map((approve) => (
                   <AppButton
@@ -119,18 +119,18 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                   />
                 ))}
               </View>
-            ))}
+            )}
+          />
           <Text role="heading" aria-level={2} style={[styles.heading, { color: colors.text }]}>
             {pt.groups.detail.members}
           </Text>
-          {data.members
-            .filter((member) => member.status === 'active')
-            .map((member) => (
-              <View
-                key={member.profile_id}
-                testID={`member-${member.profile_id}`}
-                style={styles.row}
-              >
+          <FlatList
+            data={data.members.filter((member) => member.status === 'active')}
+            extraData={[target, reason, invalid, allowed.role]}
+            keyExtractor={(member) => member.profile_id}
+            scrollEnabled={false}
+            renderItem={({ item: member }) => (
+              <View testID={`member-${member.profile_id}`} style={styles.row}>
                 <Text style={[styles.body, { color: colors.text }]}>
                   {member.display_name} ·{' '}
                   {member.role === 'owner'
@@ -229,7 +229,8 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                   </GroupConfirmation>
                 ) : null}
               </View>
-            ))}
+            )}
+          />
         </AppCard>
       ) : null}
     </AuthenticatedShell>

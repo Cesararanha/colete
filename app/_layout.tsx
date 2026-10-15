@@ -25,7 +25,7 @@ const fontMap = {
 };
 
 function ThemedRoutes() {
-  const { mode } = useTheme();
+  const { colors, mode } = useTheme();
 
   return (
     <>
@@ -33,7 +33,11 @@ function ThemedRoutes() {
         <title>{pt.app.name}</title>
       </Head>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack
+        screenOptions={{ contentStyle: { backgroundColor: colors.background }, headerShown: false }}
+      >
+        <Stack.Screen name="criar-racha" options={{ presentation: 'modal' }} />
+      </Stack>
     </>
   );
 }

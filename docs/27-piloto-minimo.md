@@ -298,3 +298,36 @@ Pro com limite ativo ou fatia independente de plano; JWT/rotação não substitu
 a garantia (`25` §8.1; `28`). PWA publica automaticamente pela integração Git
 Vercel a cada merge no main; previews desligados. Supabase continua manual pelo
 César. Domínio final primeiro, duas origens na Edge depois, antes de usar app.
+
+## Rachas v1 — modo apresentação, decisão humana de 12/10/2026
+
+César autorizou um corte de demonstração do M3 para Desenvolvimento Mobile:
+racha de grupo com início/fim, local/endereço, coordenadas opcionais, vagas e
+valor por jogador; criação pelo gateway com request_id; leitura de membros
+ativos e escrita por dono/organizador ativo. Lista, detalhe e criação modal,
+GPS por expo-location e abertura no mapa. FlatList nas listas principais
+(rachas, grupos e gestão de membros), por decisão humana de 15/10/2026;
+coordenadas arredondadas a 4 casas decimais, gravadas só após confirmação.
+A D63.5 foi adiada em 14/10/2026 (`25` §8.1): o corte usa o padrão
+idempotente atual, e o registro de operações é obrigatório antes do piloto
+com usuários reais.
+A base visual pode vir do PR #25, sem importar dados fictícios nem suas
+novas dependências. O piloto completo permanece no mapa acima.
+
+Correções da revisão do #70. Leitura: `matches` não tem acesso direto de
+nenhum papel; mora em `private`, sem RLS e sem grant (`14` §5.2), e o app lê
+só por `get_match` e `list_my_matches` na Edge `groups`, com actor context
+que recusa sessão revogada (401), como `get_group_members`. Não membro
+recebe o mesmo NOT_FOUND para ID existente e inexistente. Mapa, decisão
+humana de César de 15/10/2026: latitude e longitude podem ir ao Google Maps
+somente quando a pessoa toca em "Abrir no Google Maps"; a URL é montada no
+toque, leva só a busca pelo local (coordenadas ou endereço), sem ID de
+racha, grupo ou pessoa, e abre com noopener e noreferrer na web. As
+coordenadas continuam fora de logs, mensagens de erro e URLs do app.
+
+**Depois da apresentação:** recorrência e modelos; Pix e configuração de
+pagamento; goleiros; TP/T0/T1/T2, claims e reconciliação; inscrição, ocupação
+real, fila e adição/remoção de jogadores; ledger, cobrança e devoluções;
+publicação e sorteio; notificações; cancelamento e a matriz integral de
+edição segura do piloto; rachas no export LGPD. A demonstração não afirma
+essas entregas.

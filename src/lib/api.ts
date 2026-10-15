@@ -57,11 +57,41 @@ export type GroupOperation =
   | 'remove_member'
   | 'set_role'
   | 'rename_group'
-  | 'transfer_ownership';
+  | 'transfer_ownership'
+  | 'create_match';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
   current?: { group_id?: string; group_name?: string; status?: 'pending' | 'active' };
+};
+/** The create_match config of docs/13 section 3.1, Rachas v1 cut (docs/25 section 8.1). */
+export type MatchConfig = {
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  location_name: string;
+  location_address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  field_slots: number;
+  field_price: string;
+};
+export type MatchOutcome = {
+  outcome: { group_id: string; match_id: string; logical_result: 'match_created' };
+};
+export type MatchSummary = {
+  id: string;
+  group_id: string;
+  group_name: string;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  location_name: string;
+  location_address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  field_slots: number;
+  field_price: number;
 };
 export type GroupSummary = { id: string; name: string; owner_id: string; role: string };
 export type GroupDetail = {
@@ -207,6 +237,7 @@ const groupOperations = new Set<string>([
   'set_role',
   'rename_group',
   'transfer_ownership',
+  'create_match',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -480,6 +511,8 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     transferOwnership: (groupId: string, targetId: string) =>
       mutation<GroupOutcome>('transfer_ownership', { group_id: groupId, new_owner_id: targetId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
+    createMatch: (groupId: string, config: MatchConfig) =>
+      mutation<MatchOutcome>('create_match', { group_id: groupId, config }),
     joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),
     joinGroupByInvite: (token: string) => mutation<GroupOutcome>('join_by_invite', { token }),
     leaveGroup: (groupId: string) => mutation<GroupOutcome>('leave_group', { group_id: groupId }),
@@ -524,6 +557,23 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
             ? 'owner'
             : (memberships.data?.find((member) => member.group_id === group.id)?.role ?? 'player'),
       }));
+    },
+    /**
+     * Unfinished matches of the caller's active groups. The table has no client
+     * privilege: the Edge reads it with the actor context, which refuses a
+     * revoked session (review of #70, P1-1).
+     */
+    getUpcomingMatches: (signal?: AbortSignal) =>
+      groupRead<MatchSummary[]>('list_my_matches', {}, signal),
+    /** One match, or null: unknown and not-yours answer the same NOT_FOUND. */
+    async getMatch(matchId: string, signal?: AbortSignal): Promise<MatchSummary | null> {
+      try {
+        const rows = await groupRead<MatchSummary[]>('get_match', { match_id: matchId }, signal);
+        return rows[0] ?? null;
+      } catch (error) {
+        if (error instanceof AppError && error.code === 'NOT_FOUND') return null;
+        throw error;
+      }
     },
     async getGroupDetail(
       groupId: string,

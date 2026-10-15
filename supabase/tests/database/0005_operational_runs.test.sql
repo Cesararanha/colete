@@ -213,8 +213,8 @@ select is(
      and 'match_id' = any (
        select attname from pg_attribute
        where attrelid = 'private.job_runs'::regclass and attnum = any (conkey))),
-  0::bigint,
-  'match_id carries no foreign key yet, because public.matches does not exist'
+  1::bigint,
+  'match_id gains exactly one foreign key, added by 0021 when matches is created'
 );
 select col_type_is(
   'private', 'job_runs', 'match_id', 'uuid',
@@ -223,7 +223,7 @@ select col_type_is(
 select ok(
   (select attnotnull = false from pg_attribute
    where attrelid = 'private.job_runs'::regclass and attname = 'match_id'),
-  'match_id is nullable while matches is missing'
+  'match_id stays nullable: a run need not concern a match'
 );
 select fk_ok(
   'private', 'job_runs', 'requested_by',

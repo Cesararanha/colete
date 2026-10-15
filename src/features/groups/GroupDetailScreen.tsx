@@ -108,6 +108,15 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           {group.role === 'owner' || group.role === 'organizer' ? (
             <View style={styles.actions}>
               <AppButton
+                icon="calendar"
+                label={pt.matches.list.create}
+                onPress={() =>
+                  router.push({ pathname: '/criar-racha', params: { groupId: group.id } })
+                }
+                testID="group-create-match"
+                variant="secondary"
+              />
+              <AppButton
                 icon="user-plus"
                 label={pt.groups.detail.invites}
                 onPress={() => router.push(`/grupos/${group.id}/convites`)}

@@ -270,6 +270,17 @@ async function openPrivacyAndAccount(page: Page) {
 }
 
 /**
+ * After a "Voltar", exactly one parent screen is mounted (hidden stack
+ * screens stay in the DOM, so a stacked second parent would count twice),
+ * the child is gone and the app keeps one tab bar.
+ */
+async function expectOneParent(page: Page, parentTestId: string, childTestId: string) {
+  await expect(page.locator(`[data-testid="${parentTestId}"]`)).toHaveCount(1);
+  await expect(page.locator(`[data-testid="${childTestId}"]`)).toHaveCount(0);
+  await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
+}
+
+/**
  * Makes the next call-time session read of a private query find no session,
  * once, after the test arms it. Private queries read Auth through
  * `auth.getSession()` right before the request; the supabase-js transport
@@ -1149,6 +1160,56 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await expect(title).toHaveText('Preparando seus dados');
       await expect(card.getByRole('alert')).toHaveCount(0);
       expect(projections).toEqual([true]);
+    } finally {
+      await cleanupAccount(db, env, request, {
+        authUserId,
+        email: owner.email,
+        profileId: undefined,
+      });
+      await db.end();
+    }
+  });
+  test('Voltar ao perfil keeps one profile and one tab bar, by navigation and by direct URL', async ({
+    page,
+    request,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium');
+    const env = localEnvironment();
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const owner = {
+      email: `profile-back-${runSuffix}@colete.test`,
+      name: 'Paula Volta',
+      password: PASSWORD,
+    };
+    let authUserId: string | undefined;
+    try {
+      authUserId = (await createVerifiedUser(request, env, owner)).id;
+      await signInAndCompleteProfile(page, owner.email);
+      for (const [link, child] of [
+        ['Privacidade e conta', 'profile-export-card'],
+        ['Trocar senha', 'profile-back-link'],
+      ] as const) {
+        // Normal navigation, twice: each round trip pops back to the same profile.
+        for (let round = 0; round < 2; round += 1) {
+          await page.getByRole('link', { name: link }).click();
+          await expect(page.getByTestId('profile-back-link')).toBeVisible();
+          await page.getByRole('link', { name: 'Voltar ao perfil' }).click();
+          await expect(page).toHaveURL(/\/perfil$/u);
+          await expectOneParent(page, 'profile-data-card', child);
+        }
+      }
+      // Direct URL: no profile in the stack, so the back replaces the child.
+      for (const [route, child] of [
+        ['/perfil/privacidade', 'profile-export-card'],
+        ['/perfil/senha', 'profile-back-link'],
+      ] as const) {
+        await page.goto(route);
+        await expect(page.getByTestId('profile-back-link')).toBeVisible();
+        await page.getByRole('link', { name: 'Voltar ao perfil' }).click();
+        await expect(page).toHaveURL(/\/perfil$/u);
+        await expectOneParent(page, 'profile-data-card', child);
+      }
     } finally {
       await cleanupAccount(db, env, request, {
         authUserId,

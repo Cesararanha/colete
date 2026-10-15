@@ -12,6 +12,7 @@ export const protectedFunctions = [
   'create_group',
   'rename_group',
   'issue_group_invite',
+  'create_match',
   'worker_begin_job',
 ];
 export function configuration(env) {
