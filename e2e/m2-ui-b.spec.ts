@@ -256,6 +256,16 @@ async function scenario(request: APIRequestContext, db: pg.Client, ids: string[]
   ).toBe(200);
   return { owner, organizer, player, pending, refused, groupId };
 }
+/**
+ * After a "Voltar", exactly one parent screen is mounted (hidden stack
+ * screens stay in the DOM, so a stacked second parent would count twice),
+ * the child is gone and the app keeps one tab bar.
+ */
+async function expectOneParent(page: Page, parentTestId: string, childTestId: string) {
+  await expect(page.locator(`[data-testid="${parentTestId}"]`)).toHaveCount(1);
+  await expect(page.locator(`[data-testid="${childTestId}"]`)).toHaveCount(0);
+  await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
+}
 async function clean(ids: string[], db: pg.Client) {
   await cleanActors(ids, db);
   expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
@@ -326,6 +336,50 @@ test('UI-B role matrix and direct routes do not disclose administration to playe
         }
       }
     }
+  } finally {
+    await clean(ids, db);
+  }
+});
+
+test('UI-B every Voltar ao grupo keeps one group and one tab bar, by navigation and by direct URL', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const ids: string[] = [];
+  try {
+    const s = await scenario(request, db, ids);
+    await login(page, s.owner);
+    const children = [
+      ['Convites do grupo', 'convites', 'invites-back'],
+      ['Gestão de membros', 'membros', 'members-back'],
+      ['Configurações do grupo', 'configuracoes', 'settings-back'],
+    ] as const;
+    await page.goto('/grupos');
+    await page.getByTestId('group-list-card').click();
+    await expect(page.getByTestId('group-detail-card')).toBeVisible();
+    // Normal navigation, twice per child: each round trip pops back to the same group.
+    for (const [button, , back] of children) {
+      for (let round = 0; round < 2; round += 1) {
+        await page.getByTestId('group-detail-card').getByRole('button', { name: button }).click();
+        await page.getByTestId(back).click();
+        await expect(page).toHaveURL(new RegExp(`/grupos/${s.groupId}$`, 'u'));
+        await expectOneParent(page, 'group-detail-card', back);
+      }
+    }
+    // Direct URL: the group is not in the stack, so the back replaces the child.
+    for (const [, route, back] of children) {
+      await page.goto(`/grupos/${s.groupId}/${route}`);
+      await page.getByTestId(back).click();
+      await expect(page).toHaveURL(new RegExp(`/grupos/${s.groupId}$`, 'u'));
+      await expectOneParent(page, 'group-detail-card', back);
+      await expect(page.getByTestId('group-list-card')).toHaveCount(0);
+    }
+    // The group's member read locks profile then group; let it finish and
+    // leave the page, so the cleanup's deletes never race it into a deadlock.
+    await expect(page.getByTestId('group-members-list')).toBeVisible();
+    await page.goto('about:blank');
   } finally {
     await clean(ids, db);
   }
@@ -976,6 +1030,11 @@ test('UI-B role matrix CP3 checks administrative network traffic for player pend
     ] as const) {
       await login(page, actor);
       for (const route of ['membros', 'configuracoes']) {
+        // Leave the previous document before observing: a request it still has
+        // in flight is cancelled by the next navigation, and reading that
+        // cancelled response's body can hang instead of rejecting. The census
+        // then sees only the requests of the route's own document.
+        await page.goto('about:blank');
         const reads: string[] = [];
         const bodies: Promise<string>[] = [];
         const requests = new Set<import('@playwright/test').Request>();

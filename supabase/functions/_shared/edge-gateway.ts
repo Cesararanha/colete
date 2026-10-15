@@ -31,6 +31,7 @@ import {
   isInviteOperation,
 } from './invite-gateway.ts';
 import type { ErrorCode } from './errors.ts';
+import { dispatchMatchRead, isMatchReadOperation } from './match-reads.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -182,6 +183,11 @@ export function serveGateway(served: readonly string[]): void {
         const actor = await verifyActor(token);
         if (actor === undefined) {
           return errorResponse('UNAUTHENTICATED', requestIdHint);
+        }
+
+        if (isMatchReadOperation(operation)) {
+          const read = await dispatchMatchRead({ actor, callRpc }, operation, body);
+          return jsonResponse(read.status, read.body);
         }
 
         let inviteKey: Uint8Array | undefined;

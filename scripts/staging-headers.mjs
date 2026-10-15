@@ -71,7 +71,9 @@ export function securityHeaders(
     'Content-Security-Policy': csp,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    // Camera for the invite QR and geolocation for the match place, both only
+    // for this origin (human decision of 15/10/2026); the rest stays denied.
+    'Permissions-Policy': 'camera=(self), microphone=(), geolocation=(self), payment=(), usb=()',
   };
 }
 

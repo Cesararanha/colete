@@ -5,5 +5,6 @@
 import { serveGateway } from '../_shared/edge-gateway.ts';
 import { GROUP_OPERATIONS } from '../_shared/operations.ts';
 import { INVITE_OPERATIONS } from '../_shared/invite-gateway.ts';
+import { MATCH_READ_OPERATIONS } from '../_shared/match-reads.ts';
 
-serveGateway([...GROUP_OPERATIONS, ...INVITE_OPERATIONS]);
+serveGateway([...GROUP_OPERATIONS, ...INVITE_OPERATIONS, ...MATCH_READ_OPERATIONS]);

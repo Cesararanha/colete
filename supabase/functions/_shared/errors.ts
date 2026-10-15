@@ -40,6 +40,9 @@ export const ERROR_CODES = [
   'INVITE_ALREADY_ACTIVE',
   'RATE_LIMITED',
   'RATE_LIMIT_UNAVAILABLE',
+  // Rachas v1 (docs/13 section 3.1, cut by docs/25 section 8.1).
+  'TIME_ORDER',
+  'PRICE_INVALID',
   'INTERNAL',
 ] as const;
 
@@ -113,6 +116,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVITE_ALREADY_ACTIVE: 'The group already has an active invitation.',
   RATE_LIMITED: 'Too many invitation attempts. Wait before trying again.',
   RATE_LIMIT_UNAVAILABLE: 'Invitation attempts cannot be counted right now.',
+  TIME_ORDER: 'The match times are out of order or outside the allowed window.',
+  PRICE_INVALID: 'The price per player must be greater than zero.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -173,6 +178,8 @@ export function httpStatusFor(code: ErrorCode): number {
       return 500;
     case 'VALIDATION':
     case 'VISIBILITY_CONFIRMATION_REQUIRED':
+    case 'TIME_ORDER':
+    case 'PRICE_INVALID':
       return 422;
   }
 }

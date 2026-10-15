@@ -2,14 +2,16 @@ import { Link } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon } from '@/components/ui/AppIcon';
+import { backTo } from '@/lib/navigation';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 /**
- * "Voltar ao perfil" from a screen the profile opened. It goes back to the
- * profile already in the history instead of stacking a second one, and opens
- * it when the screen was reached directly.
+ * "Voltar ao perfil" from a screen the profile opened. A real link (href for
+ * the keyboard and the address bar), whose press runs the one back of the app,
+ * backTo: back to the profile already in the tab, or to a new one in place of
+ * this screen when it was opened directly.
  */
 export function ProfileBackLink({ label }: { label: string }) {
   const { colors } = useTheme();
@@ -19,8 +21,11 @@ export function ProfileBackLink({ label }: { label: string }) {
       <Link
         accessibilityLabel={label}
         accessibilityRole="link"
-        dismissTo
         href="/perfil"
+        onPress={(event) => {
+          event.preventDefault();
+          backTo('/perfil');
+        }}
         style={styles.link}
         testID="profile-back-link"
       >

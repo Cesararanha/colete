@@ -12,6 +12,19 @@ const ACTOR = {
 const resolveKey = () => new Uint8Array(32);
 const GROUP = '15b00001-0000-4000-8000-000000000000';
 const TARGET = '15a00002-0000-4000-8000-000000000000';
+// A start one day ahead at minute precision keeps create_match inside its window.
+const STARTS = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 86_400_000);
+const MATCH_CONFIG = {
+  starts_at: STARTS.toISOString(),
+  ends_at: new Date(STARTS.getTime() + 5_400_000).toISOString(),
+  timezone: 'America/Sao_Paulo',
+  location_name: 'Arena',
+  location_address: null,
+  latitude: -23.55052,
+  longitude: -46.63331,
+  field_slots: 14,
+  field_price: '25',
+};
 
 const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   accept_policies: { request_id: REQUEST_ID, versions: [{ document_type: 'terms', version: '1' }] },
@@ -33,6 +46,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   transfer_ownership: { request_id: REQUEST_ID, group_id: GROUP, new_owner_id: TARGET },
   leave_group: { request_id: REQUEST_ID, group_id: GROUP },
   rename_group: { request_id: REQUEST_ID, group_id: GROUP, name: '  Café　da　Turma  ' },
+  create_match: { request_id: REQUEST_ID, group_id: GROUP, config: MATCH_CONFIG },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -50,6 +64,15 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   transfer_ownership: { p_group_id: GROUP, p_new_owner_id: TARGET },
   leave_group: { p_group_id: GROUP },
   rename_group: { p_group_id: GROUP, p_name: 'Café da Turma' },
+  create_match: {
+    p_group_id: GROUP,
+    p_config: {
+      ...MATCH_CONFIG,
+      latitude: '-23.5505',
+      longitude: '-46.6333',
+      field_price: '25.00',
+    },
+  },
 };
 
 describe('gateway internal call', () => {

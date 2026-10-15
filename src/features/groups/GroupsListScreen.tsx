@@ -5,7 +5,7 @@ import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'rea
 import { AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
-import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
+import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { Scoreboard } from '@/components/ui/Scoreboard';
 import { api, type OwnProfile } from '@/lib/api';
@@ -13,11 +13,39 @@ import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
 import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
-import { listGap, radius, size, spacing } from '@/theme/spacing';
+import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { MAX_ACTIVE_GROUPS } from './group-limits';
 import { roleIcon, roleName } from './group-roles';
+
+type ListedGroup =
+  | { kind: 'group'; id: string; name: string; role: string }
+  | { kind: 'pending'; id: string; name: string };
+
+/** A request still waiting for approval: shown, but it opens nothing. */
+function PendingRow({ name }: { name: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[styles.row, styles.pendingRow, { backgroundColor: colors.surface }]}
+      testID="pending-group-card"
+    >
+      <View style={styles.rowText}>
+        <Text aria-level={2} role="heading" style={[styles.rowName, { color: colors.text }]}>
+          {name}
+        </Text>
+        <View style={styles.meta}>
+          <AppIcon color={colors.warning} name="clock" size={16} />
+          <Text style={[styles.metaText, styles.metaStrong, { color: colors.warning }]}>
+            {pt.groups.list.pending}
+          </Text>
+        </View>
+        <Text style={[styles.body, { color: colors.textMuted }]}>{pt.groups.join.pendingBody}</Text>
+      </View>
+    </View>
+  );
+}
 
 /** One group: the whole row opens it. Name, role (icon + text) and a chevron. */
 function GroupRow({ id, name, role }: { id: string; name: string; role: string }) {
@@ -114,8 +142,43 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
         />
       </View>
     );
+  const rows: ListedGroup[] = listing.data
+    ? [
+        ...listing.data.groups.map((group) => ({ kind: 'group' as const, ...group })),
+        ...listing.data.pending.map((pending) => ({
+          kind: 'pending' as const,
+          id: pending.group_id,
+          name: pending.group_name,
+        })),
+      ]
+    : [];
+  const empty = listing.data !== undefined && rows.length === 0;
   return (
-    <AuthenticatedShell hero={hero} title={pt.groups.list.title}>
+    <AuthenticatedListShell
+      data={rows}
+      footer={
+        rows.length > 0 ? (
+          actions
+        ) : empty ? (
+          <AppButton
+            icon="hash"
+            label={pt.groups.list.join}
+            onPress={() => router.push('/join')}
+            variant="tertiary"
+          />
+        ) : undefined
+      }
+      hero={hero}
+      keyExtractor={(row) => `${row.kind}:${row.id}`}
+      renderItem={(row) =>
+        row.kind === 'group' ? (
+          <GroupRow id={row.id} name={row.name} role={row.role} />
+        ) : (
+          <PendingRow name={row.name} />
+        )
+      }
+      title={pt.groups.list.title}
+    >
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? (
@@ -127,7 +190,7 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
           action={() => void listing.refetch()}
         />
       ) : null}
-      {listing.data && listing.data.groups.length === 0 && listing.data.pending.length === 0 ? (
+      {empty ? (
         <AsyncNotice
           kind="empty"
           title={pt.groups.list.emptyTitle}
@@ -136,59 +199,14 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
           action={() => router.push('/grupos/criar')}
         />
       ) : null}
-      {listing.data && (listing.data.groups.length > 0 || listing.data.pending.length > 0) ? (
-        <View style={styles.list}>
-          {listing.data.groups.map((group) => (
-            <GroupRow id={group.id} key={group.id} name={group.name} role={group.role} />
-          ))}
-          {listing.data.pending.map((pending) => (
-            <View
-              key={pending.group_id}
-              style={[styles.row, styles.pendingRow, { backgroundColor: colors.surface }]}
-              testID="pending-group-card"
-            >
-              <View style={styles.rowText}>
-                <Text
-                  aria-level={2}
-                  role="heading"
-                  style={[styles.rowName, { color: colors.text }]}
-                >
-                  {pending.group_name}
-                </Text>
-                <View style={styles.meta}>
-                  <AppIcon color={colors.warning} name="clock" size={16} />
-                  <Text style={[styles.metaText, styles.metaStrong, { color: colors.warning }]}>
-                    {pt.groups.list.pending}
-                  </Text>
-                </View>
-                <Text style={[styles.body, { color: colors.textMuted }]}>
-                  {pt.groups.join.pendingBody}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-      {listing.data && (listing.data.groups.length > 0 || listing.data.pending.length > 0)
-        ? actions
-        : null}
-      {listing.data && listing.data.groups.length === 0 && listing.data.pending.length === 0 ? (
-        <AppButton
-          icon="hash"
-          label={pt.groups.list.join}
-          onPress={() => router.push('/join')}
-          variant="tertiary"
-        />
-      ) : null}
-    </AuthenticatedShell>
+    </AuthenticatedListShell>
   );
 }
 
 const styles = StyleSheet.create({
-  actions: { gap: spacing.sm, paddingTop: spacing.sm },
+  actions: { gap: spacing.sm },
   body: { ...typography.support },
   hero: { gap: spacing.ms },
-  list: { gap: listGap },
   meta: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
   metaStrong: { ...typography.supportStrong },
   metaText: { ...typography.support, flexShrink: 1 },

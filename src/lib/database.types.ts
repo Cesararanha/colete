@@ -178,6 +178,69 @@ export type Database = {
           },
         ];
       };
+      matches: {
+        Row: {
+          created_at: string;
+          created_by: string;
+          ends_at: string;
+          field_price: number;
+          field_slots: number;
+          group_id: string;
+          id: string;
+          latitude: number | null;
+          location_address: string | null;
+          location_name: string;
+          longitude: number | null;
+          starts_at: string;
+          timezone: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          ends_at: string;
+          field_price: number;
+          field_slots: number;
+          group_id: string;
+          id?: string;
+          latitude?: number | null;
+          location_address?: string | null;
+          location_name: string;
+          longitude?: number | null;
+          starts_at: string;
+          timezone: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          ends_at?: string;
+          field_price?: number;
+          field_slots?: number;
+          group_id?: string;
+          id?: string;
+          latitude?: number | null;
+          location_address?: string | null;
+          location_name?: string;
+          longitude?: number | null;
+          starts_at?: string;
+          timezone?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'matches_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'matches_group_id_fkey';
+            columns: ['group_id'];
+            isOneToOne: false;
+            referencedRelation: 'groups';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       policy_acceptances: {
         Row: {
           accepted_at: string;
@@ -361,6 +424,19 @@ export type Database = {
           p_request_id: string;
           p_token_digest: string;
           p_token_version: number;
+        };
+        Returns: Json;
+      };
+      create_match: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_config: Json;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
         };
         Returns: Json;
       };

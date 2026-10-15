@@ -320,7 +320,7 @@ test('new project denies OpenAPI but passes; checker never requests its schema',
   });
   assert.ok(results.every((r) => r.ok));
   assert.ok(!paths.includes('/rest/v1/'));
-  assert.equal(paths.filter((p) => p.startsWith('/rest/v1/rpc/')).length, 9);
+  assert.equal(paths.filter((p) => p.startsWith('/rest/v1/rpc/')).length, 10);
 });
 
 for (const code of ['PGRST205', 'PGRST202', '42P01', 'unrelated'])
@@ -434,6 +434,35 @@ for (const header of ['X-Content-Type-Options', 'Referrer-Policy', 'Permissions-
       env,
       fake((u, o, s) => {
         if (u.origin === env.STAGING_APP_ORIGIN && u.pathname === '/') delete s.headers[header];
+      }),
+    );
+    assert.deepEqual(
+      results.filter((r) => !r.ok).map((r) => r.name),
+      ['PWA security headers and HTML cache'],
+    );
+  });
+
+test('Permissions-Policy allows camera and geolocation to this origin only', () => {
+  assert.equal(
+    securityHeaders(env.EXPO_PUBLIC_SUPABASE_URL, [])['Permissions-Policy'],
+    'camera=(self), microphone=(), geolocation=(self), payment=(), usb=()',
+  );
+});
+
+for (const [label, policy] of [
+  [
+    'the old denial of geolocation',
+    'camera=(self), microphone=(), geolocation=(), payment=(), usb=()',
+  ],
+  ['geolocation to any origin', 'camera=(self), microphone=(), geolocation=*, payment=(), usb=()'],
+  ['the old denial of camera', 'camera=(), microphone=(), geolocation=(self), payment=(), usb=()'],
+])
+  test(`checker refuses a served Permissions-Policy with ${label}`, async () => {
+    const results = await checkStaging(
+      env,
+      fake((u, o, s) => {
+        if (u.origin === env.STAGING_APP_ORIGIN && u.pathname === '/')
+          s.headers['Permissions-Policy'] = policy;
       }),
     );
     assert.deepEqual(

@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -191,7 +190,7 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
       {...pt.groups.invites}
       back={{
         label: pt.groups.invites.back,
-        onPress: () => router.navigate(`/grupos/${groupId}`),
+        href: `/grupos/${groupId}`,
         testID: 'invites-back',
       }}
     >
