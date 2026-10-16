@@ -23,7 +23,8 @@ export const IDENTITY_OPERATIONS = [
 
 // docs/13 section 5, delivered by docs/25 section 4. create_group belongs to
 // the invite slice and is not here. create_match is the Rachas v1 cut of
-// docs/13 section 3.1 (docs/25 section 8.1).
+// docs/13 section 3.1 (docs/25 section 8.1); join_match, leave_match and
+// set_match_payment are the Racha completo cut of sections 1.1, 1.2 and 2.6.
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -34,6 +35,9 @@ export const GROUP_OPERATIONS = [
   'leave_group',
   'rename_group',
   'create_match',
+  'join_match',
+  'leave_match',
+  'set_match_payment',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -291,6 +295,9 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     leave_group: ['request_id', 'group_id'],
     rename_group: ['request_id', 'group_id', 'name'],
     create_match: ['request_id', 'group_id', 'config'],
+    join_match: ['request_id', 'match_id'],
+    leave_match: ['request_id', 'match_id'],
+    set_match_payment: ['request_id', 'match_id', 'profile_id', 'paid'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -428,6 +435,25 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         },
       };
     }
+    case 'join_match':
+    case 'leave_match':
+      return {
+        operation,
+        requestId,
+        canonicalInput: { match_id: requiredUuid(record['match_id'], 'match_id') },
+      };
+    // The target is the confirmed player whose payment the organiser marks;
+    // the actor still comes only from the verified claims.
+    case 'set_match_payment':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          match_id: requiredUuid(record['match_id'], 'match_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          paid: requiredBoolean(record['paid'], 'paid'),
+        },
+      };
   }
 }
 

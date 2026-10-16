@@ -28,6 +28,7 @@ import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from '../groups/group-errors';
+import { DESCRIPTION_MAX, descriptionLength } from './match-description';
 import { coordinatesText } from './match-format';
 import { matchConfigFromForm, type MatchFormErrors, type MatchFormValues } from './match-form';
 import { useDeviceLocation } from './use-device-location';
@@ -38,6 +39,7 @@ const EMPTY: MatchFormValues = {
   endTime: '',
   locationName: '',
   locationAddress: '',
+  description: '',
   slots: '',
   price: '',
 };
@@ -184,6 +186,7 @@ export function CreateMatchScreen({
     options: {
       hint?: string;
       keyboardType?: 'default' | 'number-pad' | 'decimal-pad' | 'numbers-and-punctuation';
+      multiline?: boolean;
       placeholder?: string;
     } = {},
   ) => (
@@ -192,6 +195,7 @@ export function CreateMatchScreen({
       hint={options.hint}
       keyboardType={options.keyboardType ?? 'default'}
       label={label}
+      multiline={options.multiline ?? false}
       onChangeText={update(name)}
       placeholder={options.placeholder}
       testID={`match-${name}`}
@@ -260,6 +264,29 @@ export function CreateMatchScreen({
           </View>
           {field('locationName', pt.matches.create.place, { hint: pt.matches.create.placeHint })}
           {field('locationAddress', pt.matches.create.address)}
+          <View style={styles.description}>
+            {field('description', pt.matches.create.descriptionLabel, {
+              hint: pt.matches.create.descriptionHint,
+              multiline: true,
+            })}
+            <Text
+              style={[
+                styles.counter,
+                {
+                  color:
+                    descriptionLength(values.description) > DESCRIPTION_MAX
+                      ? colors.critical
+                      : colors.textMuted,
+                },
+              ]}
+              testID="match-description-counter"
+            >
+              {pt.matches.create.descriptionCounter(
+                descriptionLength(values.description),
+                DESCRIPTION_MAX,
+              )}
+            </Text>
+          </View>
           <View style={styles.location}>
             <AppButton
               icon="crosshair"
@@ -342,6 +369,8 @@ export function CreateMatchScreen({
 
 const styles = StyleSheet.create({
   choice: { gap: spacing.sm },
+  counter: { ...typography.support, alignSelf: 'flex-end' },
+  description: { gap: spacing.xs },
   found: { borderRadius: radius.row, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   hint: { ...typography.support },
   label: { ...typography.supportStrong },

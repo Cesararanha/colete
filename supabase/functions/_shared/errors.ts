@@ -43,6 +43,10 @@ export const ERROR_CODES = [
   // Rachas v1 (docs/13 section 3.1, cut by docs/25 section 8.1).
   'TIME_ORDER',
   'PRICE_INVALID',
+  // Racha completo (docs/13 sections 1.1, 1.2 and 2.6, cut by docs/25 section 8.1).
+  'MATCH_STARTED',
+  'NOT_STARTER',
+  'PAYMENT_ALREADY_REAL',
   'INTERNAL',
 ] as const;
 
@@ -118,6 +122,9 @@ const MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMIT_UNAVAILABLE: 'Invitation attempts cannot be counted right now.',
   TIME_ORDER: 'The match times are out of order or outside the allowed window.',
   PRICE_INVALID: 'The price per player must be greater than zero.',
+  MATCH_STARTED: 'The match has already started.',
+  NOT_STARTER: 'The player is not confirmed in this match.',
+  PAYMENT_ALREADY_REAL: 'A player marked as paid cannot leave the match.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -162,6 +169,9 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'INVITE_EXPIRED':
     case 'INVITE_USED':
     case 'INVITE_ALREADY_ACTIVE':
+    case 'MATCH_STARTED':
+    case 'NOT_STARTER':
+    case 'PAYMENT_ALREADY_REAL':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
     case 'EXPORT_EXPIRED':

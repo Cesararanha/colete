@@ -6,12 +6,15 @@
 import type { MatchConfig } from '../../lib/api';
 import { pt } from '../../lib/i18n/pt';
 
+import { normaliseDescription } from './match-description';
+
 export type MatchFormValues = {
   date: string;
   startTime: string;
   endTime: string;
   locationName: string;
   locationAddress: string;
+  description: string;
   slots: string;
   price: string;
 };
@@ -92,6 +95,15 @@ export function matchConfigFromForm(
   if (addressLength === 1 || addressLength > 160) {
     errors.locationAddress = pt.matches.create.errors.address;
   }
+  const description = normaliseDescription(values.description);
+  if (!description.ok) {
+    errors.description =
+      description.reason === 'long'
+        ? pt.matches.create.errors.descriptionLong
+        : description.reason === 'blank'
+          ? pt.matches.create.errors.descriptionBlank
+          : pt.matches.create.errors.descriptionControl;
+  }
   const slots = /^\d{1,2}$/.test(values.slots.trim()) ? Number(values.slots.trim()) : NaN;
   if (!(slots >= 1 && slots <= 99)) errors.slots = pt.matches.create.errors.slots;
   const price = PRICE.exec(values.price.trim().replace(/^R\$\s*/u, ''));
@@ -100,11 +112,17 @@ export function matchConfigFromForm(
   if (fieldPrice === undefined || Number(fieldPrice) <= 0) {
     errors.price = pt.matches.create.errors.price;
   }
-  if (Object.keys(errors).length > 0 || times === undefined || fieldPrice === undefined) {
+  if (
+    Object.keys(errors).length > 0 ||
+    times === undefined ||
+    fieldPrice === undefined ||
+    !description.ok
+  ) {
     return { errors };
   }
   return {
     config: {
+      description: description.value,
       starts_at: times.startsAt.toISOString(),
       ends_at: times.endsAt.toISOString(),
       timezone,

@@ -12,9 +12,11 @@ const ACTOR = {
 const resolveKey = () => new Uint8Array(32);
 const GROUP = '15b00001-0000-4000-8000-000000000000';
 const TARGET = '15a00002-0000-4000-8000-000000000000';
+const MATCH = '15c00003-0000-4000-8000-000000000000';
 // A start one day ahead at minute precision keeps create_match inside its window.
 const STARTS = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 86_400_000);
 const MATCH_CONFIG = {
+  description: '',
   starts_at: STARTS.toISOString(),
   ends_at: new Date(STARTS.getTime() + 5_400_000).toISOString(),
   timezone: 'America/Sao_Paulo',
@@ -47,6 +49,9 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   leave_group: { request_id: REQUEST_ID, group_id: GROUP },
   rename_group: { request_id: REQUEST_ID, group_id: GROUP, name: '  Café　da　Turma  ' },
   create_match: { request_id: REQUEST_ID, group_id: GROUP, config: MATCH_CONFIG },
+  join_match: { request_id: REQUEST_ID, match_id: MATCH },
+  leave_match: { request_id: REQUEST_ID, match_id: MATCH },
+  set_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET, paid: true },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -71,8 +76,12 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
       latitude: '-23.5505',
       longitude: '-46.6333',
       field_price: '25.00',
+      description: null,
     },
   },
+  join_match: { p_match_id: MATCH },
+  leave_match: { p_match_id: MATCH },
+  set_match_payment: { p_match_id: MATCH, p_profile_id: TARGET, p_paid: true },
 };
 
 describe('gateway internal call', () => {

@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de oito harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename` e `db:test:matches`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de nove harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches` e `db:test:match-players`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -2192,3 +2192,108 @@ Nenhuma migration, Edge Function, dependência ou comportamento do app mudou.
 Decisões 10/10 e 12/10 em docs/16,25,27,28; Vercel Git main automático, preview
 desligado, backend manual. Assets ausentes 404/no-store, CSP integral e URLs
 exatas exigidas. Nenhum Supabase/Vercel real ou segredo real acessado.
+
+## Racha completo — `0022_match_players.sql` (modo apresentação, 15/10/2026)
+
+Autor Claude Code; revisão Codex (risco alto: vaga e dinheiro). Empilhada
+sobre Rachas v1 (`06c6798`, já com a correção da revisão do #70: `matches`
+em `private`, leitura só por `get_match`/`list_my_matches` via Edge).
+
+### O que foi entregue
+
+- `private.match_players`, sem RLS e sem grant (`14` §5.2, decisão de César
+  de 15/10), com `private.match_queue_seq`; estados `starter`, `waitlist`,
+  `left`, `removed`; `paid` com autor e horário da marcação.
+- `join_match`, `leave_match`, `set_match_payment` no gateway `groups`, no
+  padrão idempotente atual; leituras `get_match_roster` e
+  `get_matches_occupancy` com actor context (sessão revogada recusada).
+- Locks perfil → grupo → membership → racha → inscrição, FOR NO KEY UPDATE.
+  Desistência de confirmado promove o primeiro da espera na mesma transação;
+  pago não desiste (`PAYMENT_ALREADY_REAL`); após `starts_at`,
+  `MATCH_STARTED`. Trigger em `group_members` libera a vaga de racha futuro
+  quando a membership deixa de ser `active` (saída, remoção, exclusão).
+- Descrição do racha (decisão humana de 16/10/2026):
+  `private.matches.description`, texto até 500 pontos de código, regra única
+  no formulário, na Edge e em `private.normalize_match_description`; décima
+  chave do config de `create_match` (`""` vira `null`, só espaços é
+  recusado); `get_match` a projeta, `list_my_matches` não. Campo com contador
+  no modal; detalhe com texto puro. Vetores de config do pgTAP da `0021` e
+  dos harnesses ganharam `description`.
+- Telas: placar com ocupação real, "Vou jogar"/"Desistir" com confirmação,
+  duas FlatList (confirmados e espera) com nome, apelido e posição,
+  pagamentos e resumo para a organização, ocupação na lista de rachas.
+
+### Provas e números medidos (pilha local, trava da sessão)
+
+Medidos em 15/10/2026 sobre `origin/main` `daad76a`, com a descrição.
+
+| Comando | Resultado |
+|---|---|
+| db:test | 21 arquivos, 1455 asserções, PASS (0022: 123) |
+| db:test:matches | 14 provas ok, inclusive a descrição normalizada na linha, fora do livro e projetada por `get_match` |
+| db:test:match-players | 15 provas ok |
+| demais harnesses de §5 | exit 0, inclusive deletion e export |
+| test:auth:web | 10 passed, 2 skipped |
+| test:privacy:web | 5 passed, 5 skipped |
+| test:cors:web | 4 passed |
+| test:groups:web | 64 passed (ver nota) |
+| test:matches:web | 10 passed (6 de Rachas v1, 4 de Racha completo) |
+| test:smoke:web | 6 passed |
+| verify:app | exit 0; vitest 36 arquivos, 385 testes |
+| test:staging / test:audit | 102/102 / 94/94 |
+| audit:high | exit 0, duas exceções ativas |
+
+Nota: na primeira rodada da suíte, `test:groups:web` teve 62 passed e 2
+failed: `deadlock detected` no `cleanActors` de fixture do UI-B (`m2-ui-b`
+1421), que deixou 5 usuários sintéticos e por isso reprovou também a
+pré-condição `auth.users = 0` do `test:matches:web`. Depois de `db:reset` e
+novo `build:web:auth-e2e`, a reexecução deu 64 passed e 10 passed, com
+`auth.users = 0` no fim. Nenhum dos arquivos tocados pela descrição participa
+dessa limpeza.
+
+### Contraprovas executadas
+
+- Sem os locks de grupo e racha, com pausa entre contar e gravar, dois "Vou
+  jogar" na última vaga confirmam os dois; com os locks e a mesma pausa, um
+  confirma e o outro vai à espera. Restaurado byte a byte.
+- Sem o trigger, a saída do grupo deixa um confirmado sem membership
+  (pgTAP). Um grant direto faz a sonda de `service_role` ler a tabela
+  (pgTAP).
+- Conta excluída: ocupa a vaga, sem ID, nome, apelido ou posição na
+  projeção; o pseudônimo `Deleted …` não aparece.
+- Descrição: com `private.normalize_match_description` trocada por uma que
+  devolve o texto cru, o pgTAP da `0022` reprova 14 asserções (normalização,
+  recusas e `create_match` com só espaços ou 501 pontos). Restaurado por
+  `db:reset`. Os casos de recusa do `create_match` são lidos contra o par
+  válido do mesmo config, que chega a `NOT_FOUND`.
+
+### Correções da revisão do PR #71 (16/10/2026)
+
+- **P1-1, replay com autoridade perdida.** `join_match`, `leave_match` e
+  `set_match_payment` seguem a M2-D20: autenticação negada sai com o erro
+  normal, inclusive no replay; perda de autoridade no grupo (rebaixamento,
+  saída, remoção) devolve o desfecho gravado sem `current`, sem repetir a
+  mutação.
+- **P1-2, existência do racha.** `lock_match_context` confere conta, sessão e
+  aceite sob o lock do perfil antes de procurar o racha;
+  `private.match_actor_authority` responde NOT_FOUND para racha inexistente,
+  grupo arquivado e membership não active. Fora do grupo, ID existente e
+  inexistente dão o mesmo 404; sessão revogada dá 401 nos dois.
+- **P2.** Cancelar a desistência devolve o foco a "Desistir".
+
+| Comando | Resultado |
+|---|---|
+| db:test | 21 arquivos, 1461 asserções, PASS |
+| db:test:match-players | 16 provas ok, resíduo 0 |
+| demais harnesses de §5 | exit 0 |
+| test:auth:web | 9 passed, 1 failed, 2 skipped na suíte (foco do Perfil, `m1-a-auth.spec.ts:450`, intermitente também na base); repetições: igual, depois 10 passed |
+| test:privacy / cors / groups / matches / smoke web | 5+5 skip / 4 / 64 / 10 / 6 |
+| verify:app | exit 0; vitest 36 arquivos, 385 testes |
+| test:staging / test:audit / audit:high | 102 / 94 / exit 0 |
+
+Contraprovas, cada teste novo contra o código anterior: com a 0022 de
+`fdc1490`, o harness cai em "pending join_match existing" (403 NOT_MEMBER) e
+o pgTAP em 2 asserções; com o replay devolvendo `current` antes da
+autoridade, o harness cai em "no current after the demotion"; com o
+NOT_FOUND antes da sessão, cai em "revoked join_match unknown" (404) e o
+pgTAP na asserção 73; sem o retorno de foco, o e2e cai em `toBeFocused`.

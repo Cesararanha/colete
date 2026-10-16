@@ -178,69 +178,6 @@ export type Database = {
           },
         ];
       };
-      matches: {
-        Row: {
-          created_at: string;
-          created_by: string;
-          ends_at: string;
-          field_price: number;
-          field_slots: number;
-          group_id: string;
-          id: string;
-          latitude: number | null;
-          location_address: string | null;
-          location_name: string;
-          longitude: number | null;
-          starts_at: string;
-          timezone: string;
-        };
-        Insert: {
-          created_at?: string;
-          created_by: string;
-          ends_at: string;
-          field_price: number;
-          field_slots: number;
-          group_id: string;
-          id?: string;
-          latitude?: number | null;
-          location_address?: string | null;
-          location_name: string;
-          longitude?: number | null;
-          starts_at: string;
-          timezone: string;
-        };
-        Update: {
-          created_at?: string;
-          created_by?: string;
-          ends_at?: string;
-          field_price?: number;
-          field_slots?: number;
-          group_id?: string;
-          id?: string;
-          latitude?: number | null;
-          location_address?: string | null;
-          location_name?: string;
-          longitude?: number | null;
-          starts_at?: string;
-          timezone?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'matches_created_by_fkey';
-            columns: ['created_by'];
-            isOneToOne: false;
-            referencedRelation: 'profiles';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'matches_group_id_fkey';
-            columns: ['group_id'];
-            isOneToOne: false;
-            referencedRelation: 'groups';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
       policy_acceptances: {
         Row: {
           accepted_at: string;
@@ -466,6 +403,37 @@ export type Database = {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_invite_id: string };
         Returns: Json;
       };
+      get_match: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
+        Returns: {
+          description: string;
+          ends_at: string;
+          field_price: number;
+          field_slots: number;
+          group_id: string;
+          group_name: string;
+          id: string;
+          latitude: number;
+          location_address: string;
+          location_name: string;
+          longitude: number;
+          starts_at: string;
+          timezone: string;
+        }[];
+      };
+      get_match_roster: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
+        Returns: Json;
+      };
+      get_matches_occupancy: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
+        Returns: {
+          confirmed_count: number;
+          match_id: string;
+          viewer_status: string;
+          waitlist_count: number;
+        }[];
+      };
       get_my_pending_group_requests: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
         Returns: Json;
@@ -533,6 +501,18 @@ export type Database = {
         };
         Returns: Json;
       };
+      join_match: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       leave_group: {
         Args: {
           p_actor_auth_user_id: string;
@@ -544,6 +524,35 @@ export type Database = {
           p_request_id: string;
         };
         Returns: Json;
+      };
+      leave_match: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      list_my_matches: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
+        Returns: {
+          ends_at: string;
+          field_price: number;
+          field_slots: number;
+          group_id: string;
+          group_name: string;
+          id: string;
+          latitude: number;
+          location_address: string;
+          location_name: string;
+          longitude: number;
+          starts_at: string;
+          timezone: string;
+        }[];
       };
       mark_invite_attempt_success: {
         Args: { attempt_id: string; p_actor_auth_user_id: string; p_actor_session_id: string };
@@ -636,6 +645,20 @@ export type Database = {
           p_hash_key_version: number;
           p_input_hmac: string;
           p_invite_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      set_match_payment: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_paid: boolean;
+          p_profile_id: string;
           p_request_id: string;
         };
         Returns: Json;

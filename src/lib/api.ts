@@ -58,7 +58,10 @@ export type GroupOperation =
   | 'set_role'
   | 'rename_group'
   | 'transfer_ownership'
-  | 'create_match';
+  | 'create_match'
+  | 'join_match'
+  | 'leave_match'
+  | 'set_match_payment';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -66,6 +69,7 @@ export type GroupOutcome = {
 };
 /** The create_match config of docs/13 section 3.1, Rachas v1 cut (docs/25 section 8.1). */
 export type MatchConfig = {
+  description: string | null;
   starts_at: string;
   ends_at: string;
   timezone: string;
@@ -81,6 +85,8 @@ export type MatchOutcome = {
 };
 export type MatchSummary = {
   id: string;
+  /** Only get_match projects it; list_my_matches leaves it out. */
+  description?: string | null;
   group_id: string;
   group_name: string;
   starts_at: string;
@@ -92,6 +98,70 @@ export type MatchSummary = {
   longitude: number | null;
   field_slots: number;
   field_price: number;
+};
+/** The presence of the viewer in one match, recomputed on every answer. */
+export type MatchPresenceStatus = 'starter' | 'waitlist' | 'out';
+export type MatchPresenceResult = {
+  outcome: {
+    group_id: string;
+    match_id: string;
+    logical_result:
+      | 'match_joined'
+      | 'match_waitlisted'
+      | 'match_join_unchanged'
+      | 'match_left'
+      | 'match_leave_unchanged';
+  };
+  current: {
+    status: MatchPresenceStatus;
+    waitlist_position: number | null;
+    confirmed_count: number;
+    waitlist_count: number;
+    field_slots: number;
+  };
+};
+export type MatchPaymentSummary = { paid_count: number; confirmed_count: number; total: string };
+export type MatchPaymentResult = {
+  outcome: {
+    group_id: string;
+    match_id: string;
+    profile_id: string;
+    logical_result: 'payment_marked_paid' | 'payment_marked_unpaid' | 'payment_unchanged';
+  };
+  current: MatchPaymentSummary;
+};
+/** One line of a roster. A removed account keeps its place but shows no identity. */
+export type MatchRosterEntry = {
+  profile_id: string | null;
+  name: string | null;
+  nickname: string | null;
+  position: 'goalkeeper' | 'defender' | 'midfielder' | 'forward' | null;
+  account_removed: boolean;
+  is_viewer: boolean;
+  /** Only for the organisation, and only on confirmed lines. */
+  paid?: boolean | null;
+};
+export type MatchRoster = {
+  match_id: string;
+  field_slots: number;
+  started: boolean;
+  confirmed_count: number;
+  waitlist_count: number;
+  viewer: {
+    status: MatchPresenceStatus;
+    waitlist_position: number | null;
+    paid: boolean | null;
+    can_manage: boolean;
+  };
+  confirmed: MatchRosterEntry[];
+  waitlist: MatchRosterEntry[];
+  payment_summary: MatchPaymentSummary | null;
+};
+export type MatchOccupancy = {
+  match_id: string;
+  confirmed_count: number;
+  waitlist_count: number;
+  viewer_status: MatchPresenceStatus;
 };
 export type GroupSummary = { id: string; name: string; owner_id: string; role: string };
 export type GroupDetail = {
@@ -238,6 +308,9 @@ const groupOperations = new Set<string>([
   'rename_group',
   'transfer_ownership',
   'create_match',
+  'join_match',
+  'leave_match',
+  'set_match_payment',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -391,7 +464,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     businessInput: Readonly<Record<string, unknown>>,
   ): MutationIntent<T> {
     // Only these signatures enumerate profile_id as a business target.
-    if (['approve_member', 'remove_member', 'set_role'].includes(operation)) {
+    if (['approve_member', 'remove_member', 'set_role', 'set_match_payment'].includes(operation)) {
       const { profile_id: target, ...rest } = businessInput;
       refuseInternalFields(rest);
       refuseInternalFields(target, 'profile_id');
@@ -513,6 +586,20 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
     createMatch: (groupId: string, config: MatchConfig) =>
       mutation<MatchOutcome>('create_match', { group_id: groupId, config }),
+    joinMatch: (matchId: string) =>
+      mutation<MatchPresenceResult>('join_match', { match_id: matchId }),
+    leaveMatch: (matchId: string) =>
+      mutation<MatchPresenceResult>('leave_match', { match_id: matchId }),
+    setMatchPayment: (matchId: string, targetId: string, paid: boolean) =>
+      mutation<MatchPaymentResult>('set_match_payment', {
+        match_id: matchId,
+        profile_id: targetId,
+        paid,
+      }),
+    getMatchRoster: (matchId: string, signal?: AbortSignal) =>
+      groupRead<MatchRoster>('get_match_roster', { match_id: matchId }, signal),
+    getMatchesOccupancy: (signal?: AbortSignal) =>
+      groupRead<MatchOccupancy[]>('get_matches_occupancy', {}, signal),
     joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),
     joinGroupByInvite: (token: string) => mutation<GroupOutcome>('join_by_invite', { token }),
     leaveGroup: (groupId: string) => mutation<GroupOutcome>('leave_group', { group_id: groupId }),

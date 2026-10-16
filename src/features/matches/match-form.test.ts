@@ -14,6 +14,7 @@ const values: MatchFormValues = {
   endTime: '21:00',
   locationName: '  Arena da Vila ',
   locationAddress: '',
+  description: '',
   slots: '14',
   price: '25,5',
 };
@@ -67,6 +68,7 @@ describe('match form to create_match config', () => {
         endTime: '9h',
         locationName: 'A',
         locationAddress: 'B',
+        description: '   ',
         slots: '0',
         price: '0,00',
       },
@@ -76,6 +78,7 @@ describe('match form to create_match config', () => {
     );
     expect('errors' in result && Object.keys(result.errors).sort()).toEqual([
       'date',
+      'description',
       'endTime',
       'locationAddress',
       'locationName',

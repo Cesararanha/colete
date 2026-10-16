@@ -62,4 +62,28 @@ describe('match read projections', () => {
     expect(raw.status).toBe(500);
     expect(JSON.stringify(raw.body)).not.toContain('relation');
   });
+
+  it('the roster takes the match and the occupancy nothing, both with the actor', async () => {
+    const callRpc = vi.fn(async () => ({ data: [] }));
+    await dispatchMatchRead({ actor: ACTOR, callRpc }, 'get_match_roster', { match_id: MATCH });
+    await dispatchMatchRead({ actor: ACTOR, callRpc }, 'get_matches_occupancy', {});
+    expect(callRpc.mock.calls).toEqual([
+      [
+        'get_match_roster',
+        {
+          p_actor_auth_user_id: ACTOR.authUserId,
+          p_actor_session_id: ACTOR.sessionId,
+          p_match_id: MATCH,
+        },
+      ],
+      [
+        'get_matches_occupancy',
+        { p_actor_auth_user_id: ACTOR.authUserId, p_actor_session_id: ACTOR.sessionId },
+      ],
+    ]);
+    const extra = await dispatchMatchRead({ actor: ACTOR, callRpc }, 'get_matches_occupancy', {
+      match_id: MATCH,
+    });
+    expect(extra.status).toBe(422);
+  });
 });

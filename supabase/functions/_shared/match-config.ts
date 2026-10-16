@@ -7,10 +7,16 @@
 // absence and null never become two spellings of one config. Canonical JSON v1
 // carries integers only (docs/13 section 0.1), so the price and the rounded
 // coordinates are canonical decimal strings with a fixed number of places.
+//
+// Racha completo (human decision of 16/10/2026) adds the description: optional
+// plain text up to 500 code points. The empty string becomes null before the
+// canonical form is built, so null stays its only spelling; whitespace alone
+// is refused.
 
 import { GatewayError, defaultMessage, validation } from './errors.ts';
 
 export const MATCH_CONFIG_KEYS = [
+  'description',
   'ends_at',
   'field_price',
   'field_slots',
@@ -23,6 +29,7 @@ export const MATCH_CONFIG_KEYS = [
 ] as const;
 
 export interface MatchConfig {
+  readonly description: string | null;
   readonly starts_at: string;
   readonly ends_at: string;
   readonly timezone: string;
@@ -44,12 +51,45 @@ const MAX_LEAD_MS = 365 * 24 * 60 * 60 * 1000;
 export function normaliseMatchText(value: unknown, field: string, min: number, max: number) {
   if (typeof value !== 'string') throw validation(field, 'must be a string');
   const raw = value.normalize('NFC');
-  if (/[\p{Cc}؜​‎‏‪-‮⁠-⁤⁦-⁩﻿]/u.test(raw)) {
+  if (/[\p{Cc}\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u.test(raw)) {
     throw validation(field, 'contains a forbidden control character');
   }
   const text = raw.replace(/[\p{Zs}\p{Zl}\p{Zp}]+/gu, ' ').trim();
   if ([...text].length < min || [...text].length > max) {
     throw validation(field, `must be between ${min} and ${max} code points`);
+  }
+  return text;
+}
+
+export const MATCH_DESCRIPTION_MAX = 500;
+
+/**
+ * The description rule, shared with the form and repeated by the database:
+ * NFC; line feeds kept (CR and CRLF become LF, line and paragraph separators
+ * too); every other control and bidi mark refused; runs of spaces collapse to
+ * one, spaces around a line feed and more than one blank line go; the ends
+ * are trimmed. "" is null; anything left empty after that is refused.
+ */
+export function normaliseMatchDescription(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw validation(field, 'must be a string, or null');
+  if (value === '') return null;
+  const raw = value.normalize('NFC').replace(/\r\n?|[\u2028\u2029]/g, '\n');
+  if (
+    /[\p{Cc}\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u.test(
+      raw.replaceAll('\n', ''),
+    )
+  ) {
+    throw validation(field, 'contains a forbidden control character');
+  }
+  const text = raw
+    .replace(/\p{Zs}+/gu, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^[ \n]+|[ \n]+$/g, '');
+  const length = [...text].length;
+  if (length < 1 || length > MATCH_DESCRIPTION_MAX) {
+    throw validation(field, `must be between 1 and ${MATCH_DESCRIPTION_MAX} code points, or empty`);
   }
   return text;
 }
@@ -127,6 +167,8 @@ export function normaliseMatchConfig(value: unknown, now = new Date()): MatchCon
       ? null
       : normaliseMatchText(record['location_address'], 'config.location_address', 2, 160);
 
+  const description = normaliseMatchDescription(record['description'], 'config.description');
+
   const rawLatitude = record['latitude'];
   const rawLongitude = record['longitude'];
   if ((rawLatitude === null) !== (rawLongitude === null)) {
@@ -163,6 +205,7 @@ export function normaliseMatchConfig(value: unknown, now = new Date()): MatchCon
   }
 
   return {
+    description,
     starts_at: startsAt.toISOString(),
     ends_at: endsAt.toISOString(),
     timezone,

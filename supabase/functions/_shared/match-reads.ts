@@ -2,7 +2,9 @@
 // groups gateway with the verified actor context, like get_group_members. The
 // matches table has no client privilege at all (review of #70, P1-1), so these
 // RPCs are the only way to read a match, and each one refuses a revoked
-// session. None spends an idempotency key: they change nothing.
+// session. Racha completo adds the roster and the occupancy: match_players
+// has no client privilege either. None spends an idempotency key: they change
+// nothing.
 import {
   GatewayError,
   defaultMessage,
@@ -13,7 +15,12 @@ import {
 } from './errors.ts';
 import type { ActorContext } from './gateway.ts';
 
-export const MATCH_READ_OPERATIONS = ['get_match', 'list_my_matches'] as const;
+export const MATCH_READ_OPERATIONS = [
+  'get_match',
+  'list_my_matches',
+  'get_match_roster',
+  'get_matches_occupancy',
+] as const;
 export type MatchReadOperation = (typeof MATCH_READ_OPERATIONS)[number];
 export function isMatchReadOperation(value: string): value is MatchReadOperation {
   return (MATCH_READ_OPERATIONS as readonly string[]).includes(value);
@@ -34,6 +41,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12
 const ALLOWED: Record<MatchReadOperation, readonly string[]> = {
   get_match: ['match_id'],
   list_my_matches: [],
+  get_match_roster: ['match_id'],
+  get_matches_occupancy: [],
 };
 
 function failure(code: ErrorCode, requestId: string, fields?: Record<string, string>) {
@@ -64,7 +73,7 @@ export async function dispatchMatchRead(
       p_actor_auth_user_id: deps.actor.authUserId,
       p_actor_session_id: deps.actor.sessionId,
     };
-    if (operation === 'get_match') {
+    if (operation === 'get_match' || operation === 'get_match_roster') {
       const matchId = input['match_id'];
       if (typeof matchId !== 'string' || !UUID.test(matchId)) {
         throw validation('match_id', 'must be a canonical lowercase UUID');

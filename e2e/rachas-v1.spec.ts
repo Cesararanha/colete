@@ -73,6 +73,11 @@ async function cleanActors(authIds: string[], db: pg.Client) {
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
+    await db.query(
+      `delete from private.match_players where match_id in
+         (select id from private.matches where group_id in (${groups}))`,
+      [ids],
+    );
     await db.query(`delete from private.matches where group_id in (${groups})`, [ids]);
     await db.query(`delete from public.group_invites where group_id in (${groups})`, [ids]);
     await db.query(`delete from public.group_members where group_id in (${groups})`, [ids]);
@@ -197,6 +202,17 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
 
     // GPS granted: the rounded position is shown and kept only after confirmation.
     await fillMatch(page, tomorrowInZone());
+    // Description (human decision of 16/10/2026): the counter follows the
+    // normalised text; over 500 is refused before any request; markup and
+    // links stay plain text.
+    const description = page.getByTestId('match-description');
+    await description.fill('x'.repeat(501));
+    await expect(page.getByTestId('match-description-counter')).toHaveText('501 de 500 caracteres');
+    await page.getByTestId('match-create-submit').click();
+    await expect(page.getByText('A descrição pode ter no máximo 500 caracteres.')).toBeVisible();
+    expect(gatewayCalls).toBe(0);
+    await description.fill('  Leve   colete <b>escuro</b>\nhttps://exemplo.test ');
+    await expect(page.getByTestId('match-description-counter')).toHaveText('46 de 500 caracteres');
     await page.getByTestId('match-locate').click();
     await expect(page.getByTestId('match-location-found')).toContainText('-23,5505, -46,6333');
     await page.getByTestId('match-location-confirm').click();
@@ -216,19 +232,24 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     expect(sent.config['latitude']).toBe(-23.5505);
     expect(sent.config['longitude']).toBe(-46.6333);
     expect(sent.config['timezone']).toBe(ZONE);
+    expect(sent.config['description']).toBe('Leve colete <b>escuro</b>\nhttps://exemplo.test');
 
-    // Detail: the scoreboard shows the real start and slots from the database.
+    // Detail: the scoreboard shows the real occupancy, confirmed over slots.
     await expect(page).toHaveURL(/\/rachas\/[0-9a-f-]{36}$/);
     const matchUrl = new URL(page.url()).pathname;
     await expect(page.getByRole('heading', { name: 'Arena da Vila', level: 1 })).toBeVisible();
     await expect(page.getByTestId('match-create-submit')).toHaveCount(0);
-    await expect(page.getByRole('img', { name: 'Começa às 19:30, 14 vagas' })).toBeVisible();
+    await expect(page.getByRole('img', { name: '0 de 14 vagas confirmadas' })).toBeVisible();
     await expect(page.getByTestId('match-fact-when')).toContainText('das 19:30 às 21:00');
     await expect(page.getByTestId('match-fact-price')).toContainText('R$ 25,50');
     await expect(page.getByTestId('match-fact-group')).toContainText('Racha de Quinta');
+    const about = page.getByTestId('match-fact-description');
+    await expect(about).toContainText('Leve colete <b>escuro</b>');
+    await expect(about).toContainText('https://exemplo.test');
+    await expect(about.locator('a, b')).toHaveCount(0);
     const row = (
       await db.query(
-        `select latitude::text, longitude::text, field_slots, field_price::text, timezone,
+        `select latitude::text, longitude::text, field_slots, field_price::text, timezone, description,
            to_char(starts_at at time zone 'America/Sao_Paulo', 'HH24:MI') as start
          from private.matches where group_id = $1`,
         [groupId],
@@ -241,6 +262,7 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
         field_slots: 14,
         field_price: '25.50',
         timezone: ZONE,
+        description: 'Leve colete <b>escuro</b>\nhttps://exemplo.test',
         start: '19:30',
       },
     ]);
