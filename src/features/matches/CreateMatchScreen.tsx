@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { AppCheckbox } from '@/components/ui/AppCheckbox';
 import { AppIcon } from '@/components/ui/AppIcon';
-import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
@@ -16,6 +14,8 @@ import {
   AppError,
   TransportError,
   api,
+  type AddressResult,
+  type AddressSearch,
   type GroupSummary,
   type MatchOutcome,
   type MutationIntent,
@@ -29,9 +29,15 @@ import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from '../groups/group-errors';
 import { DESCRIPTION_MAX, descriptionLength } from './match-description';
-import { coordinatesText } from './match-format';
-import { matchConfigFromForm, type MatchFormErrors, type MatchFormValues } from './match-form';
-import { useDeviceLocation } from './use-device-location';
+import {
+  matchConfigFromForm,
+  nextDayNotice,
+  type ConfirmedPlace,
+  type MatchFormErrors,
+  type MatchFormValues,
+} from './match-form';
+import { maskDate, maskMoney, maskTime } from './match-masks';
+import { serverErrorTarget } from './match-server-errors';
 
 const EMPTY: MatchFormValues = {
   date: '',
@@ -44,14 +50,34 @@ const EMPTY: MatchFormValues = {
   price: '',
 };
 
-function matchErrorMessage(error: unknown): string {
-  if (error instanceof AppError && error.code === 'TIME_ORDER') {
-    return pt.matches.create.errors.timeOrder;
+/** The order the person meets the fields: the first invalid one gets the focus. */
+const FIELD_ORDER: readonly (keyof MatchFormValues)[] = [
+  'date',
+  'startTime',
+  'endTime',
+  'locationName',
+  'locationAddress',
+  'description',
+  'slots',
+  'price',
+];
+
+const MASKS: Partial<Record<keyof MatchFormValues, (value: string) => string>> = {
+  date: maskDate,
+  startTime: maskTime,
+  endTime: maskTime,
+  price: maskMoney,
+};
+
+/** Brings a control into view and gives it the focus: a field, or the notice at the top. */
+function focusControl(input: TextInput | null | undefined, testId: string) {
+  if (Platform.OS === 'web' && typeof document !== 'undefined') {
+    const element = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    element?.scrollIntoView({ block: 'center' });
+    element?.focus({ preventScroll: true });
+    return;
   }
-  if (error instanceof AppError && error.code === 'PRICE_INVALID') {
-    return pt.matches.create.errors.priceInvalid;
-  }
-  return groupErrorMessage(error, true);
+  input?.focus();
 }
 
 /** A real radio group: one choice, the chosen one marked by an icon too, not colour alone. */
@@ -103,6 +129,73 @@ function GroupChoice({
   );
 }
 
+/**
+ * The address search results: up to five places to choose from and the
+ * OpenStreetMap attribution under them. The search itself goes through the
+ * Edge on the press of "Buscar"; the app never calls OpenStreetMap.
+ */
+function AddressResults({
+  onChoose,
+  search,
+}: {
+  onChoose: (result: AddressResult) => void;
+  search: AddressSearch;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[styles.results, { borderColor: colors.fieldBorder }]}
+      testID="match-address-results"
+    >
+      {search.unavailable ? (
+        <AppAlert
+          message={pt.matches.create.searchUnavailable}
+          testID="match-address-unavailable"
+        />
+      ) : search.results.length === 0 ? (
+        <Text style={[styles.hint, { color: colors.textMuted }]} testID="match-address-empty">
+          {pt.matches.create.searchEmpty}
+        </Text>
+      ) : (
+        <>
+          <Text
+            nativeID="match-address-results-label"
+            style={[styles.label, { color: colors.text }]}
+          >
+            {pt.matches.create.searchResults}
+          </Text>
+          <View aria-labelledby="match-address-results-label" role="list" style={styles.options}>
+            {search.results.map((result, index) => (
+              <View key={`${result.label}-${index}`} role="listitem">
+                <Pressable
+                  accessibilityLabel={pt.matches.create.choose(result.label)}
+                  accessibilityRole="button"
+                  onPress={() => onChoose(result)}
+                  style={({ pressed }) => [
+                    styles.option,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.fieldBorder,
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                  testID={`match-address-result-${index}`}
+                >
+                  <AppIcon color={colors.textMuted} name="map-pin" size={20} />
+                  <Text style={[styles.optionText, { color: colors.text }]}>{result.label}</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+      <Text style={[styles.attribution, { color: colors.textMuted }]} testID="match-attribution">
+        {pt.matches.create.attribution}
+      </Text>
+    </View>
+  );
+}
+
 export function CreateMatchScreen({
   initialGroupId,
   profile,
@@ -113,12 +206,15 @@ export function CreateMatchScreen({
   const { colors } = useTheme();
   const queryClient = useQueryClient();
   const intent = useRef<MutationIntent<MatchOutcome> | null>(null);
+  const inputs = useRef<Partial<Record<keyof MatchFormValues, TextInput | null>>>({});
   const [values, setValues] = useState<MatchFormValues>(EMPTY);
   const [errors, setErrors] = useState<MatchFormErrors>({});
+  const [formError, setFormError] = useState('');
   const [chosenGroup, setChosenGroup] = useState<string | undefined>(initialGroupId);
   const [groupError, setGroupError] = useState<string | undefined>();
-  const [keepLocation, setKeepLocation] = useState(false);
-  const { location, request, clear } = useDeviceLocation();
+  const [place, setPlace] = useState<ConfirmedPlace>(null);
+  const [search, setSearch] = useState<AddressSearch | undefined>();
+  const [searchError, setSearchError] = useState('');
 
   const eligible = useQuery({
     queryKey: [PRIVATE_QUERY_ROOT, 'groups', 'organizing', profile.id],
@@ -130,12 +226,32 @@ export function CreateMatchScreen({
       ),
   });
   const groups = eligible.data ?? [];
+  // From a group's page the group is already chosen and the selector is gone;
+  // a group the person cannot organise falls back to the selector.
+  const fixedGroup =
+    initialGroupId === undefined ? undefined : groups.find((group) => group.id === initialGroupId);
   const groupId =
-    chosenGroup !== undefined && groups.some((group) => group.id === chosenGroup)
+    fixedGroup?.id ??
+    (chosenGroup !== undefined && groups.some((group) => group.id === chosenGroup)
       ? chosenGroup
       : groups.length === 1
         ? groups[0]?.id
-        : undefined;
+        : undefined);
+
+  const searching = useMutation({
+    mutationFn: (query: string) => api.searchAddress(query),
+    onSuccess: (result) => setSearch(result),
+    onError: (error) => {
+      setSearch(undefined);
+      setSearchError(
+        error instanceof AppError && error.code === 'RATE_LIMITED'
+          ? pt.matches.create.searchRateLimited
+          : error instanceof AppError && error.code === 'VALIDATION'
+            ? pt.matches.create.searchShort
+            : groupErrorMessage(error, true),
+      );
+    },
+  });
 
   const creation = useMutation({
     mutationFn: async (input: Parameters<typeof api.createMatch>) => {
@@ -154,28 +270,79 @@ export function CreateMatchScreen({
       if (!(error instanceof TransportError || (error instanceof AppError && error.retryable))) {
         intent.current = null;
       }
+      // The refusal lands on the field it is about, or in the notice at the
+      // top; either way the focus goes there.
+      const target = serverErrorTarget(error, (cause) => groupErrorMessage(cause, true));
+      if (target.field !== undefined) {
+        const field = target.field;
+        setErrors((current) => ({ ...current, [field]: target.message }));
+        requestAnimationFrame(() => focusControl(inputs.current[field], `match-${field}`));
+      } else {
+        setFormError(target.message);
+        requestAnimationFrame(() => focusControl(null, 'match-create-error-box'));
+      }
     },
   });
 
   // Any edit is a new intent: the next submission gets a new request_id.
-  const update = (field: keyof MatchFormValues) => (value: string) => {
+  const update = (field: keyof MatchFormValues) => (typed: string) => {
     intent.current = null;
+    const value = MASKS[field]?.(typed) ?? typed;
     setValues((current) => ({ ...current, [field]: value }));
     if (errors[field]) setErrors((current) => ({ ...current, [field]: undefined }));
+    if (field === 'locationAddress') {
+      // The coordinates belong to the chosen result, not to text typed after it.
+      setPlace(null);
+      setSearchError('');
+    }
   };
 
-  const found = location.status === 'found' ? location : undefined;
+  const runSearch = () => {
+    if (searching.isPending) return;
+    setSearchError('');
+    setSearch(undefined);
+    const query = values.locationAddress.replace(/\s+/gu, ' ').trim();
+    if ([...query].length < 3) {
+      setSearchError(pt.matches.create.searchShort);
+      return;
+    }
+    searching.mutate(query);
+  };
+
+  const choose = (result: AddressResult) => {
+    intent.current = null;
+    setValues((current) => ({
+      ...current,
+      locationAddress: [...result.label].slice(0, 160).join(''),
+    }));
+    setErrors(({ locationAddress: _cleared, ...rest }) => rest);
+    setPlace({ latitude: result.latitude, longitude: result.longitude });
+    setSearch(undefined);
+  };
+
+  const focusGroup = () =>
+    requestAnimationFrame(() => focusControl(null, `match-group-${groups[0]?.id ?? ''}`));
+
   const submit = () => {
-    const place =
-      found && keepLocation ? { latitude: found.latitude, longitude: found.longitude } : null;
+    if (creation.isPending) return;
+    setFormError('');
     const result = matchConfigFromForm(values, place);
-    setGroupError(groupId === undefined ? pt.matches.create.errors.group : undefined);
+    const missingGroup = groupId === undefined;
+    setGroupError(missingGroup ? pt.matches.create.errors.group : undefined);
     if ('errors' in result) {
       setErrors(result.errors);
+      const first = FIELD_ORDER.find((name) => result.errors[name] !== undefined);
+      if (missingGroup) focusGroup();
+      else if (first !== undefined) {
+        requestAnimationFrame(() => focusControl(inputs.current[first], `match-${first}`));
+      }
       return;
     }
     setErrors({});
-    if (groupId === undefined) return;
+    if (missingGroup) {
+      focusGroup();
+      return;
+    }
     creation.mutate([groupId, result.config]);
   };
 
@@ -184,8 +351,9 @@ export function CreateMatchScreen({
     name: keyof MatchFormValues,
     label: string,
     options: {
-      hint?: string;
-      keyboardType?: 'default' | 'number-pad' | 'decimal-pad' | 'numbers-and-punctuation';
+      hint?: string | undefined;
+      keyboardType?: 'default' | 'number-pad';
+      maxLength?: number;
       multiline?: boolean;
       placeholder?: string;
     } = {},
@@ -195,13 +363,18 @@ export function CreateMatchScreen({
       hint={options.hint}
       keyboardType={options.keyboardType ?? 'default'}
       label={label}
+      {...(options.maxLength === undefined ? {} : { maxLength: options.maxLength })}
       multiline={options.multiline ?? false}
       onChangeText={update(name)}
       placeholder={options.placeholder}
+      ref={(input) => {
+        inputs.current[name] = input;
+      }}
       testID={`match-${name}`}
       value={values[name]}
     />
   );
+  const nextDay = nextDayNotice(values.startTime, values.endTime);
 
   return (
     <AuthenticatedShell
@@ -229,41 +402,86 @@ export function CreateMatchScreen({
       ) : null}
       {groups.length > 0 ? (
         <AppCard testID="create-match-card">
-          {creation.error ? (
-            <AppAlert message={matchErrorMessage(creation.error)} testID="match-create-error" />
-          ) : null}
-          <GroupChoice
-            error={groupError}
-            groups={groups}
-            onChange={(id) => {
-              intent.current = null;
-              setChosenGroup(id);
-              setGroupError(undefined);
-            }}
-            value={groupId}
-          />
+          <View tabIndex={-1} testID="match-create-error-box">
+            <AppAlert message={formError} testID="match-create-error" />
+          </View>
+          {fixedGroup ? (
+            <View style={styles.choice} testID="match-fixed-group">
+              <Text style={[styles.label, { color: colors.text }]}>
+                {pt.matches.create.groupFixed}
+              </Text>
+              <View style={styles.fixed}>
+                <AppIcon color={colors.textMuted} name="users" size={20} />
+                <Text style={[styles.optionText, { color: colors.text }]}>{fixedGroup.name}</Text>
+              </View>
+            </View>
+          ) : (
+            <GroupChoice
+              error={groupError}
+              groups={groups}
+              onChange={(id) => {
+                intent.current = null;
+                setChosenGroup(id);
+                setGroupError(undefined);
+              }}
+              value={groupId}
+            />
+          )}
           {field('date', pt.matches.create.date, {
             hint: pt.matches.create.dateHint,
-            keyboardType: 'numbers-and-punctuation',
+            keyboardType: 'number-pad',
+            maxLength: 10,
             placeholder: 'DD/MM/AAAA',
           })}
           <View style={styles.pair}>
             <View style={styles.pairItem}>
               {field('startTime', pt.matches.create.start, {
                 hint: pt.matches.create.timeHint,
-                keyboardType: 'numbers-and-punctuation',
+                keyboardType: 'number-pad',
+                maxLength: 5,
                 placeholder: 'HH:MM',
               })}
             </View>
             <View style={styles.pairItem}>
               {field('endTime', pt.matches.create.end, {
-                keyboardType: 'numbers-and-punctuation',
+                hint: nextDay,
+                keyboardType: 'number-pad',
+                maxLength: 5,
                 placeholder: 'HH:MM',
               })}
             </View>
           </View>
           {field('locationName', pt.matches.create.place, { hint: pt.matches.create.placeHint })}
-          {field('locationAddress', pt.matches.create.address)}
+          <View style={styles.address}>
+            {field('locationAddress', pt.matches.create.address, {
+              hint: pt.matches.create.addressHint,
+            })}
+            <AppButton
+              accessibilityLabel={pt.matches.create.searchLabel}
+              ariaDisabled={searching.isPending}
+              icon="search"
+              label={searching.isPending ? pt.matches.create.searching : pt.matches.create.search}
+              onPress={runSearch}
+              testID="match-address-search"
+              variant="secondary"
+            />
+            <AppAlert message={searchError} testID="match-address-error" />
+            {search ? <AddressResults onChoose={choose} search={search} /> : null}
+            {place ? (
+              <View style={styles.chosen} testID="match-address-chosen">
+                <AppStatus message={pt.matches.create.chosen} />
+                <AppButton
+                  label={pt.matches.create.clearChosen}
+                  onPress={() => {
+                    intent.current = null;
+                    setPlace(null);
+                  }}
+                  testID="match-address-clear"
+                  variant="tertiary"
+                />
+              </View>
+            ) : null}
+          </View>
           <View style={styles.description}>
             {field('description', pt.matches.create.descriptionLabel, {
               hint: pt.matches.create.descriptionHint,
@@ -287,77 +505,24 @@ export function CreateMatchScreen({
               )}
             </Text>
           </View>
-          <View style={styles.location}>
-            <AppButton
-              icon="crosshair"
-              label={
-                location.status === 'requesting'
-                  ? pt.matches.create.locating
-                  : pt.matches.create.locate
-              }
-              onPress={() => {
-                intent.current = null;
-                setKeepLocation(false);
-                void request();
-              }}
-              testID="match-locate"
-              variant="secondary"
-            />
-            {location.status === 'denied' ? (
-              <AppAlert message={pt.matches.create.locationDenied} testID="match-location-denied" />
-            ) : null}
-            {location.status === 'unavailable' ? (
-              <AppAlert
-                message={pt.matches.create.locationUnavailable}
-                testID="match-location-unavailable"
-              />
-            ) : null}
-            {found ? (
-              <View
-                style={[styles.found, { borderColor: colors.fieldBorder }]}
-                testID="match-location-found"
-              >
-                <AppStatus
-                  message={pt.matches.create.located(
-                    coordinatesText(found.latitude, found.longitude),
-                  )}
-                />
-                <AppCheckbox
-                  checked={keepLocation}
-                  label={pt.matches.create.confirmLocation}
-                  onChange={(checked) => {
-                    intent.current = null;
-                    setKeepLocation(checked);
-                  }}
-                  testID="match-location-confirm"
-                />
-                <AppButton
-                  label={pt.matches.create.discardLocation}
-                  onPress={() => {
-                    intent.current = null;
-                    setKeepLocation(false);
-                    clear();
-                  }}
-                  testID="match-location-discard"
-                  variant="tertiary"
-                />
-              </View>
-            ) : null}
-          </View>
           <View style={styles.pair}>
             <View style={styles.pairItem}>
-              {field('slots', pt.matches.create.slots, { keyboardType: 'number-pad' })}
+              {field('slots', pt.matches.create.slots, {
+                keyboardType: 'number-pad',
+                maxLength: 2,
+              })}
             </View>
             <View style={styles.pairItem}>
               {field('price', pt.matches.create.price, {
                 hint: pt.matches.create.priceHint,
-                keyboardType: 'decimal-pad',
+                keyboardType: 'number-pad',
+                placeholder: 'R$ 0,00',
               })}
             </View>
           </View>
-          {creation.isPending ? <AppSkeleton lines={2} /> : null}
           <AppButton
-            label={pt.matches.create.submit}
+            ariaDisabled={creation.isPending}
+            label={creation.isPending ? pt.matches.create.submitting : pt.matches.create.submit}
             onPress={submit}
             testID="match-create-submit"
           />
@@ -368,13 +533,15 @@ export function CreateMatchScreen({
 }
 
 const styles = StyleSheet.create({
+  address: { gap: spacing.sm },
+  attribution: { ...typography.support, alignSelf: 'flex-end' },
   choice: { gap: spacing.sm },
+  chosen: { gap: spacing.xs },
   counter: { ...typography.support, alignSelf: 'flex-end' },
   description: { gap: spacing.xs },
-  found: { borderRadius: radius.row, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
+  fixed: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, minHeight: size.target },
   hint: { ...typography.support },
   label: { ...typography.supportStrong },
-  location: { gap: spacing.sm },
   option: {
     alignItems: 'center',
     borderRadius: radius.row,
@@ -389,4 +556,5 @@ const styles = StyleSheet.create({
   options: { gap: spacing.sm },
   pair: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   pairItem: { flexBasis: 160, flexGrow: 1, minWidth: 0 },
+  results: { borderRadius: radius.row, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
 });

@@ -1259,6 +1259,16 @@ código produtivo.
   e projetada só por `get_match`. O registro completo e a lista do que fica
   para depois estão em `27`.
 
+- **Rachas: usabilidade — decisão humana de César, 17/10/2026, AGENTS §8.**
+  Racha dentro do grupo ("Próximos rachas" e "Criar racha" com o grupo já
+  escolhido), aba Rachas renomeada para "Agenda", busca de endereço pelo
+  OpenStreetMap (Nominatim) somente pela Edge (`search_address` no gateway
+  `groups`, com o portão `public.geocode_gate` da `0023`: sessão, dono ou
+  organizador ativo e no máximo uma requisição por segundo para o app),
+  distância calculada no aparelho no detalhe, máscaras e validação por campo.
+  O GPS sai da criação. A posição da pessoa nunca sai do aparelho. O registro
+  completo está em `27`.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

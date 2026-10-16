@@ -1,4 +1,4 @@
-// The device position for the match place, by expo-location (navigator
+// The device position for "Ver distância" in the match detail, by expo-location (navigator
 // geolocation in the PWA, which needs Permissions-Policy geolocation=(self)).
 // The position is rounded to 4 decimals at once: the precise reading never
 // reaches state, a log or an error message.

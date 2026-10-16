@@ -365,3 +365,39 @@ reconciliação; obrigação de devolução (`refund_due`) para quem pagou e sai
 do grupo ou excluiu a conta, e o bloqueio financeiro da exclusão; exibir na
 tela quem marcou o pagamento; inscrições no export LGPD; registro de
 operações da D63.5 antes do piloto com usuários reais.
+
+## Rachas: usabilidade — decisão humana de 17/10/2026
+
+César pediu, depois de testar no celular: o detalhe do grupo mostra
+"Próximos rachas" (cards do grupo, por data) e "Criar racha" só para dono e
+organizador ativo, abrindo o modal com o grupo escolhido e sem seletor; a aba
+Rachas vira "Agenda", com todos os próximos rachas e o nome do grupo em cada
+card. "Nome do local" é texto livre. "Endereço" tem "Buscar": a Edge consulta
+o Nominatim (Brasil, pt-BR, até 5 resultados), só no toque, com User-Agent do
+Colete, no máximo 1 requisição por segundo para o app inteiro
+(`private.geocode_throttle`, `0023`), cache curto em memória e atribuição
+"© OpenStreetMap" nos resultados. A busca exige sessão válida e autoridade de
+quem cria racha, não grava nem loga o texto buscado e não muda a CSP do app.
+Escolher um resultado preenche o endereço e guarda latitude/longitude com 4
+casas; digitar por cima descarta a posição. "Usar minha localização" sai da
+criação; o detalhe ganha "Ver distância", calculada no aparelho, só quando o
+racha tem coordenadas. Máscaras de data, horário e valor; erros por campo
+(data anterior a hoje, início já passado, fim antes do início acima de 6 h;
+até 6 h, o fim antes do início termina no dia seguinte, com aviso); foco no
+primeiro campo inválido; "Criando…" durante o envio; erro do servidor no campo
+ou no aviso do topo. Placar do detalhe só com a ocupação; data e horário em
+texto no topo. Card no Placar premium: bloco de data estilo ingresso, horário,
+local, grupo na Agenda e ocupação com barra e espera.
+
+**Decisão de César (revisão do #72):** o servidor mantém até 12 h de
+duração no banco e na Edge; o limite de 6 h vale só no formulário. Nenhuma
+migration nova nem mudança de constante da Edge.
+
+Busca de endereço, correções da revisão do #72. O portão reserva horários de
+saída espaçados por 1,25 s (`0023`) e a Edge só chama o Nominatim até 250 ms
+depois do horário reservado, medido no próprio relógio; resposta lenta do
+portão ou despertar tardio abandona o horário e reserva outro. Assim duas
+saídas distam no mínimo 1 s no app inteiro, com várias instâncias e atraso
+entre o portão e a chamada. Corpo que falha no meio da leitura vira
+"indisponível" e não entra no cache. O card empilha o bloco de data sobre o
+conteúdo quando a largura útil é pequena.

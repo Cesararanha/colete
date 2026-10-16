@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de nove harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches` e `db:test:match-players`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de dez harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players` e `db:test:geocode`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -2297,3 +2297,101 @@ o pgTAP em 2 asserções; com o replay devolvendo `current` antes da
 autoridade, o harness cai em "no current after the demotion"; com o
 NOT_FOUND antes da sessão, cai em "revoked join_match unknown" (404) e o
 pgTAP na asserção 73; sem o retorno de foco, o e2e cai em `toBeFocused`.
+
+## Rachas: usabilidade — `0023_geocode_gate.sql` (modo apresentação, 17/10/2026)
+
+Autor Claude Code. Empilhada sobre o Racha completo (`fdc1490`, PR #71).
+Toca login/sessão (portão da busca) e dado pessoal (posição do aparelho):
+risco alto pela D63, revisão independente.
+
+### O que foi entregue
+
+- Detalhe do grupo com "Próximos rachas" (cards do grupo, por data) e
+  "Criar racha" só para dono e organizador; o modal abre com o grupo fixo,
+  sem seletor. A aba Rachas virou "Agenda", com o nome do grupo em cada card.
+- Busca de endereço: `search_address` no gateway `groups` consulta o
+  Nominatim (Brasil, pt-BR, até 5 resultados, `User-Agent` do Colete, cache
+  de 10 min em memória, atribuição "© OpenStreetMap"). Antes de cada busca,
+  inclusive de cache, `public.geocode_gate` (`0023`) confere a sessão
+  (revogada recusa), exige dono ou organizador ativo de grupo não arquivado e
+  toma o relógio de `private.geocode_throttle`, de uma linha só: no máximo
+  uma saída por segundo para o app inteiro, entre todas as instâncias da
+  Edge. Ocupado, a Edge espera uma vez 1,1 s e depois responde
+  `RATE_LIMITED`. Nenhum texto buscado é gravado ou logado; a CSP do app não
+  mudou.
+- Criação sem GPS; escolha de resultado guarda latitude/longitude com 4 casas
+  e digitar por cima descarta. Detalhe com "Ver distância" (haversine no
+  aparelho), só com coordenadas; permissão negada tem texto próprio.
+- Máscaras sem dependência (data, horário, valor em centavos); regra de
+  horário por campo, com fim no dia seguinte até 6 h; foco no primeiro campo
+  inválido; "Criando…" desabilitado; erro do servidor no campo ou no aviso do
+  topo, com foco. Placar do detalhe só com a ocupação e a data em texto no
+  topo. Card com bloco de data estilo ingresso e barra de ocupação.
+
+### Provas e números medidos (pilha local, trava da sessão)
+
+| Comando | Resultado |
+|---|---|
+| db:test | 22 arquivos, 1486 asserções, PASS (0023: 31) |
+| db:test:matches | 15 provas ok; `search_address` revogada 401, jogador 403 `NOT_ORGANIZER`, consulta curta e chave extra 422, relógio intocado |
+| demais harnesses de §5 | exit 0 |
+| test:auth:web | 10 passed, 2 skipped (ver nota) |
+| test:privacy:web / test:cors:web | 5 passed, 5 skipped / 4 passed |
+| test:groups:web | 64 passed |
+| test:matches:web | 18 passed (6 Rachas v1, 4 Racha completo, 8 usabilidade) |
+| test:smoke:web | 6 passed |
+| verify:app | exit 0; vitest 41 arquivos, 465 testes |
+| test:staging / test:audit | 102/102 / 94/94 |
+| audit:high | exit 0, duas exceções ativas |
+
+Nota: `m1-a-auth` "creates a real account…" falha às vezes em
+`toBeFocused` no rádio de posição do perfil. Na suíte, falhou 1 vez; em
+3 reexecuções nesta branch, 1 verde e 2 falhas; no controle com o
+`fdc1490` (sem esta fatia), 1 falha em 3. É uma instabilidade anterior,
+num arquivo que esta fatia não toca.
+
+### Contraprovas executadas
+
+- `geocode_gate` sem a checagem de autoridade: o pgTAP da `0023` reprova
+  3 asserções (jogador, grupo arquivado, organizador pendente). Sem a
+  condição de um segundo, reprova também "outra pessoa no mesmo segundo
+  espera" e "900 ms depois ainda é o mesmo segundo". Restaurado por
+  `db:reset`.
+- Sem o foco no primeiro campo inválido, o e2e de foco reprova em
+  `toBeFocused` na data; restaurado byte a byte (`cmp`), passa.
+- Edge (vitest): sessão revogada e jogador param antes de qualquer `fetch`;
+  falha do Nominatim responde lista vazia `unavailable` e não entra no cache;
+  recusa nunca ecoa o texto buscado.
+
+### Correções da revisão do PR #72 (16/10/2026)
+
+- **P1, espaçamento da saída ao Nominatim.** `geocode_gate` reserva horários a
+  1250 ms (`max(último + 1250 ms, agora)`, até 3 s à frente; além disso,
+  null e RATE_LIMITED) e devolve os milissegundos até o horário. A Edge mede
+  t0 e t1 em volta da RPC no próprio relógio monotônico e só chama dentro de
+  `[t1 + w, t0 + w − 1 + 250 ms]`, sem `await` entre a última checagem e o
+  fetch; resposta lenta ou despertar tardio abandona o horário e reserva
+  outro (até três). Cada chamada fica em [horário, horário + 250 ms], logo
+  duas distam no mínimo 1 s, em qualquer instância, sem depender de relógio
+  sincronizado entre banco e Edge.
+- **P2.** Corpo que falha no meio da leitura vira "indisponível" e não entra
+  no cache. O card quebra a linha (`flexWrap`, base de 176 px no conteúdo):
+  em largura útil pequena o bloco de data fica em cima.
+- **P3.** docs/27 registra a decisão de manter 12 h no servidor.
+
+| Comando | Resultado |
+|---|---|
+| db:test | 22 arquivos, 1497 asserções, PASS |
+| db:test:geocode (novo) | 4 provas e censo; 3 rodadas estáveis: sonda da revisão (resposta do portão 1350 ms atrasada) com saídas a ~1250 ms; 6 instâncias, menor intervalo ~1146 ms; mutante a 1000 ms com 200 ms de atraso: ~800 ms |
+| db:test:match-players / matches | 16 / 14 provas ok |
+| demais harnesses de §5 | exit 0 |
+| test:matches:web | 18 passed |
+| test:groups / privacy / cors / smoke web | 64 / 5+5 skip / 4 / 6 |
+| test:auth:web | 9 passed, 1 failed (foco do Perfil, `:450`, intermitente na base), 2 skipped; repetição 10 passed |
+| verify:app | exit 0; vitest 41 arquivos, 469 testes |
+| test:staging / test:audit / audit:high | 102 / 94 / exit 0 |
+
+Contraprovas: a sonda da revisão contra a 0023 e o `geocode.ts` anteriores
+mediu 248 ms entre saídas; o mutante só da leitura do corpo derruba o teste
+novo de corpo interrompido; sem `flexWrap`, o e2e a 200% mede 12 px no
+horário. O Nominatim nunca foi chamado.
