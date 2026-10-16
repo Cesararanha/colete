@@ -32,6 +32,7 @@ import {
 } from './invite-gateway.ts';
 import type { ErrorCode } from './errors.ts';
 import { dispatchMatchRead, isMatchReadOperation } from './match-reads.ts';
+import { DEFAULT_USER_AGENT, dispatchGeocode, isGeocodeOperation } from './geocode.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -183,6 +184,21 @@ export function serveGateway(served: readonly string[]): void {
         const actor = await verifyActor(token);
         if (actor === undefined) {
           return errorResponse('UNAUTHENTICATED', requestIdHint);
+        }
+
+        // The address search leaves the Edge for Nominatim; the app never
+        // calls OpenStreetMap, so the app's CSP does not change.
+        if (isGeocodeOperation(operation)) {
+          const search = await dispatchGeocode(
+            {
+              actor,
+              callRpc,
+              fetchUpstream: (url, init) => fetch(url, init),
+              userAgent: readEnv('GEOCODER_USER_AGENT') || DEFAULT_USER_AGENT,
+            },
+            body,
+          );
+          return jsonResponse(search.status, search.body);
         }
 
         if (isMatchReadOperation(operation)) {

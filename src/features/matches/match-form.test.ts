@@ -88,21 +88,21 @@ describe('match form to create_match config', () => {
     ]);
   });
 
-  it('refuses a start in the past and a match longer than 12 hours', () => {
+  it('refuses a start in the past and a match longer than 6 hours', () => {
     const past = matchConfigFromForm(
       { ...values, date: '14/10/2030', startTime: '08:00' },
       null,
       NOW,
       ZONE,
     );
-    expect('errors' in past && past.errors.startTime).toBeTruthy();
+    expect('errors' in past && past.errors.startTime).toBe('O horário de início já passou');
     const long = matchConfigFromForm(
       { ...values, startTime: '08:00', endTime: '20:30' },
       null,
       NOW,
       ZONE,
     );
-    expect('errors' in long && long.errors.endTime).toBeTruthy();
+    expect('errors' in long && long.errors.endTime).toBe('O racha pode durar no máximo 6 horas.');
   });
 
   it('rounds coordinates to 4 places and never yields -0', () => {

@@ -660,6 +660,40 @@ async function proveGroupBarrier(connections, db, context) {
   );
 }
 
+// Busca de endereço (PR E, 17/10/2026): só as recusas, que param antes da
+// saída ao Nominatim. O relógio compartilhado não se move em nenhuma delas, e
+// é isso que prova que nada saiu da Edge.
+async function proveAddressSearch(status, db, context) {
+  const clock = async () =>
+    (await db.query('select last_slot_at::text as at from private.geocode_throttle')).rows[0].at;
+  const before = await clock();
+  denied(
+    await read(status, context.revoked, 'search_address', { query: 'Rua das Flores' }),
+    401,
+    'UNAUTHENTICATED',
+    'revoked session searches nothing',
+  );
+  denied(
+    await read(status, context.player, 'search_address', { query: 'Rua das Flores' }),
+    403,
+    'NOT_ORGANIZER',
+    'a player searches nothing',
+  );
+  const short = await read(status, context.owner, 'search_address', { query: 'ab' });
+  denied(short, 422, 'VALIDATION', 'short query');
+  assert.equal(JSON.stringify(short.body).includes('ab"'), false, 'the query is not echoed');
+  denied(
+    await read(status, context.owner, 'search_address', { query: 'Rua', latitude: 1 }),
+    422,
+    'VALIDATION',
+    'unknown key',
+  );
+  assert.equal(await clock(), before, 'no refusal spent the shared clock');
+  console.log(
+    'ok - search_address: revoked 401, player 403 NOT_ORGANIZER, short and extra key 422; clock untouched',
+  );
+}
+
 async function main() {
   const status = localStatus();
   const db = client(status.dbUrl, 'admin');
@@ -702,6 +736,7 @@ async function main() {
     await proveRpcAuthority(first, context);
     await proveAuthorityMutant(db, first, context);
     await proveGroupBarrier({ observer, holder, first }, db, context);
+    await proveAddressSearch(status, db, context);
   } catch (error) {
     failure = error;
   }

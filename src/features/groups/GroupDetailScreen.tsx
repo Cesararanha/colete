@@ -21,6 +21,8 @@ import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
 import { roleIcon, roleName } from './group-roles';
 import { MemberRow } from './MemberRow';
+import { MatchCard } from '../matches/MatchCard';
+import { useUpcomingMatches } from '../matches/use-upcoming-matches';
 
 export function GroupDetailScreen({ groupId, profile }: { groupId: string; profile: OwnProfile }) {
   const queryClient = useQueryClient();
@@ -63,6 +65,11 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
     },
   });
   const group = detail.data;
+  // The group's own upcoming matches, by start, from the Agenda's cached read.
+  const upcoming = useUpcomingMatches(profile);
+  const groupMatches = (upcoming.data?.matches ?? []).filter((match) => match.group_id === groupId);
+  // The same role gate as the group tools above; create_match decides again.
+  const canOrganize = group?.role === 'owner' || group?.role === 'organizer';
   // docs/29 §5: the count comes from the getGroupMembers read the screen
   // already makes; no capacity is shown because the contract has none.
   const activeMembers = members.data?.filter((member) => member.status === 'active').length;
@@ -108,15 +115,6 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           {group.role === 'owner' || group.role === 'organizer' ? (
             <View style={styles.actions}>
               <AppButton
-                icon="calendar"
-                label={pt.matches.list.create}
-                onPress={() =>
-                  router.push({ pathname: '/criar-racha', params: { groupId: group.id } })
-                }
-                testID="group-create-match"
-                variant="secondary"
-              />
-              <AppButton
                 icon="user-plus"
                 label={pt.groups.detail.invites}
                 onPress={() => router.push(`/grupos/${group.id}/convites`)}
@@ -134,6 +132,51 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
                 variant="secondary"
               />
             </View>
+          ) : null}
+        </AppCard>
+      ) : null}
+      {group ? (
+        <AppCard testID="group-upcoming-matches">
+          <Text aria-level={2} role="heading" style={[styles.section, { color: colors.text }]}>
+            {pt.groups.detail.upcoming}
+          </Text>
+          {upcoming.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
+          {upcoming.isError ? (
+            <AsyncNotice
+              kind="network"
+              title={pt.common.networkTitle}
+              message={pt.common.networkBody}
+              actionLabel={pt.common.retry}
+              action={() => void upcoming.refetch()}
+            />
+          ) : null}
+          {upcoming.data && groupMatches.length === 0 ? (
+            <Text style={[styles.reason, { color: colors.textMuted }]}>
+              {pt.groups.detail.upcomingEmpty}
+            </Text>
+          ) : null}
+          {groupMatches.length > 0 ? (
+            <View role="list" style={styles.lists}>
+              {groupMatches.map((match) => (
+                <View key={match.id} role="listitem">
+                  <MatchCard
+                    match={match}
+                    occupancy={upcoming.data?.occupancy.get(match.id)}
+                    showGroup={false}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {canOrganize ? (
+            <AppButton
+              icon="plus"
+              label={pt.groups.detail.createMatch}
+              onPress={() =>
+                router.push({ pathname: '/criar-racha', params: { groupId: group.id } })
+              }
+              testID="group-create-match"
+            />
           ) : null}
         </AppCard>
       ) : null}

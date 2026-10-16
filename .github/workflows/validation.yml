@@ -142,6 +142,8 @@ jobs:
         run: npm run db:test:matches
       - name: Run the Racha completo presence, waitlist, payment, exit and last-slot concurrency harness
         run: npm run db:test:match-players
+      - name: Run the address search gate harness (real gate, simulated upstream, 1 s spacing)
+        run: npm run db:test:geocode
       - name: Install the pinned Chromium runtime
         run: npx playwright install --with-deps chromium
       - name: Export the authentication test build

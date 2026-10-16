@@ -26,8 +26,12 @@ export type MatchFormErrors = Partial<Record<keyof MatchFormValues, string>>;
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const PRICE = /^(\d{1,4})(?:[.,](\d{1,2}))?$/;
-const MAX_DURATION_MS = 12 * 60 * 60 * 1000;
+/** The masked field: "R$ 1.234,56". */
+const MASKED_PRICE = /^R\$\s?(\d{1,3}(?:\.\d{3})*),(\d{2})$/u;
+/** Human decision of 17/10/2026: up to 6 h, an end before the start is the next day. */
+export const MAX_DURATION_MINUTES = 6 * 60;
 const MAX_LEAD_MS = 365 * 24 * 60 * 60 * 1000;
+const DAY_MINUTES = 24 * 60;
 
 /** Rounded to 4 decimals (~11 m) before it is shown, confirmed or sent. */
 export function roundCoordinate(value: number): number {
@@ -43,11 +47,68 @@ function visibleLength(value: string): number {
   return [...value.normalize('NFC').replace(/\s+/gu, ' ').trim()].length;
 }
 
+function minutes(value: string): number | undefined {
+  const time = TIME.exec(value.trim());
+  return time === null ? undefined : Number(time[1]) * 60 + Number(time[2]);
+}
+
 /**
- * Wall-clock date and times in the device's time zone. An end at or before
- * the start is read as the next day, as in a match from 23:00 to 00:30.
+ * The span from start to end, in minutes, on the device clock. An end before
+ * the start is the next day ("22:00" to "01:00" is 180 minutes); an end equal
+ * to the start is no span at all.
  */
-function instants(values: MatchFormValues, errors: MatchFormErrors) {
+export function spanMinutes(start: number, end: number): number {
+  return end > start ? end - start : end < start ? end + DAY_MINUTES - start : 0;
+}
+
+/**
+ * The end-time rule alone, for the live notice and for the error under "Fim":
+ * an end before the start finishes the next day when the whole match lasts
+ * up to 6 h; a longer overnight span (10:00 to 08:00) or an end equal to the
+ * start is an end that is not after the start; a same-day span over 6 h is
+ * too long.
+ */
+export function endRule(
+  startTime: string,
+  endTime: string,
+): { nextDay: string } | { error: string } | undefined {
+  const start = minutes(startTime);
+  const end = minutes(endTime);
+  if (start === undefined || end === undefined) return undefined;
+  const span = spanMinutes(start, end);
+  if (end > start) {
+    return span > MAX_DURATION_MINUTES ? { error: pt.matches.create.errors.tooLong } : undefined;
+  }
+  if (span === 0 || span > MAX_DURATION_MINUTES) {
+    return { error: pt.matches.create.errors.endBeforeStart };
+  }
+  return { nextDay: endTime.trim() };
+}
+
+/** "Termina às 01:00 do dia seguinte", while the form is filled in. */
+export function nextDayNotice(startTime: string, endTime: string): string | undefined {
+  const rule = endRule(startTime, endTime);
+  return rule !== undefined && 'nextDay' in rule
+    ? pt.matches.create.nextDay(rule.nextDay)
+    : undefined;
+}
+
+/** "R$ 25,00" from the mask, or "25,5" typed by hand, as "25.00" / "25.50". */
+export function priceFromField(value: string): string | undefined {
+  const text = value.trim();
+  const masked = MASKED_PRICE.exec(text);
+  const typed = masked === null ? PRICE.exec(text.replace(/^R\$\s*/u, '')) : null;
+  if (masked !== null) return `${Number(masked[1]!.replaceAll('.', ''))}.${masked[2]}`;
+  if (typed === null) return undefined;
+  return `${Number(typed[1])}.${(typed[2] ?? '').padEnd(2, '0')}`;
+}
+
+/**
+ * Wall-clock date and times in the device's time zone, field by field: a
+ * date before today is an error on the date; today with a start already gone
+ * is an error on the start; the end follows endRule.
+ */
+function instants(values: MatchFormValues, errors: MatchFormErrors, now: Date) {
   const date = DATE.exec(values.date.trim());
   const start = TIME.exec(values.startTime.trim());
   const end = TIME.exec(values.endTime.trim());
@@ -60,13 +121,24 @@ function instants(values: MatchFormValues, errors: MatchFormErrors) {
     if (day.getDate() !== Number(dd) || day.getMonth() !== Number(mm) - 1) {
       errors.date = pt.matches.create.errors.date;
       day = undefined;
+    } else if (
+      day.getTime() < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    ) {
+      errors.date = pt.matches.create.errors.pastDate;
+      day = undefined;
     }
   }
   if (start === null) errors.startTime = pt.matches.create.errors.time;
   if (end === null) errors.endTime = pt.matches.create.errors.time;
+  const rule = endRule(values.startTime, values.endTime);
+  if (rule !== undefined && 'error' in rule) errors.endTime = rule.error;
   if (day === undefined || start === null || end === null) return undefined;
   const startsAt = new Date(day);
   startsAt.setHours(Number(start[1]), Number(start[2]), 0, 0);
+  if (startsAt.getTime() <= now.getTime()) errors.startTime = pt.matches.create.errors.startPassed;
+  else if (startsAt.getTime() - now.getTime() > MAX_LEAD_MS) {
+    errors.date = pt.matches.create.errors.tooFar;
+  }
   const endsAt = new Date(day);
   endsAt.setHours(Number(end[1]), Number(end[2]), 0, 0);
   if (endsAt.getTime() <= startsAt.getTime()) endsAt.setDate(endsAt.getDate() + 1);
@@ -80,15 +152,7 @@ export function matchConfigFromForm(
   timezone = deviceTimeZone(),
 ): { config: MatchConfig } | { errors: MatchFormErrors } {
   const errors: MatchFormErrors = {};
-  const times = instants(values, errors);
-  if (times !== undefined) {
-    const lead = times.startsAt.getTime() - now.getTime();
-    if (lead <= 0) errors.startTime = pt.matches.create.errors.past;
-    else if (lead > MAX_LEAD_MS) errors.date = pt.matches.create.errors.tooFar;
-    else if (times.endsAt.getTime() - times.startsAt.getTime() > MAX_DURATION_MS) {
-      errors.endTime = pt.matches.create.errors.tooLong;
-    }
-  }
+  const times = instants(values, errors, now);
   const nameLength = visibleLength(values.locationName);
   if (nameLength < 2 || nameLength > 80) errors.locationName = pt.matches.create.errors.place;
   const addressLength = visibleLength(values.locationAddress);
@@ -106,9 +170,7 @@ export function matchConfigFromForm(
   }
   const slots = /^\d{1,2}$/.test(values.slots.trim()) ? Number(values.slots.trim()) : NaN;
   if (!(slots >= 1 && slots <= 99)) errors.slots = pt.matches.create.errors.slots;
-  const price = PRICE.exec(values.price.trim().replace(/^R\$\s*/u, ''));
-  const fieldPrice =
-    price === null ? undefined : `${Number(price[1])}.${(price[2] ?? '').padEnd(2, '0')}`;
+  const fieldPrice = priceFromField(values.price);
   if (fieldPrice === undefined || Number(fieldPrice) <= 0) {
     errors.price = pt.matches.create.errors.price;
   }

@@ -22,6 +22,40 @@ export function matchLongDay(iso: string, timeZone: string): string {
   return part(iso, timeZone, { dateStyle: 'full' });
 }
 
+function short(iso: string, timeZone: string, options: Intl.DateTimeFormatOptions): string {
+  const text = part(iso, timeZone, options).replace(/\.$/u, '');
+  return text.charAt(0).toLocaleUpperCase('pt-BR') + text.slice(1);
+}
+
+/** "20:00–22:00" */
+export function matchTimeRange(startsAt: string, endsAt: string, timeZone: string): string {
+  return `${matchTime(startsAt, timeZone)}–${matchTime(endsAt, timeZone)}`;
+}
+
+/** "Sáb, 18 out · 20:00–22:00": the line at the top of the detail. */
+export function matchWhenLine(startsAt: string, endsAt: string, timeZone: string): string {
+  const weekday = short(startsAt, timeZone, { weekday: 'short' });
+  const day = part(startsAt, timeZone, { day: 'numeric' });
+  const month = part(startsAt, timeZone, { month: 'short' }).replace(/\.$/u, '');
+  return `${weekday}, ${day} ${month} · ${matchTimeRange(startsAt, endsAt, timeZone)}`;
+}
+
+/** The ticket block of a card: { day: "18", month: "OUT", weekday: "SÁB" }. */
+export function matchTicket(iso: string, timeZone: string) {
+  const upper = (options: Intl.DateTimeFormatOptions) =>
+    part(iso, timeZone, options).replace(/\.$/u, '').toLocaleUpperCase('pt-BR');
+  return {
+    day: part(iso, timeZone, { day: '2-digit' }),
+    month: upper({ month: 'short' }),
+    weekday: upper({ weekday: 'short' }),
+  };
+}
+
+/** "sábado, 18 de outubro", for accessible names. */
+export function matchSpokenDay(iso: string, timeZone: string): string {
+  return part(iso, timeZone, { day: 'numeric', month: 'long', weekday: 'long' });
+}
+
 /** "R$ 25,50" */
 export function matchPrice(value: number): string {
   return new Intl.NumberFormat('pt-BR', { currency: 'BRL', style: 'currency' }).format(value);

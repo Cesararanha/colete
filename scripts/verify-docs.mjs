@@ -68,9 +68,9 @@ for (let id = 1; id <= 25; id += 1) {
 }
 
 // The operational guard inventory is measured from call sites, not frozen in
-// the specification manifest. Keep its nine entries accurate (PR #56 P3;
+// the specification manifest. Keep its ten entries accurate (PR #56 P3;
 // db:test:matches joined with Rachas v1, db:test:match-players with Racha
-// completo).
+// completo, db:test:geocode with Rachas: usabilidade).
 const guardedHarnesses = [];
 for (const file of await readdir(path.join(root, 'scripts'))) {
   if (!file.endsWith('.mjs') || file === 'harness-guard.mjs') continue;
@@ -83,11 +83,11 @@ const guardRow =
   operational.split('\n').find((line) => line.startsWith('| `scripts/harness-guard.mjs` |')) ?? '';
 const documentedHarnesses = [...guardRow.matchAll(/`(db:test:[^`]+)`/g)].map((match) => match[1]);
 if (
-  guardedHarnesses.length !== 9 ||
-  !guardRow.includes('guarda de nove harnesses:') ||
+  guardedHarnesses.length !== 10 ||
+  !guardRow.includes('guarda de dez harnesses:') ||
   guardedHarnesses.sort().join(',') !== documentedHarnesses.sort().join(',')
 )
-  failures.push('docs/26 harness-guard inventory must list the nine actual guarded harnesses');
+  failures.push('docs/26 harness-guard inventory must list the ten actual guarded harnesses');
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

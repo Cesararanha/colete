@@ -134,6 +134,31 @@ function tomorrowInZone(): string {
   return parts;
 }
 
+/**
+ * The Edge's search_address, simulated: the app asks the groups gateway and
+ * never OpenStreetMap; these tests never reach Nominatim.
+ */
+async function simulateAddressSearch(page: Page) {
+  await page.route('**/functions/v1/groups/search_address', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          results: [
+            {
+              label: 'Arena da Vila, Rua das Flores, 100, São Paulo',
+              latitude: -23.5505,
+              longitude: -46.6333,
+            },
+          ],
+          attribution: '© OpenStreetMap',
+        },
+        request_id: crypto.randomUUID(),
+      }),
+    }),
+  );
+}
+
 async function fillMatch(page: Page, date: string) {
   await page.getByTestId('match-date').fill(date);
   await page.getByTestId('match-startTime').fill('19:30');
@@ -162,27 +187,26 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
        values ($1, $2, 'player', 'active')`,
       [groupId, player.profileId],
     );
-    await page.context().grantPermissions(['geolocation']);
-    await page.context().setGeolocation({ latitude: -23.550519, longitude: -46.633309 });
+    await simulateAddressSearch(page);
 
     // Real tabs: three entries, Rachas among them.
     await login(page, owner);
     const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
     await expect(navigation.getByRole('link')).toHaveCount(3);
-    for (const [index, name] of ['Grupos', 'Rachas', 'Perfil'].entries()) {
+    for (const [index, name] of ['Grupos', 'Agenda', 'Perfil'].entries()) {
       await expect(navigation.getByRole('link').nth(index)).toHaveAccessibleName(name);
     }
-    await navigation.getByRole('link', { name: 'Rachas' }).click();
+    await navigation.getByRole('link', { name: 'Agenda' }).click();
     await expect(page).toHaveURL(/\/rachas$/);
     // The active tab is announced as the current page; the others are not.
-    await expect(navigation.getByRole('link', { name: 'Rachas' })).toHaveAttribute(
+    await expect(navigation.getByRole('link', { name: 'Agenda' })).toHaveAttribute(
       'aria-current',
       'page',
     );
     await expect(navigation.locator('[aria-current]')).toHaveCount(1);
     await expect(navigation.locator('[aria-selected]')).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'Rachas', level: 1 })).toBeVisible();
-    await expect(page.getByText('Nenhum racha marcado')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Agenda', level: 1 })).toBeVisible();
+    await expect(page.getByText('Nenhum racha na agenda')).toBeVisible();
     await assertAccessible(page);
     await shot(page, testInfo.project.name, '01-rachas-vazio.png');
 
@@ -200,7 +224,8 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     await expect(page.getByText('Informe de 1 a 99 vagas.')).toBeVisible();
     expect(gatewayCalls).toBe(0);
 
-    // GPS granted: the rounded position is shown and kept only after confirmation.
+    // The place comes from the address search (simulated Edge): choosing a
+    // result keeps its rounded coordinates.
     await fillMatch(page, tomorrowInZone());
     // Description (human decision of 16/10/2026): the counter follows the
     // normalised text; over 500 is refused before any request; markup and
@@ -213,9 +238,9 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     expect(gatewayCalls).toBe(0);
     await description.fill('  Leve   colete <b>escuro</b>\nhttps://exemplo.test ');
     await expect(page.getByTestId('match-description-counter')).toHaveText('46 de 500 caracteres');
-    await page.getByTestId('match-locate').click();
-    await expect(page.getByTestId('match-location-found')).toContainText('-23,5505, -46,6333');
-    await page.getByTestId('match-location-confirm').click();
+    await page.getByTestId('match-address-search').click();
+    await page.getByTestId('match-address-result-0').click();
+    await expect(page.getByTestId('match-address-chosen')).toBeVisible();
     await assertAccessible(page);
     await shot(page, testInfo.project.name, '02-criar-racha-gps.png');
     const created = handledObserver(
@@ -359,7 +384,7 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
   }
 });
 
-test('Rachas: denied location is explained and nothing about position is sent', async ({
+test('Rachas: without a chosen search result no position is sent', async ({
   page,
   request,
 }, testInfo) => {
@@ -374,13 +399,12 @@ test('Rachas: denied location is explained and nothing about position is sent', 
     await page.goto(`/criar-racha?groupId=${groupId}`);
     await expect(page.getByRole('heading', { name: 'Criar racha', level: 1 })).toBeVisible();
     await fillMatch(page, tomorrowInZone());
-    await page.getByTestId('match-locate').click();
-    await expect(page.getByTestId('match-location-denied')).toContainText(
-      'Permissão de localização negada.',
-    );
-    await expect(page.getByTestId('match-location-found')).toHaveCount(0);
+    // Creation no longer offers the device position (human decision of 17/10/2026).
+    await expect(page.getByTestId('match-locate')).toHaveCount(0);
+    await expect(page.getByTestId('match-fixed-group')).toContainText('Sem GPS');
+    await expect(page.getByRole('radiogroup')).toHaveCount(0);
     await assertAccessible(page);
-    await shot(page, testInfo.project.name, '05-gps-negado.png');
+    await shot(page, testInfo.project.name, '05-sem-posicao.png');
     const created = handledObserver(
       page.waitForResponse((item) => new URL(item.url()).pathname.endsWith('/groups/create_match')),
     );
