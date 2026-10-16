@@ -307,3 +307,54 @@ describe('rename_group uses the creation name rule', () => {
     }
   });
 });
+
+describe('racha completo operations (docs/25 section 8.1)', () => {
+  const matchId = '15c00003-0000-4000-8000-000000000000';
+  const target = '15a00002-0000-4000-8000-000000000000';
+
+  it('join_match and leave_match sign only the lowercased match_id', () => {
+    for (const operation of ['join_match', 'leave_match'] as const) {
+      const normalised = normaliseRequest(operation, {
+        request_id: REQUEST_ID,
+        match_id: matchId.toUpperCase(),
+      });
+      expect(normalised.canonicalInput).toEqual({ match_id: matchId });
+    }
+  });
+
+  it('never accepts an actor, a list kind or a position from the client', () => {
+    for (const extra of ['profile_id', 'list_kind', 'status', 'queue_seq']) {
+      expect(
+        refusal(() =>
+          normaliseRequest('join_match', {
+            request_id: REQUEST_ID,
+            match_id: matchId,
+            [extra]: target,
+          }),
+        ).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('set_match_payment takes the confirmed target and a boolean, never an amount', () => {
+    expect(
+      normaliseRequest('set_match_payment', {
+        request_id: REQUEST_ID,
+        match_id: matchId,
+        profile_id: target,
+        paid: false,
+      }).canonicalInput,
+    ).toEqual({ match_id: matchId, profile_id: target, paid: false });
+    for (const body of [
+      { match_id: matchId, profile_id: target, paid: 'true' },
+      { match_id: matchId, profile_id: target },
+      { match_id: matchId, profile_id: target, paid: true, amount: '25.00' },
+      { match_id: matchId, profile_id: 'nope', paid: true },
+    ]) {
+      expect(
+        refusal(() => normaliseRequest('set_match_payment', { request_id: REQUEST_ID, ...body }))
+          .code,
+      ).toBe('VALIDATION');
+    }
+  });
+});

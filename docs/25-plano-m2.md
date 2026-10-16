@@ -1244,6 +1244,21 @@ código produtivo.
   preceder este corte e passa a ser obrigatória antes do piloto com usuários
   reais, preservando outcomes fechados, vetores e fronteira de privilégios.
 
+- **Racha completo — decisão humana de César, 15/10/2026, AGENTS §8.**
+  Corte de `13` §§1.1, 1.2 e 2.6 sobre os Rachas v1, no modo apresentação:
+  `join_match`, `leave_match` e `set_match_payment` no gateway `groups`, com o
+  padrão idempotente atual, e as leituras `get_match_roster` e
+  `get_matches_occupancy`. Sem Pix, comprovante, valor digitado, goleiro,
+  convidado, claim, T1/T2, sorteio, edição, cancelamento ou notificação. A
+  inscrição mora em `private.match_players`, sem RLS e sem grant (`14` §5.2);
+  pago não desiste até a organização desmarcar (`13` §1.2); a saída do grupo
+  libera a vaga em racha futuro e promove a espera na mesma transação (`10`
+  §10). Por decisão humana de 16/10/2026, o racha ganha a descrição opcional
+  (`private.matches.description`, texto simples até 500 pontos de código; ""
+  vira null, só espaços é recusado), décima chave do config de `create_match`
+  e projetada só por `get_match`. O registro completo e a lista do que fica
+  para depois estão em `27`.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

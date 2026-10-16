@@ -7,7 +7,7 @@ import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { Scoreboard } from '@/components/ui/Scoreboard';
-import { api, type MatchSummary, type OwnProfile } from '@/lib/api';
+import { api, type MatchOccupancy, type MatchSummary, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
 import { useReducedMotion } from '@/theme/motion';
@@ -19,8 +19,14 @@ import { matchDay, matchPrice, matchTime } from './match-format';
 
 export const matchesQueryKey = (profileId: string) => [PRIVATE_QUERY_ROOT, 'matches', profileId];
 
-/** One match: the whole row opens it. Day and time, place, group, slots and price. */
-function MatchRow({ match }: { match: MatchSummary }) {
+/** One match: the whole row opens it. Day and time, place, group, occupancy and price. */
+function MatchRow({
+  match,
+  occupancy,
+}: {
+  match: MatchSummary;
+  occupancy?: MatchOccupancy | undefined;
+}) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const day = matchDay(match.starts_at, match.timezone);
@@ -64,10 +70,35 @@ function MatchRow({ match }: { match: MatchSummary }) {
                   {match.group_name}
                 </Text>
               </View>
-              <Text style={[styles.metaText, styles.metaStrong, { color: colors.text }]}>
-                {pt.matches.list.slots(match.field_slots)} ·{' '}
-                {pt.matches.list.perPlayer(matchPrice(match.field_price))}
+              <Text
+                style={[styles.metaText, styles.metaStrong, { color: colors.text }]}
+                testID="match-list-occupancy"
+              >
+                {occupancy
+                  ? pt.matches.list.occupancy(occupancy.confirmed_count, match.field_slots)
+                  : pt.matches.list.slots(match.field_slots)}
+                {occupancy && occupancy.waitlist_count > 0
+                  ? ` · ${pt.matches.list.waiting(occupancy.waitlist_count)}`
+                  : ''}{' '}
+                · {pt.matches.list.perPlayer(matchPrice(match.field_price))}
               </Text>
+              {occupancy && occupancy.viewer_status !== 'out' ? (
+                <View style={styles.meta}>
+                  <AppIcon
+                    color={colors.positive}
+                    name={occupancy.viewer_status === 'starter' ? 'check-circle' : 'clock'}
+                    size={16}
+                  />
+                  <Text
+                    style={[styles.metaText, { color: colors.positive }]}
+                    testID="match-list-viewer"
+                  >
+                    {occupancy.viewer_status === 'starter'
+                      ? pt.matches.list.viewerStarter
+                      : pt.matches.list.viewerWaitlist}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <AppIcon color={colors.textMuted} name="chevron-right" size={24} />
           </View>
@@ -83,12 +114,14 @@ export function MatchesListScreen({ profile }: { profile: OwnProfile }) {
     queryKey: matchesQueryKey(profile.id),
     queryFn: () =>
       withCurrentAccessToken(async (token) => {
-        const [matches, groups] = await Promise.all([
+        const [matches, groups, occupancy] = await Promise.all([
           api.getUpcomingMatches(),
           api.getOwnGroups(profile.id, token),
+          api.getMatchesOccupancy(),
         ]);
         return {
           matches,
+          occupancy: new Map(occupancy.map((row) => [row.match_id, row])),
           canCreate: groups.some((group) => group.role === 'owner' || group.role === 'organizer'),
         };
       }),
@@ -131,7 +164,9 @@ export function MatchesListScreen({ profile }: { profile: OwnProfile }) {
       }
       hero={hero}
       keyExtractor={(match) => match.id}
-      renderItem={(match) => <MatchRow match={match} />}
+      renderItem={(match) => (
+        <MatchRow match={match} occupancy={listing.data?.occupancy.get(match.id)} />
+      )}
       title={pt.matches.list.title}
     >
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}

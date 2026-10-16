@@ -10,6 +10,7 @@ const GROUP = '15b00001-0000-4000-8000-000000000000';
 const NOW = new Date('2030-01-01T12:00:00.000Z');
 
 const base = {
+  description: null,
   starts_at: '2030-01-02T22:00:00.000Z',
   ends_at: '2030-01-02T23:30:00.000Z',
   timezone: 'America/Sao_Paulo',
@@ -55,6 +56,7 @@ describe('create_match config (docs/13 section 3.1, Rachas v1 cut)', () => {
         starts_at: '2030-01-02T22:00:00Z',
         ends_at: '2030-01-02T23:30:00Z',
         location_address: 'Rua Um, 10',
+        description: '  Traga   colete\r\nescuro ',
         latitude: -23.550519,
         longitude: -46.633309,
         field_price: '25.5',
@@ -62,7 +64,7 @@ describe('create_match config (docs/13 section 3.1, Rachas v1 cut)', () => {
       NOW,
     );
     expect(canonicalise({ group_id: GROUP, config: { ...config } })).toBe(
-      '{"config":{"ends_at":"2030-01-02T23:30:00.000Z","field_price":"25.50","field_slots":14,' +
+      '{"config":{"description":"Traga colete\\nescuro","ends_at":"2030-01-02T23:30:00.000Z","field_price":"25.50","field_slots":14,' +
         '"latitude":"-23.5505","location_address":"Rua Um, 10","location_name":"Arena Vila",' +
         '"longitude":"-46.6333","starts_at":"2030-01-02T22:00:00.000Z","timezone":"America/Sao_Paulo"},' +
         `"group_id":"${GROUP}"}`,

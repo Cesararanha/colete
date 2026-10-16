@@ -163,6 +163,7 @@ function config(overrides = {}) {
     timezone: 'America/Sao_Paulo',
     location_name: 'Arena da Vila',
     location_address: 'Rua das Flores, 100',
+    description: '  Traga   colete\r\nescuro  ',
     latitude: -23.550519,
     longitude: -46.633309,
     field_slots: 14,
@@ -220,7 +221,7 @@ async function proveHttp(status, db) {
   const row = (
     await db.query(
       `select group_id, to_char(starts_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS".000Z"') as starts_at,
-         timezone, location_name, location_address, latitude::text, longitude::text,
+         timezone, location_name, location_address, description, latitude::text, longitude::text,
          field_slots, field_price::text, created_by
        from private.matches where id=$1`,
       [matchId],
@@ -232,6 +233,7 @@ async function proveHttp(status, db) {
     timezone: 'America/Sao_Paulo',
     location_name: 'Arena da Vila',
     location_address: 'Rua das Flores, 100',
+    description: 'Traga colete\nescuro',
     latitude: '-23.5505',
     longitude: '-46.6333',
     field_slots: 14,
@@ -249,7 +251,7 @@ async function proveHttp(status, db) {
   assert.equal(ledger.resource_type, 'group');
   assert.equal(ledger.resource_id, groupId);
   assert.deepEqual(ledger.outcome, first.outcome);
-  assert.doesNotMatch(JSON.stringify(ledger), /23\.55|46\.63|Arena|Flores|25\.5/);
+  assert.doesNotMatch(JSON.stringify(ledger), /23\.55|46\.63|Arena|Flores|25\.5|colete/);
   console.log(
     'ok - owner creates; row is canonical, coordinates rounded to 4 places, ledger holds IDs only',
   );
@@ -443,6 +445,11 @@ async function proveHttp(status, db) {
   // com o mesmo JWT.
   const liveRead = ok(await read(status, revoked, 'get_match', { match_id: revokedMatch }), 'r');
   assert.equal(liveRead[0].location_address, 'Rua das Flores, 100', 'a live session reads');
+  assert.equal(
+    liveRead[0].description,
+    'Traga colete\nescuro',
+    'get_match projects the description',
+  );
   ok(
     await edge(
       status,
@@ -542,6 +549,7 @@ function canonicalConfig(overrides = {}) {
     timezone: 'America/Sao_Paulo',
     location_name: 'Arena RPC',
     location_address: null,
+    description: null,
     latitude: null,
     longitude: null,
     field_slots: 10,

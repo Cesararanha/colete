@@ -331,3 +331,37 @@ real, fila e adição/remoção de jogadores; ledger, cobrança e devoluções;
 publicação e sorteio; notificações; cancelamento e a matriz integral de
 edição segura do piloto; rachas no export LGPD. A demonstração não afirma
 essas entregas.
+
+## Racha completo — modo apresentação, decisão humana de 15/10/2026
+
+César autorizou, sobre os Rachas v1, presença, lista de espera e marcação
+manual de pagamento, sem Fase 0. "Vou jogar" só para membro ativo e antes de
+`starts_at`: com vaga entra confirmado, senão no fim da espera. Desistir vale
+para confirmado ou espera até o início; a saída de um confirmado promove o
+primeiro da espera na mesma transação; quem volta entra no fim. Dono ou
+organizador ativo marca "pago" ou "não pago" só para confirmado, com autor e
+horário gravados; o total é pagos × `field_price`, sem Pix, comprovante ou
+valor digitado. O jogador vê só o próprio pagamento; a organização vê todos.
+Respostas de César no mesmo dia, diante de três pontos que os documentos já
+decidiam: a tabela fica em `private`, sem RLS e sem grant (`14` §5.2), lida
+só por projeção via Edge; quem está marcado como pago não desiste
+(`PAYMENT_ALREADY_REAL`, `13` §1.2) até a organização desmarcar; a saída do
+grupo, inclusive por exclusão de conta, libera a vaga em racha futuro e
+promove a espera (`10` §10), e racha já iniciado guarda a lista como
+histórico, sem expor nome de conta excluída.
+
+Descrição do racha, decisão humana de 16/10/2026: campo opcional no modal,
+com contador, até 500 pontos de código depois de normalizado (NFC, espaços
+colapsados, quebras de linha mantidas, no máximo uma linha em branco). O vazio
+vira `null`; só espaços, controles e marcas bidi são recusados. A regra é a
+mesma no formulário, na Edge e no banco (`private.normalize_match_description`,
+`0022`); o detalhe mostra o texto puro, sem link ativo nem marcação, e a lista
+não o carrega. Fica fora de desfecho idempotente, log e mensagem de erro.
+
+**Depois:** sorteio; Pix e instrução de pagamento; editar e cancelar o
+racha; notificações; organizador inscrever ou remover outros; goleiros e
+`list_kind`; convidado avulso; mensalista e prioridade TP; T1/T2, claims e
+reconciliação; obrigação de devolução (`refund_due`) para quem pagou e saiu
+do grupo ou excluiu a conta, e o bloqueio financeiro da exclusão; exibir na
+tela quem marcou o pagamento; inscrições no export LGPD; registro de
+operações da D63.5 antes do piloto com usuários reais.

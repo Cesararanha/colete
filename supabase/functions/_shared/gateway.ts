@@ -153,6 +153,16 @@ function rpcParameters(
         p_group_id: canonicalInput['group_id'],
         p_config: canonicalInput['config'],
       };
+    case 'join_match':
+    case 'leave_match':
+      return { ...common, p_match_id: canonicalInput['match_id'] };
+    case 'set_match_payment':
+      return {
+        ...common,
+        p_match_id: canonicalInput['match_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_paid: canonicalInput['paid'],
+      };
   }
 }
 
