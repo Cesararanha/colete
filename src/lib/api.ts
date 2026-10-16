@@ -99,6 +99,15 @@ export type MatchSummary = {
   field_slots: number;
   field_price: number;
 };
+/** One address found by search_address: Nominatim through the Edge, never from the app. */
+export type AddressResult = { label: string; latitude: number; longitude: number };
+export type AddressSearch = {
+  results: AddressResult[];
+  /** "© OpenStreetMap", shown with the results. */
+  attribution: string;
+  /** Nominatim did not answer: the person types the address instead. */
+  unavailable?: boolean;
+};
 /** The presence of the viewer in one match, recomputed on every answer. */
 export type MatchPresenceStatus = 'starter' | 'waitlist' | 'out';
 export type MatchPresenceResult = {
@@ -598,6 +607,9 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       }),
     getMatchRoster: (matchId: string, signal?: AbortSignal) =>
       groupRead<MatchRoster>('get_match_roster', { match_id: matchId }, signal),
+    /** One search per press; the Edge asks Nominatim and keeps the text out of every log. */
+    searchAddress: (query: string, signal?: AbortSignal) =>
+      groupRead<AddressSearch>('search_address', { query }, signal),
     getMatchesOccupancy: (signal?: AbortSignal) =>
       groupRead<MatchOccupancy[]>('get_matches_occupancy', {}, signal),
     joinGroupByCode: (code: string) => mutation<GroupOutcome>('join_by_code', { code }),

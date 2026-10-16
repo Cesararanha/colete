@@ -185,7 +185,7 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     // Ana: the list shows the real occupancy; "Vou jogar" confirms her.
     await login(page, ana);
     await page.goto('/rachas');
-    await expect(page.getByTestId('match-list-occupancy')).toContainText('0/2 confirmados');
+    await expect(page.getByTestId('match-list-occupancy')).toHaveText('0/2');
     await page.getByTestId('match-list-card').click();
     await expect(page.getByTestId('match-viewer-status')).toHaveText(
       'Você ainda não confirmou presença.',
@@ -289,8 +289,10 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
 
     // The list shows occupancy, the waitlist and the viewer's own place.
     await page.goto('/rachas');
-    await expect(page.getByTestId('match-list-occupancy')).toContainText(
-      '2/2 confirmados · 1 na espera',
+    await expect(page.getByTestId('match-list-occupancy')).toHaveText('2/2');
+    await expect(page.getByTestId('match-card-waitlist')).toHaveText('1 na espera');
+    await expect(page.getByTestId('match-list-card')).toHaveAccessibleName(
+      /2 de 2 vagas confirmadas, 1 na espera, você está na espera$/,
     );
     await expect(page.getByTestId('match-list-viewer')).toHaveText('Você está na espera');
     await assertAccessible(page);

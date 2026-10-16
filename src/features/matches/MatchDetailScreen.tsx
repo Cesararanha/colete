@@ -26,8 +26,10 @@ import { typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { matchErrorMessage } from './match-errors';
-import { matchLongDay, matchPrice, matchTime } from './match-format';
+import { distanceInMeters, distanceText } from './match-distance';
+import { matchLongDay, matchPrice, matchTime, matchWhenLine } from './match-format';
 import { openMatchMap } from './match-map';
+import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
 
 function Fact({
@@ -54,6 +56,52 @@ function Fact({
           <Text style={[styles.factDetail, { color: colors.textMuted }]}>{detail}</Text>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/**
+ * "Ver distância": asks for the position only on the press, computes the
+ * distance on the device and shows it. The position stays in this
+ * component's memory: never sent, stored, logged or put in a URL.
+ */
+function Distance({ latitude, longitude }: { latitude: number; longitude: number }) {
+  const { colors } = useTheme();
+  const { location, request } = useDeviceLocation();
+  return (
+    <View style={styles.actions} testID="match-distance">
+      <AppButton
+        ariaDisabled={location.status === 'requesting'}
+        icon="navigation"
+        label={
+          location.status === 'requesting'
+            ? pt.matches.detail.distanceLocating
+            : pt.matches.detail.distance
+        }
+        onPress={() => {
+          if (location.status !== 'requesting') void request();
+        }}
+        testID="match-distance-button"
+        variant="secondary"
+      />
+      {location.status === 'found' ? (
+        <AppStatus
+          message={distanceText(distanceInMeters(location, { latitude, longitude }))}
+          testID="match-distance-result"
+        />
+      ) : null}
+      {location.status === 'denied' ? (
+        <AppAlert message={pt.matches.detail.distanceDenied} testID="match-distance-denied" />
+      ) : null}
+      {location.status === 'unavailable' ? (
+        <AppAlert
+          message={pt.matches.detail.distanceUnavailable}
+          testID="match-distance-unavailable"
+        />
+      ) : null}
+      <Text style={[styles.hint, { color: colors.textMuted }]}>
+        {pt.matches.detail.distanceHint}
+      </Text>
     </View>
   );
 }
@@ -411,6 +459,9 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
   return (
     <AuthenticatedShell
       back={back}
+      // Date and time leave the board: a line of text at the top, in the
+      // match's own time zone ("Sáb, 18 out · 20:00–22:00").
+      description={match ? matchWhenLine(match.starts_at, match.ends_at, match.timezone) : ''}
       eyebrow={pt.matches.detail.eyebrow}
       hero={hero}
       title={match?.location_name ?? pt.matches.detail.title}
@@ -490,6 +541,9 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
               {pt.matches.detail.mapHint}
             </Text>
           </View>
+          {match.latitude !== null && match.longitude !== null ? (
+            <Distance latitude={match.latitude} longitude={match.longitude} />
+          ) : null}
           {rosterQuery.isPending ? (
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}

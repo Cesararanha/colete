@@ -1,0 +1,272 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  ATTRIBUTION,
+  CACHE_TTL_MS,
+  DEFAULT_USER_AGENT,
+  dispatchGeocode,
+  nominatimUrl,
+  normaliseAddressQuery,
+  parseNominatim,
+  SLOT_TOLERANCE_MS,
+  type AddressResult,
+  type GeocodeDependencies,
+} from './geocode.ts';
+
+const ACTOR = {
+  authUserId: '23000000-0000-4000-8000-000000000001',
+  sessionId: '23900000-0000-4000-8000-000000000001',
+};
+const PLACES = [
+  { display_name: 'Arena da Vila, Rua Um, São Paulo', lat: '-23.550519', lon: '-46.633309' },
+  { display_name: 'Arena da Vila, Rua Dois, Campinas', lat: '-22.90556', lon: '-47.06083' },
+];
+
+// The gate answers the milliseconds until the reserved slot, or null when the
+// queue is too long. gateDelays[i] is how long the i-th spending gate takes to
+// come back; oversleep is added to every sleep, as a late timer would.
+function harness(
+  options: {
+    granted?: (number | null)[];
+    gateDelays?: number[];
+    oversleep?: number;
+    upstream?: () => Promise<Response>;
+  } = {},
+) {
+  const granted = [...(options.granted ?? [0])];
+  const gateDelays = [...(options.gateDelays ?? [])];
+  const rpcCalls: Record<string, unknown>[] = [];
+  const upstreamCalls: { url: string; init: RequestInit; at: number }[] = [];
+  const sleeps: number[] = [];
+  let clock = 1_000_000;
+  const deps: GeocodeDependencies = {
+    actor: ACTOR,
+    cache: new Map<string, { expires: number; results: AddressResult[] }>(),
+    callRpc: async (name, parameters) => {
+      expect(name).toBe('geocode_gate');
+      rpcCalls.push(parameters);
+      if (parameters['p_spend'] === false) return { data: 0 };
+      // The database answers at the start of the round trip; the reply then
+      // travels for gateDelay before this instance sees it.
+      const wait = granted.length > 0 ? granted.shift()! : null;
+      clock += gateDelays.shift() ?? 0;
+      return { data: wait };
+    },
+    fetchUpstream: async (url, init) => {
+      upstreamCalls.push({ url, init, at: clock });
+      return options.upstream ? options.upstream() : Response.json(PLACES);
+    },
+    userAgent: DEFAULT_USER_AGENT,
+    now: () => clock,
+    clock: () => clock,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      clock += ms + (options.oversleep ?? 0);
+    },
+  };
+  return {
+    deps,
+    rpcCalls,
+    upstreamCalls,
+    sleeps,
+    advance: (ms: number) => {
+      clock += ms;
+    },
+  };
+}
+
+describe('address search through the Edge (human decision of 17/10/2026)', () => {
+  it('asks Nominatim for five Brazilian results in Portuguese, naming Colete', async () => {
+    const run = harness();
+    const answer = await dispatchGeocode(run.deps, { query: '  Arena   da Vila ' });
+    expect(answer.status).toBe(200);
+    expect(answer.body['data']).toEqual({
+      attribution: ATTRIBUTION,
+      results: [
+        { label: 'Arena da Vila, Rua Um, São Paulo', latitude: -23.5505, longitude: -46.6333 },
+        { label: 'Arena da Vila, Rua Dois, Campinas', latitude: -22.9056, longitude: -47.0608 },
+      ],
+    });
+    expect(run.upstreamCalls).toHaveLength(1);
+    const url = new URL(run.upstreamCalls[0]!.url);
+    expect(url.origin + url.pathname).toBe('https://nominatim.openstreetmap.org/search');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'Arena da Vila',
+      format: 'jsonv2',
+      addressdetails: '0',
+      limit: '5',
+      countrycodes: 'br',
+      'accept-language': 'pt-BR',
+    });
+    const headers = run.upstreamCalls[0]!.init.headers as Record<string, string>;
+    expect(headers['User-Agent']).toMatch(/^Colete\//);
+    expect(run.rpcCalls).toEqual([
+      {
+        p_actor_auth_user_id: ACTOR.authUserId,
+        p_actor_session_id: ACTOR.sessionId,
+        p_spend: true,
+      },
+    ]);
+    expect(ATTRIBUTION).toBe('© OpenStreetMap');
+  });
+
+  it('serves a repeated search from the short cache, still checking the session', async () => {
+    const run = harness({ granted: [0, 0] });
+    await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    const again = await dispatchGeocode(run.deps, { query: 'arena  DA vila' });
+    expect(again.status).toBe(200);
+    expect(run.upstreamCalls).toHaveLength(1);
+    expect(run.rpcCalls.map((call) => call['p_spend'])).toEqual([true, false]);
+    run.advance(CACHE_TTL_MS + 1);
+    await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(run.upstreamCalls).toHaveLength(2);
+  });
+
+  it('waits for the reserved slot and calls within the tolerance after it', async () => {
+    const run = harness({ granted: [600] });
+    const start = 1_000_000;
+    expect((await dispatchGeocode(run.deps, { query: 'Rua Um' })).status).toBe(200);
+    expect(run.upstreamCalls).toHaveLength(1);
+    const at = run.upstreamCalls[0]!.at;
+    expect(at).toBeGreaterThanOrEqual(start + 600);
+    expect(at).toBeLessThanOrEqual(start + 600 + SLOT_TOLERANCE_MS);
+  });
+
+  it('answers RATE_LIMITED without calling when the queue is too long', async () => {
+    const busy = harness({ granted: [null] });
+    const answer = await dispatchGeocode(busy.deps, { query: 'Rua Um' });
+    expect(answer.status).toBe(429);
+    expect(answer.body['error']).toMatchObject({ code: 'RATE_LIMITED', retry_after: 2 });
+    expect(busy.upstreamCalls).toHaveLength(0);
+  });
+
+  it('abandons a slot whose gate answer came back late, and asks for a new one', async () => {
+    // Review of #72: a reply delayed by 1350 ms must not call in the next slot.
+    const run = harness({ granted: [0, 1_250], gateDelays: [1_350, 5] });
+    expect((await dispatchGeocode(run.deps, { query: 'Rua Um' })).status).toBe(200);
+    expect(run.rpcCalls.filter((call) => call['p_spend'] === true)).toHaveLength(2);
+    expect(run.upstreamCalls).toHaveLength(1);
+    // Second slot reserved at 1_001_355 + 1250 ms: the call is inside its window.
+    const second = 1_000_000 + 1_350 + 1_250;
+    expect(run.upstreamCalls[0]!.at).toBeGreaterThanOrEqual(second);
+    expect(run.upstreamCalls[0]!.at).toBeLessThanOrEqual(second + SLOT_TOLERANCE_MS);
+  });
+
+  it('never calls when every gate answer or wake-up is late', async () => {
+    const slow = harness({ granted: [0, 0, 0], gateDelays: [400, 400, 400] });
+    expect((await dispatchGeocode(slow.deps, { query: 'Rua Um' })).status).toBe(429);
+    expect(slow.upstreamCalls).toHaveLength(0);
+    const sleepy = harness({ granted: [500, 500, 500], oversleep: SLOT_TOLERANCE_MS + 50 });
+    expect((await dispatchGeocode(sleepy.deps, { query: 'Rua Um' })).status).toBe(429);
+    expect(sleepy.upstreamCalls).toHaveLength(0);
+  });
+
+  it('treats a body that fails mid-read as unavailable and never caches it', async () => {
+    const broken = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('[{"display_name":"Aren'));
+              controller.error(new DOMException('timed out', 'TimeoutError'));
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    const run = harness({ granted: [0, 0], upstream: broken });
+    const first = await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(first.status).toBe(200);
+    expect(first.body['data']).toMatchObject({ results: [], unavailable: true });
+    await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(run.upstreamCalls).toHaveLength(2);
+  });
+
+  it('refuses a revoked session or a player before anything leaves the Edge', async () => {
+    for (const code of ['UNAUTHENTICATED', 'NOT_ORGANIZER']) {
+      const run = harness();
+      run.deps = {
+        ...run.deps,
+        callRpc: async () => ({ error: { message: code, code: '28000' } }),
+      };
+      const answer = await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+      expect((answer.body['error'] as { code: string }).code).toBe(code);
+      expect(run.upstreamCalls).toHaveLength(0);
+    }
+  });
+
+  it('never echoes the searched text in a refusal', async () => {
+    const run = harness();
+    const secret = 'Rua Segredo 123\u202e';
+    const answer = await dispatchGeocode(run.deps, { query: secret });
+    expect(answer.status).toBe(422);
+    expect(JSON.stringify(answer.body)).not.toContain('Segredo');
+    expect(run.rpcCalls).toHaveLength(0);
+    expect(run.upstreamCalls).toHaveLength(0);
+  });
+
+  it('answers an empty, unavailable list when Nominatim fails, and does not cache it', async () => {
+    const run = harness({
+      granted: [0, 0],
+      upstream: async () => new Response('busy', { status: 503 }),
+    });
+    const answer = await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(answer.status).toBe(200);
+    expect(answer.body['data']).toEqual({
+      attribution: ATTRIBUTION,
+      results: [],
+      unavailable: true,
+    });
+    await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(run.upstreamCalls).toHaveLength(2);
+  });
+
+  it('accepts only the query key', async () => {
+    const run = harness();
+    const answer = await dispatchGeocode(run.deps, { query: 'Arena', latitude: 1 });
+    expect(answer.status).toBe(422);
+    expect(run.upstreamCalls).toHaveLength(0);
+  });
+});
+
+describe('query and result shapes', () => {
+  it.each([
+    ['ab', 'refused'],
+    ['abc', 'abc'],
+    ['  Rua\u3000Um  ', 'Rua Um'],
+    ['x'.repeat(161), 'refused'],
+    ['Rua\tUm', 'refused'],
+    [12, 'refused'],
+  ])('query %j → %j', (input, expected) => {
+    let result: string;
+    try {
+      result = normaliseAddressQuery(input);
+    } catch {
+      result = 'refused';
+    }
+    expect(result).toBe(expected);
+  });
+
+  it('keeps at most five distinct, valid places', () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      display_name: `Lugar ${index}`,
+      lat: '-23.5',
+      lon: '-46.6',
+    }));
+    expect(parseNominatim(many)).toHaveLength(5);
+    expect(
+      parseNominatim([
+        { display_name: 'Repetido', lat: '1', lon: '2' },
+        { display_name: 'Repetido', lat: '1', lon: '2' },
+        { display_name: 'Fora', lat: '91', lon: '0' },
+        { display_name: 'Número', lat: 1, lon: 2 },
+        { display_name: 'NaN', lat: 'x', lon: '2' },
+      ]),
+    ).toEqual([{ label: 'Repetido', latitude: 1, longitude: 2 }]);
+    expect(parseNominatim({ error: 'x' })).toEqual([]);
+  });
+
+  it('puts the query only in the Nominatim query string', () => {
+    expect(nominatimUrl('Rua & Cia')).toContain('q=Rua+%26+Cia');
+  });
+});

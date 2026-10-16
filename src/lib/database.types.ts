@@ -390,6 +390,10 @@ export type Database = {
       };
       enqueue_data_export_purge: { Args: { p_export_id: string }; Returns: Json };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
+      geocode_gate: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_spend: boolean };
+        Returns: number;
+      };
       get_group_members: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_group_id: string };
         Returns: {
