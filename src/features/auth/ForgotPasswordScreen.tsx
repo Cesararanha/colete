@@ -71,11 +71,7 @@ export function ForgotPasswordScreen() {
 
   const title = pt.auth.forgot.title;
   return (
-    <AuthShell
-      description={pt.auth.forgot.description}
-      eyebrow={pt.auth.forgot.eyebrow}
-      title={title}
-    >
+    <AuthShell description={pt.auth.forgot.description} title={title}>
       <AppCard>
         {stage === 'email' ? (
           <View style={styles.form}>

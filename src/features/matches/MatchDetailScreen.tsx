@@ -462,7 +462,6 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       // Date and time leave the board: a line of text at the top, in the
       // match's own time zone ("Sáb, 18 out · 20:00–22:00").
       description={match ? matchWhenLine(match.starts_at, match.ends_at, match.timezone) : ''}
-      eyebrow={pt.matches.detail.eyebrow}
       hero={hero}
       title={match?.location_name ?? pt.matches.detail.title}
     >

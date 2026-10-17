@@ -5,7 +5,7 @@ import { pt } from '@/lib/i18n/pt';
 export default function MatchesRoute() {
   return (
     <AuthGateScreen
-      page={{ description: '', eyebrow: '', title: pt.matches.list.title }}
+      page={{ description: '', title: pt.matches.list.title }}
       renderAuthenticated={(profile) => <MatchesListScreen profile={profile} />}
     />
   );

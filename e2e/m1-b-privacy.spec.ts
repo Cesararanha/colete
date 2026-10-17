@@ -1042,6 +1042,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       }
       restAuthorization.markLogout();
       await otherTab.getByRole('button', { name: 'Sair da conta' }).click();
+      await otherTab.getByTestId('profile-logout-confirm').click();
       await expect(otherTab).toHaveURL(/\/entrar$/u);
       await expect(page).toHaveURL(/\/entrar$/u);
       for (const tab of [page, otherTab]) {

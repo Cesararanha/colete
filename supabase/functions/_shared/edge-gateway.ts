@@ -195,6 +195,9 @@ export function serveGateway(served: readonly string[]): void {
               callRpc,
               fetchUpstream: (url, init) => fetch(url, init),
               userAgent: readEnv('GEOCODER_USER_AGENT') || DEFAULT_USER_AGENT,
+              // A fixed code only, like the worker's health alert: the cause of
+              // an unavailable search shows in the function log.
+              report: (code) => console.warn(code),
             },
             body,
           );

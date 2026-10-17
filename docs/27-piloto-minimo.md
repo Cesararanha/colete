@@ -401,3 +401,12 @@ saídas distam no mínimo 1 s no app inteiro, com várias instâncias e atraso
 entre o portão e a chamada. Corpo que falha no meio da leitura vira
 "indisponível" e não entra no cache. O card empilha o bloco de data sobre o
 conteúdo quando a largura útil é pequena.
+
+## Ajustes do teste do César — decisão humana de 17/10/2026
+
+Depois do teste no staging: busca de endereço com espaçamento que aceita a
+ida e volta real da RPC (`0024`, horários a 2 s, saída até 1 s depois do
+horário); primeiro acesso com o perfil completo; menos descrições embaixo
+dos campos; topo das telas só com o título; "Sair da conta" no fim do Perfil,
+com confirmação; depois de "Pedir para entrar", a pessoa vai para Grupos com
+"Pedido enviado". Fotos de perfil e de racha continuam fora.

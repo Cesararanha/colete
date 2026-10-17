@@ -1,13 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { Controller, type FieldErrors, useForm } from 'react-hook-form';
+import { type FieldErrors, useForm } from 'react-hook-form';
 import { StyleSheet, TextInput, View } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
-import { AppTextField } from '@/components/ui/AppTextField';
 import {
   AppError,
   api,
@@ -21,8 +20,7 @@ import { privateQueryKeys } from '@/lib/private-queries';
 import { profilePatchSchema } from '@/lib/profile-schema';
 import { spacing } from '@/theme/spacing';
 
-import { fieldMessage } from '../auth/messages';
-import { ProfileChoiceField } from './ProfileChoiceField';
+import { ProfileFields } from './ProfileFields';
 import { profileErrorMessage } from './profile-errors';
 
 const profileKeys = ['name', 'nickname', 'position', 'dominant_foot', 'shirt_number'] as const;
@@ -142,107 +140,12 @@ export function ProfileDataForm({
   return (
     <View style={styles.form}>
       {update.error === null ? null : <AppAlert message={profileErrorMessage(update.error)} />}
-      <Controller
+      <ProfileFields
         control={control}
-        name="name"
-        render={({ field }) => (
-          <AppTextField
-            autoCapitalize="words"
-            autoComplete="name"
-            error={fieldMessage(errors.name?.message)}
-            label={pt.profile.fields.name}
-            onBlur={field.onBlur}
-            onChangeText={(value) => {
-              changed();
-              field.onChange(value);
-            }}
-            ref={registerInput('name', field.ref)}
-            testID="profile-name"
-            value={typeof field.value === 'string' ? field.value : ''}
-          />
-        )}
-      />
-      <Controller
-        control={control}
-        name="nickname"
-        render={({ field }) => (
-          <AppTextField
-            autoCapitalize="words"
-            error={fieldMessage(errors.nickname?.message)}
-            hint={pt.profile.fields.optionalHint}
-            label={pt.profile.fields.nickname}
-            onBlur={field.onBlur}
-            onChangeText={(value) => {
-              changed();
-              field.onChange(value === '' ? null : value);
-            }}
-            ref={registerInput('nickname', field.ref)}
-            testID="profile-nickname"
-            value={typeof field.value === 'string' ? field.value : ''}
-          />
-        )}
-      />
-      <Controller
-        control={control}
-        name="position"
-        render={({ field }) => (
-          <ProfileChoiceField
-            hint={pt.profile.fields.positionHint}
-            label={pt.profile.fields.position}
-            noneLabel={pt.profile.notInformed}
-            onChange={(value) => {
-              changed();
-              field.onChange(value);
-            }}
-            options={pt.profile.positionOptions}
-            testID="profile-position"
-            value={field.value}
-          />
-        )}
-      />
-      <Controller
-        control={control}
-        name="dominant_foot"
-        render={({ field }) => (
-          <ProfileChoiceField
-            label={pt.profile.fields.dominantFoot}
-            noneLabel={pt.profile.notInformed}
-            onChange={(value) => {
-              changed();
-              field.onChange(value);
-            }}
-            options={pt.profile.footOptions}
-            testID="profile-dominant-foot"
-            value={field.value}
-          />
-        )}
-      />
-      <Controller
-        control={control}
-        name="shirt_number"
-        render={({ field }) => (
-          <AppTextField
-            error={fieldMessage(errors.shirt_number?.message)}
-            hint={pt.profile.fields.optionalHint}
-            inputMode="numeric"
-            keyboardType="number-pad"
-            label={pt.profile.fields.shirtNumber}
-            onBlur={field.onBlur}
-            onChangeText={(value) => {
-              changed();
-              field.onChange(value === '' ? null : /^\d+$/u.test(value) ? Number(value) : value);
-            }}
-            ref={registerInput('shirt_number', field.ref)}
-            testID="profile-shirt-number"
-            value={
-              typeof field.value === 'number'
-                ? String(field.value)
-                : typeof field.value === 'string'
-                  ? field.value
-                  : ''
-            }
-          />
-        )}
+        errors={errors}
+        onChanged={changed}
+        registerInput={registerInput}
+        testIDPrefix="profile"
       />
       {update.isPending ? <AppSkeleton lines={2} /> : null}
       <View style={styles.actions}>

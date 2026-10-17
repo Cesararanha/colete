@@ -73,11 +73,7 @@ export function VerifyCodeScreen() {
   );
   if (pendingEmail === null) {
     return (
-      <AuthShell
-        description={pt.auth.otp.description}
-        eyebrow={pt.auth.otp.eyebrow}
-        title={pt.auth.otp.title}
-      >
+      <AuthShell description={pt.auth.otp.description} title={pt.auth.otp.title}>
         <AsyncNotice
           action={() => router.replace('/criar-conta')}
           actionLabel={pt.auth.otp.missingAction}
@@ -97,11 +93,7 @@ export function VerifyCodeScreen() {
   });
 
   return (
-    <AuthShell
-      description={pt.auth.otp.description}
-      eyebrow={pt.auth.otp.eyebrow}
-      title={pt.auth.otp.title}
-    >
+    <AuthShell description={pt.auth.otp.description} title={pt.auth.otp.title}>
       <AppCard>
         <Text style={[styles.destination, { color: colors.text }]}>
           {pt.auth.otp.destination(pendingEmail)}

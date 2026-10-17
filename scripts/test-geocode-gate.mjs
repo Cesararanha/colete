@@ -1,8 +1,9 @@
-// Fatia 0023 (busca de endereço): o portão real do PostgreSQL com o despacho
-// produtivo da Edge (supabase/functions/_shared/geocode.ts) e um upstream
-// simulado. Mede os instantes reais de chamada ao upstream: duas saídas
-// nunca ficam a menos de 1 s, mesmo com atraso entre o portão e a chamada e
-// com várias instâncias (revisão do #72, P1). O Nominatim nunca é chamado.
+// Fatias 0023/0024 (busca de endereço): o portão real do PostgreSQL
+// (geocode_reserve, horários a 2 s) com o despacho produtivo da Edge
+// (supabase/functions/_shared/geocode.ts) e um upstream simulado. Mede os
+// instantes reais de chamada ao upstream: duas saídas nunca ficam a menos de
+// 1 s, mesmo com atraso entre o portão e a chamada, com a ida e volta da RPC
+// em 300–800 ms (PR F) e com várias instâncias. O Nominatim nunca é chamado.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -19,7 +20,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const supabase = path.join(root, 'node_modules', '.bin', 'supabase');
 const AUTH_PREFIX = 'geocode-gate-';
 const APP_PREFIX = 'colete_geocode_';
-const GATE = 'public.geocode_gate(uuid,uuid,boolean)';
+const GATE = 'public.geocode_reserve(uuid,uuid,boolean)';
 const MIN_GAP_MS = 1_000;
 const guard = installHarnessGuard('db:test:geocode', {
   applicationPrefix: APP_PREFIX,
@@ -113,15 +114,15 @@ function dispatcher(connection, actor, outgoing, label, deliveryDelay = () => 0,
     userAgent: DEFAULT_USER_AGENT,
     cache: new Map(),
     callRpc: async (name, parameters) => {
-      assert.equal(name, 'geocode_gate');
-      const result = await connection.query('select public.geocode_gate($1, $2, $3) as wait', [
+      assert.equal(name, 'geocode_reserve');
+      const result = await connection.query('select public.geocode_reserve($1, $2, $3) as answer', [
         parameters.p_actor_auth_user_id,
         parameters.p_actor_session_id,
         parameters.p_spend,
       ]);
       const delay = deliveryDelay();
       if (delay > 0) await sleep(delay);
-      return { data: result.rows[0].wait };
+      return { data: result.rows[0].answer };
     },
     fetchUpstream: async () => {
       outgoing.push({ label, ms: performance.now() - epoch });
@@ -147,7 +148,7 @@ async function proveReservations(db, workers, holder, observer, actors) {
   try {
     calls = workers.map((connection, index) =>
       track(
-        connection.query('select public.geocode_gate($1, $2, true) as wait', [
+        connection.query('select public.geocode_reserve($1, $2, true) as answer', [
           actors[index].authId,
           actors[index].sessionId,
         ]),
@@ -168,17 +169,18 @@ async function proveReservations(db, workers, holder, observer, actors) {
   }
   const results = await Promise.all(calls.map((call) => call.settled));
   for (const result of results) assert.equal(result.status, 'fulfilled', String(result.reason));
-  const waits = results.map((result) => result.value.rows[0].wait);
+  const waits = results.map((result) => result.value.rows[0].answer.wait_ms);
+  for (const result of results) assert.equal(result.value.rows[0].answer.spacing_ms, 2_000);
   const granted = waits.filter((wait) => wait !== null).sort((a, b) => a - b);
-  assert.equal(granted.length, 3, 'slots at 0, 1.25 s and 2.5 s fit the 3 s horizon');
-  assert.equal(waits.length - granted.length, 22, 'the others are refused, not queued');
+  assert.equal(granted.length, 4, 'slots at 0, 2, 4 and 6 s fit the 6 s horizon');
+  assert.equal(waits.length - granted.length, 21, 'the others are refused, not queued');
   const slots = (await db.query('select last_slot_at from private.geocode_throttle')).rows[0];
   assert.ok(slots.last_slot_at instanceof Date);
   for (let index = 1; index < granted.length; index += 1) {
-    assert.ok(granted[index] - granted[index - 1] >= 1_240, `slot spacing ${granted}`);
+    assert.ok(granted[index] - granted[index - 1] >= 1_990, `slot spacing ${granted}`);
   }
   console.log(
-    `ok - 25 simultaneous reservations, all observed waiting: ${granted.length} slots granted (${granted.join(', ')} ms ahead), 22 refused`,
+    `ok - 25 simultaneous reservations, all observed waiting: ${granted.length} slots granted (${granted.join(', ')} ms ahead), ${waits.length - granted.length} refused`,
   );
 }
 
@@ -224,6 +226,34 @@ async function proveDelayedGate(db, workers, actors) {
   return gap;
 }
 
+// PR F: no servidor real a ida e volta da RPC passa de 250 ms. Quatro
+// instâncias, 500 ms entre si, com toda resposta do portão atrasada 300 a
+// 800 ms: todas buscam, e as saídas continuam a pelo menos 1 s.
+async function proveSlowRoundTrip(db, workers, actors) {
+  await db.query("update private.geocode_throttle set last_slot_at = '-infinity'");
+  const outgoing = [];
+  const epoch = performance.now();
+  const delays = [300, 550, 800, 420];
+  const runs = [];
+  for (const [index, delay] of delays.entries()) {
+    runs.push(
+      dispatchGeocode(
+        dispatcher(workers[index], actors[index], outgoing, `S${index}`, () => delay, epoch),
+        { query: `Rua lenta ${index}` },
+      ),
+    );
+    await sleep(500);
+  }
+  const answers = await Promise.all(runs);
+  for (const answer of answers) assert.equal(answer.status, 200, JSON.stringify(answer.body));
+  assert.equal(outgoing.length, 4, 'every slow-round-trip search went out');
+  const measured = gaps(outgoing);
+  for (const gap of measured) assert.ok(gap >= MIN_GAP_MS, `gaps ${measured}`);
+  console.log(
+    `ok - gate round trip 300-800 ms on every call, 4 instances: 4 calls, smallest gap ${Math.min(...measured).toFixed(1)} ms`,
+  );
+}
+
 // Seis instâncias que começam a cada 700 ms, cada uma com um atraso fixo na
 // primeira resposta do portão (dentro e fora da tolerância): toda saída fica
 // a pelo menos 1 s da anterior, e quem chega atrasado reserva outro horário.
@@ -265,12 +295,14 @@ async function proveManyInstances(db, workers, actors) {
   );
 }
 
-// Contraprova: sem a margem (horários a 1000 ms), uma resposta do portão
-// atrasada 200 ms, dentro da tolerância, deixa duas saídas a menos de 1 s.
+// Contraprova: com os horários de fato a 1250 ms (a regra da 0023) mas a
+// resposta ainda dizendo 2000, a Edge usa tolerância de 1000 ms e uma
+// resposta do portão 900 ms atrasada deixa duas saídas a menos de 1 s. É a
+// conta S − T = 1000 que segura o espaçamento.
 async function proveMarginMutant(db, workers, actors) {
   const original = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [GATE]))
     .rows[0].d;
-  const spacing = "interval '1250 milliseconds'";
+  const spacing = "interval '2000 milliseconds'";
   assert.equal(original.split(spacing).length, 2);
   const run = async () => {
     await db.query("update private.geocode_throttle set last_slot_at = '-infinity'");
@@ -284,7 +316,7 @@ async function proveMarginMutant(db, workers, actors) {
         outgoing,
         'A',
         () => {
-          const delay = first ? 200 : 0;
+          const delay = first ? 900 : 0;
           first = false;
           return delay;
         },
@@ -305,7 +337,7 @@ async function proveMarginMutant(db, workers, actors) {
   };
   let mutantGap;
   try {
-    await db.query(original.replace(spacing, "interval '1000 milliseconds'"));
+    await db.query(original.replace(spacing, "interval '1250 milliseconds'"));
     mutantGap = await run();
     assert.ok(mutantGap < MIN_GAP_MS, `the mutant must break the spacing (${mutantGap})`);
   } finally {
@@ -315,9 +347,9 @@ async function proveMarginMutant(db, workers, actors) {
   assert.ok(restoredGap >= MIN_GAP_MS, `restored gap ${restoredGap}`);
   const live = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [GATE])).rows[0]
     .d;
-  assert.equal(live, original, 'geocode_gate restored byte for byte');
+  assert.equal(live, original, 'geocode_reserve restored byte for byte');
   console.log(
-    `ok - margin mutant (slots 1000 ms apart, gate reply 200 ms late): gap ${mutantGap.toFixed(1)} ms < 1000; restored: ${restoredGap.toFixed(1)} ms`,
+    `ok - spacing mutant (slots really 1250 ms apart, gate reply 900 ms late): gap ${mutantGap.toFixed(1)} ms < 1000; restored: ${restoredGap.toFixed(1)} ms`,
   );
 }
 
@@ -357,6 +389,7 @@ async function main() {
     const actors = await createOrganizers(db, 25);
     await proveReservations(db, workers, holder, observer, actors);
     await proveDelayedGate(db, workers, actors);
+    await proveSlowRoundTrip(db, workers, actors);
     await proveManyInstances(db, workers, actors);
     await proveMarginMutant(db, workers, actors);
   } catch (error) {

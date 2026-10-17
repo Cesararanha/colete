@@ -17,6 +17,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
+import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { ProfileDataForm } from './ProfileDataForm';
 import { profileErrorMessage } from './profile-errors';
 import { ProfileLinkRow } from './ProfileLinkRow';
@@ -52,6 +53,15 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
   const readRef = useRef<View>(null);
   const returnFocus = useRef(false);
   const logout = useLogout();
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+  // Cancelling unmounts the focused control: focus returns to "Sair da conta".
+  const restoreLogoutFocus = useRef(false);
+  useEffect(() => {
+    if (!confirmingLogout && restoreLogoutFocus.current) {
+      restoreLogoutFocus.current = false;
+      focusGroupControl('profile-logout');
+    }
+  }, [confirmingLogout]);
   const canRetryLogout =
     logout.error instanceof TransportError ||
     (logout.error instanceof AppError && logout.error.retryable);
@@ -68,36 +78,19 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
     setMode('read');
   };
 
-  const account = (
-    <View style={styles.account} testID="profile-account">
-      {email === null ? null : (
-        <Text style={[styles.accountEmail, { color: colors.onBandMuted }]}>
-          {pt.profile.account.signedInAs(email)}
-        </Text>
-      )}
-      {logout.error === null ? null : <AppAlert message={profileErrorMessage(logout.error)} />}
-      <View style={styles.actions}>
-        <AppButton
-          icon="log-out"
-          label={logout.isPending ? pt.common.sending : pt.profile.account.logout}
-          onPress={() => {
-            if (!logout.isPending) logout.mutate();
-          }}
-          testID="profile-logout"
-          variant="secondary"
-        />
-        {canRetryLogout ? (
-          <AppButton label={pt.common.retry} onPress={() => logout.mutate()} variant="secondary" />
-        ) : null}
-      </View>
-    </View>
-  );
+  // The account line stays at the top; signing out is the last, separate and
+  // destructive action of the page, behind a confirmation (Ajustes do teste).
+  const account =
+    email === null ? undefined : (
+      <Text style={[styles.accountEmail, { color: colors.onBandMuted }]} testID="profile-account">
+        {pt.profile.account.signedInAs(email)}
+      </Text>
+    );
 
   return (
     <AuthenticatedShell
       description={pt.profile.description}
-      eyebrow={pt.profile.eyebrow}
-      hero={account}
+      {...(account === undefined ? {} : { hero: account })}
       title={pt.profile.title}
     >
       <AppCard testID="profile-data-card">
@@ -182,12 +175,63 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
           />
         </View>
       </AppCard>
+
+      <AppCard testID="profile-logout-card">
+        {logout.error === null ? null : <AppAlert message={profileErrorMessage(logout.error)} />}
+        {confirmingLogout ? (
+          <GroupConfirmation
+            title={pt.profile.account.logoutTitle}
+            testID="profile-logout-confirmation"
+          >
+            <Text style={[styles.accountBody, { color: colors.text }]}>
+              {pt.profile.account.logoutBody}
+            </Text>
+            <View style={styles.actions}>
+              <AppButton
+                icon="log-out"
+                label={logout.isPending ? pt.common.sending : pt.profile.account.logoutConfirm}
+                onPress={() => {
+                  if (!logout.isPending) logout.mutate();
+                }}
+                testID="profile-logout-confirm"
+                variant="destructive"
+              />
+              <AppButton
+                label={pt.profile.account.logoutCancel}
+                onPress={() => {
+                  if (logout.isPending) return;
+                  logout.reset();
+                  restoreLogoutFocus.current = true;
+                  setConfirmingLogout(false);
+                }}
+                testID="profile-logout-cancel"
+                variant="secondary"
+              />
+              {canRetryLogout ? (
+                <AppButton
+                  label={pt.common.retry}
+                  onPress={() => logout.mutate()}
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
+          </GroupConfirmation>
+        ) : (
+          <AppButton
+            icon="log-out"
+            label={pt.profile.account.logout}
+            onPress={() => setConfirmingLogout(true)}
+            testID="profile-logout"
+            variant="destructive"
+          />
+        )}
+      </AppCard>
     </AuthenticatedShell>
   );
 }
 
 const styles = StyleSheet.create({
-  account: { gap: spacing.sm, minWidth: 0 },
+  accountBody: { ...typography.body },
   accountEmail: { ...typography.support },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, minWidth: 0 },
   cardHeader: {

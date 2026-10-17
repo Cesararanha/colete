@@ -85,7 +85,6 @@ export function ChangePasswordScreen({ session }: { session: Session }) {
   const shell = (children: ReactNode) => (
     <AuthenticatedShell
       description={pt.profile.passwordChange.description}
-      eyebrow={pt.profile.passwordChange.eyebrow}
       title={pt.profile.passwordChange.title}
     >
       <ProfileBackLink label={pt.profile.passwordChange.back} />

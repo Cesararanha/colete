@@ -14,7 +14,6 @@ import { Scoreboard } from './Scoreboard';
 
 type AuthShellProps = PropsWithChildren<{
   description: string;
-  eyebrow: string;
   title: string;
 }>;
 
@@ -23,7 +22,7 @@ type AuthShellProps = PropsWithChildren<{
 // and the visually hidden text never duplicate each other on screen.
 const brandGroups = [{ chars: pt.app.name.toUpperCase() }];
 
-export function AuthShell({ children, description, eyebrow, title }: AuthShellProps) {
+export function AuthShell({ children, description, title }: AuthShellProps) {
   const { width } = useWindowDimensions();
   const wide = getLayoutMode(width) === 'wide';
   const { colors } = useTheme();
@@ -52,7 +51,6 @@ export function AuthShell({ children, description, eyebrow, title }: AuthShellPr
           <View style={styles.frame}>
             <View role="main" style={styles.main} testID="auth-main">
               <View style={styles.intro}>
-                <Text style={[styles.eyebrow, { color: colors.textMuted }]}>{eyebrow}</Text>
                 <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
                   {title}
                 </Text>
@@ -71,7 +69,6 @@ const styles = StyleSheet.create({
   band: { paddingBottom: spacing.lg },
   board: { alignSelf: 'center', maxWidth: 560, paddingHorizontal: spacing.lg, width: '100%' },
   body: { ...typography.body },
-  eyebrow: { ...typography.supportStrong },
   frame: { alignSelf: 'center', maxWidth: 560, padding: spacing.lg, width: '100%' },
   header: {
     alignItems: 'center',
