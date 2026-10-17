@@ -8,7 +8,7 @@ import {
   nominatimUrl,
   normaliseAddressQuery,
   parseNominatim,
-  SLOT_TOLERANCE_MS,
+  MIN_UPSTREAM_GAP_MS,
   type AddressResult,
   type GeocodeDependencies,
 } from './geocode.ts';
@@ -23,7 +23,10 @@ const PLACES = [
 ];
 
 // The gate answers the milliseconds until the reserved slot, or null when the
-// queue is too long. gateDelays[i] is how long the i-th spending gate takes to
+// queue is too long, and the slot spacing (2000 ms since 0024).
+const SPACING_MS = 2_000;
+const TOLERANCE_MS = SPACING_MS - MIN_UPSTREAM_GAP_MS;
+// gateDelays[i] is how long the i-th spending gate takes to
 // come back; oversleep is added to every sleep, as a late timer would.
 function harness(
   options: {
@@ -31,6 +34,7 @@ function harness(
     gateDelays?: number[];
     oversleep?: number;
     upstream?: () => Promise<Response>;
+    spacing?: number;
   } = {},
 ) {
   const granted = [...(options.granted ?? [0])];
@@ -38,19 +42,21 @@ function harness(
   const rpcCalls: Record<string, unknown>[] = [];
   const upstreamCalls: { url: string; init: RequestInit; at: number }[] = [];
   const sleeps: number[] = [];
+  const reports: string[] = [];
   let clock = 1_000_000;
   const deps: GeocodeDependencies = {
     actor: ACTOR,
     cache: new Map<string, { expires: number; results: AddressResult[] }>(),
     callRpc: async (name, parameters) => {
-      expect(name).toBe('geocode_gate');
+      expect(name).toBe('geocode_reserve');
       rpcCalls.push(parameters);
-      if (parameters['p_spend'] === false) return { data: 0 };
+      const spacing = options.spacing ?? SPACING_MS;
+      if (parameters['p_spend'] === false) return { data: { wait_ms: 0, spacing_ms: spacing } };
       // The database answers at the start of the round trip; the reply then
       // travels for gateDelay before this instance sees it.
       const wait = granted.length > 0 ? granted.shift()! : null;
       clock += gateDelays.shift() ?? 0;
-      return { data: wait };
+      return { data: { wait_ms: wait, spacing_ms: spacing } };
     },
     fetchUpstream: async (url, init) => {
       upstreamCalls.push({ url, init, at: clock });
@@ -59,6 +65,9 @@ function harness(
     userAgent: DEFAULT_USER_AGENT,
     now: () => clock,
     clock: () => clock,
+    report: (code) => {
+      reports.push(code);
+    },
     sleep: async (ms) => {
       sleeps.push(ms);
       clock += ms + (options.oversleep ?? 0);
@@ -69,6 +78,7 @@ function harness(
     rpcCalls,
     upstreamCalls,
     sleeps,
+    reports,
     advance: (ms: number) => {
       clock += ms;
     },
@@ -129,7 +139,7 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     expect(run.upstreamCalls).toHaveLength(1);
     const at = run.upstreamCalls[0]!.at;
     expect(at).toBeGreaterThanOrEqual(start + 600);
-    expect(at).toBeLessThanOrEqual(start + 600 + SLOT_TOLERANCE_MS);
+    expect(at).toBeLessThanOrEqual(start + 600 + TOLERANCE_MS);
   });
 
   it('answers RATE_LIMITED without calling when the queue is too long', async () => {
@@ -149,14 +159,26 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     // Second slot reserved at 1_001_355 + 1250 ms: the call is inside its window.
     const second = 1_000_000 + 1_350 + 1_250;
     expect(run.upstreamCalls[0]!.at).toBeGreaterThanOrEqual(second);
-    expect(run.upstreamCalls[0]!.at).toBeLessThanOrEqual(second + SLOT_TOLERANCE_MS);
+    expect(run.upstreamCalls[0]!.at).toBeLessThanOrEqual(second + TOLERANCE_MS);
+  });
+
+  it('still searches when the gate round trip takes 300 to 800 ms, as on the real server', async () => {
+    // Ajustes do teste do César: on staging the RPC round trip often passes
+    // 250 ms, which left the old window empty on every attempt.
+    for (const delay of [300, 450, 600, 800]) {
+      const run = harness({ granted: [0, 0, 0], gateDelays: [delay, delay, delay] });
+      const answer = await dispatchGeocode(run.deps, { query: 'Rua Um' });
+      expect(answer.status, `round trip ${delay} ms`).toBe(200);
+      expect(run.upstreamCalls, `round trip ${delay} ms`).toHaveLength(1);
+    }
   });
 
   it('never calls when every gate answer or wake-up is late', async () => {
-    const slow = harness({ granted: [0, 0, 0], gateDelays: [400, 400, 400] });
+    const slow = harness({ granted: [0, 0, 0], gateDelays: [1_100, 1_100, 1_100] });
     expect((await dispatchGeocode(slow.deps, { query: 'Rua Um' })).status).toBe(429);
     expect(slow.upstreamCalls).toHaveLength(0);
-    const sleepy = harness({ granted: [500, 500, 500], oversleep: SLOT_TOLERANCE_MS + 50 });
+    expect(slow.reports).toEqual(['GEOCODE_SLOT_LATE']);
+    const sleepy = harness({ granted: [500, 500, 500], oversleep: TOLERANCE_MS + 50 });
     expect((await dispatchGeocode(sleepy.deps, { query: 'Rua Um' })).status).toBe(429);
     expect(sleepy.upstreamCalls).toHaveLength(0);
   });
@@ -219,6 +241,45 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     });
     await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
     expect(run.upstreamCalls).toHaveLength(2);
+  });
+
+  it('names the real cause of an unavailable search, never the query', async () => {
+    const cases: [() => Promise<Response>, string][] = [
+      [async () => new Response('blocked', { status: 403 }), 'GEOCODE_UPSTREAM_HTTP_403'],
+      [async () => new Response('slow down', { status: 429 }), 'GEOCODE_UPSTREAM_HTTP_429'],
+      [
+        async () => {
+          throw new DOMException('timed out', 'TimeoutError');
+        },
+        'GEOCODE_UPSTREAM_TIMEOUT',
+      ],
+      [
+        async () => {
+          throw new TypeError('dns error');
+        },
+        'GEOCODE_UPSTREAM_NETWORK',
+      ],
+      [async () => new Response('not json', { status: 200 }), 'GEOCODE_UPSTREAM_BODY'],
+    ];
+    for (const [upstream, code] of cases) {
+      const run = harness({ upstream });
+      const answer = await dispatchGeocode(run.deps, { query: 'Rua Secreta 77' });
+      expect(answer.body['data']).toMatchObject({ results: [], unavailable: true });
+      expect(run.reports).toEqual([code]);
+      expect(run.reports.join()).not.toContain('Secreta');
+    }
+    const busy = harness({ granted: [null] });
+    await dispatchGeocode(busy.deps, { query: 'Rua Um' });
+    expect(busy.reports).toEqual(['GEOCODE_SLOT_BUSY']);
+  });
+
+  it('refuses to call when the gate spacing leaves no tolerance', async () => {
+    for (const spacing of [1_000, 900]) {
+      const run = harness({ spacing });
+      const answer = await dispatchGeocode(run.deps, { query: 'Rua Um' });
+      expect(answer.status).toBe(500);
+      expect(run.upstreamCalls).toHaveLength(0);
+    }
   });
 
   it('accepts only the query key', async () => {

@@ -12,11 +12,7 @@ export function ProfileCompletionScreen({
   onCompleted: () => void;
 }) {
   return (
-    <AuthenticatedShell
-      description={pt.auth.profile.description}
-      eyebrow={pt.auth.profile.eyebrow}
-      title={pt.auth.profile.title}
-    >
+    <AuthenticatedShell description={pt.auth.profile.description} title={pt.auth.profile.title}>
       <AppCard testID="profile-completion-card">
         <ProfileCompletionForm defaultName={defaultName} onCompleted={onCompleted} />
       </AppCard>

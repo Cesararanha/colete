@@ -56,7 +56,7 @@ export function DeletionShellScreen({
   const shell = pt.privacy.shell;
 
   return (
-    <AuthenticatedShell description={shell.description} eyebrow={shell.eyebrow} title={copy.title}>
+    <AuthenticatedShell description={shell.description} title={copy.title}>
       <AppCard testID="deletion-shell-card">
         <SectionHeading eyebrow={shell.eyebrow} title={shell.protocol} />
         <Text

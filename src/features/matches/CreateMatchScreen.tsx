@@ -428,7 +428,6 @@ export function CreateMatchScreen({
             />
           )}
           {field('date', pt.matches.create.date, {
-            hint: pt.matches.create.dateHint,
             keyboardType: 'number-pad',
             maxLength: 10,
             placeholder: 'DD/MM/AAAA',
@@ -436,7 +435,6 @@ export function CreateMatchScreen({
           <View style={styles.pair}>
             <View style={styles.pairItem}>
               {field('startTime', pt.matches.create.start, {
-                hint: pt.matches.create.timeHint,
                 keyboardType: 'number-pad',
                 maxLength: 5,
                 placeholder: 'HH:MM',
@@ -451,11 +449,9 @@ export function CreateMatchScreen({
               })}
             </View>
           </View>
-          {field('locationName', pt.matches.create.place, { hint: pt.matches.create.placeHint })}
+          {field('locationName', pt.matches.create.place)}
           <View style={styles.address}>
-            {field('locationAddress', pt.matches.create.address, {
-              hint: pt.matches.create.addressHint,
-            })}
+            {field('locationAddress', pt.matches.create.address)}
             <AppButton
               accessibilityLabel={pt.matches.create.searchLabel}
               ariaDisabled={searching.isPending}
@@ -484,7 +480,6 @@ export function CreateMatchScreen({
           </View>
           <View style={styles.description}>
             {field('description', pt.matches.create.descriptionLabel, {
-              hint: pt.matches.create.descriptionHint,
               multiline: true,
             })}
             <Text

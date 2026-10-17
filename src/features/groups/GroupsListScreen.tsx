@@ -95,7 +95,15 @@ function GroupRow({ id, name, role }: { id: string; name: string; role: string }
   );
 }
 
-export function GroupsListScreen({ left, profile }: { left?: boolean; profile: OwnProfile }) {
+export function GroupsListScreen({
+  left,
+  profile,
+  requested,
+}: {
+  left?: boolean;
+  profile: OwnProfile;
+  requested?: boolean;
+}) {
   const { colors } = useTheme();
   const listing = useQuery({
     queryKey: [PRIVATE_QUERY_ROOT, 'groups', profile.id],
@@ -180,6 +188,9 @@ export function GroupsListScreen({ left, profile }: { left?: boolean; profile: O
       title={pt.groups.list.title}
     >
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
+      {requested ? (
+        <AppStatus message={pt.groups.list.requestSent} testID="group-request-sent" />
+      ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? (
         <AsyncNotice

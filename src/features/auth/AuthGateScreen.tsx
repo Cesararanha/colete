@@ -25,14 +25,13 @@ import { ProfileCompletionScreen } from './ProfileCompletionScreen';
 
 type AuthGateProps = {
   renderAuthenticated?: (profile: OwnProfile, session: Session) => ReactNode;
-  page?: { title: string; eyebrow: string; description: string };
+  page?: { title: string; description: string };
 };
 
 function LoadingGate({ page }: { page: AuthGateProps['page'] }) {
   return (
     <AuthenticatedShell
       description={page?.description ?? pt.profile.description}
-      eyebrow={page?.eyebrow ?? pt.profile.eyebrow}
       title={page?.title ?? pt.profile.title}
     >
       <AsyncNotice kind="loading" message={pt.common.loading} />
@@ -125,7 +124,6 @@ export function AuthGateScreen({ renderAuthenticated, page }: AuthGateProps = {}
     return (
       <AuthenticatedShell
         description={page?.description ?? pt.profile.description}
-        eyebrow={page?.eyebrow ?? pt.profile.eyebrow}
         title={page?.title ?? pt.profile.title}
       >
         <AsyncNotice

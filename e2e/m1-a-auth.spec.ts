@@ -708,6 +708,7 @@ test.describe('M1-A authentication', () => {
       expect(leavingAccount.rows).toHaveLength(1);
       restAuthorization.markLogout(leavingAccount.rows[0]?.id);
       await page.getByRole('button', { name: 'Sair da conta' }).click();
+      await page.getByTestId('profile-logout-confirm').click();
       await expect(page).toHaveURL(/\/entrar$/u);
       const sessionsAfterLogout = await db.query<{
         active_refresh_tokens: number;

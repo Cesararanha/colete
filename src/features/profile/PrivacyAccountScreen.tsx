@@ -23,11 +23,7 @@ export function PrivacyAccountScreen({ session }: { session: Session }) {
   const { colors } = useTheme();
 
   return (
-    <AuthenticatedShell
-      description={pt.privacy.screen.description}
-      eyebrow={pt.privacy.screen.eyebrow}
-      title={pt.privacy.screen.title}
-    >
+    <AuthenticatedShell description={pt.privacy.screen.description} title={pt.privacy.screen.title}>
       <ProfileBackLink label={pt.privacy.screen.back} />
 
       <DataExportCard email={session.user.email ?? null} />

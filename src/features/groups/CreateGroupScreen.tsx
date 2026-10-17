@@ -74,7 +74,6 @@ export function CreateGroupScreen() {
           render={({ field }) => (
             <AppTextField
               label={pt.groups.create.name}
-              hint={pt.groups.create.hint}
               error={errors.name?.message}
               value={field.value}
               onBlur={field.onBlur}

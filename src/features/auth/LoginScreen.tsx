@@ -50,11 +50,7 @@ export function LoginScreen() {
   );
 
   return (
-    <AuthShell
-      description={pt.auth.login.description}
-      eyebrow={pt.auth.login.eyebrow}
-      title={pt.auth.login.title}
-    >
+    <AuthShell description={pt.auth.login.description} title={pt.auth.login.title}>
       <AppCard>
         {login.error === null ? null : <FormAlert message={loginErrorMessage(login.error)} />}
         <View style={styles.form}>

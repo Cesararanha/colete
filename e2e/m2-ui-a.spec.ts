@@ -422,8 +422,16 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
         fullPage: true,
       });
     }
+    const historyBefore = await page.evaluate(() => window.history.length);
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    // Ajustes do teste: the request goes to Grupos, replacing the form, with
+    // the notice and the group waiting for approval.
+    await expect(page.getByTestId('group-request-sent')).toHaveText(/^Pedido enviado\./u);
+    await expect(page).toHaveURL(/\/grupos\?requested=1$/u);
+    expect(await page.evaluate(() => window.history.length)).toBe(historyBefore);
+    await expect(page.getByTestId('join-confirmation')).toHaveCount(0);
+    await expect(page.getByTestId('pending-group-card')).toContainText('Racha da Firma');
+    await expect(page.getByTestId('pending-group-card')).toContainText('Aguardando aprovação');
     expect(await browserLeakCensus(page, inviteToken)).toBe(true);
     expect(seenLogs.every((item) => !item.includes(inviteToken))).toBe(true);
     expect(
@@ -442,11 +450,12 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     expect(await browserLeakCensus(page, inviteToken)).toBe(true);
     await page.goForward();
     expect(await browserLeakCensus(page, inviteToken)).toBe(true);
+    await page.goto('/join');
     await page.getByTestId('group-code').fill(code);
     await page.getByTestId('preview-code').click();
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    await expect(page.getByTestId('group-request-sent')).toBeVisible();
     const useAfter = await db.query(
       'select used_count from public.group_invites where group_id=$1',
       [groupId],
@@ -643,7 +652,7 @@ test.describe('UI-A capacity and final invite use through real Edge state', () =
     await page.getByTestId('preview-code').click();
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    await expect(page.getByTestId('group-request-sent')).toBeVisible();
     const uses = await db.query('select used_count from public.group_invites where id=$1', [
       outcome.invite_id,
     ]);
@@ -950,7 +959,7 @@ test('UI-A preserves an invitation in page memory through login and clears the f
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
     expect(await browserLeakCensus(page, inviteToken)).toBe(true);
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    await expect(page.getByTestId('group-request-sent')).toBeVisible();
   } finally {
     await cleanActors(authIds, db);
     const count = await db.query('select count(*)::integer as count from auth.users');
@@ -1112,7 +1121,7 @@ test('UI-A retries quota errors with the same join request_id', async ({
       "update private.app_limits set limit_value=3 where limit_key='invite_attempts_per_hour'",
     );
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    await expect(page.getByTestId('group-request-sent')).toBeVisible();
     expect(joinBodies).toHaveLength(2);
     expect(joinBodies[1]).toBe(joinBodies[0]);
   } finally {
@@ -1169,7 +1178,7 @@ test('UI-A retries unavailable limiter with the same join request_id', async ({
     await page.getByTestId('join-submit').click();
     await expect(page.getByTestId('join-error')).toContainText('Tente novamente');
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('join-pending')).toBeVisible();
+    await expect(page.getByTestId('group-request-sent')).toBeVisible();
     expect(ids).toHaveLength(2);
     expect(ids[1]).toBe(ids[0]);
   } finally {
@@ -1265,6 +1274,7 @@ test('UI-A clears old account group and invite material from the browser heap', 
         logoutDocuments.push(new URL(request.url()).pathname);
     });
     await page.getByRole('button', { name: 'Sair da conta' }).click();
+    await page.getByTestId('profile-logout-confirm').click();
     await unloaded;
     await page.waitForLoadState('load');
     expect(logoutDocuments).toEqual(['/entrar']);

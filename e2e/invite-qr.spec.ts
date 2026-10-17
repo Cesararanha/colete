@@ -426,7 +426,7 @@ test('lazy decoder reads a QR, stops tracks, confirms, and joins through the exi
   expect(await privateCensus(page, markers)).toBe(false);
   await page.evaluate(() => localStorage.removeItem('qr-canary'));
   await page.getByTestId('join-submit').tap();
-  await expect(page.getByTestId('join-pending')).toBeVisible();
+  await expect(page.getByTestId('group-request-sent')).toBeVisible();
   expect(joins).toBe(1);
   expect(leaked).toBe(false);
   expect(await privateCensus(page, markers)).toBe(true);

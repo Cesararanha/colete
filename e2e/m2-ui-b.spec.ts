@@ -814,6 +814,7 @@ test('UI-B logout releases member names from heap caches and persistent storage 
       }),
     );
     await page.getByRole('button', { name: 'Sair da conta' }).click();
+    await page.getByTestId('profile-logout-confirm').click();
     await unloaded;
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     // Do not navigate or reload here: the application's logout must release the heap.
@@ -1076,6 +1077,7 @@ test('UI-B role matrix CP3 checks administrative network traffic for player pend
       }
       await page.getByRole('link', { name: 'Perfil', exact: true }).click();
       await page.getByRole('button', { name: 'Sair da conta' }).click();
+      await page.getByTestId('profile-logout-confirm').click();
       await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
     }
   } finally {

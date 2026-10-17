@@ -56,11 +56,7 @@ export function SignUpScreen() {
   );
 
   return (
-    <AuthShell
-      description={pt.auth.signup.description}
-      eyebrow={pt.auth.signup.eyebrow}
-      title={pt.auth.signup.title}
-    >
+    <AuthShell description={pt.auth.signup.description} title={pt.auth.signup.title}>
       <AppCard>
         {signup.error === null ? null : <FormAlert message={authErrorMessage(signup.error)} />}
         <View style={styles.form}>

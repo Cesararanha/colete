@@ -2746,3 +2746,44 @@ comparações npm ls, configuração e scripts de reprodução estão preservado
 Capturas e medições de bundle das etapas anteriores continuam identificadas como
 tais. Próximo gate: cinco jobs do SHA publicado após este rebase e conferência
 independente. PR continua draft, sem merge/ready; físico segue com César.
+
+## PR F — Ajustes do teste do César (17/10/2026)
+
+- **Busca de endereço.** `0024_geocode_reserve.sql` troca `geocode_gate` por
+  `geocode_reserve`: horários a 2000 ms (horizonte de 6 s), e a resposta traz
+  `wait_ms` e `spacing_ms`. A Edge chama dentro de
+  `[t1 + w, t0 + w − 1 + T]`, com `T = spacing − 1000 ms = 1000 ms`: cada
+  chamada fica em [horário, horário + T], e duas distam no mínimo
+  2000 − 1000 = 1000 ms, aceitando ida e volta da RPC de até 999 ms. Com a
+  0023 (T = 250 ms), uma ida e volta de 300 ms já esvaziava a janela nas três
+  tentativas e a busca terminava em RATE_LIMITED ("Muitas buscas agora"). O
+  aviso "indisponível" vem só do caminho do Nominatim (rede, timeout,
+  resposta não 2xx ou corpo inválido); a Edge agora registra um código fixo
+  da causa (`GEOCODE_UPSTREAM_HTTP_<status>`, `_TIMEOUT`, `_NETWORK`,
+  `_BODY`, `GEOCODE_SLOT_BUSY`, `GEOCODE_SLOT_LATE`), sem texto buscado nem
+  URL, e o timeout passou de 5 s para 8 s.
+- **Primeiro acesso** com nome, apelido, posição, perna e camisa, nos
+  componentes e regras da edição (`ProfileFields`), num único
+  `complete_profile`.
+- **Dicas removidas** dos campos que não evitavam erro; ficam o formato do
+  código do convite, a máscara do preço, o fim no dia seguinte e a força da
+  senha.
+- **Topo das telas** sem o rótulo acima do título; "Sair da conta" no fim do
+  Perfil, destrutivo, com confirmação e foco devolvido ao cancelar.
+- **Pedir para entrar** leva a Grupos (`dismissTo`, sem voltar ao
+  formulário) com "Pedido enviado" e o grupo como "Aguardando aprovação".
+
+| Comando | Resultado |
+|---|---|
+| db:test | 23 arquivos, 1494 asserções, PASS |
+| db:test:geocode | 5 provas e censo; 3 rodadas: RPC a 300–800 ms em toda chamada, 4/4 buscas, menor intervalo ~1618 ms; sonda da revisão ~2000 ms; 6 instâncias, menor ~1897 ms; mutante (horários de fato a 1250 ms) ~350 ms |
+| demais harnesses de §5 | exit 0 |
+| test:groups:web | 68 passed (64 + 4 do spec novo) |
+| test:matches / qr / privacy / cors / smoke web | 18 / 30 / 5+5 skip / 4 / 6 |
+| test:auth:web | 9 passed, 1 failed (foco do Perfil, `:450`, intermitente na base), 2 skipped; repetição 10 passed |
+| verify:app | exit 0; vitest 46 arquivos, 520 testes |
+| test:staging / test:audit / audit:high | 102 / 94 / exit 0 |
+
+Contraprova: o teste unitário da RPC lenta (300–800 ms) dá 429 RATE_LIMITED
+no código anterior; o mutante de espaçamento do harness quebra o intervalo.
+O Nominatim nunca foi chamado.

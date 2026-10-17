@@ -4,10 +4,10 @@
 // (https://operations.osmfoundation.org/policies/nominatim/):
 //   - one search per press, never an autocomplete (the app sends on press);
 //   - a User-Agent that names Colete;
-//   - at most one request per second for the whole app: public.geocode_gate
-//     (0023) reserves slots 1250 ms apart on the single row of
+//   - at most one request per second for the whole app: public.geocode_reserve
+//     (0024) reserves slots 2000 ms apart on the single row of
 //     private.geocode_throttle, shared by every Edge instance, and this file
-//     calls only within 250 ms after its slot (see dispatchGeocode);
+//     calls only within spacing - 1000 ms after its slot (see dispatchGeocode);
 //   - a short in-memory cache, so a repeated search does not go out again;
 //   - the attribution travels with the results and the app shows it.
 // The searched text is never logged, never echoed in an error and never put
@@ -38,13 +38,14 @@ export const ATTRIBUTION = '© OpenStreetMap';
 export const MAX_RESULTS = 5;
 export const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 200;
-const UPSTREAM_TIMEOUT_MS = 5_000;
+/** Public Nominatim answers in well under a second, but has slow moments. */
+export const UPSTREAM_TIMEOUT_MS = 8_000;
 /**
- * The upstream is called only within this window after the reserved slot,
- * measured on this instance's own clock. Slots are 1250 ms apart in the
- * database (0023), so two calls are at least 1250 - 250 = 1000 ms apart.
+ * The smallest gap between two upstream calls, for the whole app. The gate
+ * answers its slot spacing; the Edge calls only within spacing - this gap
+ * after its slot, so two calls are at least this far apart (0024).
  */
-export const SLOT_TOLERANCE_MS = 250;
+export const MIN_UPSTREAM_GAP_MS = 1_000;
 /** Fresh slots asked for before answering RATE_LIMITED. */
 const SLOT_ATTEMPTS = 3;
 
@@ -70,6 +71,12 @@ export interface GeocodeDependencies {
   readonly clock?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly cache?: Map<string, { expires: number; results: AddressResult[] }>;
+  /**
+   * Receives a fixed diagnostic code when a search ends unavailable or busy,
+   * so the real cause shows in the function log. Never the query, the URL or
+   * an upstream body.
+   */
+  readonly report?: (code: string) => void;
 }
 
 const sharedCache = new Map<string, { expires: number; results: AddressResult[] }>();
@@ -165,6 +172,7 @@ export async function dispatchGeocode(
   const clock = deps.clock ?? (() => performance.now());
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   const cache = deps.cache ?? sharedCache;
+  const report = deps.report ?? (() => {});
   try {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       throw validation('body', 'must be an object');
@@ -181,44 +189,59 @@ export async function dispatchGeocode(
     // The gate always runs: it refuses a revoked session even for a cached
     // answer. Only a search that leaves for Nominatim spends the slot.
     const gate = async (spend: boolean) => {
-      const result = await deps.callRpc('geocode_gate', {
+      const result = await deps.callRpc('geocode_reserve', {
         p_actor_auth_user_id: deps.actor.authUserId,
         p_actor_session_id: deps.actor.sessionId,
         p_spend: spend,
       });
       if (result.error !== undefined && result.error !== null)
         throw fromDatabaseError(result.error);
-      return typeof result.data === 'number' && Number.isInteger(result.data) && result.data >= 0
-        ? result.data
-        : null;
+      const data = result.data as { wait_ms?: unknown; spacing_ms?: unknown } | null;
+      const spacing = data?.spacing_ms;
+      // A spacing that leaves no tolerance cannot keep the gap: refuse to call.
+      if (typeof spacing !== 'number' || !Number.isInteger(spacing)) throw new Error('gate shape');
+      if (spacing <= MIN_UPSTREAM_GAP_MS) throw new Error('gate spacing');
+      const wait = data?.wait_ms;
+      return {
+        tolerance: spacing - MIN_UPSTREAM_GAP_MS,
+        wait: typeof wait === 'number' && Number.isInteger(wait) && wait >= 0 ? wait : null,
+      };
     };
     if (fresh !== undefined) {
       await gate(false);
       return success(requestId, fresh.results);
     }
 
-    // Review of #72 (P1). The gate answers w, the whole milliseconds until the
-    // reserved slot (rounded up; the true wait is in (w - 1, w]). The database
-    // computed it at some instant between t0 and t1 of this clock, so the slot
-    // here is within [t0 + w - 1, t1 + w]. Calling no earlier than t1 + w is
-    // never before the slot; calling no later than t0 + w - 1 + tolerance is
-    // never past slot + tolerance. A slow gate answer (t1 - t0 too long) or a
-    // late wake-up leaves that window empty: the slot is abandoned, never
-    // used, and a new one is reserved. Nothing awaits between the last check
-    // and the fetch below.
+    // The gate answers w, the whole milliseconds until the reserved slot
+    // (rounded up; the true wait is in (w - 1, w]), and the slot spacing S.
+    // The database computed w at some instant between t0 and t1 of this
+    // clock, so the slot here is within [t0 + w - 1, t1 + w]. Calling no
+    // earlier than t1 + w is never before the slot; calling no later than
+    // t0 + w - 1 + T, with T = S - 1000 ms, is never past slot + T. Every call
+    // is then within [slot, slot + T] and slots are S apart, so two calls are
+    // at least S - T = 1000 ms apart. With S = 2000 ms (0024) a round trip
+    // up to 999 ms still leaves a window; a slower one, or a late wake-up,
+    // abandons the slot and reserves another. Nothing awaits between the last
+    // check and the fetch below.
     let dispatched = false;
     for (let attempt = 0; attempt < SLOT_ATTEMPTS && !dispatched; attempt += 1) {
       const t0 = clock();
-      const wait = await gate(true);
+      const { wait, tolerance } = await gate(true);
       const t1 = clock();
-      if (wait === null) return failure('RATE_LIMITED', requestId, { retry_after: 2 });
+      if (wait === null) {
+        report('GEOCODE_SLOT_BUSY');
+        return failure('RATE_LIMITED', requestId, { retry_after: 2 });
+      }
       const earliest = t1 + wait;
-      const latest = t0 + wait - 1 + SLOT_TOLERANCE_MS;
+      const latest = t0 + wait - 1 + tolerance;
       if (earliest > latest) continue;
       while (clock() < earliest) await sleep(Math.max(1, Math.ceil(earliest - clock())));
       if (clock() <= latest) dispatched = true;
     }
-    if (!dispatched) return failure('RATE_LIMITED', requestId, { retry_after: 2 });
+    if (!dispatched) {
+      report('GEOCODE_SLOT_LATE');
+      return failure('RATE_LIMITED', requestId, { retry_after: 2 });
+    }
 
     let response: Response;
     try {
@@ -228,16 +251,25 @@ export async function dispatchGeocode(
         redirect: 'error',
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error) {
+      report(
+        error instanceof DOMException && error.name === 'TimeoutError'
+          ? 'GEOCODE_UPSTREAM_TIMEOUT'
+          : 'GEOCODE_UPSTREAM_NETWORK',
+      );
       return success(requestId, [], true);
     }
-    if (!response.ok) return success(requestId, [], true);
+    if (!response.ok) {
+      report(`GEOCODE_UPSTREAM_HTTP_${response.status}`);
+      return success(requestId, [], true);
+    }
     // A body that times out or is not JSON is an unavailable answer, never an
     // empty search, and never cached (review of #72, P2).
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
+      report('GEOCODE_UPSTREAM_BODY');
       return success(requestId, [], true);
     }
     const results = parseNominatim(payload);

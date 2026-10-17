@@ -93,13 +93,12 @@ type ShellBandProps = {
   closeModal?: { label: string; onPress: () => void; testID?: string };
   /** Omitted (or empty) where the title and the scoreboard say enough, as on Grupos. */
   description?: string;
-  eyebrow?: string;
   /** The screen's one scoreboard (docs/29 §1.2), shown in the band under the title. */
   hero?: ReactNode;
   title: string;
 };
 
-function ShellBand({ back, closeModal, description, eyebrow, hero, title }: ShellBandProps) {
+function ShellBand({ back, closeModal, description, hero, title }: ShellBandProps) {
   const { colors } = useTheme();
   const control = back
     ? { icon: 'arrow-left' as const, ...back, onPress: () => backTo(back.href) }
@@ -120,9 +119,6 @@ function ShellBand({ back, closeModal, description, eyebrow, hero, title }: Shel
         </View>
       ) : null}
       <View style={styles.intro}>
-        {eyebrow ? (
-          <Text style={[styles.eyebrow, { color: colors.onBandMuted }]}>{eyebrow}</Text>
-        ) : null}
         <Text aria-level={1} role="heading" style={[styles.title, { color: colors.onBand }]}>
           {title}
         </Text>
@@ -258,7 +254,6 @@ const styles = StyleSheet.create({
   bodyWide: { alignSelf: 'center', flexDirection: 'row', maxWidth: 1160, width: '100%' },
   content: { gap: spacing.lg, padding: spacing.lg },
   description: { ...typography.body, maxWidth: 680 },
-  eyebrow: { ...typography.supportStrong },
   footer: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   header: {
     alignItems: 'center',

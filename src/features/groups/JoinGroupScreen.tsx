@@ -12,6 +12,7 @@ import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AppError, TransportError, api, type GroupOutcome, type MutationIntent } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
+import { backTo } from '@/lib/navigation';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
@@ -20,6 +21,7 @@ import { typography } from '@/theme/typography';
 import { groupErrorMessage } from './group-errors';
 import { InviteQrScanner } from './InviteQrScanner';
 import { inviteAppOrigin, parseInviteLink } from './join-fragment';
+import { joinDestination } from './join-result';
 
 export function JoinGroupScreen({ initialToken }: { initialToken: string | null }) {
   const { colors } = useTheme();
@@ -140,10 +142,17 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
         token === null ? api.joinGroupByCode(getValues('code')) : api.joinGroupByInvite(token);
       const data = await intent.current.execute();
       intent.current = null;
-      setResult(data);
       setPreview(null);
       setToken(null);
-      void queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'groups'] });
+      await queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'groups'] });
+      // A request sent goes to Grupos, replacing this form: the request shows
+      // there as "Aguardando aprovação" and there is no way back to the form.
+      const destination = joinDestination(data);
+      if (destination !== null) {
+        backTo(destination);
+        return;
+      }
+      setResult(data);
     } catch (error) {
       const sameIntentCanRetry =
         error instanceof TransportError ||
@@ -263,12 +272,6 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
               testID="join-submit"
             />
           </View>
-        ) : null}
-        {result?.current?.status === 'pending' ? (
-          <AppStatus
-            message={`${pt.groups.join.pending}. ${pt.groups.join.pendingBody}`}
-            testID="join-pending"
-          />
         ) : null}
         {result?.current?.status === 'active' ? (
           <AppStatus message={pt.groups.join.active} testID="join-active" />

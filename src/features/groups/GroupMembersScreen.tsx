@@ -188,7 +188,6 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                     <AppTextField
                       ref={reasonRef}
                       label={pt.groups.members.reason}
-                      hint={pt.groups.members.reasonHint}
                       value={reason}
                       error={invalid ? pt.groups.members.reasonInvalid : undefined}
                       onBlur={() => setInvalid(!validReason(reason))}
