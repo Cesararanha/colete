@@ -8,6 +8,7 @@ import { pt } from '@/lib/i18n/pt';
 function AuthenticatedJoinRoute() {
   const [token, setToken] = useState<string | null>(null);
   useLayoutEffect(() => {
+    if (typeof window === 'undefined' || !window.location) return;
     const capture = () => {
       const captured = consumeInviteFragment();
       if (captured !== null) queueMicrotask(() => setToken(captured));
