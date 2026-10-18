@@ -373,11 +373,15 @@ César pediu, depois de testar no celular: o detalhe do grupo mostra
 organizador ativo, abrindo o modal com o grupo escolhido e sem seletor; a aba
 Rachas vira "Agenda", com todos os próximos rachas e o nome do grupo em cada
 card. "Nome do local" é texto livre. "Endereço" tem "Buscar": a Edge consulta
-o Nominatim (Brasil, pt-BR, até 5 resultados), só no toque, com User-Agent do
-Colete, no máximo 1 requisição por segundo para o app inteiro
-(`private.geocode_throttle`, `0023`), cache curto em memória e atribuição
-"© OpenStreetMap" nos resultados. A busca exige sessão válida e autoridade de
-quem cria racha, não grava nem loga o texto buscado e não muda a CSP do app.
+o LocationIQ, com dados do OpenStreetMap (Brasil, pt-BR, até 5 resultados),
+só no toque, com User-Agent do Colete, no máximo 1 requisição por segundo
+para o app inteiro (`private.geocode_throttle`, `0023`), cache curto em
+memória e atribuição "© OpenStreetMap" nos resultados. O LocationIQ
+substituiu o Nominatim por decisão de César de 18/10/2026, depois que o
+Nominatim recusou os IPs do Supabase: plano grátis (5.000 buscas por dia, 2
+por segundo), chave no segredo `LOCATIONIQ_API_KEY` da Edge (sem ela a busca
+fica indisponível) e o crédito "Search by LocationIQ.com", com link, junto dos
+resultados. A busca exige sessão válida e autoridade de quem cria racha, não grava nem loga o texto buscado e não muda a CSP do app.
 Escolher um resultado preenche o endereço e guarda latitude/longitude com 4
 casas; digitar por cima descarta a posição. "Usar minha localização" sai da
 criação; o detalhe ganha "Ver distância", calculada no aparelho, só quando o

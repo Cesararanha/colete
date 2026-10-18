@@ -8,7 +8,7 @@ import { handledObserver } from './support/observers';
 
 // Rachas: usabilidade (decisões humanas de 17/10/2026). Auth, Edge and
 // Postgres are the real local stack; only search_address is simulated, so no
-// test reaches Nominatim.
+// test reaches LocationIQ.
 const { Client } = pg;
 const env = localEnvironment();
 const password = 'Synthetic-rachas-ux-2026';
@@ -260,7 +260,14 @@ test('Usabilidade: create from the group with masks, address search and next-day
     await page.getByRole('button', { name: 'Buscar endereço' }).click();
     const results = page.getByTestId('match-address-results');
     await expect(results.getByRole('button')).toHaveCount(2);
-    await expect(page.getByTestId('match-attribution')).toContainText('© OpenStreetMap');
+    await expect(page.getByTestId('match-attribution')).toHaveText(
+      'Dados de endereço © OpenStreetMap',
+    );
+    // The free plan's credit, a link to LocationIQ next to the results.
+    const credit = page.getByRole('link', { name: /^Search by LocationIQ\.com/ });
+    await expect(credit).toHaveText('Search by LocationIQ.com');
+    await expect(credit).toHaveAttribute('href', 'https://locationiq.com');
+    await expect(credit).toHaveAttribute('target', '_blank');
     expect(searches).toEqual([{ body: { query: 'Rua das Flores' }, authorized: true }]);
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'ux-01-busca-endereco.png');
@@ -419,6 +426,86 @@ test('Usabilidade: the Agenda tab lists my matches of every group with the group
     await page.evaluate(() => {
       document.documentElement.style.zoom = '1';
     });
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('Grupo fixo: from a group the match is always that group; the Agenda keeps the selector', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'fixed', authIds);
+    const other = await createActor(request, 'other-owner', authIds);
+    const first = await createGroup(request, owner, 'Futebol de Terça');
+    const second = await createGroup(request, owner, 'Pelada de Sexta');
+    // A group where the person only plays: no organising there.
+    const playing = await createGroup(request, other, 'Grupo Alheio');
+    await db.query(
+      `insert into public.group_members(group_id, profile_id, role, status)
+       values ($1, $2, 'player', 'active')`,
+      [playing, owner.profileId],
+    );
+    await login(page, owner);
+
+    // From the second group's page: only its name, no list of groups, and
+    // the match is created in it.
+    await page.goto(`/grupos/${second}`);
+    await page.getByTestId('group-create-match').click();
+    await expect(page).toHaveURL(new RegExp(`/criar-racha\\?groupId=${second}$`));
+    await expect(page.getByTestId('match-fixed-group')).toContainText('Pelada de Sexta');
+    await expect(page.getByTestId('match-fixed-group')).not.toContainText('Futebol de Terça');
+    await expect(page.getByRole('radiogroup')).toHaveCount(0);
+    await expect(page.getByRole('radio')).toHaveCount(0);
+    await page.getByTestId('match-date').pressSequentially(dayDigits(3));
+    await page.getByTestId('match-startTime').pressSequentially('1900');
+    await page.getByTestId('match-endTime').pressSequentially('2030');
+    await page.getByTestId('match-locationName').fill('Quadra Fixa');
+    await page.getByTestId('match-slots').fill('12');
+    await page.getByTestId('match-price').pressSequentially('1500');
+    await assertAccessible(page);
+    const created = handledObserver(
+      page.waitForResponse((item) => new URL(item.url()).pathname.endsWith('/groups/create_match')),
+    );
+    await page.getByTestId('match-create-submit').click();
+    const response = await created;
+    expect(response.status()).toBe(200);
+    expect((response.request().postDataJSON() as { group_id: string }).group_id).toBe(second);
+    await expect(page).toHaveURL(/\/rachas\/[0-9a-f-]{36}$/);
+    const stored = await db.query(
+      `select group_id::text as group_id from private.matches where location_name = 'Quadra Fixa'`,
+    );
+    expect(stored.rows).toEqual([{ group_id: second }]);
+
+    // From the Agenda, with no group given: the selector stays, with every
+    // group the person organises and none they only play in.
+    await page.goto('/rachas');
+    await page.getByTestId('matches-create').click();
+    await expect(page).toHaveURL(/\/criar-racha$/);
+    const choice = page.getByRole('radiogroup');
+    await expect(choice).toBeVisible();
+    await expect(choice.getByRole('radio')).toHaveCount(2);
+    await expect(choice.getByRole('radio', { name: 'Futebol de Terça' })).toBeVisible();
+    await expect(choice.getByRole('radio', { name: 'Pelada de Sexta' })).toBeVisible();
+    await expect(page.getByTestId('match-fixed-group')).toHaveCount(0);
+    await choice.getByRole('radio', { name: 'Futebol de Terça' }).click();
+    await expect(choice.getByRole('radio', { name: 'Futebol de Terça' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(page.getByTestId(`match-group-${first}`)).toBeVisible();
+
+    // A group the person cannot organise is refused, never swapped for a list.
+    await page.goto(`/criar-racha?groupId=${playing}`);
+    await expect(page.getByText('Não dá para criar racha neste grupo')).toBeVisible();
+    await expect(page.getByRole('radiogroup')).toHaveCount(0);
+    await expect(page.getByTestId('create-match-card')).toHaveCount(0);
+    await assertAccessible(page);
   } finally {
     await cleanActors(authIds, db);
     await db.end();
