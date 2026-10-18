@@ -3,7 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
+import { face, typography } from '@/theme/typography';
 
 import { AppIcon, type IconName } from './AppIcon';
 
@@ -59,7 +59,7 @@ export function AppNavLink({
       ? colors.onBand
       : colors.onBandMuted
     : active
-      ? colors.text
+      ? colors.indicator
       : colors.textMuted;
   const indicator = onBand ? colors.onBand : colors.indicator;
   return (
@@ -78,13 +78,23 @@ export function AppNavLink({
           ]}
         />
         {icon ? <AppIcon color={tint} name={icon} size={22} /> : null}
-        <Text style={[tab ? styles.tabText : styles.railText, { color: tint }]}>{label}</Text>
+        <Text
+          style={[
+            tab ? styles.tabText : styles.railText,
+            active ? styles.activeText : undefined,
+            { color: tint },
+          ]}
+        >
+          {label}
+        </Text>
       </Pressable>
     </Link>
   );
 }
 
 const styles = StyleSheet.create({
+  // Prévia aprovada: the current tab is amber and bold, under its 4 px indicator.
+  activeText: { ...face('bold') },
   link: {
     alignItems: 'center',
     borderRadius: radius.field,
@@ -118,8 +128,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     justifyContent: 'center',
     minHeight: size.button + spacing.sm,
-    // Three tabs share the bar: the floor is the touch target, so the bar still
-    // fits a 412 px screen at 200% zoom (docs/15) without horizontal scroll.
+    // The floor is the touch target, so the bar still fits a 412 px screen at
+    // 200% zoom (docs/15) without horizontal scroll.
     minWidth: size.target,
     paddingBottom: spacing.sm,
     paddingTop: spacing.ms,

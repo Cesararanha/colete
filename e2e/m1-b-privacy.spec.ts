@@ -257,7 +257,7 @@ async function signInAndCompleteProfile(page: Page, email: string) {
   await page.getByRole('button', { name: 'Concluir perfil' }).click();
   // First access ends on Grupos (decisão humana de 14/10/2026); the profile is one tab away.
   await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
-  await page.getByRole('link', { name: 'Perfil', exact: true }).click();
+  await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
   await expect(page.getByTestId('profile-data-card')).toBeVisible();
 }
 
@@ -1032,7 +1032,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       // tab only learns it through Auth, not through its own logout handler.
       const otherTab = await page.context().newPage();
       await otherTab.goto('/perfil');
-      await expect(otherTab.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(otherTab.getByTestId('profile-summary')).toBeVisible();
       const documentsByTab: string[][] = [[], []];
       for (const [index, tab] of [page, otherTab].entries()) {
         tab.on('request', (sent) => {
@@ -1077,7 +1077,7 @@ test.describe('M1-B screen 13 privacy controls', () => {
       await page.getByRole('button', { name: 'Concluir perfil' }).click();
       // Client-side navigation only: the same document, so the same query cache.
       await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
-      await page.getByRole('link', { name: 'Perfil', exact: true }).click();
+      await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
       await expect(page.getByTestId('profile-data-card')).toBeVisible();
       await page.getByRole('link', { name: 'Privacidade e conta' }).click();
       await expect(card).toBeVisible();

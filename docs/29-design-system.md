@@ -192,3 +192,34 @@ discreto no fim dela.
   mudaram.
 - Contar só grupos não arquivados no placar quando o arquivamento existir. Hoje
   `getOwnGroups` não filtra arquivados, e o arquivamento é pós-piloto.
+
+## 9. Prévia aprovada (PR G, 17/10/2026)
+
+O César aprovou seis telas de referência (Agenda, Grupo, Racha, Membros, Perfil e Ícone
+do grupo), itens 5, 12, 13, 14 e 15 do feedback do teste. Onde esta seção e as seções
+anteriores divergem, vale esta seção, que é a decisão mais recente.
+
+- **Navegação.** A barra tem só Grupos e Agenda. O Perfil abre pelo avatar com iniciais
+  no topo, à direita, em toda tela autenticada (`ProfileAvatarLink`, link para `/perfil`,
+  nome acessível "Abrir perfil de <nome>"). O topo de cada tela tem o voltar, ou a marca
+  COLETE na primeira tela de uma aba, e o avatar. O topo fica fora do `main`, com
+  `role="banner"`. O modal Criar racha não tem avatar. As abas usam `backBehavior:
+  "history"`, então o "Voltar" do Perfil volta à aba de onde ele foi aberto.
+- **Botões com contorno.** A regra 1 da seção 1 ("sem contorno") cede nos botões da
+  prévia. `AppButton` ganhou as variantes `outline` e `outline-destructive` (1 px de
+  `fieldBorder` ou `critical`) e a opção `compact` (pílula de 44 px).
+- **Tokens novos** (`src/theme/colors.ts`): `positiveSoft`, `warningSoft`, `infoSoft`,
+  `criticalSoft`, `primarySoft`, `accent`, `accentSoft`, `avatar`, `textSoft`,
+  `onPositive`, `onWarning`, `track` e `divider`. O teste de contraste calcula cada par
+  de texto sobre fundo (≥ 4,5:1) e cada barra sobre o trilho (≥ 3:1), nos dois temas. No
+  tema escuro, o menor par de texto novo é 6,5:1.
+- **Avatar.** Iniciais sobre um de 5 tons, escolhido de forma fixa pelo id do perfil
+  (FNV-1a, `avatar-tone.ts`). O avatar é sempre decorativo: o nome está ao lado dele, ou
+  no controle que o contém. Conta excluída usa a camada neutra.
+- **Ícone do grupo.** Neste PR, todo grupo usa a bola em azul (`GroupIcon`, SVG inline
+  no web). A escolha pelo dono fica para o PR H.
+- **Placares.** A Agenda e o Grupo perderam o placar. O Racha mantém um: confirmados
+  sobre vagas, com o chip de estado e a barra.
+- **Dados que a prévia mostra e o contrato não tem:** posição na fila no cartão da Agenda
+  (só o detalhe a tem), racha cancelado, apelido e posição nos pedidos e na lista de
+  membros (`get_group_members` traz só `display_name`, que já é o apelido quando existe).

@@ -1,4 +1,5 @@
 import type { IconName } from '@/components/ui/AppIcon';
+import type { ChipTone } from '@/components/ui/Chip';
 import { pt } from '@/lib/i18n/pt';
 
 /** The role in text. A player reads "Membro" on the group list and "Jogador" in a member list. */
@@ -13,4 +14,11 @@ export function roleIcon(role: string): IconName {
   if (role === 'owner') return 'award';
   if (role === 'organizer') return 'shield';
   return 'user';
+}
+
+/** Prévia aprovada: Dono in amber, Organizador in blue, Jogador neutral. */
+export function roleTone(role: string): ChipTone {
+  if (role === 'owner') return 'primary';
+  if (role === 'organizer') return 'info';
+  return 'neutral';
 }

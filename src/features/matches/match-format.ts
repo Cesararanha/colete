@@ -40,6 +40,14 @@ export function matchWhenLine(startsAt: string, endsAt: string, timeZone: string
   return `${weekday}, ${day} ${month} · ${matchTimeRange(startsAt, endsAt, timeZone)}`;
 }
 
+/** "Sáb, 18 out": the title of the match detail (prévia aprovada). */
+export function matchDateTitle(iso: string, timeZone: string): string {
+  const weekday = short(iso, timeZone, { weekday: 'short' });
+  const day = part(iso, timeZone, { day: 'numeric' });
+  const month = part(iso, timeZone, { month: 'short' }).replace(/\.$/u, '');
+  return `${weekday}, ${day} ${month}`;
+}
+
 /** The ticket block of a card: { day: "18", month: "OUT", weekday: "SÁB" }. */
 export function matchTicket(iso: string, timeZone: string) {
   const upper = (options: Intl.DateTimeFormatOptions) =>

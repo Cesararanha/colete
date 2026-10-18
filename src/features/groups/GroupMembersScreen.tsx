@@ -1,21 +1,22 @@
-import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
+import { AppIcon } from '@/components/ui/AppIcon';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { Avatar } from '@/components/ui/Avatar';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
+import { radius, size, spacing } from '@/theme/spacing';
+import { face, typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
+import { MemberRow } from './MemberRow';
 import { useGroupAdministration } from './useGroupAdministration';
 
 export function GroupMembersScreen({ groupId, profile }: { groupId: string; profile: OwnProfile }) {
@@ -23,6 +24,8 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
   const administration = useGroupAdministration(groupId, profile);
   const { listing, run, error } = administration;
   const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
+  // The member whose "…" is open; one at a time.
+  const [menu, setMenu] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [invalid, setInvalid] = useState(false);
   const [message, setMessage] = useState('');
@@ -45,29 +48,26 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
     administration.discardIntent();
     if (origin) focusGroupControl(`remove-${origin}`);
   };
+  const pending = data?.members.filter((member) => member.status === 'pending') ?? [];
+  const active = data?.members.filter((member) => member.status === 'active') ?? [];
+  const decide = (member: { profile_id: string; display_name: string }, approve: boolean) => {
+    setMessage('');
+    void run(`${approve}:${member.profile_id}`, () =>
+      api.approveMember(groupId, member.profile_id, approve),
+    ).then((success) => {
+      if (success) setMessage(pt.groups.members.decided(member.display_name, approve));
+    });
+  };
   return (
     <AuthenticatedShell
       {...pt.groups.members}
       back={{
-        label: pt.groups.members.back,
+        // The parent's name once the server read confirms it (prévia aprovada).
+        label: allowed?.name ?? pt.groups.members.back,
         href: `/grupos/${groupId}`,
         testID: 'members-back',
       }}
     >
-      {/* Navigation only, to a route that already exists. It is offered to the
-          same people the settings screen admits, an active owner or organizer,
-          per the authority of this screen's last server read. */}
-      {allowed ? (
-        <View style={styles.navigation}>
-          <AppButton
-            icon="settings"
-            label={pt.groups.settings.title}
-            onPress={() => router.push(`/grupos/${groupId}/configuracoes`)}
-            testID="members-settings"
-            variant="tertiary"
-          />
-        </View>
-      ) : null}
       {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="administration-error" />
@@ -75,169 +75,311 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
       {data && !allowed ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
-      <AppButton
-        testID="management-refresh"
-        icon="refresh-cw"
-        label={pt.groups.members.refresh}
-        onPress={() => void administration.refresh()}
-        variant="secondary"
-      />
       {allowed ? (
-        <AppCard testID="group-management-card">
-          <Text style={[styles.body, { color: colors.text }]}>{allowed.name}</Text>
+        <View style={styles.sections} testID="group-management-card">
           <AppStatus message={message} testID="member-result" />
-          <Text role="heading" aria-level={2} style={[styles.heading, { color: colors.text }]}>
-            {pt.groups.detail.pendingMembers}
-          </Text>
-          {!data.members.some((member) => member.status === 'pending') ? (
-            <Text style={[styles.body, { color: colors.text }]}>{pt.groups.members.empty}</Text>
-          ) : null}
-          {/* The rows live inside the management card, which scrolls with the
-              screen: the list itself does not scroll (scrollEnabled false). */}
-          <FlatList
-            data={data.members.filter((member) => member.status === 'pending')}
-            keyExtractor={(member) => member.profile_id}
-            scrollEnabled={false}
-            renderItem={({ item: member }) => (
-              <View testID={`member-${member.profile_id}`} style={styles.row}>
-                <Text style={[styles.body, { color: colors.text }]}>{member.display_name}</Text>
-                {[true, false].map((approve) => (
-                  <AppButton
-                    key={String(approve)}
-                    variant={approve ? 'primary' : 'secondary'}
-                    accessibilityLabel={`${approve ? 'Aprovar' : 'Recusar'} ${member.display_name}`}
-                    label={approve ? pt.groups.members.approve : pt.groups.members.refuse}
-                    onPress={() => {
-                      setMessage('');
-                      void run(`${approve}:${member.profile_id}`, () =>
-                        api.approveMember(groupId, member.profile_id, approve),
-                      ).then((success) => {
-                        if (success)
-                          setMessage(pt.groups.members.decided(member.display_name, approve));
-                      });
-                    }}
-                  />
-                ))}
+          <View style={styles.section}>
+            <View style={styles.heading}>
+              <Text role="heading" aria-level={2} style={[styles.title, { color: colors.text }]}>
+                {pt.groups.members.requests}
+              </Text>
+              {pending.length > 0 ? (
+                <View style={[styles.counter, { backgroundColor: colors.warning }]}>
+                  <Text style={[styles.counterText, { color: colors.onWarning }]}>
+                    {pending.length}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {pending.length === 0 ? (
+              <Text style={[styles.empty, { color: colors.textMuted }]}>
+                {pt.groups.members.empty}
+              </Text>
+            ) : null}
+            {/* The rows scroll with the screen: the list itself does not. */}
+            <FlatList
+              contentContainerStyle={styles.requests}
+              data={pending}
+              keyExtractor={(member) => member.profile_id}
+              scrollEnabled={false}
+              renderItem={({ item: member }) => (
+                <View
+                  style={[styles.request, { backgroundColor: colors.surface }]}
+                  testID={`member-${member.profile_id}`}
+                >
+                  <Avatar id={member.profile_id} name={member.display_name} size={44} />
+                  <Text style={[styles.requestName, { color: colors.text }]}>
+                    {member.display_name}
+                  </Text>
+                  <View style={styles.decisions}>
+                    <RoundButton
+                      accessibilityLabel={pt.groups.members.refuseLabel(member.display_name)}
+                      icon="x"
+                      onPress={() => decide(member, false)}
+                      tone="refuse"
+                    />
+                    <RoundButton
+                      accessibilityLabel={pt.groups.members.approveLabel(member.display_name)}
+                      icon="check"
+                      onPress={() => decide(member, true)}
+                      tone="approve"
+                    />
+                  </View>
+                </View>
+              )}
+            />
+          </View>
+          <View style={styles.section}>
+            <Text role="heading" aria-level={2} style={[styles.title, { color: colors.text }]}>
+              {pt.groups.members.inGroup}{' '}
+              <Text style={[styles.count, { color: colors.textMuted }]}>{active.length}</Text>
+            </Text>
+            <View style={[styles.list, { backgroundColor: colors.surface }]}>
+              {/* A list, so each MemberRow (listitem) has its parent; the
+                  rows scroll with the screen. */}
+              <View role="list">
+                {active.map((member, index) => {
+                  const hasActions = member.role !== 'owner';
+                  const open = menu === member.profile_id || target?.id === member.profile_id;
+                  return (
+                    <MemberRow
+                      key={member.profile_id}
+                      actions={
+                        hasActions ? (
+                          <MenuButton
+                            expanded={open}
+                            label={pt.groups.members.actions(member.display_name)}
+                            onPress={() => {
+                              // Closing the "…" also closes its confirmation; focus stays here.
+                              if (target?.id === member.profile_id) {
+                                setTarget(null);
+                                setReason('');
+                                setInvalid(false);
+                                administration.discardIntent();
+                              }
+                              setMenu(open ? null : member.profile_id);
+                            }}
+                            testID={`member-menu-${member.profile_id}`}
+                          />
+                        ) : undefined
+                      }
+                      divider={index > 0}
+                      id={member.profile_id}
+                      name={member.display_name}
+                      role={member.role}
+                      testID={`member-${member.profile_id}`}
+                    >
+                      {hasActions && open ? (
+                        <View style={styles.menu} testID={`member-actions-${member.profile_id}`}>
+                          {allowed.role === 'owner' ? (
+                            <AppButton
+                              label={
+                                member.role === 'player'
+                                  ? pt.groups.members.promote
+                                  : pt.groups.members.demote
+                              }
+                              accessibilityLabel={`${member.role === 'player' ? 'Promover' : 'Rebaixar'} ${member.display_name} a ${member.role === 'player' ? 'organizador' : 'jogador'}`}
+                              testID={`role-${member.profile_id}`}
+                              onPress={() => {
+                                const role = member.role === 'player' ? 'organizer' : 'player';
+                                setMessage('');
+                                void run(`${role}:${member.profile_id}`, () =>
+                                  api.setMemberRole(groupId, member.profile_id, role),
+                                ).then((success) => {
+                                  if (success)
+                                    setMessage(
+                                      pt.groups.members.roleChanged(member.display_name, role),
+                                    );
+                                });
+                              }}
+                              variant="outline"
+                            />
+                          ) : null}
+                          <AppButton
+                            label={pt.groups.members.remove}
+                            accessibilityLabel={`Expulsar ${member.display_name}`}
+                            testID={`remove-${member.profile_id}`}
+                            onPress={() => {
+                              setTarget({ id: member.profile_id, name: member.display_name });
+                              setReason('');
+                              setInvalid(false);
+                              administration.discardIntent();
+                            }}
+                            variant="outline-destructive"
+                          />
+                        </View>
+                      ) : null}
+                      {target?.id === member.profile_id ? (
+                        <GroupConfirmation
+                          title={pt.groups.members.removeTitle(target.name)}
+                          testID="remove-confirmation"
+                        >
+                          <Text style={[styles.body, { color: colors.text }]}>
+                            {pt.groups.members.removeBody}
+                          </Text>
+                          <AppTextField
+                            ref={reasonRef}
+                            label={pt.groups.members.reason}
+                            value={reason}
+                            error={invalid ? pt.groups.members.reasonInvalid : undefined}
+                            onBlur={() => setInvalid(!validReason(reason))}
+                            onChangeText={(value) => {
+                              setReason(value);
+                              if (invalid) setInvalid(!validReason(value));
+                              administration.discardIntent();
+                            }}
+                            testID="remove-reason"
+                            multiline
+                          />
+                          <AppButton
+                            label={pt.groups.members.confirmRemove}
+                            onPress={() => {
+                              if (!validReason(reason)) {
+                                setInvalid(true);
+                                reasonRef.current?.focus();
+                                return;
+                              }
+                              setMessage('');
+                              void run(`remove:${target.id}:${reason}`, () =>
+                                api.removeMember(groupId, target.id, reason),
+                              ).then((success) => {
+                                if (success) {
+                                  setMessage(pt.groups.members.removed(target.name));
+                                  setTarget(null);
+                                  setReason('');
+                                  setMenu(null);
+                                }
+                              });
+                            }}
+                            variant="destructive"
+                          />
+                          <AppButton
+                            label={pt.groups.members.cancel}
+                            onPress={close}
+                            variant="secondary"
+                          />
+                        </GroupConfirmation>
+                      ) : null}
+                    </MemberRow>
+                  );
+                })}
               </View>
-            )}
-          />
-          <Text role="heading" aria-level={2} style={[styles.heading, { color: colors.text }]}>
-            {pt.groups.detail.members}
-          </Text>
-          <FlatList
-            data={data.members.filter((member) => member.status === 'active')}
-            extraData={[target, reason, invalid, allowed.role]}
-            keyExtractor={(member) => member.profile_id}
-            scrollEnabled={false}
-            renderItem={({ item: member }) => (
-              <View testID={`member-${member.profile_id}`} style={styles.row}>
-                <Text style={[styles.body, { color: colors.text }]}>
-                  {member.display_name} ·{' '}
-                  {member.role === 'owner'
-                    ? pt.groups.list.owner
-                    : member.role === 'organizer'
-                      ? pt.groups.list.organizer
-                      : pt.groups.detail.player}
-                </Text>
-                {member.role !== 'owner' ? (
-                  <>
-                    {allowed.role === 'owner' ? (
-                      <AppButton
-                        label={
-                          member.role === 'player'
-                            ? pt.groups.members.promote
-                            : pt.groups.members.demote
-                        }
-                        accessibilityLabel={`${member.role === 'player' ? 'Promover' : 'Rebaixar'} ${member.display_name} a ${member.role === 'player' ? 'organizador' : 'jogador'}`}
-                        testID={`role-${member.profile_id}`}
-                        onPress={() => {
-                          const role = member.role === 'player' ? 'organizer' : 'player';
-                          setMessage('');
-                          void run(`${role}:${member.profile_id}`, () =>
-                            api.setMemberRole(groupId, member.profile_id, role),
-                          ).then((success) => {
-                            if (success)
-                              setMessage(pt.groups.members.roleChanged(member.display_name, role));
-                          });
-                        }}
-                        variant="secondary"
-                      />
-                    ) : null}
-                    <AppButton
-                      label={pt.groups.members.remove}
-                      accessibilityLabel={`Expulsar ${member.display_name}`}
-                      testID={`remove-${member.profile_id}`}
-                      onPress={() => {
-                        setTarget({ id: member.profile_id, name: member.display_name });
-                        setReason('');
-                        setInvalid(false);
-                        administration.discardIntent();
-                      }}
-                      variant="destructive"
-                    />
-                  </>
-                ) : null}
-                {target?.id === member.profile_id ? (
-                  <GroupConfirmation
-                    title={pt.groups.members.removeTitle(target.name)}
-                    testID="remove-confirmation"
-                  >
-                    <Text style={[styles.body, { color: colors.text }]}>
-                      {pt.groups.members.removeBody}
-                    </Text>
-                    <AppTextField
-                      ref={reasonRef}
-                      label={pt.groups.members.reason}
-                      value={reason}
-                      error={invalid ? pt.groups.members.reasonInvalid : undefined}
-                      onBlur={() => setInvalid(!validReason(reason))}
-                      onChangeText={(value) => {
-                        setReason(value);
-                        if (invalid) setInvalid(!validReason(value));
-                        administration.discardIntent();
-                      }}
-                      testID="remove-reason"
-                      multiline
-                    />
-                    <AppButton
-                      label={pt.groups.members.confirmRemove}
-                      onPress={() => {
-                        if (!validReason(reason)) {
-                          setInvalid(true);
-                          reasonRef.current?.focus();
-                          return;
-                        }
-                        setMessage('');
-                        void run(`remove:${target.id}:${reason}`, () =>
-                          api.removeMember(groupId, target.id, reason),
-                        ).then((success) => {
-                          if (success) {
-                            setMessage(pt.groups.members.removed(target.name));
-                            setTarget(null);
-                            setReason('');
-                          }
-                        });
-                      }}
-                      variant="destructive"
-                    />
-                    <AppButton
-                      label={pt.groups.members.cancel}
-                      onPress={close}
-                      variant="secondary"
-                    />
-                  </GroupConfirmation>
-                ) : null}
-              </View>
-            )}
-          />
-        </AppCard>
+            </View>
+          </View>
+        </View>
       ) : null}
+      <View style={styles.refresh}>
+        <AppButton
+          testID="management-refresh"
+          icon="refresh-cw"
+          label={pt.groups.members.refresh}
+          onPress={() => void administration.refresh()}
+          variant="tertiary"
+        />
+      </View>
     </AuthenticatedShell>
   );
 }
+
+/** ✕ and ✓ of a request: a real 44 px round button named "Recusar/Aprovar <nome>". */
+function RoundButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+  tone,
+}: {
+  accessibilityLabel: string;
+  icon: 'check' | 'x';
+  onPress: () => void;
+  tone: 'approve' | 'refuse';
+}) {
+  const { colors } = useTheme();
+  const approve = tone === 'approve';
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[
+        styles.round,
+        approve
+          ? { backgroundColor: colors.positive }
+          : { borderColor: colors.fieldBorder, borderWidth: 1 },
+      ]}
+    >
+      <AppIcon
+        color={approve ? colors.onPositive : colors.critical}
+        name={icon}
+        size={approve ? 20 : 18}
+      />
+    </Pressable>
+  );
+}
+
+/** The "…" of a member row: opens that member's actions below the row. */
+function MenuButton({
+  expanded,
+  label,
+  onPress,
+  testID,
+}: {
+  expanded: boolean;
+  label: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      aria-expanded={expanded}
+      onPress={onPress}
+      style={styles.round}
+      testID={testID}
+    >
+      <AppIcon color={colors.textMuted} name="more-horizontal" size={20} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   body: { ...typography.body },
-  navigation: { alignItems: 'flex-start', marginHorizontal: -spacing.md },
-  heading: { ...typography.title },
-  row: { gap: spacing.sm, marginBottom: spacing.md },
+  count: { ...typography.row, fontSize: 18 },
+  counter: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    height: 22,
+    justifyContent: 'center',
+    minWidth: 22,
+    paddingHorizontal: 7,
+  },
+  counterText: { ...typography.chip, ...face('bold') },
+  decisions: { flexDirection: 'row', gap: spacing.ms },
+  empty: { ...typography.support },
+  heading: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  list: { borderRadius: radius.row, overflow: 'hidden' },
+  menu: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  refresh: { alignItems: 'flex-start', marginLeft: -spacing.md },
+  request: {
+    alignItems: 'center',
+    borderRadius: radius.row,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.ms,
+    padding: spacing.ms,
+  },
+  requestName: { ...typography.bodyStrong, flex: 1, fontSize: 16, lineHeight: 22, minWidth: 0 },
+  requests: { gap: 10 },
+  round: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    height: size.compact,
+    justifyContent: 'center',
+    width: size.compact,
+  },
+  section: { gap: 10 },
+  sections: { gap: spacing.lg },
+  title: { ...typography.cardTitle },
 });

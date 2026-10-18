@@ -1,26 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
 import { AppIcon } from '@/components/ui/AppIcon';
+import { Chip } from '@/components/ui/Chip';
+import { GroupIcon } from '@/components/ui/GroupIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { Scoreboard } from '@/components/ui/Scoreboard';
 import { AppError, TransportError, api, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
-import { roleIcon, roleName } from './group-roles';
 import { MemberRow } from './MemberRow';
+import { MemberStack } from './MemberStack';
 import { MatchCard } from '../matches/MatchCard';
 import { useUpcomingMatches } from '../matches/use-upcoming-matches';
 
@@ -68,26 +68,34 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   // The group's own upcoming matches, by start, from the Agenda's cached read.
   const upcoming = useUpcomingMatches(profile);
   const groupMatches = (upcoming.data?.matches ?? []).filter((match) => match.group_id === groupId);
-  // The same role gate as the group tools above; create_match decides again.
+  // The same role gate as the group tools; create_match decides again.
   const canOrganize = group?.role === 'owner' || group?.role === 'organizer';
   // docs/29 §5: the count comes from the getGroupMembers read the screen
   // already makes; no capacity is shown because the contract has none.
-  const activeMembers = members.data?.filter((member) => member.status === 'active').length;
-  const hero =
-    group && activeMembers !== undefined ? (
-      <View style={styles.hero}>
-        <Text aria-hidden style={[styles.overline, { color: colors.onBandMuted }]}>
-          {pt.groups.detail.members}
+  const active = members.data?.filter((member) => member.status === 'active');
+  const requests = members.data?.filter((member) => member.status === 'pending').length ?? 0;
+  const intro = group ? (
+    <View style={styles.intro} testID="group-detail-card">
+      <GroupIcon size={56} tile />
+      <View style={styles.introText}>
+        <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
+          {group.name}
         </Text>
-        <Scoreboard
-          accessibilityLabel={pt.groups.detail.activeMembers(activeMembers)}
-          groups={[{ chars: String(activeMembers).padStart(2, '0') }]}
-          testID="members-scoreboard"
-        />
+        {active ? (
+          <Text style={[styles.summary, { color: colors.textMuted }]} testID="group-summary">
+            {pt.groups.detail.summary(active.length, group.role)}
+          </Text>
+        ) : null}
       </View>
-    ) : undefined;
+    </View>
+  ) : undefined;
   return (
-    <AuthenticatedShell {...pt.groups.detail} hero={hero}>
+    <AuthenticatedShell
+      {...pt.groups.detail}
+      back={{ label: pt.navigation.groups, href: '/grupos', testID: 'group-back' }}
+      description=""
+      {...(intro ? { intro } : {})}
+    >
       {detail.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {detail.isError ? (
         <AsyncNotice
@@ -100,46 +108,27 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
       ) : null}
       {detail.isSuccess && group === null ? <AppAlert message={pt.groups.detail.missing} /> : null}
       {group ? (
-        <AppCard testID="group-detail-card">
-          <View style={styles.heading}>
-            <Text aria-level={2} role="heading" style={[styles.name, { color: colors.text }]}>
-              {group.name}
+        <View style={styles.section} testID="group-upcoming-matches">
+          <View style={styles.sectionHeader}>
+            <Text
+              aria-level={2}
+              role="heading"
+              style={[styles.sectionTitle, { color: colors.text }]}
+            >
+              {pt.groups.detail.upcoming}
             </Text>
-            <View style={styles.role}>
-              <AppIcon color={colors.textMuted} name={roleIcon(group.role)} size={16} />
-              <Text style={[styles.roleText, { color: colors.textMuted }]}>
-                {roleName(group.role, pt.groups.list.player)}
-              </Text>
-            </View>
+            {canOrganize ? (
+              <AppButton
+                compact
+                icon="plus"
+                label={pt.groups.detail.createMatch}
+                onPress={() =>
+                  router.push({ pathname: '/criar-racha', params: { groupId: group.id } })
+                }
+                testID="group-create-match"
+              />
+            ) : null}
           </View>
-          {group.role === 'owner' || group.role === 'organizer' ? (
-            <View style={styles.actions}>
-              <AppButton
-                icon="user-plus"
-                label={pt.groups.detail.invites}
-                onPress={() => router.push(`/grupos/${group.id}/convites`)}
-              />
-              <AppButton
-                icon="users"
-                label={pt.groups.members.title}
-                onPress={() => router.push(`/grupos/${group.id}/membros`)}
-                variant="secondary"
-              />
-              <AppButton
-                icon="settings"
-                label={pt.groups.settings.title}
-                onPress={() => router.push(`/grupos/${group.id}/configuracoes`)}
-                variant="secondary"
-              />
-            </View>
-          ) : null}
-        </AppCard>
-      ) : null}
-      {group ? (
-        <AppCard testID="group-upcoming-matches">
-          <Text aria-level={2} role="heading" style={[styles.section, { color: colors.text }]}>
-            {pt.groups.detail.upcoming}
-          </Text>
           {upcoming.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
           {upcoming.isError ? (
             <AsyncNotice
@@ -168,21 +157,11 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
               ))}
             </View>
           ) : null}
-          {canOrganize ? (
-            <AppButton
-              icon="plus"
-              label={pt.groups.detail.createMatch}
-              onPress={() =>
-                router.push({ pathname: '/criar-racha', params: { groupId: group.id } })
-              }
-              testID="group-create-match"
-            />
-          ) : null}
-        </AppCard>
+        </View>
       ) : null}
       {group ? (
-        <AppCard>
-          <Text aria-level={2} role="heading" style={[styles.section, { color: colors.text }]}>
+        <View style={styles.section}>
+          <Text aria-level={2} role="heading" style={[styles.sectionTitle, { color: colors.text }]}>
             {pt.groups.detail.members}
           </Text>
           {members.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
@@ -195,52 +174,77 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
               action={() => void members.refetch()}
             />
           ) : null}
-          {members.data ? (
-            <View style={styles.lists} testID="group-members-list">
-              <View role="list">
-                {members.data
-                  .filter((member) => member.status === 'active')
-                  .map((member) => (
-                    <MemberRow
-                      key={member.profile_id}
-                      name={member.display_name}
-                      role={{
-                        icon: roleIcon(member.role),
-                        label: roleName(member.role, pt.groups.detail.player),
-                      }}
-                      state={{
-                        icon: 'check-circle',
-                        label: pt.groups.detail.active,
-                        tone: 'positive',
-                      }}
-                    />
-                  ))}
-              </View>
-              {members.data.some((member) => member.status === 'pending') ? (
-                <View style={styles.lists} testID="group-pending-members-list">
-                  <Text
-                    aria-level={3}
-                    role="heading"
-                    style={[styles.subsection, { color: colors.text }]}
-                  >
-                    {pt.groups.detail.pendingMembers}
-                  </Text>
-                  <View role="list">
-                    {members.data
-                      .filter((member) => member.status === 'pending')
-                      .map((member) => (
-                        <MemberRow
-                          key={member.profile_id}
-                          name={member.display_name}
-                          state={{ icon: 'clock', label: pt.groups.list.pending, tone: 'warning' }}
-                        />
-                      ))}
+          {active && canOrganize ? (
+            // The organisation opens the member management from the card; the
+            // requests chip is theirs only, as the decision is.
+            <Link asChild href={`/grupos/${group.id}/membros`}>
+              <Pressable
+                accessibilityLabel={pt.groups.detail.openMembers(active.length, requests)}
+                accessibilityRole="link"
+                // Link asChild merges styles as an array, which the web DOM rejects:
+                // one style object here, the colour on the View inside.
+                style={styles.membersTarget}
+                testID="group-members-link"
+              >
+                <View style={[styles.membersCard, { backgroundColor: colors.surface }]}>
+                  <MemberStack members={active} />
+                  <View style={styles.membersEnd}>
+                    {requests > 0 ? (
+                      <Chip
+                        label={pt.groups.detail.requests(requests)}
+                        testID="group-requests"
+                        tone="warning"
+                      />
+                    ) : null}
+                    <AppIcon color={colors.textMuted} name="chevron-right" size={20} />
                   </View>
                 </View>
-              ) : null}
+              </Pressable>
+            </Link>
+          ) : null}
+          {active && !canOrganize ? (
+            // A player cannot open the management screen (docs/25): the card
+            // lists the members here, with their roles.
+            <View
+              style={[styles.membersList, { backgroundColor: colors.surface }]}
+              testID="group-members-list"
+            >
+              <View role="list">
+                {active.map((member, index) => (
+                  <MemberRow
+                    divider={index > 0}
+                    id={member.profile_id}
+                    key={member.profile_id}
+                    name={member.display_name}
+                    role={member.role}
+                  />
+                ))}
+              </View>
             </View>
           ) : null}
-        </AppCard>
+          {canOrganize ? (
+            <View style={styles.tools}>
+              <View style={styles.tool}>
+                <AppButton
+                  icon="grid"
+                  label={pt.groups.detail.invite}
+                  onPress={() => router.push(`/grupos/${group.id}/convites`)}
+                  testID="group-invites"
+                  variant="outline"
+                />
+              </View>
+              <View style={styles.tool}>
+                <AppButton
+                  icon="settings"
+                  label={pt.groups.detail.configure}
+                  onPress={() => router.push(`/grupos/${group.id}/configuracoes`)}
+                  testID="group-settings"
+                  variant="outline"
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
       ) : null}
       {group ? (
         // The one destructive action stands apart from the group's tools.
@@ -301,18 +305,43 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
 }
 
 const styles = StyleSheet.create({
-  actions: { gap: spacing.sm },
-  heading: { gap: spacing.xs },
-  hero: { gap: spacing.ms },
+  intro: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    minWidth: 0,
+    paddingTop: spacing.xs,
+  },
+  introText: { flex: 1, gap: 2, minWidth: 0 },
   leave: { gap: spacing.sm, paddingTop: spacing.sm },
   // The text-only button keeps its 48 px target; its text lines up with the reason.
   leaveAction: { alignItems: 'flex-start', marginLeft: -spacing.md },
-  lists: { gap: spacing.sm },
-  name: { ...typography.title },
-  overline: { ...typography.overline },
+  lists: { gap: spacing.ms },
+  membersCard: {
+    alignItems: 'center',
+    borderRadius: radius.scoreboard - 2,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    minHeight: size.row,
+    padding: 14,
+  },
+  membersTarget: { borderRadius: radius.scoreboard - 2 },
+  membersEnd: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  membersList: { borderRadius: radius.scoreboard - 2, overflow: 'hidden' },
+  name: { ...typography.heading },
   reason: { ...typography.support },
-  role: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
-  roleText: { ...typography.supportStrong },
-  section: { ...typography.title },
-  subsection: { ...typography.row, paddingTop: spacing.sm },
+  section: { gap: 14 },
+  sectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  sectionTitle: { ...typography.section },
+  summary: { ...typography.support },
+  tool: { flexBasis: 140, flexGrow: 1 },
+  tools: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 });

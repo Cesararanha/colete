@@ -43,6 +43,38 @@ export function profileSummary(profile: OwnProfile) {
   ] as const;
 }
 
+/**
+ * The three blocks of the profile (prévia aprovada): Posição, Perna and
+ * Camisa, each value in its tone or said absent in words.
+ */
+export function profileStats(profile: OwnProfile) {
+  return [
+    {
+      key: 'position',
+      label: pt.profile.stats.position,
+      value: optionLabel(pt.profile.positionOptions, profile.position) ?? pt.profile.empty.position,
+      empty: profile.position === null,
+      tone: 'info',
+    },
+    {
+      key: 'dominant-foot',
+      label: pt.profile.stats.foot,
+      value:
+        optionLabel(pt.profile.footOptions, profile.dominant_foot) ?? pt.profile.empty.dominantFoot,
+      empty: profile.dominant_foot === null,
+      tone: 'positive',
+    },
+    {
+      key: 'shirt-number',
+      label: pt.profile.stats.shirt,
+      value:
+        profile.shirt_number === null ? pt.profile.empty.shirtNumber : String(profile.shirt_number),
+      empty: profile.shirt_number === null,
+      tone: 'digit',
+    },
+  ] as const;
+}
+
 /** Every distinct sign-in method of this session's Auth user, read from the session only. */
 export function linkedProviders(session: Session): string[] {
   const identityProviders = (session.user.identities ?? []).map((identity) => identity.provider);

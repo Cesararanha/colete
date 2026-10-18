@@ -28,7 +28,7 @@
     "test:smoke:web": "playwright test e2e/m0-a-smoke.spec.ts",
     "test:auth:web": "playwright test e2e/m1-a-auth.spec.ts",
     "test:privacy:web": "playwright test e2e/m1-b-privacy.spec.ts",
-    "test:groups:web": "playwright test e2e/m2-ui-a.spec.ts e2e/m2-ui-b.spec.ts e2e/ajustes-teste.spec.ts --workers=1",
+    "test:groups:web": "playwright test e2e/m2-ui-a.spec.ts e2e/m2-ui-b.spec.ts e2e/ajustes-teste.spec.ts e2e/visual-placar.spec.ts --workers=1",
     "test:matches:web": "playwright test e2e/rachas-v1.spec.ts e2e/racha-completo.spec.ts e2e/rachas-ux.spec.ts --workers=1",
     "scan:docs": "node scripts/verify-docs.mjs",
     "scan:secrets": "secretlint \"**/*\" && node scripts/verify-secret-boundaries.mjs",

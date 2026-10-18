@@ -31,6 +31,26 @@ export type ThemeColors = {
   warning: string;
   critical: string;
   info: string;
+  /** Prévia aprovada (PR G): chip and avatar fills, one per state tone. */
+  positiveSoft: string;
+  warningSoft: string;
+  infoSoft: string;
+  criticalSoft: string;
+  primarySoft: string;
+  /** The fifth avatar tone; never a state. */
+  accent: string;
+  accentSoft: string;
+  /** The neutral avatar tone. */
+  avatar: string;
+  /** Secondary text brighter than textMuted: times, counts, descriptions. */
+  textSoft: string;
+  /** Text on a filled positive or warning control (approve, pending counter). */
+  onPositive: string;
+  onWarning: string;
+  /** The empty part of an occupancy bar. */
+  track: string;
+  /** The hairline between the rows of one card. */
+  divider: string;
 };
 
 const scoreboard = {
@@ -64,6 +84,19 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     warning: '#9A4A00',
     critical: '#B3202A',
     info: '#2B4FB8',
+    positiveSoft: '#DFF1E6',
+    warningSoft: '#FBE8D9',
+    infoSoft: '#E1E8FB',
+    criticalSoft: '#FBE1E2',
+    primarySoft: '#E3E7F2',
+    accent: '#9C2A5B',
+    accentSoft: '#F8E1EB',
+    avatar: '#D6DCEB',
+    textSoft: '#2A3550',
+    onPositive: '#FFFFFF',
+    onWarning: '#FFFFFF',
+    track: '#D9DEE8',
+    divider: '#DDE2EB',
   },
   dark: {
     background: '#0A1120',
@@ -87,6 +120,19 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     warning: '#FFA46B',
     critical: '#FF9C96',
     info: '#9DB6FF',
+    positiveSoft: '#14291F',
+    warningSoft: '#33231A',
+    infoSoft: '#1B2647',
+    criticalSoft: '#3A1D1F',
+    primarySoft: '#3A2C0E',
+    accent: '#F2A7C3',
+    accentSoft: '#3A1F2C',
+    avatar: '#2B3A63',
+    textSoft: '#D5DAE4',
+    onPositive: '#0A1120',
+    onWarning: '#1A1203',
+    track: '#22304D',
+    divider: '#1E2A44',
   },
 };
 

@@ -50,4 +50,11 @@ export const typography = {
     textTransform: 'uppercase',
   },
   navigation: { ...face('semibold'), fontSize: 13, lineHeight: 16 },
+  // Prévia aprovada (PR G).
+  heading: { ...face('bold'), fontSize: 28, lineHeight: 32 },
+  section: { ...face('bold'), fontSize: 20, lineHeight: 26 },
+  cardTitle: { ...face('bold'), fontSize: 18, lineHeight: 22 },
+  chip: { ...face('semibold'), fontSize: 13, lineHeight: 18 },
+  caption: { ...face('regular'), fontSize: 13, lineHeight: 18 },
+  captionStrong: { ...face('semibold'), fontSize: 13, lineHeight: 18 },
 } satisfies Record<string, TextStyle>;

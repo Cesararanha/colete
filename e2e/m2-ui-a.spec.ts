@@ -319,13 +319,10 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     await expect(invitesBack).toHaveAccessibleName('Voltar ao grupo');
     await invitesBack.click();
     await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}$`, 'u'));
-    await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 2 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 1 })).toBeVisible();
     await expectOneParent(page, 'group-detail-card', 'invites-back');
     // And from that group, a normal round trip still pops back to the same one.
-    await page
-      .getByTestId('group-detail-card')
-      .getByRole('button', { name: 'Convites do grupo' })
-      .click();
+    await page.getByRole('button', { name: 'Convidar', exact: true }).click();
     await page.getByTestId('invites-back').click();
     await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}$`, 'u'));
     await expectOneParent(page, 'group-detail-card', 'invites-back');
@@ -339,7 +336,7 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
       });
     }
     await page.goto(`/grupos/${groupId}`);
-    await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 2 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Racha da Firma', level: 1 })).toBeVisible();
     await assertUiAccessible(page);
     if (captureLocalScreenshots(testInfo.project.name)) {
       await page.screenshot({
@@ -516,7 +513,7 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     expect(leaveRequests).toHaveLength(1);
     await expect(page.getByTestId('group-left-status')).toBeVisible();
     await expect(page.getByTestId('group-list-card')).toHaveCount(1);
-    await page.getByRole('link', { name: 'Perfil' }).click();
+    await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
     await page.getByRole('link', { name: 'Grupos' }).click();
     await expect(page.getByRole('heading', { name: 'Outro Grupo' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Racha da Firma' })).not.toBeVisible();
@@ -1255,13 +1252,14 @@ test('UI-A clears old account group and invite material from the browser heap', 
         [accountA.profileId, memberA.profileId, pendingA.profileId],
       ])
     ).rows.map((row: { name: string }) => row.name);
-    await page.goto(`/grupos/${groupId}`);
+    // Prévia aprovada: the names are listed on Membros; the group shows a summary card.
+    await page.goto(`/grupos/${groupId}/membros`);
     for (const name of names)
-      await expect(page.getByTestId('group-members-list')).toContainText(name);
+      await expect(page.getByTestId('group-management-card')).toContainText(name);
     expect(await heapContains(page, names)).toEqual([true, true, true]);
     for (const name of names)
       expect(await browserLeakCensus(page, name)).toBe(name !== 'Pessoa heap-a');
-    await page.getByRole('link', { name: 'Perfil' }).click();
+    await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
     const unloaded = handledObserver(
       page.waitForEvent('framenavigated', {
         predicate: (frame) =>
@@ -1357,18 +1355,22 @@ test('0019 screen 11 shows active roles and pending names with keyboard and 320p
       ).status,
     ).toBe(200);
     await login(page, owner);
+    // Prévia aprovada: the group shows the members card with the requests chip;
+    // roles and the pending request are read on Membros, which the card opens.
     await page.goto(`/grupos/${outcome.group_id}`);
-    const list = page.getByTestId('group-members-list');
-    const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
-    await expect(row('Pessoa members-active')).toContainText('Jogador');
-    await expect(row('Pessoa members-active')).toContainText('Ativo');
-    await expect(row('Pessoa members-owner')).toContainText('Dono');
-    const requests = page.getByTestId('group-pending-members-list');
-    await expect(requests.getByRole('listitem')).toHaveCount(1);
+    await expect(page.getByTestId('group-requests')).toHaveText('1 pedido');
+    await assertUiAccessible(page);
+    await page.getByTestId('group-members-link').click();
+    await expect(page).toHaveURL(new RegExp(`/grupos/${outcome.group_id}/membros$`, 'u'));
+    const row = (id: string) => page.getByTestId(`member-${id}`);
+    await expect(row(member.profileId)).toContainText('Jogador');
+    await expect(row(owner.profileId)).toContainText('Dono');
+    const requests = row(pending.profileId);
     await expect(requests).toContainText('Pessoa members-pending');
-    await expect(requests).toContainText('Aguardando aprovação');
     await expect(requests).not.toContainText('Jogador');
-    await expect(page.getByRole('button', { name: /^(Aprovar|Recusar)$/ })).toHaveCount(0);
+    await expect(
+      requests.getByRole('button', { name: 'Aprovar Pessoa members-pending', exact: true }),
+    ).toBeVisible();
     await assertUiAccessible(page);
     await requests.scrollIntoViewIfNeeded();
     if (captureLocalScreenshots(testInfo.project.name))
@@ -1388,10 +1390,11 @@ test('0019 screen 11 shows active roles and pending names with keyboard and 320p
       ).status,
     ).toBe(200);
     await page.reload();
-    await expect(page.getByTestId('group-members-list')).toContainText('Pessoa members-active');
-    await expect(page.getByTestId('group-pending-members-list')).toHaveCount(0);
+    await expect(page.getByTestId('group-management-card')).toContainText('Pessoa members-active');
+    await expect(row(pending.profileId)).toHaveCount(0);
+    await expect(page.getByText('Não há pedidos pendentes.')).toBeVisible();
     await assertUiAccessible(page);
-    await page.getByTestId('group-members-list').scrollIntoViewIfNeeded();
+    await page.getByTestId('group-management-card').scrollIntoViewIfNeeded();
     if (captureLocalScreenshots(testInfo.project.name))
       await page.screenshot({
         path: path.join(screenshotRoot!, '11-com-lista.png'),

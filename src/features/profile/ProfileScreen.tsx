@@ -6,22 +6,21 @@ import type { Session } from '@supabase/supabase-js';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
-import { SectionHeading } from '@/components/ui/SectionHeading';
+import { Avatar } from '@/components/ui/Avatar';
 import { AppError, api, TransportError, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { applySessionChange } from '@/lib/private-queries';
 import { announceLocalSignOut, reloadAfterSignOut } from '@/lib/session-broadcast';
 import { useTheme } from '@/theme/ThemeProvider';
-import { size, spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
+import { radius, spacing } from '@/theme/spacing';
+import { face, typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { ProfileDataForm } from './ProfileDataForm';
 import { profileErrorMessage } from './profile-errors';
 import { ProfileLinkRow } from './ProfileLinkRow';
-import { profileSummary } from './profile-view';
+import { profileStats } from './profile-view';
 
 function useLogout() {
   const queryClient = useQueryClient();
@@ -78,44 +77,63 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
     setMode('read');
   };
 
-  // The account line stays at the top; signing out is the last, separate and
-  // destructive action of the page, behind a confirmation (Ajustes do teste).
-  const account =
-    email === null ? undefined : (
-      <Text style={[styles.accountEmail, { color: colors.onBandMuted }]} testID="profile-account">
-        {pt.profile.account.signedInAs(email)}
+  // Prévia aprovada: avatar, name and nickname on top; the account's e-mail
+  // stays under them (Ajustes do teste), not as a hint.
+  const stats = profileStats(profile);
+  const intro = (
+    <View style={styles.intro}>
+      <Avatar id={profile.id} name={profile.name} size={96} />
+      <Text
+        aria-level={1}
+        role="heading"
+        style={[styles.name, { color: colors.text }]}
+        testID="profile-value-name"
+      >
+        {profile.name}
       </Text>
-    );
+      {/* An absent nickname is said in words, as every absent value. */}
+      <Text style={[styles.nickname, { color: colors.textMuted }]}>
+        {profile.nickname ? '“' : ''}
+        <Text testID="profile-value-nickname">{profile.nickname ?? pt.profile.empty.nickname}</Text>
+        {profile.nickname ? '”' : ''}
+      </Text>
+      {email === null ? null : (
+        <Text style={[styles.account, { color: colors.textMuted }]} testID="profile-account">
+          {pt.profile.account.signedInAs(email)}
+        </Text>
+      )}
+    </View>
+  );
 
   return (
     <AuthenticatedShell
-      description={pt.profile.description}
-      {...(account === undefined ? {} : { hero: account })}
+      back={{
+        label: pt.profile.back,
+        href: '/grupos',
+        // Back to the tab the avatar was opened from (Tabs backBehavior
+        // "history"); straight to Grupos when the profile was opened by URL.
+        onPress: () => (router.canGoBack() ? router.back() : router.navigate('/grupos')),
+        testID: 'profile-back',
+      }}
+      description=""
+      intro={intro}
       title={pt.profile.title}
+      trailing={
+        mode === 'read' ? (
+          <AppButton
+            compact
+            label={pt.profile.data.edit}
+            onPress={() => {
+              setSaved(false);
+              setMode('edit');
+            }}
+            testID="edit-profile"
+            variant="outline"
+          />
+        ) : null
+      }
     >
-      <AppCard testID="profile-data-card">
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeading}>
-            <SectionHeading
-              eyebrow={pt.profile.data.eyebrow}
-              title={pt.profile.data.title}
-              {...(mode === 'edit' ? { description: pt.profile.data.editDescription } : {})}
-            />
-          </View>
-          {mode === 'read' ? (
-            <AppButton
-              icon="edit-2"
-              label={pt.profile.data.edit}
-              onPress={() => {
-                setSaved(false);
-                setMode('edit');
-              }}
-              testID="edit-profile"
-              variant="secondary"
-            />
-          ) : null}
-        </View>
-
+      <View testID="profile-data-card">
         {mode === 'read' ? (
           <View
             accessibilityLabel={pt.profile.data.title}
@@ -125,61 +143,64 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
             testID="profile-summary"
           >
             {saved ? <AppStatus message={pt.profile.data.saved} /> : null}
-            {profileSummary(profile).map((row) => (
-              <View key={row.key} style={styles.row}>
-                <Text style={[styles.rowLabel, { color: colors.textMuted }]}>{row.label}</Text>
-                <Text
-                  style={[
-                    row.empty ? styles.rowEmpty : styles.rowValue,
-                    { color: row.empty ? colors.textMuted : colors.text },
-                  ]}
-                  testID={`profile-value-${row.key}`}
-                >
-                  {row.value}
-                </Text>
-              </View>
-            ))}
+            <View style={styles.stats}>
+              {stats.map((stat) => (
+                <View key={stat.key} style={[styles.stat, { backgroundColor: colors.surface }]}>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>{stat.label}</Text>
+                  <Text
+                    style={[
+                      stat.key === 'shirt-number' && !stat.empty ? styles.shirt : styles.statValue,
+                      { color: stat.empty ? colors.textMuted : colors[stat.tone] },
+                    ]}
+                    testID={`profile-value-${stat.key}`}
+                  >
+                    {stat.value}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : (
-          <ProfileDataForm
-            onCancel={closeEditor}
-            onSaved={() => {
-              setSaved(true);
-              closeEditor();
-            }}
-            profile={profile}
-          />
+          <View style={[styles.card, { backgroundColor: colors.surface }]}>
+            <Text aria-level={2} role="heading" style={[styles.cardTitle, { color: colors.text }]}>
+              {pt.profile.data.title}
+            </Text>
+            <ProfileDataForm
+              onCancel={closeEditor}
+              onSaved={() => {
+                setSaved(true);
+                closeEditor();
+              }}
+              profile={profile}
+            />
+          </View>
         )}
-      </AppCard>
+      </View>
 
-      <AppCard testID="profile-settings-card">
-        <SectionHeading eyebrow={pt.profile.settings.eyebrow} title={pt.profile.settings.title} />
-        <View style={styles.links}>
-          <ProfileLinkRow
-            hint={
-              email === null
-                ? pt.profile.settings.passwordHintNoEmail
-                : pt.profile.settings.passwordHint(email)
-            }
-            href="/perfil/senha"
-            icon="key"
-            testID="profile-password-link"
-            title={pt.profile.settings.password}
-          />
-          <ProfileLinkRow
-            hint={pt.profile.settings.privacyHint}
-            href="/perfil/privacidade"
-            icon="shield"
-            testID="profile-privacy-link"
-            title={pt.profile.settings.privacy}
-          />
-        </View>
-      </AppCard>
+      <View
+        style={[styles.links, { backgroundColor: colors.surface }]}
+        testID="profile-settings-card"
+      >
+        <ProfileLinkRow
+          href="/perfil/senha"
+          icon="lock"
+          testID="profile-password-link"
+          title={pt.profile.settings.password}
+        />
+        <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+        <ProfileLinkRow
+          href="/perfil/privacidade"
+          icon="shield"
+          testID="profile-privacy-link"
+          title={pt.profile.settings.privacy}
+        />
+      </View>
 
-      <AppCard testID="profile-logout-card">
+      <View style={styles.logout} testID="profile-logout-card">
         {logout.error === null ? null : <AppAlert message={profileErrorMessage(logout.error)} />}
         {confirmingLogout ? (
           <GroupConfirmation
+            level={2}
             title={pt.profile.account.logoutTitle}
             testID="profile-logout-confirmation"
           >
@@ -222,39 +243,39 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
             label={pt.profile.account.logout}
             onPress={() => setConfirmingLogout(true)}
             testID="profile-logout"
-            variant="destructive"
+            variant="outline-destructive"
           />
         )}
-      </AppCard>
+      </View>
     </AuthenticatedShell>
   );
 }
 
 const styles = StyleSheet.create({
+  account: { ...typography.support, textAlign: 'center' },
   accountBody: { ...typography.body },
-  accountEmail: { ...typography.support },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, minWidth: 0 },
-  cardHeader: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    justifyContent: 'space-between',
+  card: { borderRadius: radius.row, gap: spacing.md, padding: spacing.md },
+  cardTitle: { ...typography.section },
+  divider: { height: 1, marginLeft: 46 },
+  intro: { alignItems: 'center', gap: 10, minWidth: 0, paddingTop: spacing.ms },
+  links: { borderRadius: radius.row, overflow: 'hidden' },
+  logout: { gap: spacing.sm, paddingTop: spacing.md },
+  name: { ...typography.heading, fontSize: 26, lineHeight: 30, textAlign: 'center' },
+  nickname: { ...typography.body, fontSize: 16, lineHeight: 22, textAlign: 'center' },
+  shirt: { ...face('condensed'), fontSize: 26, fontVariant: ['tabular-nums'], lineHeight: 28 },
+  stat: {
+    alignItems: 'center',
+    borderRadius: radius.field + 2,
+    flexBasis: 90,
+    flexGrow: 1,
+    gap: 2,
+    justifyContent: 'center',
     minWidth: 0,
+    padding: spacing.ms,
   },
-  cardHeading: { flexBasis: 200, flexGrow: 1, minWidth: 0 },
-  links: { gap: spacing.xs },
-  row: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-    minHeight: size.target,
-    paddingVertical: spacing.sm,
-  },
-  rowEmpty: { ...typography.body, flexShrink: 1, textAlign: 'right' },
-  rowLabel: { ...typography.support, flexShrink: 0 },
-  rowValue: { ...typography.bodyStrong, flexShrink: 1, textAlign: 'right' },
-  summary: { gap: 0, minWidth: 0 },
+  statLabel: { ...typography.captionStrong, textAlign: 'center' },
+  statValue: { ...typography.bodyStrong, ...face('bold'), textAlign: 'center' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  summary: { gap: spacing.sm, minWidth: 0 },
 });

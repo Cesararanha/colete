@@ -1,15 +1,18 @@
 import { Link } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
-import { AppIcon } from '@/components/ui/AppIcon';
+import { Chip } from '@/components/ui/Chip';
+import { GroupIcon } from '@/components/ui/GroupIcon';
+import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import type { MatchOccupancy, MatchSummary } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, size, spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
 
-import { matchSpokenDay, matchTicket, matchTimeRange } from './match-format';
+import { endsNextDay, matchCardState, type MatchCardTone } from './match-card-state';
+import { matchSpokenDay, matchTicket, matchTime, matchTimeRange } from './match-format';
 
 /** The whole name a screen reader hears for the row, in reading order. */
 export function matchCardLabel(
@@ -35,10 +38,11 @@ export function matchCardLabel(
 }
 
 /**
- * One match, Placar premium: a ticket-style date block (big day, month and
- * weekday on the scoreboard), the time, the place, the group on the Agenda,
- * and the occupancy as a bar with the waitlist. The whole row opens the match;
- * its accessible name carries everything the row shows.
+ * One match (prévia aprovada): the date block, amber when the viewer is
+ * confirmed; on the Agenda the group with its icon, the place and the time;
+ * in a group, the place and the start on one line. Then the state chip, the
+ * count and the bar in the state's colour. The whole card opens the match;
+ * its accessible name carries everything the card shows.
  */
 export function MatchCard({
   match,
@@ -52,9 +56,11 @@ export function MatchCard({
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const ticket = matchTicket(match.starts_at, match.timezone);
-  const confirmed = occupancy?.confirmed_count ?? 0;
-  const ratio = Math.min(1, confirmed / Math.max(1, match.field_slots));
-  const full = occupancy !== undefined && confirmed >= match.field_slots;
+  const state = matchCardState(occupancy, match.field_slots);
+  const highlight = occupancy?.viewer_status === 'starter';
+  const confirmed = occupancy?.confirmed_count;
+  const tone = (name: MatchCardTone | null) => (name === null ? colors.track : colors[name]);
+  const ticketText = highlight ? colors.onPrimary : colors.textMuted;
   return (
     <Link asChild href={`/rachas/${match.id}`}>
       <Pressable
@@ -68,7 +74,7 @@ export function MatchCard({
             style={[
               styles.card,
               {
-                backgroundColor: colors.surfaceRaised,
+                backgroundColor: colors.surface,
                 opacity: pressed ? 0.86 : 1,
                 transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }],
               },
@@ -82,25 +88,31 @@ export function MatchCard({
           >
             <View
               aria-hidden
-              style={[styles.ticket, { backgroundColor: colors.scoreboard }]}
+              style={[
+                styles.ticket,
+                showGroup ? styles.ticketWide : styles.ticketNarrow,
+                { backgroundColor: highlight ? colors.primary : colors.surfaceRaised },
+              ]}
               testID="match-card-ticket"
             >
-              <Text style={[styles.ticketSmall, { color: colors.digitDim }]}>{ticket.weekday}</Text>
-              <Text style={[styles.ticketDay, { color: colors.digit }]}>{ticket.day}</Text>
-              <Text style={[styles.ticketSmall, { color: colors.digitDim }]}>{ticket.month}</Text>
-            </View>
-            <View aria-hidden style={styles.body}>
-              <Text style={[styles.time, { color: colors.textMuted }]} testID="match-card-time">
-                {matchTimeRange(match.starts_at, match.ends_at, match.timezone)}
-              </Text>
-              <Text numberOfLines={2} style={[styles.place, { color: colors.text }]}>
-                {match.location_name}
+              <Text style={[styles.ticketSmall, { color: ticketText }]}>{ticket.weekday}</Text>
+              <Text
+                style={[
+                  showGroup ? styles.ticketDay : styles.ticketDayNarrow,
+                  { color: highlight ? colors.onPrimary : colors.text },
+                ]}
+              >
+                {ticket.day}
               </Text>
               {showGroup ? (
+                <Text style={[styles.ticketSmall, { color: ticketText }]}>{ticket.month}</Text>
+              ) : null}
+            </View>
+            <View aria-hidden style={styles.body}>
+              {showGroup ? (
                 <View style={styles.meta}>
-                  <AppIcon color={colors.textMuted} name="users" size={16} />
+                  <GroupIcon size={16} />
                   <Text
-                    numberOfLines={2}
                     style={[styles.metaText, { color: colors.textMuted }]}
                     testID="match-card-group"
                   >
@@ -108,55 +120,46 @@ export function MatchCard({
                   </Text>
                 </View>
               ) : null}
-              <View style={styles.occupancy}>
-                <View style={[styles.track, { backgroundColor: colors.surface }]}>
-                  <View
-                    style={[
-                      styles.fill,
-                      {
-                        backgroundColor: full ? colors.warning : colors.indicator,
-                        width: `${ratio * 100}%`,
-                      },
-                    ]}
-                    testID="match-card-bar"
+              <Text style={[styles.place, { color: colors.text }]}>
+                {showGroup
+                  ? match.location_name
+                  : `${match.location_name} · ${matchTime(match.starts_at, match.timezone)}`}
+              </Text>
+              {showGroup ? (
+                <Text style={[styles.time, { color: colors.textSoft }]} testID="match-card-time">
+                  {matchTimeRange(match.starts_at, match.ends_at, match.timezone)}
+                  {endsNextDay(match.starts_at, match.ends_at, match.timezone) ? (
+                    <Text style={{ color: colors.textMuted }}> {pt.matches.card.nextDay}</Text>
+                  ) : null}
+                </Text>
+              ) : null}
+              <View style={styles.status}>
+                {state.chip ? (
+                  <Chip
+                    {...(state.chip.icon ? { icon: state.chip.icon } : {})}
+                    label={state.chip.label}
+                    testID="match-card-state"
+                    tone={state.chip.tone}
                   />
-                </View>
-                <Text style={[styles.count, { color: colors.text }]} testID="match-list-occupancy">
-                  {occupancy ? `${confirmed}/${match.field_slots}` : `–/${match.field_slots}`}
+                ) : (
+                  <View />
+                )}
+                <Text style={[styles.count, { color: colors.text }]}>
+                  {state.full ? `${pt.matches.card.full} ` : ''}
+                  <Text testID="match-list-occupancy">
+                    {confirmed === undefined
+                      ? `–/${match.field_slots}`
+                      : `${confirmed}/${match.field_slots}`}
+                  </Text>
                 </Text>
               </View>
-              {occupancy && (occupancy.waitlist_count > 0 || full) ? (
-                <View style={styles.meta}>
-                  <AppIcon color={colors.warning} name="clock" size={16} />
-                  <Text
-                    style={[styles.metaText, { color: colors.warning }]}
-                    testID="match-card-waitlist"
-                  >
-                    {occupancy.waitlist_count > 0
-                      ? pt.matches.card.waiting(occupancy.waitlist_count)
-                      : pt.matches.card.full}
-                  </Text>
-                </View>
-              ) : null}
-              {occupancy && occupancy.viewer_status !== 'out' ? (
-                <View style={styles.meta}>
-                  <AppIcon
-                    color={colors.positive}
-                    name={occupancy.viewer_status === 'starter' ? 'check-circle' : 'clock'}
-                    size={16}
-                  />
-                  <Text
-                    style={[styles.metaText, { color: colors.positive }]}
-                    testID="match-list-viewer"
-                  >
-                    {occupancy.viewer_status === 'starter'
-                      ? pt.matches.list.viewerStarter
-                      : pt.matches.list.viewerWaitlist}
-                  </Text>
-                </View>
-              ) : null}
+              <OccupancyBar
+                color={tone(state.bar)}
+                ratio={state.ratio}
+                testID="match-card-bar"
+                track={colors.track}
+              />
             </View>
-            <AppIcon color={colors.textMuted} name="chevron-right" size={24} />
           </View>
         )}
       </Pressable>
@@ -165,41 +168,52 @@ export function MatchCard({
 }
 
 // Review of #72 (P2): at 200% on a phone the ticket left the content a few
-// pixels. The content now has a base width and the row wraps: when the usable
+// pixels. The content has a base width and the row wraps: when the usable
 // width is below it, the date block sits above the content, which then takes
 // the whole line and may shrink to fit it. No measuring, so it holds at any
-// zoom or text size.
+// zoom or text size. Long names and places wrap inside the card.
 const BODY_BASIS = 176;
 
 const styles = StyleSheet.create({
-  body: { flexBasis: BODY_BASIS, flexGrow: 1, flexShrink: 1, gap: spacing.xs, minWidth: 0 },
+  body: { flexBasis: BODY_BASIS, flexGrow: 1, flexShrink: 1, gap: 6, minWidth: 0 },
   card: {
-    alignItems: 'center',
-    borderRadius: radius.row,
+    alignItems: 'stretch',
+    borderRadius: radius.scoreboard - 2,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
-    minHeight: size.row + spacing.lg,
-    padding: spacing.ms,
+    gap: 14,
+    padding: 14,
   },
-  count: { ...typography.supportStrong, fontVariant: ['tabular-nums'], minWidth: 44 },
-  fill: { borderRadius: radius.pill, height: '100%' },
-  meta: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
-  metaText: { ...typography.support, flexShrink: 1 },
-  occupancy: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
-  place: { ...typography.row },
-  target: { borderRadius: radius.row },
+  count: { ...typography.supportStrong, fontVariant: ['tabular-nums'], fontSize: 14 },
+  meta: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  metaText: { ...typography.caption, flexShrink: 1 },
+  place: { ...typography.cardTitle },
+  status: {
+    alignItems: 'center',
+    columnGap: spacing.sm,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    rowGap: spacing.xs,
+  },
+  target: { borderRadius: radius.scoreboard - 2 },
   ticket: {
     alignItems: 'center',
-    alignSelf: 'stretch',
-    borderRadius: radius.tile + 4,
+    borderRadius: 14,
     justifyContent: 'center',
-    minWidth: 72,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
   },
-  ticketDay: { ...face('condensed'), fontSize: 40, fontVariant: ['tabular-nums'], lineHeight: 44 },
-  ticketSmall: { ...typography.overline, letterSpacing: 1.2 },
-  time: { ...typography.supportStrong, fontVariant: ['tabular-nums'] },
-  track: { borderRadius: radius.pill, flex: 1, height: 8, overflow: 'hidden' },
+  ticketDay: { ...face('condensed'), fontSize: 34, fontVariant: ['tabular-nums'], lineHeight: 36 },
+  ticketDayNarrow: {
+    ...face('condensed'),
+    fontSize: 30,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 32,
+  },
+  ticketNarrow: { minWidth: 56 },
+  ticketSmall: { ...face('bold'), fontSize: 12, letterSpacing: 1, lineHeight: 16 },
+  ticketWide: { minWidth: 64 },
+  time: { ...typography.support },
 });

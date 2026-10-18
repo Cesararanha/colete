@@ -12,6 +12,9 @@ export const spacing = {
 
 export const listGap = 10;
 
+// Prévia aprovada (PR G): the side margin of every authenticated screen.
+export const gutter = 20;
+
 export const radius = {
   tile: 8,
   field: 14,
@@ -27,4 +30,6 @@ export const size = {
   button: 56,
   field: 56,
   row: 64,
+  // Prévia aprovada: the compact control (avatar, pill, round action) is 44.
+  compact: 44,
 } as const;

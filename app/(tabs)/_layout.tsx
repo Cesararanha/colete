@@ -3,7 +3,6 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
-  BrandHeader,
   MainNavigation,
   ShellChromeContext,
   type MainTab,
@@ -11,12 +10,14 @@ import {
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 
-const TABS: readonly MainTab[] = ['grupos', 'rachas', 'perfil'];
+const TABS: readonly MainTab[] = ['grupos', 'rachas'];
 
 /**
- * The authenticated area: a Tabs navigator (Grupos, Rachas, Perfil), each tab
- * with its own Stack. The tab bar is the same navigation the shell drew
- * before: a side rail on wide screens, a bottom bar on narrow ones.
+ * The authenticated area: a Tabs navigator, each tab with its own Stack. The
+ * bar shows Grupos and Agenda (prévia aprovada): a side rail on wide screens,
+ * a bottom bar on narrow ones. Perfil stays a tab route, out of the bar: it
+ * opens from the avatar at the top right, and its "Voltar" returns to the tab
+ * it came from (backBehavior "history").
  */
 export default function TabsLayout() {
   const { colors } = useTheme();
@@ -25,9 +26,9 @@ export default function TabsLayout() {
   return (
     <ShellChromeContext.Provider value>
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-        <BrandHeader />
         <View style={[styles.body, wide ? styles.bodyWide : undefined]}>
           <Tabs
+            backBehavior="history"
             screenOptions={{
               headerShown: false,
               sceneStyle: { backgroundColor: colors.background },

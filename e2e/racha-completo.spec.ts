@@ -187,9 +187,8 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     await page.goto('/rachas');
     await expect(page.getByTestId('match-list-occupancy')).toHaveText('0/2');
     await page.getByTestId('match-list-card').click();
-    await expect(page.getByTestId('match-viewer-status')).toHaveText(
-      'Você ainda não confirmou presença.',
-    );
+    // Out of the list: the board's chip counts the open slots (prévia aprovada).
+    await expect(page.getByTestId('match-viewer-chip')).toHaveText('2 vagas abertas');
     await board(page, 0, 2);
     await page.getByTestId('match-join').click();
     await expect(page.getByTestId('match-presence-result')).toHaveText(
@@ -212,9 +211,7 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     await expect(caioView.page.getByTestId('match-presence-result')).toHaveText(
       'O racha está lotado. Você entrou na lista de espera, na posição 1.',
     );
-    await expect(caioView.page.getByTestId('match-viewer-status')).toHaveText(
-      'Você está na lista de espera, na posição 1.',
-    );
+    await expect(caioView.page.getByTestId('match-viewer-chip')).toHaveText('1º na espera');
     await expect(caioView.page.getByTestId('match-waitlist-0')).toContainText(caio.name);
     await expect(caioView.page.getByTestId('match-confirmed-1')).toContainText('Goleiro');
     await assertAccessible(caioView.page);
@@ -241,9 +238,7 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     );
     expect(promoted.rows).toEqual([{ status: 'starter' }]);
     await caioView.page.reload();
-    await expect(caioView.page.getByTestId('match-viewer-status')).toHaveText(
-      'Você está confirmado neste racha.',
-    );
+    await expect(caioView.page.getByTestId('match-viewer-chip')).toHaveText('Você vai');
 
     // Ana returns: the slot is gone, she goes to the end of the waitlist.
     await page.getByTestId('match-join').click();
@@ -265,7 +260,7 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
       'Pagos 1 de 2 · R$ 12,50',
     );
     await expect(ownerView.page.getByTestId('match-confirmed-0-paid')).toHaveText('Pago');
-    await expect(ownerView.page.getByTestId('match-confirmed-1-paid')).toHaveText('Não pago');
+    await expect(ownerView.page.getByTestId('match-confirmed-1-paid')).toHaveText('Não pagou');
     const mark = await db.query(
       `select paid, payment_marked_by from private.match_players
         where match_id = $1 and profile_id = $2`,
@@ -278,7 +273,8 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     // Bia sees only her own status, and cannot give up while marked paid.
     const biaView = await open(browser, bia, matchId);
     contexts.push(biaView.context);
-    await expect(biaView.page.getByTestId('match-own-payment')).toHaveText('Seu pagamento: pago.');
+    // A player sees the payment only on their own line.
+    await expect(biaView.page.getByTestId('match-own-payment')).toHaveText('Pago');
     await expect(biaView.page.getByTestId('match-payments')).toHaveCount(0);
     await expect(biaView.page.getByTestId('match-confirmed-1-paid')).toHaveCount(0);
     await biaView.page.getByTestId('match-leave').click();
@@ -290,11 +286,11 @@ test('Racha completo: presence, waitlist, promotion and payment through the real
     // The list shows occupancy, the waitlist and the viewer's own place.
     await page.goto('/rachas');
     await expect(page.getByTestId('match-list-occupancy')).toHaveText('2/2');
-    await expect(page.getByTestId('match-card-waitlist')).toHaveText('1 na espera');
+    await expect(page.getByTestId('match-list-card')).toContainText('Lotado 2/2');
     await expect(page.getByTestId('match-list-card')).toHaveAccessibleName(
       /2 de 2 vagas confirmadas, 1 na espera, você está na espera$/,
     );
-    await expect(page.getByTestId('match-list-viewer')).toHaveText('Você está na espera');
+    await expect(page.getByTestId('match-card-state')).toHaveText('Na espera');
     await assertAccessible(page);
     await shot(page, testInfo.project.name, '09-lista-ocupacao.png');
   } finally {
