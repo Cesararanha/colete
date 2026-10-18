@@ -119,6 +119,13 @@ function localAt(days: number, hour: number) {
   );
 }
 
+/** The Agenda heading for a local day from today: weeks run Monday to Sunday. */
+function weekHeading(days: number) {
+  const weekday = (localAt(0, 12).getUTCDay() + 6) % 7;
+  const weeks = Math.floor((weekday + days) / 7);
+  return weeks === 0 ? 'Esta semana' : weeks === 1 ? 'Próxima semana' : 'Mais adiante';
+}
+
 async function createMatch(
   request: APIRequestContext,
   owner: Actor,
@@ -314,7 +321,8 @@ test('Prévia aprovada: avatar, two tabs, Agenda, group, members, match and prof
     await expect(cards.nth(1).getByTestId('match-card-group')).toHaveText('Racha de Quinta');
     await expect(cards.nth(2).getByTestId('match-card-state')).toHaveText('14 vagas abertas');
     await expect(cards.nth(2).getByTestId('match-card-time')).toContainText('(+1 dia)');
-    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Esta semana');
+    // The first card starts tomorrow: on a Sunday that is already next week.
+    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText(weekHeading(1));
     const filters = page.getByRole('group', { name: 'Filtrar rachas' });
     await expect(filters.getByRole('button', { name: 'Todos' })).toHaveAttribute(
       'aria-pressed',
@@ -347,7 +355,8 @@ test('Prévia aprovada: avatar, two tabs, Agenda, group, members, match and prof
     await expect(page.getByTestId('profile-value-dominant-foot')).toHaveText('Direita');
     await expect(page.getByTestId('profile-value-shirt-number')).toHaveText('10');
     await expect(page.getByRole('link', { name: /^Abrir perfil/u })).toHaveCount(0);
-    await expect(navigation.locator('[aria-current]')).toHaveCount(0);
+    // As in the prévia, the profile has no bar: only its "Voltar".
+    await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(0);
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'perfil.png');
     await page.getByTestId('profile-back').click();
@@ -419,6 +428,24 @@ test('Prévia aprovada: avatar, two tabs, Agenda, group, members, match and prof
     await assertAccessible(page);
     await menu.click();
     await expect(page.getByTestId(`remove-${lucas.profileId}`)).toHaveCount(0);
+
+    // Perfil from Members: Voltar returns to Members, and the bar comes back.
+    await page.getByRole('link', { name: 'Abrir perfil de César Aranha' }).click();
+    await expect(page).toHaveURL(/\/perfil$/u);
+    await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(0);
+    await page.getByTestId('profile-back').click();
+    await expect(page).toHaveURL(new RegExp(`/grupos/${quinta}/membros$`, 'u'));
+    await expect(page.getByRole('heading', { level: 1, name: 'Membros' })).toBeVisible();
+    await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
+
+    // Perfil by URL: nothing to go back to, so Voltar opens Grupos.
+    await page.goto('/perfil');
+    await expect(page.getByRole('heading', { level: 1, name: 'César Aranha' })).toBeVisible();
+    await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(0);
+    await page.getByTestId('profile-back').click();
+    await expect(page).toHaveURL(/\/grupos$/u);
+    await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+    await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
 
     // The group icon is the ball in blue for every group in this PR (choice in PR H).
     await page.goto(`/grupos/${sabado}`);

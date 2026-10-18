@@ -514,7 +514,7 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     await expect(page.getByTestId('group-left-status')).toBeVisible();
     await expect(page.getByTestId('group-list-card')).toHaveCount(1);
     await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
-    await page.getByRole('link', { name: 'Grupos' }).click();
+    await page.getByTestId('profile-back').click();
     await expect(page.getByRole('heading', { name: 'Outro Grupo' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Racha da Firma' })).not.toBeVisible();
     if (captureLocalScreenshots(testInfo.project.name)) {

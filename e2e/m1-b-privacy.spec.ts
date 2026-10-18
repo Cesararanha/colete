@@ -272,12 +272,12 @@ async function openPrivacyAndAccount(page: Page) {
 /**
  * After a "Voltar", exactly one parent screen is mounted (hidden stack
  * screens stay in the DOM, so a stacked second parent would count twice),
- * the child is gone and the app keeps one tab bar.
+ * the child is gone and, as in the prévia, the profile shows no tab bar.
  */
 async function expectOneParent(page: Page, parentTestId: string, childTestId: string) {
   await expect(page.locator(`[data-testid="${parentTestId}"]`)).toHaveCount(1);
   await expect(page.locator(`[data-testid="${childTestId}"]`)).toHaveCount(0);
-  await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(1);
+  await expect(page.locator('[aria-label="Navegação principal"]')).toHaveCount(0);
 }
 
 /**
