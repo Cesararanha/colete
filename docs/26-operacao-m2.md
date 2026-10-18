@@ -2787,3 +2787,49 @@ independente. PR continua draft, sem merge/ready; físico segue com César.
 Contraprova: o teste unitário da RPC lenta (300–800 ms) dá 429 RATE_LIMITED
 no código anterior; o mutante de espaçamento do harness quebra o intervalo.
 O Nominatim nunca foi chamado.
+
+## PR D — Página do convite (18/10/2026)
+
+- **`0026_invite_page.sql`.** `create or replace` só de
+  `private.preview_group_invite`; `preview_group_by_code`,
+  `preview_group_by_invite`, grants, `security definer` com `search_path`
+  vazio, ordem de locks e o limitador da `0017` ficam iguais. A prévia
+  devolve exatamente `group_name`, `member_count`, `owner_name`,
+  `viewer_status`, `group_id` (só para membro ativo) e `refusal`
+  (`GROUP_FULL`/`GROUP_LIMIT`). Código inexistente, malformado, divergente,
+  revogado, expirado ou esgotado: o mesmo `CODE_INVALID` (400). O resgate
+  segue a M2-D42.
+- **Edge `groups`.** `invitePageProjection` deixa sair só os seis campos;
+  resposta fora do formato vira erro interno, sem marcar a tentativa como
+  sucesso.
+- **App.** Código digitado, QR e `/join` levam à mesma página (ícone, nome,
+  membros ativos, dono e "Pedir para entrar"); membro vê "Abrir grupo",
+  pendente vê "Aguardando aprovação", grupo cheio ou cota vê a mensagem
+  atual. "Entrar em grupo", no topo, volta ao formulário e tira o convite da
+  memória. A câmera simulada da suíte de QR foi para
+  `e2e/support/qr-camera.ts` e serve às duas suítes.
+
+| Comando | Resultado |
+|---|---|
+| db:test | 24 arquivos, 1547 asserções, PASS (`0026`: 53) |
+| db:test:invites | 63 provas, exit 0 (prévia HTTP com os seis campos; revogado → `CODE_INVALID`) |
+| demais harnesses de §5 | exit 0 |
+| test:groups:web | 75 passed, 5 skipped (spec novo: 5 testes no projeto mobile; o layout largo da página fica provado pelo m2-ui-a) |
+| test:qr:web / privacy / smoke | 30 / 5 + 5 skip / 6 |
+| test:auth:web | 9 passed, 1 failed, 2 skipped, em 3 rodadas: foco do Perfil (`:450`); com o app de `origin/main` o mesmo teste falhou 2 de 3 |
+| verify:app | exit 0; vitest 48 arquivos, 587 testes |
+| scan:docs / scan:secrets / test:audit / audit:high | exit 0 / 419 arquivos / 94 / exit 0 |
+
+Contraprova do pgTAP da `0026`, com mutantes do corpo privado: sem a
+checagem de revogação, 4 asserções reprovam; sem a de expiração, 4; sem a
+de esgotamento, 1; `group_id` para todos, 3; contagem com pendentes, 1;
+campo `owner_id` a mais, 3; grupo cheio como erro, o arquivo aborta em
+`GROUP_FULL`. Resíduo depois da suíte: zero linhas em `auth.users`,
+perfis, grupos, membros, convites, limitador e idempotência.
+
+CI: o primeiro run (39105818163) teve os 80 testes de grupos verdes, mas o
+job Database security passou do `timeout-minutes: 25` (25 min 47 s) e foi
+cancelado no passo seguinte. Na base o mesmo job levou 18 min 5 s no #75 e
+24 min 19 s no #74; o passo de grupos sozinho variou de 363 s a 602 s entre
+runners. O spec novo custava 51 s nos dois projetos e passou a rodar só no
+mobile. A folga do job é pequena para qualquer e2e novo.

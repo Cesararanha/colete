@@ -240,8 +240,10 @@ select throws_ok($$select public.mark_invite_attempt_success(
  '42501','FORBIDDEN','outro perfil não marca a tentativa');
 
 
--- M2-D42: cada causa terminal mantém seu erro mesmo quando o titular já
--- está pending. A ordem é inexistente, revogado, expirado, esgotado.
+-- M2-D42: no resgate, cada causa terminal mantém seu erro mesmo quando o
+-- titular já está pending. A ordem é inexistente, revogado, expirado,
+-- esgotado. Desde a 0026 (página do convite, 18/10/2026) a prévia responde
+-- CODE_INVALID a todas elas; a prova completa está em 0026_invite_page.
 select throws_ok($$select public.preview_group_by_code(
  '17000000-0000-4000-8000-000000000002',
  '17400000-0000-4000-8000-000000000002',repeat('0',64))$$,
@@ -252,7 +254,7 @@ select throws_ok($$select public.preview_group_by_code(
  '17000000-0000-4000-8000-000000000002',
  '17400000-0000-4000-8000-000000000002',
  '3f74864231a4de1049f1ed9ddbbb7afa998bd6ddd924799939003cc801633104')$$,
- 'P0001','INVITE_EXPIRED','preview distingue convite expirado');
+ '22023','CODE_INVALID','preview de convite expirado é genérico (0026)');
 select throws_ok($$select public.join_by_code(
  '17000000-0000-4000-8000-000000000002','17400000-0000-4000-8000-000000000002',
  '17500000-0000-4000-8000-000000000003',repeat('c',64),1,1,
@@ -264,7 +266,7 @@ select throws_ok($$select public.preview_group_by_code(
  '17000000-0000-4000-8000-000000000002',
  '17400000-0000-4000-8000-000000000002',
  '3f74864231a4de1049f1ed9ddbbb7afa998bd6ddd924799939003cc801633104')$$,
- 'P0001','INVITE_USED','preview distingue convite esgotado');
+ '22023','CODE_INVALID','preview de convite esgotado é genérico (0026)');
 select throws_ok($$select public.join_by_code(
  '17000000-0000-4000-8000-000000000002','17400000-0000-4000-8000-000000000002',
  '17500000-0000-4000-8000-000000000004',repeat('d',64),1,1,
@@ -276,7 +278,7 @@ select throws_ok($$select public.preview_group_by_code(
  '17000000-0000-4000-8000-000000000002',
  '17400000-0000-4000-8000-000000000002',
  '3f74864231a4de1049f1ed9ddbbb7afa998bd6ddd924799939003cc801633104')$$,
- 'P0001','INVITE_REVOKED','revogação prevalece sobre expiração e esgotamento');
+ '22023','CODE_INVALID','preview de convite revogado é genérico (0026)');
 select throws_ok($$select public.join_by_code(
  '17000000-0000-4000-8000-000000000002','17400000-0000-4000-8000-000000000002',
  '17500000-0000-4000-8000-000000000005',repeat('e',64),1,1,

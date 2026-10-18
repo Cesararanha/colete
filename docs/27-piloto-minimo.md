@@ -414,3 +414,20 @@ horário); primeiro acesso com o perfil completo; menos descrições embaixo
 dos campos; topo das telas só com o título; "Sair da conta" no fim do Perfil,
 com confirmação; depois de "Pedir para entrar", a pessoa vai para Grupos com
 "Pedido enviado". Fotos de perfil e de racha continuam fora.
+
+## Página do convite — decisão humana de 18/10/2026
+
+Itens 3 e 4 do feedback do teste. Quem tem um código, um QR ou um link vê a
+página do grupo antes de pedir para entrar: ícone (por enquanto a bola
+padrão), nome, membros ativos e nome de exibição do dono. Membro vê "Abrir
+grupo"; pedido pendente vê "Aguardando aprovação"; grupo cheio ou cota
+pessoal vê a mensagem atual. Os três caminhos levam à mesma página e, sem
+sessão, o link entra e volta a ela. Depois de pedir, continua indo para
+Grupos com "Pedido enviado".
+
+A `0026` redefine só o corpo privado da prévia, com as mesmas RPCs públicas,
+grants, locks e limitador de 20 tentativas por hora da `0017`. Código
+inexistente, revogado, expirado ou esgotado tem a mesma resposta genérica na
+prévia; o resgate continua distinguindo as causas (M2-D42), pelo mesmo
+orçamento. A prévia nunca devolve lista de membros, IDs de terceiros, e-mail
+ou dado de racha; a Edge projeta só os seis campos do contrato (`13` §5.0.2).

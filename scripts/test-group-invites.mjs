@@ -271,14 +271,22 @@ async function proveHttp(status, db) {
     await groups(status, joiner, 'preview_group_by_invite', { token: material.token }),
     'preview link',
   );
-  assert.deepEqual(previewCode, { group_name: 'Racha do Bairro' });
+  // 0026: the invitation page, exactly six fields, no member list or ID.
+  assert.deepEqual(previewCode, {
+    group_name: 'Racha do Bairro',
+    member_count: 1,
+    owner_name: 'Invite owner',
+    viewer_status: null,
+    group_id: null,
+    refusal: null,
+  });
   assert.deepEqual(previewLink, previewCode);
   assert.equal(
     (await db.query('select used_count from public.group_invites where id=$1', [inviteId])).rows[0]
       .used_count,
     before,
   );
-  console.log('ok - HTTP preview by code and link returns only group name, without use');
+  console.log('ok - HTTP preview by code and link returns only the invitation page, without use');
 
   const joinId = crypto.randomUUID();
   const joined = ok(
@@ -415,9 +423,9 @@ async function proveHttp(status, db) {
   assert.equal(revoked.outcome.logical_result, 'invite_revoked');
   denied(
     await groups(status, joiner, 'preview_group_by_code', { code: material.code }),
-    409,
-    'INVITE_REVOKED',
-    'revoked preview',
+    400,
+    'CODE_INVALID',
+    'revoked preview is generic (0026)',
   );
   assert.equal(
     (

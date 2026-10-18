@@ -374,8 +374,9 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     await page.getByTestId('group-code').fill(code.toLowerCase().replace('-', ' - '));
     await page.getByTestId('preview-code').press('Enter');
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
-    await page.getByTestId('join-submit').press('Enter');
-    await expect(page.getByTestId('join-active')).toBeVisible();
+    // The invitation page (0026): a member is offered the group, not a request.
+    await expect(page.getByTestId('join-submit')).toHaveCount(0);
+    await expect(page.getByTestId('join-open-group')).toBeVisible();
     const joiner = await createActor(request, 'joiner', authIds);
     const otherGroup = await edge(request, joiner, 'create_group', {
       name: 'Outro Grupo',
@@ -406,7 +407,7 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     await page.goto(`/join#token=${inviteToken}`);
     await expect.poll(() => page.evaluate(() => window.location.hash.length)).toBe(0);
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
-    await expect(page.getByText('Entrar no Racha da Firma?')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Racha da Firma' })).toBeVisible();
     const useBefore = await db.query(
       'select used_count from public.group_invites where group_id=$1',
       [groupId],
@@ -451,8 +452,9 @@ test('UI-A creates, lists, shares, previews and requests membership with a clean
     await page.getByTestId('group-code').fill(code);
     await page.getByTestId('preview-code').click();
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
-    await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('group-request-sent')).toBeVisible();
+    // The request already sent shows on the page; there is nothing to send again.
+    await expect(page.getByTestId('join-pending')).toHaveText('Aguardando aprovação');
+    await expect(page.getByTestId('join-submit')).toHaveCount(0);
     const useAfter = await db.query(
       'select used_count from public.group_invites where group_id=$1',
       [groupId],
@@ -622,7 +624,9 @@ test.describe('UI-A capacity and final invite use through real Edge state', () =
     await page.goto('/join');
     await page.getByTestId('group-code').fill(code);
     await page.getByTestId('preview-code').click();
-    await expect(page.getByTestId('preview-error')).toContainText('grupo está cheio');
+    // A full group still shows its page, with the refusal in place of the button.
+    await expect(page.getByTestId('join-refusal')).toContainText('grupo está cheio');
+    await expect(page.getByTestId('join-submit')).toHaveCount(0);
     await assertUiAccessible(page);
     if (captureLocalScreenshots(testInfo.project.name)) {
       await page.screenshot({
@@ -646,6 +650,8 @@ test.describe('UI-A capacity and final invite use through real Edge state', () =
       request_id: crypto.randomUUID(),
     });
     expect(removed.status).toBe(200);
+    await page.getByTestId('invite-page-back').click();
+    await expect(page.getByTestId('group-code')).toBeFocused();
     await page.getByTestId('preview-code').click();
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
     await page.getByTestId('join-submit').click();
@@ -680,7 +686,8 @@ test.describe('UI-A capacity and final invite use through real Edge state', () =
     await page.goto('/join');
     await page.getByTestId('group-code').fill(code);
     await page.getByTestId('preview-code').click();
-    await expect(page.getByTestId('preview-error')).toContainText('esgotou os usos');
+    // 0026: a used-up invitation is as generic as an unknown code.
+    await expect(page.getByTestId('preview-error')).toContainText('inválido');
     const vacancy = await db.query(
       `select count(*)::integer as count from public.group_members
         where group_id=$1 and status in ('pending','active')`,
@@ -768,7 +775,7 @@ test('UI-A revokes, issues and regenerates an invitation; quota reports an absol
     await page.goto('/join');
     await page.getByTestId('group-code').fill(original);
     await page.getByTestId('preview-code').click();
-    await expect(page.getByTestId('preview-error')).toContainText('foi revogado');
+    await expect(page.getByTestId('preview-error')).toContainText('inválido');
     await assertUiAccessible(page);
     if (captureLocalScreenshots(testInfo.project.name)) {
       await page.screenshot({
@@ -945,7 +952,7 @@ test('UI-A preserves an invitation in page memory through login and clears the f
     }
     await page.getByRole('button', { name: 'Tentar de novo' }).click();
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
-    await expect(page.getByText('Entrar no Grupo do Link?')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Grupo do Link' })).toBeVisible();
     await assertUiAccessible(page);
     expect(await browserLeakCensus(page, inviteToken)).toBe(true);
     // Repeat with an authenticated account on a fresh navigation. The hash
@@ -1054,7 +1061,9 @@ test('UI-A reports an expired invitation using the server deadline', async ({
     await page.goto('/join');
     await page.getByTestId('group-code').fill(code);
     await page.getByTestId('preview-code').click();
-    await expect(page.getByTestId('preview-error')).toContainText('expirou');
+    // 0026: the server deadline still decides, but the preview answer is generic.
+    await expect(page.getByTestId('preview-error')).toContainText('inválido');
+    await expect(page.getByTestId('join-confirmation')).toHaveCount(0);
     await assertUiAccessible(page);
     const uses = await db.query('select used_count from public.group_invites where id=$1', [
       outcome.invite_id,

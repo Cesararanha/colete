@@ -10,6 +10,7 @@ no histórico do projeto). Fonte das regras: `01-requisitos.md` · `10-schema-db
 
 Emendas documentais de 28–29/09/2026: M2-D22 a M2-D42 em convites e nome; arquivamento por RPC
 é pós-piloto. Contratos em `13` §5.0; controles aguardam RPC publicada.
+Emenda de 18/10/2026: página do convite na tela 12 (decisão humana de César).
 
 ## 0. Regras globais (valem para toda tela — não se repetem abaixo)
 
@@ -195,21 +196,25 @@ notas atuais dos membros ativos, nunca o histórico · sair do grupo (bloqueado 
 ### 12 · Entrar com código / convite por link
 Dois estados que não se confundem:
 
-- **Convite de grupo:** campo de código ou link → confirmação ("Entrar no Racha da
-  Firma?") → **aguardando aprovação** até o organizador decidir; N16 ao aprovar.
+- **Convite de grupo:** campo de código, QR ou link → página do grupo (ícone, nome,
+  membros ativos, dono e **Pedir para entrar**) → **aguardando aprovação** até o
+  organizador decidir; N16 ao aprovar.
 - **Convite avulso de racha:** link mostra grupo, data, local, valor e aviso "você entra
   só neste racha" → autenticação, se necessária → confirmação → consumo atômico e detalhe
   do racha; não cria membership nem entra em espera.
 
-No convite de grupo, preview autenticado mostra só o nome, sem uso ou pedido;
-código inexistente retorna `CODE_INVALID`; convite existente revogado,
-expirado ou esgotado retorna o erro específico (M2-D42). Quota retorna 429 com
+No convite de grupo, preview autenticado mostra a página do grupo, sem uso ou
+pedido (decisão humana de 18/10/2026, `13` §5.0.2): membro vê **Abrir grupo**,
+pedido pendente vê **Aguardando aprovação**, grupo cheio ou cota pessoal vê a
+mensagem própria no lugar do botão. Código inexistente, revogado, expirado ou
+esgotado recebe a mesma resposta genérica, sem página. Quota retorna 429 com
 horário absoluto, qualquer que seja o código; falha do contador tem erro próprio
 de indisponibilidade. Resgate novo de `active` no próprio grupo mostra seu estado
 sem pedido/uso; `pending` repetido continua aguardando, sem uso nem mudança da
 data do pedido. Código normaliza maiúsculas, espaço e hífen (`13` §5.0).
-Os erros próprios de convite terminal, grupo arquivado/suspenso, cheio e
-cota pessoal aparecem no preview e no resgate conforme `13` §5.0.2/§5.0.3. O fluxo avulso continua
+Os erros próprios de convite terminal aparecem só no resgate; grupo
+arquivado/suspenso, cheio e cota pessoal aparecem no preview e no resgate
+conforme `13` §5.0.2/§5.0.3. O fluxo avulso continua
 com seus erros de racha sem vaga/cancelado.
 O token não entra em analytics, Sentry, título da página nem storage persistente do app.
 

@@ -190,6 +190,37 @@ async function fingerprint(
     p_hash_key_version: HASH_KEY_VERSION,
   };
 }
+/**
+ * The invitation page (0026): exactly these six fields leave the Edge, even
+ * if the RPC ever returns more. The group ID only goes to an active member,
+ * who already reads it through their own memberships.
+ */
+export function invitePageProjection(data: unknown): Record<string, unknown> {
+  const page = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+  const viewer = page['viewer_status'] ?? null;
+  const refusal = page['refusal'] ?? null;
+  const owner = page['owner_name'] ?? null;
+  const groupId = page['group_id'] ?? null;
+  if (
+    typeof page['group_name'] !== 'string' ||
+    !Number.isSafeInteger(page['member_count']) ||
+    (page['member_count'] as number) < 0 ||
+    (owner !== null && typeof owner !== 'string') ||
+    ![null, 'active', 'pending'].includes(viewer as string | null) ||
+    ![null, 'GROUP_FULL', 'GROUP_LIMIT'].includes(refusal as string | null) ||
+    (viewer === 'active' ? typeof groupId !== 'string' || !UUID.test(groupId) : groupId !== null)
+  ) {
+    throw new Error('invalid invite page projection');
+  }
+  return {
+    group_name: page['group_name'],
+    member_count: page['member_count'],
+    owner_name: owner,
+    viewer_status: viewer,
+    group_id: groupId,
+    refusal,
+  };
+}
 function stringField(input: Record<string, unknown>, key: string): string {
   return text(input[key], key);
 }
@@ -278,7 +309,7 @@ export async function dispatchInvite(
                   ...(await fingerprint(deps, operation, { code }, requestId)),
                   p_code_digest: codeDigest,
                 })
-              : await rpc(deps, operation, params);
+              : invitePageProjection(await rpc(deps, operation, params));
         } else {
           const parsed = await parseInviteToken(deps.inviteKey, stringField(input, 'token'));
           const params = {
@@ -298,7 +329,7 @@ export async function dispatchInvite(
                   )),
                   ...params,
                 })
-              : await rpc(deps, operation, params);
+              : invitePageProjection(await rpc(deps, operation, params));
         }
       } catch (error) {
         // A malformed token/code is indistinguishable from an unknown one.
