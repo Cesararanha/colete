@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { mapUrl, matchSpokenDay, matchTicket, matchTimeRange, matchWhenLine } from './match-format';
+import {
+  mapUrl,
+  matchDateTitle,
+  matchSpokenDay,
+  matchTicket,
+  matchTimeRange,
+  matchWhenLine,
+} from './match-format';
 
 const place = {
   location_name: 'Arena da Vila',
@@ -30,6 +37,12 @@ describe('dates on the card and the detail (human decision of 17/10/2026)', () =
 
   it('writes the detail line in the match time zone', () => {
     expect(matchWhenLine(starts, ends, zone)).toBe('Sáb, 18 out · 20:00–22:00');
+  });
+
+  it('titles the detail with the date alone (prévia aprovada)', () => {
+    expect(matchDateTitle(starts, zone)).toBe('Sáb, 18 out');
+    // 23:30 local on Saturday is still Saturday, though it is Sunday in UTC.
+    expect(matchDateTitle('2025-10-19T02:30:00.000Z', zone)).toBe('Sáb, 18 out');
   });
 
   it('builds the ticket block: big day, month and weekday', () => {

@@ -4,107 +4,37 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
 import { AppIcon, type IconName } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { Scoreboard } from '@/components/ui/Scoreboard';
+import { Avatar } from '@/components/ui/Avatar';
+import { Chip, type ChipTone } from '@/components/ui/Chip';
+import { GroupIcon } from '@/components/ui/GroupIcon';
+import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import {
   api,
   type MatchPaymentResult,
   type MatchPresenceResult,
   type MatchRoster,
   type MatchRosterEntry,
+  type MatchSummary,
   type OwnProfile,
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
+import { radius, spacing } from '@/theme/spacing';
+import { face, typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { matchErrorMessage } from './match-errors';
 import { distanceInMeters, distanceText } from './match-distance';
-import { matchLongDay, matchPrice, matchTime, matchWhenLine } from './match-format';
+import { endsNextDay } from './match-card-state';
+import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
-
-function Fact({
-  icon,
-  label,
-  testID,
-  value,
-  detail,
-}: {
-  icon: IconName;
-  label: string;
-  testID: string;
-  value: string;
-  detail?: string | undefined;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.fact} testID={testID}>
-      <AppIcon color={colors.textMuted} name={icon} size={20} />
-      <View style={styles.factText}>
-        <Text style={[styles.factLabel, { color: colors.textMuted }]}>{label}</Text>
-        <Text style={[styles.factValue, { color: colors.text }]}>{value}</Text>
-        {detail ? (
-          <Text style={[styles.factDetail, { color: colors.textMuted }]}>{detail}</Text>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-/**
- * "Ver distância": asks for the position only on the press, computes the
- * distance on the device and shows it. The position stays in this
- * component's memory: never sent, stored, logged or put in a URL.
- */
-function Distance({ latitude, longitude }: { latitude: number; longitude: number }) {
-  const { colors } = useTheme();
-  const { location, request } = useDeviceLocation();
-  return (
-    <View style={styles.actions} testID="match-distance">
-      <AppButton
-        ariaDisabled={location.status === 'requesting'}
-        icon="navigation"
-        label={
-          location.status === 'requesting'
-            ? pt.matches.detail.distanceLocating
-            : pt.matches.detail.distance
-        }
-        onPress={() => {
-          if (location.status !== 'requesting') void request();
-        }}
-        testID="match-distance-button"
-        variant="secondary"
-      />
-      {location.status === 'found' ? (
-        <AppStatus
-          message={distanceText(distanceInMeters(location, { latitude, longitude }))}
-          testID="match-distance-result"
-        />
-      ) : null}
-      {location.status === 'denied' ? (
-        <AppAlert message={pt.matches.detail.distanceDenied} testID="match-distance-denied" />
-      ) : null}
-      {location.status === 'unavailable' ? (
-        <AppAlert
-          message={pt.matches.detail.distanceUnavailable}
-          testID="match-distance-unavailable"
-        />
-      ) : null}
-      <Text style={[styles.hint, { color: colors.textMuted }]}>
-        {pt.matches.detail.distanceHint}
-      </Text>
-    </View>
-  );
-}
 
 function entryName(entry: MatchRosterEntry): string {
   return entry.account_removed || entry.name === null
@@ -123,61 +53,163 @@ function entryDetail(entry: MatchRosterEntry): string {
     .join(' · ');
 }
 
-/** One line of a roster: order, name, nickname and position; payment for the organisation. */
-function RosterRow({
-  entry,
-  index,
-  manage,
-  onMark,
-  testID,
-}: {
-  entry: MatchRosterEntry;
-  index: number;
-  manage: boolean;
-  onMark?: ((entry: MatchRosterEntry, paid: boolean) => void) | undefined;
-  testID: string;
-}) {
+/** The state of the viewer on the board (prévia aprovada); the detail knows the waitlist position. */
+function viewerChip(
+  roster: MatchRoster,
+): { tone: ChipTone; label: string; icon?: IconName } | null {
+  if (roster.started) return { label: pt.matches.detail.startedChip, tone: 'neutral' };
+  const viewer = roster.viewer;
+  if (viewer.status === 'starter')
+    return { icon: 'check', label: pt.matches.card.youGo, tone: 'positive' };
+  if (viewer.status === 'waitlist')
+    return {
+      icon: 'clock',
+      label:
+        viewer.waitlist_position === null
+          ? pt.matches.card.onWaitlist
+          : pt.matches.detail.waitlistPosition(viewer.waitlist_position),
+      tone: 'warning',
+    };
+  const open = roster.field_slots - roster.confirmed_count;
+  return open > 0 ? { label: pt.matches.card.openSlots(open), tone: 'info' } : null;
+}
+
+/** The scoreboard of the match: confirmed over slots, the viewer's state and what is left. */
+function Board({ roster }: { roster: MatchRoster }) {
   const { colors } = useTheme();
-  const name = entryName(entry);
-  const detail = entryDetail(entry);
-  const showPayment = manage && typeof entry.paid === 'boolean';
+  const chip = viewerChip(roster);
+  const open = Math.max(0, roster.field_slots - roster.confirmed_count);
   return (
-    <View style={styles.rosterRow} testID={testID}>
-      <Text style={[styles.rosterIndex, { color: colors.textMuted }]}>{index + 1}</Text>
-      <View style={styles.factText}>
-        <Text style={[styles.factValue, { color: colors.text }]}>{name}</Text>
-        {detail ? (
-          <Text style={[styles.factDetail, { color: colors.textMuted }]}>{detail}</Text>
+    <View style={[styles.board, { backgroundColor: colors.scoreboard }]}>
+      <View style={styles.boardTop}>
+        <View
+          accessibilityLabel={pt.matches.detail.occupancy(
+            roster.confirmed_count,
+            roster.field_slots,
+          )}
+          role="img"
+          testID="match-scoreboard"
+        >
+          <Text aria-hidden style={[styles.boardLabel, { color: colors.digitDim }]}>
+            {pt.matches.detail.confirmedLabel}
+          </Text>
+          <Text aria-hidden style={[styles.boardCount, { color: colors.digit }]}>
+            {roster.confirmed_count}
+            <Text style={{ color: colors.digitDim }}>/{roster.field_slots}</Text>
+          </Text>
+        </View>
+        {chip ? (
+          <Chip
+            {...(chip.icon ? { icon: chip.icon } : {})}
+            label={chip.label}
+            testID="match-viewer-chip"
+            tone={chip.tone}
+          />
         ) : null}
-        {showPayment ? (
-          <View style={styles.payment}>
-            <AppIcon
-              color={entry.paid ? colors.positive : colors.textMuted}
-              name={entry.paid ? 'check-circle' : 'circle'}
-              size={16}
-            />
-            <Text
-              style={[styles.factLabel, { color: entry.paid ? colors.positive : colors.textMuted }]}
-              testID={`${testID}-paid`}
-            >
-              {entry.paid ? pt.matches.detail.paid : pt.matches.detail.unpaid}
+      </View>
+      <OccupancyBar
+        color={colors.digit}
+        height={8}
+        ratio={roster.confirmed_count / Math.max(1, roster.field_slots)}
+        track={colors.scoreTileTop}
+      />
+      <Text style={[styles.boardFoot, { color: colors.digitDim }]} testID="match-board-summary">
+        {pt.matches.detail.openSummary(open, roster.waitlist_count)}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * The place, the map and the distance, the description and the price. "Ver
+ * distância" asks for the position only on the press, computes the distance
+ * on the device and shows it. The position stays in this component's memory:
+ * never sent, stored, logged or put in a URL.
+ */
+function Place({ match }: { match: MatchSummary }) {
+  const { colors } = useTheme();
+  const { location, request } = useDeviceLocation();
+  const located = match.latitude !== null && match.longitude !== null;
+  return (
+    <View style={[styles.card, { backgroundColor: colors.surface }]} testID="match-detail-card">
+      <View style={styles.place} testID="match-fact-where">
+        <AppIcon color={colors.info} name="map-pin" size={20} />
+        <View style={styles.placeText}>
+          <Text style={[styles.placeName, { color: colors.text }]}>{match.location_name}</Text>
+          {match.location_address ? (
+            <Text style={[styles.small, { color: colors.textMuted }]}>
+              {match.location_address}
             </Text>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.placeActions}>
+        <View style={styles.placeAction}>
+          <AppButton
+            label={pt.matches.detail.map}
+            onPress={() => openMatchMap(match)}
+            testID="match-map"
+            variant="outline"
+          />
+        </View>
+        {located ? (
+          <View style={styles.placeAction} testID="match-distance">
+            <AppButton
+              ariaDisabled={location.status === 'requesting'}
+              label={
+                location.status === 'requesting'
+                  ? pt.matches.detail.distanceLocating
+                  : pt.matches.detail.distance
+              }
+              onPress={() => {
+                if (location.status !== 'requesting') void request();
+              }}
+              testID="match-distance-button"
+              variant="outline"
+            />
           </View>
         ) : null}
       </View>
-      {showPayment && onMark && entry.profile_id !== null ? (
-        <AppButton
-          accessibilityLabel={
-            entry.paid
-              ? pt.matches.detail.markUnpaidLabel(name)
-              : pt.matches.detail.markPaidLabel(name)
-          }
-          label={entry.paid ? pt.matches.detail.markUnpaid : pt.matches.detail.markPaid}
-          onPress={() => onMark(entry, !entry.paid)}
-          testID={`${testID}-mark`}
-          variant="secondary"
+      {located &&
+      location.status === 'found' &&
+      match.latitude !== null &&
+      match.longitude !== null ? (
+        <AppStatus
+          message={distanceText(
+            distanceInMeters(location, { latitude: match.latitude, longitude: match.longitude }),
+          )}
+          testID="match-distance-result"
         />
       ) : null}
+      {location.status === 'denied' ? (
+        <AppAlert message={pt.matches.detail.distanceDenied} testID="match-distance-denied" />
+      ) : null}
+      {location.status === 'unavailable' ? (
+        <AppAlert
+          message={pt.matches.detail.distanceUnavailable}
+          testID="match-distance-unavailable"
+        />
+      ) : null}
+      {/* What leaves the device, and when: kept from the human decision on the map (#70). */}
+      <Text style={[styles.caption, { color: colors.textMuted }]}>
+        {pt.matches.detail.mapHint}
+        {located ? ` ${pt.matches.detail.distanceHint}` : ''}
+      </Text>
+      {match.description ? (
+        // Plain Text, never parsed: no link becomes pressable, no markup renders.
+        <Text
+          style={[styles.description, { color: colors.textSoft }]}
+          testID="match-fact-description"
+        >
+          {match.description}
+        </Text>
+      ) : null}
+      <View style={styles.price} testID="match-fact-price">
+        <AppIcon color={colors.textMuted} name="dollar-sign" size={18} />
+        <Text style={[styles.priceText, { color: colors.text }]}>
+          {pt.matches.detail.perPlayer(matchPrice(match.field_price))}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -237,24 +269,11 @@ function Presence({
         if (result) setMessage(resultMessage(result));
       });
   };
-  const status = roster.started
-    ? pt.matches.detail.started
-    : viewer.status === 'starter'
-      ? pt.matches.detail.viewerStarter
-      : viewer.status === 'waitlist'
-        ? pt.matches.detail.viewerWaitlist(viewer.waitlist_position ?? 0)
-        : pt.matches.detail.viewerOut;
   return (
-    <AppCard testID="match-presence">
-      <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
-        {pt.matches.detail.presenceHeading}
-      </Text>
-      <Text style={[styles.factValue, { color: colors.text }]} testID="match-viewer-status">
-        {status}
-      </Text>
-      {viewer.paid !== null ? (
-        <Text style={[styles.factDetail, { color: colors.textMuted }]} testID="match-own-payment">
-          {pt.matches.detail.ownPaid(viewer.paid)}
+    <View style={styles.presence} testID="match-presence">
+      {roster.started ? (
+        <Text style={[styles.small, { color: colors.textMuted }]} testID="match-viewer-status">
+          {pt.matches.detail.started}
         </Text>
       ) : null}
       <AppStatus message={message} testID="match-presence-result" />
@@ -271,8 +290,12 @@ function Presence({
           testID="match-join"
         />
       ) : confirming ? (
-        <GroupConfirmation title={pt.matches.detail.leaveTitle} testID="match-leave-confirmation">
-          <Text style={[styles.factValue, { color: colors.text }]}>
+        <GroupConfirmation
+          level={2}
+          title={pt.matches.detail.leaveTitle}
+          testID="match-leave-confirmation"
+        >
+          <Text style={[styles.body, { color: colors.text }]}>
             {viewer.status === 'starter'
               ? pt.matches.detail.leaveStarter
               : pt.matches.detail.leaveWaitlist}
@@ -297,7 +320,6 @@ function Presence({
         </GroupConfirmation>
       ) : (
         <AppButton
-          icon="x"
           label={pt.matches.detail.leave}
           onPress={() => {
             setMessage('');
@@ -305,27 +327,93 @@ function Presence({
             setConfirming(true);
           }}
           testID="match-leave"
-          variant="secondary"
+          variant="outline-destructive"
         />
       )}
-    </AppCard>
+    </View>
   );
 }
 
+/** One confirmed player: initials, name and detail, and the payment where it can be seen. */
+function ConfirmedRow({
+  entry,
+  manage,
+  onMark,
+  ownPaid,
+  testID,
+}: {
+  entry: MatchRosterEntry;
+  manage: boolean;
+  onMark: (entry: MatchRosterEntry, paid: boolean) => void;
+  /** The viewer's own payment, which a player sees only on their own line. */
+  ownPaid: boolean | null;
+  testID: string;
+}) {
+  const { colors } = useTheme();
+  const name = entryName(entry);
+  const detail = entryDetail(entry);
+  // The organisation sees every line; a player only their own (viewer.paid).
+  const paid =
+    manage && typeof entry.paid === 'boolean' ? entry.paid : entry.is_viewer ? ownPaid : null;
+  const canMark = manage && typeof entry.paid === 'boolean' && entry.profile_id !== null;
+  return (
+    <View style={[styles.entry, { backgroundColor: colors.surface }]} testID={testID}>
+      <View style={styles.line}>
+        <Avatar id={entry.account_removed ? null : entry.profile_id} name={name} size={36} />
+        <Text style={[styles.rowName, { color: colors.text }]}>
+          {name}
+          {detail ? (
+            <Text style={[styles.rowDetail, { color: colors.textMuted }]}> · {detail}</Text>
+          ) : null}
+        </Text>
+        {paid === null ? null : (
+          <Chip
+            {...(paid ? { icon: 'check' as const } : {})}
+            label={paid ? pt.matches.detail.paid : pt.matches.detail.unpaidChip}
+            testID={
+              manage && typeof entry.paid === 'boolean' ? `${testID}-paid` : 'match-own-payment'
+            }
+            tone={paid ? 'positive' : 'critical'}
+          />
+        )}
+      </View>
+      {/* The organisation's toggle sits under the name, so the name keeps its width. */}
+      {canMark ? (
+        <View style={styles.mark}>
+          <AppButton
+            accessibilityLabel={
+              entry.paid
+                ? pt.matches.detail.markUnpaidLabel(name)
+                : pt.matches.detail.markPaidLabel(name)
+            }
+            compact
+            label={entry.paid ? pt.matches.detail.markUnpaid : pt.matches.detail.markPaid}
+            onPress={() => onMark(entry, !entry.paid)}
+            testID={`${testID}-mark`}
+            variant="outline"
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Beyond this many confirmed, the list opens with the first ones and "Ver os N confirmados". */
+const COLLAPSED = 5;
+
 function Rosters({
   matchId,
-  price,
   profileId,
   roster,
 }: {
   matchId: string;
-  price: number;
   profileId: string;
   roster: MatchRoster;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId);
   const [message, setMessage] = useState('');
+  const [expanded, setExpanded] = useState(false);
   const manage = roster.viewer.can_manage;
   const summary = roster.payment_summary;
   const mark = (entry: MatchRosterEntry, paid: boolean) => {
@@ -340,79 +428,105 @@ function Rosters({
         if (result) setMessage(pt.matches.detail.marked(entryName(entry), paid));
       });
   };
+  const collapsible = roster.confirmed.length > COLLAPSED + 1;
+  const shown = collapsible && !expanded ? roster.confirmed.slice(0, COLLAPSED) : roster.confirmed;
   return (
     <>
-      {manage && summary ? (
-        <AppCard testID="match-payments">
+      <View style={styles.section} testID="match-confirmed">
+        <View style={styles.sectionHead}>
           <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
-            {pt.matches.detail.paymentHeading}
+            {pt.matches.detail.confirmedTitle}
           </Text>
-          <Text style={[styles.factValue, { color: colors.text }]} testID="match-payment-summary">
-            {pt.matches.detail.paymentSummary(
-              summary.paid_count,
-              summary.confirmed_count,
-              matchPrice(Number(summary.total)),
-            )}
-          </Text>
-          <Text style={[styles.factDetail, { color: colors.textMuted }]}>
-            {pt.matches.detail.paymentNote} {matchPrice(price)}.
-          </Text>
-          <AppStatus message={message} testID="match-payment-result" />
-          <AppAlert
-            message={actions.error ? matchErrorMessage(actions.error) : ''}
-            testID="match-payment-error"
-          />
-        </AppCard>
-      ) : null}
-      <AppCard testID="match-confirmed">
-        <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
-          {pt.matches.detail.confirmedHeading(roster.confirmed_count, roster.field_slots)}
-        </Text>
+          {manage && summary ? (
+            <View testID="match-payments">
+              <Text
+                style={[styles.small, { color: colors.textMuted }]}
+                testID="match-payment-summary"
+              >
+                {pt.matches.detail.paymentSummary(
+                  summary.paid_count,
+                  summary.confirmed_count,
+                  matchPrice(Number(summary.total)),
+                )}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <AppStatus message={message} testID="match-payment-result" />
+        <AppAlert
+          message={actions.error ? matchErrorMessage(actions.error) : ''}
+          testID="match-payment-error"
+        />
         {roster.confirmed.length === 0 ? (
-          <Text style={[styles.factDetail, { color: colors.textMuted }]}>
+          <Text style={[styles.small, { color: colors.textMuted }]}>
             {pt.matches.detail.confirmedEmpty}
           </Text>
         ) : null}
-        {/* Inside the card, which scrolls with the screen: the list itself does not. */}
+        {/* The rows scroll with the screen: the list itself does not. */}
         <FlatList
-          data={roster.confirmed}
-          extraData={[manage, actions.pending]}
+          contentContainerStyle={styles.rows}
+          data={shown}
+          extraData={[manage, actions.pending, roster.viewer.paid]}
           keyExtractor={(entry, index) => entry.profile_id ?? `removed-${index}`}
           renderItem={({ item, index }) => (
-            <RosterRow
+            <ConfirmedRow
               entry={item}
-              index={index}
               manage={manage}
               onMark={mark}
+              ownPaid={roster.viewer.paid}
               testID={`match-confirmed-${index}`}
             />
           )}
           scrollEnabled={false}
         />
-      </AppCard>
-      <AppCard testID="match-waitlist">
+        {collapsible && !expanded ? (
+          <View style={styles.more}>
+            <AppButton
+              label={pt.matches.detail.showAll(roster.confirmed.length)}
+              onPress={() => setExpanded(true)}
+              testID="match-confirmed-all"
+              variant="tertiary"
+            />
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.section} testID="match-waitlist">
         <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
-          {pt.matches.detail.waitlistHeading(roster.waitlist_count)}
+          {pt.matches.detail.waitlistTitle}
         </Text>
         {roster.waitlist.length === 0 ? (
-          <Text style={[styles.factDetail, { color: colors.textMuted }]}>
+          <Text style={[styles.small, { color: colors.textMuted }]}>
             {pt.matches.detail.waitlistEmpty}
           </Text>
         ) : null}
         <FlatList
+          contentContainerStyle={styles.rows}
           data={roster.waitlist}
           keyExtractor={(entry, index) => entry.profile_id ?? `removed-${index}`}
-          renderItem={({ item, index }) => (
-            <RosterRow
-              entry={item}
-              index={index}
-              manage={false}
-              testID={`match-waitlist-${index}`}
-            />
-          )}
+          renderItem={({ item, index }) => {
+            const name = entryName(item);
+            const detail = entryDetail(item);
+            return (
+              <View
+                style={[styles.row, { backgroundColor: colors.surface }]}
+                testID={`match-waitlist-${index}`}
+              >
+                <Text style={[styles.order, { color: colors.warning }]}>
+                  {pt.matches.detail.ordinal(index + 1)}
+                </Text>
+                <Avatar id={item.account_removed ? null : item.profile_id} name={name} size={36} />
+                <Text style={[styles.rowName, { color: colors.text }]}>
+                  {name}
+                  {detail ? (
+                    <Text style={[styles.rowDetail, { color: colors.textMuted }]}> · {detail}</Text>
+                  ) : null}
+                </Text>
+              </View>
+            );
+          }}
           scrollEnabled={false}
         />
-      </AppCard>
+      </View>
     </>
   );
 }
@@ -431,39 +545,35 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
   });
   const roster = rosterQuery.data;
   const back = {
-    label: pt.matches.detail.back,
+    label: pt.navigation.matches,
     href: '/rachas' as const,
     testID: 'match-back',
   };
-  const start = match ? matchTime(match.starts_at, match.timezone) : '';
-  // The board shows the real occupancy, confirmed over slots, once it is read.
-  const hero =
-    match && roster ? (
-      <View style={styles.hero}>
-        <Text aria-hidden style={[styles.overline, { color: colors.onBandMuted }]}>
-          {pt.matches.detail.occupancyOverline}
-        </Text>
-        <Scoreboard
-          accessibilityLabel={pt.matches.detail.occupancy(
-            roster.confirmed_count,
-            roster.field_slots,
-          )}
-          groups={[
-            { chars: String(roster.confirmed_count).padStart(2, '0') },
-            { chars: String(roster.field_slots).padStart(2, '0'), reference: true },
-          ]}
-          testID="match-scoreboard"
-        />
+  // The date is the title, in the match's own time zone ("Sáb, 18 out").
+  const intro = match ? (
+    <View style={styles.intro} testID="match-fact-when">
+      <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
+        {matchDateTitle(match.starts_at, match.timezone)}
+      </Text>
+      <Text style={[styles.when, { color: colors.textSoft }]}>
+        {matchTimeRange(match.starts_at, match.ends_at, match.timezone)}
+        {endsNextDay(match.starts_at, match.ends_at, match.timezone) ? (
+          <Text style={{ color: colors.textMuted }}> {pt.matches.card.nextDay}</Text>
+        ) : null}
+      </Text>
+      <View style={styles.group} testID="match-fact-group">
+        <GroupIcon size={16} />
+        <Text style={[styles.small, { color: colors.textMuted }]}>{match.group_name}</Text>
       </View>
-    ) : undefined;
+    </View>
+  ) : undefined;
   return (
     <AuthenticatedShell
       back={back}
-      // Date and time leave the board: a line of text at the top, in the
-      // match's own time zone ("Sáb, 18 out · 20:00–22:00").
-      description={match ? matchWhenLine(match.starts_at, match.ends_at, match.timezone) : ''}
-      hero={hero}
-      title={match?.location_name ?? pt.matches.detail.title}
+      description=""
+      hero={roster ? <Board roster={roster} /> : undefined}
+      {...(intro ? { intro } : {})}
+      title={match ? matchDateTitle(match.starts_at, match.timezone) : pt.matches.detail.title}
     >
       {detail.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {detail.isError ? (
@@ -486,63 +596,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       ) : null}
       {match ? (
         <>
-          <AppCard testID="match-detail-card">
-            <Fact
-              detail={pt.matches.detail.timezone(match.timezone)}
-              icon="calendar"
-              label={pt.matches.detail.when}
-              testID="match-fact-when"
-              value={pt.matches.detail.schedule(
-                matchLongDay(match.starts_at, match.timezone),
-                start,
-                matchTime(match.ends_at, match.timezone),
-              )}
-            />
-            <Fact
-              detail={match.location_address ?? undefined}
-              icon="map-pin"
-              label={pt.matches.detail.where}
-              testID="match-fact-where"
-              value={match.location_name}
-            />
-            {match.description ? (
-              // Plain Text, never parsed: no link becomes pressable, no markup renders.
-              <Fact
-                icon="file-text"
-                label={pt.matches.detail.about}
-                testID="match-fact-description"
-                value={match.description}
-              />
-            ) : null}
-            <Fact
-              detail={pt.matches.detail.payNote}
-              icon="dollar-sign"
-              label={pt.matches.detail.price}
-              testID="match-fact-price"
-              value={matchPrice(match.field_price)}
-            />
-            <Fact
-              icon="users"
-              label={pt.matches.detail.group}
-              testID="match-fact-group"
-              value={match.group_name}
-            />
-          </AppCard>
-          <View style={styles.actions}>
-            <AppButton
-              icon="map"
-              label={pt.matches.detail.map}
-              onPress={() => openMatchMap(match)}
-              testID="match-map"
-              variant="secondary"
-            />
-            <Text style={[styles.hint, { color: colors.textMuted }]}>
-              {pt.matches.detail.mapHint}
-            </Text>
-          </View>
-          {match.latitude !== null && match.longitude !== null ? (
-            <Distance latitude={match.latitude} longitude={match.longitude} />
-          ) : null}
+          <Place match={match} />
           {rosterQuery.isPending ? (
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}
@@ -552,12 +606,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
           {roster ? (
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
-              <Rosters
-                matchId={matchId}
-                price={match.field_price}
-                profileId={profile.id}
-                roster={roster}
-              />
+              <Rosters matchId={matchId} profileId={profile.id} roster={roster} />
             </>
           ) : null}
         </>
@@ -567,23 +616,82 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
 }
 
 const styles = StyleSheet.create({
-  actions: { gap: spacing.xs },
-  fact: { flexDirection: 'row', gap: spacing.md },
-  factDetail: { ...typography.support },
-  factLabel: { ...typography.supportStrong },
-  factText: { flex: 1, gap: 2, minWidth: 0 },
-  factValue: { ...typography.body },
-  heading: { ...typography.title },
-  hero: { gap: spacing.ms },
-  payment: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
-  rosterIndex: { ...typography.supportStrong, minWidth: 24, fontVariant: ['tabular-nums'] },
-  rosterRow: {
+  board: {
+    borderRadius: radius.scoreboard - 2,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  boardCount: { ...face('condensed'), fontSize: 52, fontVariant: ['tabular-nums'], lineHeight: 56 },
+  boardFoot: { ...typography.support, fontSize: 14 },
+  boardLabel: { ...typography.captionStrong },
+  boardTop: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  body: { ...typography.body },
+  caption: { ...typography.caption },
+  card: {
+    borderRadius: radius.scoreboard - 2,
+    gap: 10,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+  },
+  description: { ...typography.support },
+  group: { alignItems: 'center', flexDirection: 'row', gap: 6, paddingTop: 2 },
+  heading: { ...typography.section },
+  intro: { gap: spacing.xs, minWidth: 0, paddingTop: spacing.xs },
+  more: { alignItems: 'flex-start', marginLeft: -spacing.md },
+  entry: {
+    borderRadius: radius.field + 2,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.ms,
+    paddingVertical: 10,
+  },
+  line: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
+    gap: spacing.ms,
+    minHeight: 36,
   },
-  hint: { ...typography.support },
-  overline: { ...typography.overline },
+  mark: { alignItems: 'flex-start', paddingLeft: 48 },
+  order: { ...face('condensed'), fontSize: 22, lineHeight: 26, minWidth: 28, textAlign: 'center' },
+  place: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
+  // "Abrir no Google Maps" keeps its name (decision of #70): when both do not fit
+  // on one line, each button takes its own.
+  placeAction: { flexBasis: 200, flexGrow: 1 },
+  placeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  placeName: { ...typography.bodyStrong, ...face('bold') },
+  placeText: { flex: 1, gap: 2, minWidth: 0 },
+  presence: { gap: spacing.sm },
+  price: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  priceText: { ...typography.supportStrong },
+  row: {
+    alignItems: 'center',
+    borderRadius: radius.field + 2,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.ms,
+    minHeight: 56,
+    paddingHorizontal: spacing.ms,
+    paddingVertical: 10,
+  },
+  rowDetail: { ...face('regular') },
+  rowName: { ...typography.bodyStrong, flex: 1, fontSize: 16, lineHeight: 22, minWidth: 0 },
+  rows: { gap: spacing.sm },
+  section: { gap: spacing.sm, paddingTop: spacing.xs },
+  sectionHead: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  small: { ...typography.support, fontSize: 14, lineHeight: 20 },
+  title: { ...typography.heading },
+  when: { ...typography.bodyStrong },
 });

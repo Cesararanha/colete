@@ -525,7 +525,7 @@ for (const ending of [
     } else if (ending === 'typing')
       await page.getByRole('button', { name: 'Digitar código', exact: true }).tap();
     else if (ending === 'navigation')
-      await page.getByRole('link', { name: 'Perfil', exact: true }).tap();
+      await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().tap();
     else if (ending === 'pagehide')
       await page.evaluate((event) => window.dispatchEvent(new Event(event)), ending);
     else if (ending === 'hidden')

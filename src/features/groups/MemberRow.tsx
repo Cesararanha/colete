@@ -1,74 +1,60 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { AppIcon, type IconName } from '@/components/ui/AppIcon';
+import { Avatar } from '@/components/ui/Avatar';
+import { Chip } from '@/components/ui/Chip';
+import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, size, spacing } from '@/theme/spacing';
+import { size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
-import { memberInitials } from './member-initials';
+import { roleName, roleTone } from './group-roles';
 
 type MemberRowProps = {
+  id: string;
   name: string;
-  /** Omitted for a pending request, which has no role in the group yet. */
-  role?: { icon: IconName; label: string };
-  state: { icon: IconName; label: string; tone: 'positive' | 'warning' };
+  /** The member's role as a chip: Dono, Organizador or Jogador. */
+  role: string;
+  /** The "…" of the row, where the row has actions; otherwise a 44 px spacer keeps the chips aligned. */
+  actions?: ReactNode;
+  /** What the actions open below the row (menu, confirmation). */
+  children?: ReactNode;
+  divider?: boolean;
+  testID?: string;
 };
 
 /**
- * A group member: decorative initials, the name, then role and state, each
- * said in text with an icon beside it (docs/15: never by colour alone).
+ * One member of "No grupo" (prévia aprovada): decorative initials on the
+ * person's tone, the name, the role chip, and the row's actions. The role is
+ * said in words; the chip's colour only repeats it (docs/15).
  */
-export function MemberRow({ name, role, state }: MemberRowProps) {
+export function MemberRow({ actions, children, divider, id, name, role, testID }: MemberRowProps) {
   const { colors } = useTheme();
-  const stateColor = state.tone === 'positive' ? colors.positive : colors.warning;
   return (
-    <View role="listitem" style={styles.row}>
-      <View
-        aria-hidden
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.avatar, { backgroundColor: colors.background }]}
-      >
-        <Text style={[styles.initials, { color: colors.text }]}>{memberInitials(name)}</Text>
-      </View>
-      <View style={styles.text}>
+    <View role="listitem" testID={testID}>
+      {divider ? <View style={[styles.divider, { backgroundColor: colors.divider }]} /> : null}
+      <View style={styles.row}>
+        <Avatar id={id} name={name} size={40} />
         <Text style={[styles.name, { color: colors.text }]}>{name}</Text>
-        <View style={styles.meta}>
-          {role ? (
-            <View style={styles.tag}>
-              <AppIcon color={colors.textMuted} name={role.icon} size={16} />
-              <Text style={[styles.tagText, { color: colors.textMuted }]}>{role.label}</Text>
-            </View>
-          ) : null}
-          <View style={styles.tag}>
-            <AppIcon color={stateColor} name={state.icon} size={16} />
-            <Text style={[styles.tagText, { color: stateColor }]}>{state.label}</Text>
-          </View>
-        </View>
+        <Chip label={roleName(role, pt.groups.detail.player)} tone={roleTone(role)} />
+        {actions ?? <View style={styles.spacer} />}
       </View>
+      {children ? <View style={styles.below}>{children}</View> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  avatar: {
-    alignItems: 'center',
-    borderRadius: radius.pill,
-    height: size.target,
-    justifyContent: 'center',
-    width: size.target,
-  },
-  initials: { ...typography.supportStrong, letterSpacing: 0.5 },
-  meta: { columnGap: spacing.md, flexDirection: 'row', flexWrap: 'wrap', rowGap: spacing.xs },
-  name: { ...typography.bodyStrong },
+  below: { gap: spacing.sm, paddingBottom: spacing.ms, paddingHorizontal: spacing.ms },
+  divider: { height: 1, marginLeft: 64 },
+  name: { ...typography.bodyStrong, flex: 1, fontSize: 16, lineHeight: 22, minWidth: 0 },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.ms,
     minHeight: size.row,
-    paddingVertical: spacing.sm,
+    padding: spacing.ms,
   },
-  tag: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs + 2 },
-  tagText: { ...typography.support },
-  text: { flex: 1, gap: 2, minWidth: 0 },
+  spacer: { width: size.compact },
 });

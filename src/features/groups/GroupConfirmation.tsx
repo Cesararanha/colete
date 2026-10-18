@@ -14,13 +14,17 @@ export function focusGroupControl(testId: string) {
 export function GroupConfirmation({
   title,
   children,
+  level = 3,
   testID,
 }: {
   title: string;
   children: ReactNode;
+  /** 2 where no section heading precedes it (Perfil, the presence of a match). */
+  level?: 2 | 3;
   testID: string;
 }) {
   const { colors } = useTheme();
+  const Heading = level === 2 ? 'h2' : 'h3';
   useEffect(() => {
     focusGroupControl(`${testID}-heading`);
     if (typeof document !== 'undefined')
@@ -31,7 +35,7 @@ export function GroupConfirmation({
   return (
     <View style={styles.container} testID={testID}>
       {Platform.OS === 'web' ? (
-        <h3
+        <Heading
           tabIndex={-1}
           data-testid={`${testID}-heading`}
           style={{
@@ -44,9 +48,13 @@ export function GroupConfirmation({
           }}
         >
           {title}
-        </h3>
+        </Heading>
       ) : (
-        <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+        <Text
+          accessibilityRole="header"
+          aria-level={level}
+          style={[styles.title, { color: colors.text }]}
+        >
           {title}
         </Text>
       )}

@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import { pt } from '../../lib/i18n/pt';
 
-import { accessMethodSentence, linkedProviders, profileSummary } from './profile-view';
+import {
+  accessMethodSentence,
+  linkedProviders,
+  profileStats,
+  profileSummary,
+} from './profile-view';
 
 const profile = {
   id: '018f2b8e-7a4c-7d3e-9b1a-1c2d3e4f5a6b',
@@ -29,6 +34,18 @@ describe('profile read mode', () => {
       ['dominant-foot', pt.profile.empty.dominantFoot, true],
       // Zero is a real shirt number, not an absent one.
       ['shirt-number', '0', false],
+    ]);
+  });
+});
+
+describe('profile blocks (prévia aprovada)', () => {
+  it('gives Posição, Perna and Camisa, each absent value in words and muted', () => {
+    expect(
+      profileStats(profile).map(({ key, label, value, empty }) => [key, label, value, empty]),
+    ).toEqual([
+      ['position', 'Posição', 'Meio-campista', false],
+      ['dominant-foot', 'Perna', pt.profile.empty.dominantFoot, true],
+      ['shirt-number', 'Camisa', '0', false],
     ]);
   });
 });

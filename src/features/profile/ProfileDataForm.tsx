@@ -92,7 +92,11 @@ export function ProfileDataForm({
     ) => command.execute(),
     onSuccess: async (result) => {
       setIntent(null);
-      queryClient.setQueryData(privateQueryKeys.ownProfile, result.current);
+      // update_profile answers the profile fields, not its id: keep the cached
+      // id (the avatar's tone depends on it) until the refetch below lands.
+      queryClient.setQueryData<OwnProfile | null>(privateQueryKeys.ownProfile, (previous) =>
+        previous ? { ...previous, ...result.current } : result.current,
+      );
       reset(formValues(result.current));
       onSaved(result.current);
       await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });

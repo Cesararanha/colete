@@ -11,6 +11,8 @@ export const pt = {
     groups: 'Grupos',
     matches: 'Agenda',
     profile: 'Perfil',
+    openProfile: (name: string) => `Abrir perfil de ${name}`,
+    back: (parent: string) => `Voltar para ${parent}`,
   },
   groups: {
     list: {
@@ -49,12 +51,35 @@ export const pt = {
       upcoming: 'Próximos rachas',
       upcomingEmpty: 'Nenhum racha marcado neste grupo.',
       createMatch: 'Criar racha',
+      summary: (count: number, role: string) =>
+        `${count} ${count === 1 ? 'membro' : 'membros'} · ${
+          role === 'owner'
+            ? 'você é o dono'
+            : role === 'organizer'
+              ? 'você é organizador'
+              : 'você é jogador'
+        }`,
+      invite: 'Convidar',
+      configure: 'Configurar',
+      more: (count: number) => `+${count}`,
+      requests: (count: number) => `${count} ${count === 1 ? 'pedido' : 'pedidos'}`,
+      openMembers: (members: number, requests: number) =>
+        `Ver ${members === 1 ? 'o membro' : `os ${members} membros`}${
+          requests > 0
+            ? ` e ${requests} ${requests === 1 ? 'pedido pendente' : 'pedidos pendentes'}`
+            : ''
+        }`,
     },
     members: {
       eyebrow: 'Organização',
-      title: 'Gestão de membros',
-      description: 'Decida pedidos de entrada e cuide dos membros do grupo.',
+      title: 'Membros',
+      description: '',
       back: 'Voltar ao grupo',
+      requests: 'Pedidos',
+      inGroup: 'No grupo',
+      approveLabel: (name: string) => `Aprovar ${name}`,
+      refuseLabel: (name: string) => `Recusar ${name}`,
+      actions: (name: string) => `Ações para ${name}`,
       approve: 'Aprovar',
       refuse: 'Recusar',
       promote: 'Promover a organizador',
@@ -218,8 +243,20 @@ export const pt = {
       waiting: (count: number) => `${count} na espera`,
       viewerStarter: 'Você vai jogar',
       viewerWaitlist: 'Você está na espera',
+      nextSevenDays: (count: number) =>
+        count === 0
+          ? 'Nenhum racha nos próximos 7 dias'
+          : `${count} ${count === 1 ? 'racha' : 'rachas'} nos próximos 7 dias`,
+      filtersLabel: 'Filtrar rachas',
+      filters: { all: 'Todos', playing: 'Vou jogar', open: 'Com vaga' },
+      filterEmpty: 'Nenhum racha neste filtro.',
+      weeks: { this: 'Esta semana', next: 'Próxima semana', later: 'Mais adiante' },
     },
     card: {
+      youGo: 'Você vai',
+      onWaitlist: 'Na espera',
+      openSlots: (count: number) => `${count} ${count === 1 ? 'vaga aberta' : 'vagas abertas'}`,
+      nextDay: '(+1 dia)',
       view: 'Ver racha',
       occupancy: (confirmed: number, slots: number) =>
         `${confirmed} de ${slots} ${slots === 1 ? 'vaga confirmada' : 'vagas confirmadas'}`,
@@ -256,6 +293,22 @@ export const pt = {
         'Sem permissão de localização, não dá para calcular a distância. Para ver, permita a localização para este site nas configurações do navegador ou do aparelho.',
       distanceUnavailable: 'Não foi possível obter sua posição agora. Tente de novo.',
       occupancyOverline: 'Confirmados / vagas',
+      confirmedLabel: 'Confirmados',
+      openSummary: (open: number, waiting: number) =>
+        [
+          open > 0 ? `${open} ${open === 1 ? 'vaga' : 'vagas'}` : 'Lotado',
+          waiting > 0 ? `${waiting} na espera` : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      waitlistPosition: (position: number) => `${position}º na espera`,
+      startedChip: 'Já começou',
+      perPlayer: (price: string) => `${price} por jogador`,
+      confirmedTitle: 'Confirmados',
+      waitlistTitle: 'Lista de espera',
+      showAll: (count: number) => `Ver os ${count} confirmados`,
+      unpaidChip: 'Não pagou',
+      ordinal: (position: number) => `${position}º`,
       occupancy: (confirmed: number, slots: number) =>
         `${confirmed} de ${slots} ${slots === 1 ? 'vaga confirmada' : 'vagas confirmadas'}`,
       presenceHeading: 'Sua presença',
@@ -579,6 +632,8 @@ export const pt = {
     eyebrow: 'Conta e identidade',
     title: 'Perfil',
     description: 'Como você aparece no Colete e o acesso à sua conta.',
+    back: 'Voltar',
+    stats: { position: 'Posição', foot: 'Perna', shirt: 'Camisa' },
     fields: {
       name: 'Nome',
       nickname: 'Apelido',

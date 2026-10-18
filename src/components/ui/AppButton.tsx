@@ -25,14 +25,23 @@ type AppButtonProps = {
   label: string;
   onPress: () => void;
   pressed?: boolean;
+  /** Prévia aprovada: a 44 px pill (Criar racha, Editar) instead of the 56 px block. */
+  compact?: boolean;
   testID?: string;
-  variant?: 'primary' | 'secondary' | 'tertiary' | 'destructive';
+  /**
+   * `outline` and `outline-destructive` (prévia aprovada) are the transparent
+   * button with a 1 px fieldBorder / critical outline: Convidar, Abrir no
+   * mapa, Desistir, Sair da conta.
+   */
+  variant?:
+    'primary' | 'secondary' | 'tertiary' | 'destructive' | 'outline' | 'outline-destructive';
 };
 
 export function AppButton({
   accessibilityLabel,
   ariaDisabled = false,
   children,
+  compact = false,
   describedBy,
   icon,
   iconPosition = 'leading',
@@ -47,6 +56,7 @@ export function AppButton({
   const reducedMotion = useReducedMotion();
   const selected = pressed === true;
   const textOnly = variant === 'tertiary' || variant === 'destructive';
+  const outline = variant === 'outline' || variant === 'outline-destructive';
   // docs/29 §6: a selected option is never told by colour alone — it gains a check.
   const background = selected
     ? colors.indicator
@@ -63,7 +73,7 @@ export function AppButton({
       ? colors.textMuted
       : variant === 'primary'
         ? colors.onPrimary
-        : variant === 'destructive'
+        : variant === 'destructive' || variant === 'outline-destructive'
           ? colors.critical
           : variant === 'tertiary'
             ? colors.link
@@ -88,9 +98,9 @@ export function AppButton({
         type="button"
         style={{
           alignItems: 'center',
-          backgroundColor: textOnly ? 'transparent' : colors.surface,
-          border: 'none',
-          borderRadius: radius.row,
+          backgroundColor: textOnly || outline ? 'transparent' : colors.surface,
+          border: outline ? `1px solid ${colors.fieldBorder}` : 'none',
+          borderRadius: compact ? radius.pill : outline ? radius.field : radius.row,
           color: colors.textMuted,
           cursor: 'default',
           display: 'inline-flex',
@@ -100,7 +110,7 @@ export function AppButton({
           fontWeight: 700,
           justifyContent: 'center',
           lineHeight: `${typography.button.lineHeight}px`,
-          minHeight: textOnly ? size.target : size.button,
+          minHeight: compact ? size.compact : textOnly || outline ? size.target : size.button,
           minWidth: size.target,
           padding: `${spacing.sm}px ${textOnly ? spacing.md : spacing.lg}px`,
         }}
@@ -132,6 +142,16 @@ export function AppButton({
       style={({ pressed: isPressed }) => [
         styles.base,
         textOnly ? styles.textOnly : styles.filled,
+        outline
+          ? [
+              styles.outline,
+              {
+                borderColor:
+                  variant === 'outline-destructive' ? colors.critical : colors.fieldBorder,
+              },
+            ]
+          : null,
+        compact ? styles.compact : null,
         {
           backgroundColor: background,
           opacity: isPressed && textOnly ? 0.72 : 1,
@@ -153,7 +173,12 @@ export function AppButton({
         </View>
       ) : null}
       <Text
-        style={[styles.label, trailingIcon ? styles.labelStart : undefined, { color: textColor }]}
+        style={[
+          styles.label,
+          compact ? styles.compactLabel : undefined,
+          trailingIcon ? styles.labelStart : undefined,
+          { color: textColor },
+        ]}
       >
         {label}
       </Text>
@@ -178,7 +203,21 @@ const styles = StyleSheet.create({
     minWidth: size.target,
     paddingHorizontal: spacing.lg,
   },
+  compact: {
+    borderRadius: radius.pill,
+    gap: spacing.xs + 2,
+    minHeight: size.compact,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  compactLabel: { fontSize: 15, lineHeight: 20 },
   filled: { minHeight: size.button, paddingVertical: spacing.sm },
+  outline: {
+    backgroundColor: 'transparent',
+    borderRadius: radius.field,
+    borderWidth: 1,
+    minHeight: size.target,
+  },
   icon: { flexShrink: 0 },
   label: {
     ...typography.button,

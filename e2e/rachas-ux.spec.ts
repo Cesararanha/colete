@@ -307,14 +307,16 @@ test('Usabilidade: create from the group with masks, address search and next-day
     ).toBe(3 * 3_600_000);
 
     // Detail: the board shows only the occupancy; date and time are text at the top.
-    await expect(page.getByRole('heading', { name: 'Quadra do Zé', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('match-fact-where')).toContainText('Quadra do Zé');
     await expect(page.getByTestId('match-scoreboard')).toHaveAttribute(
       'aria-label',
       '0 de 14 vagas confirmadas',
     );
-    await expect(
-      page.getByText(/^[A-Z][a-zá]{2}, \d{1,2} [a-zç]{3} · 22:00–01:00$/u),
-    ).toBeVisible();
+    // Prévia aprovada: the date is the title, the time and the next day under it.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      /^[A-Z][a-zá]{2}, \d{1,2} [a-zç]{3}$/u,
+    );
+    await expect(page.getByTestId('match-fact-when')).toContainText('22:00–01:00 (+1 dia)');
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'ux-02-detalhe-topo.png');
     expect(
@@ -371,7 +373,7 @@ test('Usabilidade: the Agenda tab lists my matches of every group with the group
     await createMatch(request, owner, first, { days: 2, place: 'Arena Central' });
     await login(page, owner);
     const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
-    for (const [index, name] of ['Grupos', 'Agenda', 'Perfil'].entries()) {
+    for (const [index, name] of ['Grupos', 'Agenda'].entries()) {
       await expect(navigation.getByRole('link').nth(index)).toHaveAccessibleName(name);
     }
     await navigation.getByRole('link', { name: 'Agenda' }).click();
@@ -550,7 +552,7 @@ test('Usabilidade: "Ver distância" computes on the device, granted and denied',
     });
     await login(page, owner);
     await page.goto(`/rachas/${withPlace}`);
-    await expect(page.getByRole('heading', { name: 'Praça da Sé', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('match-fact-where')).toContainText('Praça da Sé');
     await page.getByRole('button', { name: 'Ver distância' }).click();
     await expect(page.getByTestId('match-distance-result')).toHaveText('a 2,6 km de você');
     expect(page.url()).not.toMatch(/23[.,]56|46[.,]65/);
@@ -560,7 +562,7 @@ test('Usabilidade: "Ver distância" computes on the device, granted and denied',
 
     // No coordinates, no button.
     await page.goto(`/rachas/${withoutPlace}`);
-    await expect(page.getByRole('heading', { name: 'Sem mapa', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('match-fact-where')).toContainText('Sem mapa');
     await expect(page.getByTestId('match-distance-button')).toHaveCount(0);
 
     // Denied: a clear text, and no distance.

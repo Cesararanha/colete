@@ -157,7 +157,7 @@ test('Ajustes: the first access takes the whole profile, with the edit rules', a
       shirt_number: 10,
     });
     await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
-    await page.getByRole('link', { name: 'Perfil', exact: true }).click();
+    await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
     await expect(page.getByTestId('profile-value-nickname')).toHaveText('Aninha');
     await expect(page.getByTestId('profile-value-position')).toHaveText('Atacante');
     await expect(page.getByTestId('profile-value-dominant-foot')).toHaveText('Direita');
@@ -188,8 +188,8 @@ test('Ajustes: titles stand alone, hints are gone, and signing out is last and c
     await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
 
     await page.goto(`/grupos/${groupId}`);
-    await expect(page.getByRole('heading', { level: 1, name: 'Detalhe do grupo' })).toBeVisible();
-    await expect(page.getByText('Grupo Limpo').first()).toBeVisible();
+    // Prévia aprovada: the group's name is the title, with no label above it.
+    await expect(page.getByRole('heading', { level: 1, name: 'Grupo Limpo' })).toBeVisible();
     await expect(page.getByText('Seu grupo', { exact: true })).toHaveCount(0);
     await shot(page, testInfo.project.name, 'aj-02-grupo-sem-rotulo.png');
 
@@ -211,7 +211,7 @@ test('Ajustes: titles stand alone, hints are gone, and signing out is last and c
     await shot(page, testInfo.project.name, 'aj-03-criar-racha-sem-dicas.png');
 
     await page.goto('/perfil');
-    await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+    await expect(page.getByTestId('profile-summary')).toBeVisible();
     await expect(page.getByText('Conta e identidade', { exact: true })).toHaveCount(0);
     // "Sair da conta" is the last block, below security and privacy.
     const settings = (await page.getByTestId('profile-settings-card').boundingBox())!;

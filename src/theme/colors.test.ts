@@ -28,6 +28,27 @@ const textPairs: Pair[] = [
   ['critical', 'surfaceRaised', 4.5],
   ['positive', 'surfaceRaised', 4.5],
   ['info', 'surfaceRaised', 4.5],
+  // Prévia aprovada (PR G): every chip and avatar is text on its soft fill.
+  ['positive', 'positiveSoft', 4.5],
+  ['warning', 'warningSoft', 4.5],
+  ['info', 'infoSoft', 4.5],
+  ['critical', 'criticalSoft', 4.5],
+  ['primary', 'primarySoft', 4.5],
+  ['accent', 'accentSoft', 4.5],
+  ['text', 'avatar', 4.5],
+  ['textSoft', 'surfaceRaised', 4.5],
+  ['onPositive', 'positive', 4.5],
+  ['onWarning', 'warning', 4.5],
+  ['onPrimary', 'primary', 4.5],
+  // Cards of the prévia sit on surface, not surfaceRaised.
+  ['textSoft', 'surface', 4.5],
+  ['positive', 'surface', 4.5],
+  ['warning', 'surface', 4.5],
+  ['info', 'surface', 4.5],
+  ['critical', 'surface', 4.5],
+  ['accent', 'surface', 4.5],
+  // Labels inside the scoreboard use its own tokens, identical in both themes.
+  ['digitDim', 'scoreboard', 4.5],
 ];
 
 const componentPairs: Pair[] = [
@@ -43,6 +64,13 @@ const componentPairs: Pair[] = [
   ['focusOnBand', 'brandBand', 3],
   // textMuted as a functional icon colour.
   ['textMuted', 'surfaceRaised', 3],
+  // The filled part of an occupancy bar against its track (the count is also text).
+  ['positive', 'track', 3],
+  ['warning', 'track', 3],
+  ['info', 'track', 3],
+  ['critical', 'track', 3],
+  // The outline of an outline button, on the screen and inside a card.
+  ['fieldBorder', 'surface', 3],
 ];
 
 describe('theme contrast', () => {

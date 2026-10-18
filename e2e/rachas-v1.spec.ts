@@ -189,11 +189,11 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     );
     await simulateAddressSearch(page);
 
-    // Real tabs: three entries, Rachas among them.
+    // Real tabs: Grupos and Agenda; the profile is the avatar at the top right.
     await login(page, owner);
     const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
-    await expect(navigation.getByRole('link')).toHaveCount(3);
-    for (const [index, name] of ['Grupos', 'Agenda', 'Perfil'].entries()) {
+    await expect(navigation.getByRole('link')).toHaveCount(2);
+    for (const [index, name] of ['Grupos', 'Agenda'].entries()) {
       await expect(navigation.getByRole('link').nth(index)).toHaveAccessibleName(name);
     }
     await navigation.getByRole('link', { name: 'Agenda' }).click();
@@ -262,10 +262,11 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     // Detail: the scoreboard shows the real occupancy, confirmed over slots.
     await expect(page).toHaveURL(/\/rachas\/[0-9a-f-]{36}$/);
     const matchUrl = new URL(page.url()).pathname;
-    await expect(page.getByRole('heading', { name: 'Arena da Vila', level: 1 })).toBeVisible();
+    // The date is the title (prévia aprovada); the place leads the place card.
+    await expect(page.getByTestId('match-fact-where')).toContainText('Arena da Vila');
     await expect(page.getByTestId('match-create-submit')).toHaveCount(0);
     await expect(page.getByRole('img', { name: '0 de 14 vagas confirmadas' })).toBeVisible();
-    await expect(page.getByTestId('match-fact-when')).toContainText('das 19:30 às 21:00');
+    await expect(page.getByTestId('match-fact-when')).toContainText('19:30–21:00');
     await expect(page.getByTestId('match-fact-price')).toContainText('R$ 25,50');
     await expect(page.getByTestId('match-fact-group')).toContainText('Racha de Quinta');
     const about = page.getByTestId('match-fact-description');
@@ -351,15 +352,13 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
       await expect(page).toHaveURL(/\/rachas$/);
       await expectOneParent(page, 'match-list-card', 'match-back');
     }
-    await expect(page.getByTestId('matches-scoreboard')).toHaveAttribute(
-      'aria-label',
-      /às 19:30, 14 vagas$/,
-    );
+    // The Agenda has no scoreboard any more: the card says the state.
+    await expect(page.getByTestId('match-card-state')).toHaveText('14 vagas abertas');
     await shot(page, testInfo.project.name, '04-lista-rachas.png');
     await navigation.getByRole('link', { name: 'Grupos' }).click();
     await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
-    await navigation.getByRole('link', { name: 'Perfil' }).click();
-    await expect(page.getByRole('heading', { name: 'Perfil', level: 1 })).toBeVisible();
+    await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
+    await expect(page.getByTestId('profile-summary')).toBeVisible();
     // Direct URL: the list is not in the stack, so the back replaces the detail.
     await page.goto(matchUrl);
     await expect(page.getByTestId('match-scoreboard')).toBeVisible();
@@ -412,7 +411,7 @@ test('Rachas: without a chosen search result no position is sent', async ({
     const sent = (await created).request().postDataJSON() as { config: Record<string, unknown> };
     expect(sent.config['latitude']).toBeNull();
     expect(sent.config['longitude']).toBeNull();
-    await expect(page.getByRole('heading', { name: 'Arena da Vila', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('match-fact-where')).toContainText('Arena da Vila');
   } finally {
     await cleanActors(authIds, db);
     await db.end();

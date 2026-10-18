@@ -334,9 +334,9 @@ test.describe('M1-A authentication', () => {
       await expect(page).toHaveTitle('Grupos · Colete');
       await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
       await expect(page).toHaveURL(/\/grupos$/u);
-      await page.getByRole('link', { name: 'Perfil', exact: true }).click();
+      await page.getByTestId('profile-avatar-link').filter({ visible: true }).first().click();
       await expect(page).toHaveTitle('Perfil · Colete');
-      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(page.getByTestId('profile-summary')).toBeVisible();
       // Read mode: the data is text, not open fields, and leaving is at the top.
       await expect(page.getByTestId('profile-value-name')).toHaveText(account.name);
       await expect(page.getByTestId('profile-value-nickname')).toHaveText('Sem apelido');
@@ -353,7 +353,7 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByTestId('profile-deletion-card')).toBeVisible();
       await assertAccessible(page);
       await page.getByRole('link', { name: 'Voltar ao perfil' }).click();
-      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(page.getByTestId('profile-summary')).toBeVisible();
       await expect(page.getByTestId('profile-export-card')).toHaveCount(0);
       await expect(page.getByTestId('profile-deletion-card')).toHaveCount(0);
       await expect(page.getByTestId('profile-provider-card')).toHaveCount(0);
@@ -601,7 +601,7 @@ test.describe('M1-A authentication', () => {
         refreshStoredSession(secondPage, env.apiUrl, env.publishableKey),
       ).resolves.toEqual({ ok: false, status: 400 });
       await page.getByRole('button', { name: 'Voltar ao perfil' }).click();
-      await expect(page.getByRole('heading', { level: 1, name: 'Perfil' })).toBeVisible();
+      await expect(page.getByTestId('profile-summary')).toBeVisible();
 
       thirdContext = await browser.newContext({
         colorScheme: 'light',
@@ -659,9 +659,19 @@ test.describe('M1-A authentication', () => {
           status: 500,
         }),
       );
+      // A failed read is read once, not in a loop: a fetching observer in the
+      // top bar once remounted with the gate and refetched thousands of times.
+      let profileReads = 0;
+      const countProfileRead = (request: { url: () => string }) => {
+        if (new URL(request.url()).pathname === '/rest/v1/profiles') profileReads += 1;
+      };
+      networkPage.on('request', countProfileRead);
       await networkPage.goto('http://127.0.0.1:4173/perfil');
       await expect(networkPage.getByRole('alert')).toContainText('Confira sua conexão');
       await expect(networkPage.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+      await networkPage.waitForTimeout(1_000);
+      networkPage.off('request', countProfileRead);
+      expect(profileReads).toBeLessThanOrEqual(2);
       await networkPage.unroute('**/rest/v1/profiles**');
       await networkPage.getByRole('button', { name: 'Tentar de novo' }).click();
       await expect(networkPage.getByTestId('profile-data-card')).toBeVisible();
