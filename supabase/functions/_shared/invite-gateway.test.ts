@@ -14,6 +14,8 @@ const page = {
   viewer_status: null,
   group_id: null,
   refusal: null,
+  group_icon: 'trophy',
+  group_color: 'sand',
 };
 const key = Uint8Array.from({ length: 32 }, (_, index) => index);
 const actor = {
@@ -336,7 +338,7 @@ describe('dispatcher de convites do gateway produtivo', () => {
     }
   });
 
-  it('a página do convite deixa sair só os seis campos, e o id só para membro ativo', async () => {
+  it('a página do convite deixa sair só os oito campos, e o id só para membro ativo', async () => {
     const groupId = '26200000-0000-4000-8000-000000000001';
     const extra = { ...page, members: [{ profile_id: groupId }], email: 'x@example.invalid' };
     expect(invitePageProjection(extra)).toEqual(page);
@@ -353,6 +355,10 @@ describe('dispatcher de convites do gateway produtivo', () => {
       { ...page, group_id: groupId },
       { ...page, viewer_status: 'pending', group_id: groupId },
       { ...page, viewer_status: 'active', group_id: null },
+      { ...page, group_icon: undefined },
+      { ...page, group_icon: 'rocket' },
+      { ...page, group_color: '#FF0000' },
+      { ...page, group_color: 'Azul' },
     ]) {
       expect(() => invitePageProjection(invalid)).toThrow();
     }

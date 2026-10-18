@@ -443,10 +443,16 @@ describe('UI-B group targets and transport', () => {
     await client.setMemberRole('group', 'target', 'organizer').execute();
     await client.renameGroup('group', 'New name').execute();
     await client.transferOwnership('group', 'target').execute();
+    await client.setGroupAppearance('group', 'flame', 'lilac').execute();
     expect(calls.map((call) => call.url)).toEqual(
-      ['approve_member', 'remove_member', 'set_role', 'rename_group', 'transfer_ownership'].map(
-        (name) => `http://local.test/functions/v1/groups/${name}`,
-      ),
+      [
+        'approve_member',
+        'remove_member',
+        'set_role',
+        'rename_group',
+        'transfer_ownership',
+        'set_group_appearance',
+      ].map((name) => `http://local.test/functions/v1/groups/${name}`),
     );
     expect(calls.map((call) => call.body)).toEqual([
       { request_id: REQUEST_ID, group_id: 'group', profile_id: 'target', approve: true },
@@ -454,6 +460,7 @@ describe('UI-B group targets and transport', () => {
       { request_id: REQUEST_ID, group_id: 'group', profile_id: 'target', role: 'organizer' },
       { request_id: REQUEST_ID, group_id: 'group', name: 'New name' },
       { request_id: REQUEST_ID, group_id: 'group', new_owner_id: 'target' },
+      { request_id: REQUEST_ID, group_id: 'group', icon: 'flame', color: 'lilac' },
     ]);
   });
   it('does not relax rejection of nested actor fields inside a business target', () => {

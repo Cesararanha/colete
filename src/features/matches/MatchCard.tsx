@@ -3,6 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'rea
 
 import { Chip } from '@/components/ui/Chip';
 import { GroupIcon } from '@/components/ui/GroupIcon';
+import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import type { MatchOccupancy, MatchSummary } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
@@ -111,7 +112,10 @@ export function MatchCard({
             <View aria-hidden style={styles.body}>
               {showGroup ? (
                 <View style={styles.meta}>
-                  <GroupIcon size={16} />
+                  <GroupIcon
+                    appearance={groupAppearance(match.group_icon, match.group_color)}
+                    size={16}
+                  />
                   <Text
                     style={[styles.metaText, { color: colors.textMuted }]}
                     testID="match-card-group"

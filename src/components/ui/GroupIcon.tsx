@@ -1,25 +1,55 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import type { ComponentProps } from 'react';
 import { View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
-import { GROUP_ICON_TILE } from './group-icon';
+import { groupColors, groupIconTile, type GroupAppearance, type GroupIconKey } from './group-icon';
+
+// Native has no inline SVG without a new dependency, so it draws the nearest
+// glyph of the icon font already shipped; the web file draws the prévia's own
+// outlines. The goal has no glyph of its own in the free set: the net grid
+// stands in for it.
+const GLYPHS: Record<GroupIconKey, ComponentProps<typeof MaterialCommunityIcons>['name']> = {
+  ball: 'soccer',
+  goal: 'grid',
+  field: 'soccer-field',
+  whistle: 'whistle-outline',
+  shirt: 'tshirt-crew-outline',
+  trophy: 'trophy-outline',
+  bolt: 'lightning-bolt-outline',
+  flame: 'fire',
+};
+
+/** One of the eight glyphs, alone: the picker draws its own buttons around it. */
+export function GroupGlyph({
+  color,
+  icon,
+  size,
+}: {
+  color: string;
+  icon: GroupIconKey;
+  size: number;
+}) {
+  return <MaterialCommunityIcons color={color} name={GLYPHS[icon]} size={size} />;
+}
 
 /**
- * The group's icon: this PR draws the ball, in blue, for every group; the
- * owner's choice of icon and colour comes later (PR H). Always decorative:
- * the group's name is written beside it. Native draws the Ionicons ball; the
- * web file draws the prévia's own outline.
+ * The group's icon in the colour the owner chose (PR H). Always decorative:
+ * the group's name is written beside it.
  */
-export function GroupIcon({ size, tile = false }: { size: number; tile?: boolean }) {
+export function GroupIcon({
+  appearance,
+  size,
+  tile = false,
+}: {
+  appearance: GroupAppearance;
+  size: number;
+  tile?: boolean;
+}) {
   const { colors } = useTheme();
-  const glyph = (
-    <Ionicons
-      color={colors.info}
-      name="football-outline"
-      size={tile ? GROUP_ICON_TILE.glyph : size}
-    />
-  );
+  const { glyph, fill } = groupColors(colors, appearance.color);
+  const shape = groupIconTile(size);
   return (
     <View
       accessibilityElementsHidden
@@ -29,8 +59,8 @@ export function GroupIcon({ size, tile = false }: { size: number; tile?: boolean
         tile
           ? {
               alignItems: 'center',
-              backgroundColor: colors.infoSoft,
-              borderRadius: GROUP_ICON_TILE.radius,
+              backgroundColor: fill,
+              borderRadius: shape.radius,
               height: size,
               justifyContent: 'center',
               width: size,
@@ -38,7 +68,7 @@ export function GroupIcon({ size, tile = false }: { size: number; tile?: boolean
           : { alignItems: 'center', height: size, justifyContent: 'center', width: size }
       }
     >
-      {glyph}
+      <GroupGlyph color={glyph} icon={appearance.icon} size={tile ? shape.glyph : size} />
     </View>
   );
 }

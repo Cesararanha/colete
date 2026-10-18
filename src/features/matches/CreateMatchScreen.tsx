@@ -10,6 +10,7 @@ import { AppIcon } from '@/components/ui/AppIcon';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { GroupIcon } from '@/components/ui/GroupIcon';
 import {
   AppError,
   TransportError,
@@ -439,7 +440,7 @@ export function CreateMatchScreen({
                 {pt.matches.create.groupFixed}
               </Text>
               <View style={styles.fixed}>
-                <AppIcon color={colors.textMuted} name="users" size={20} />
+                <GroupIcon appearance={fixedGroup.appearance} size={20} />
                 <Text style={[styles.optionText, { color: colors.text }]}>{fixedGroup.name}</Text>
               </View>
             </View>

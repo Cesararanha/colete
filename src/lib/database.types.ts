@@ -137,7 +137,9 @@ export type Database = {
       groups: {
         Row: {
           archived_at: string | null;
+          color: string;
           created_at: string;
+          icon: string;
           id: string;
           monthly_enabled: boolean;
           name: string;
@@ -148,7 +150,9 @@ export type Database = {
         };
         Insert: {
           archived_at?: string | null;
+          color?: string;
           created_at?: string;
+          icon?: string;
           id?: string;
           monthly_enabled?: boolean;
           name: string;
@@ -159,7 +163,9 @@ export type Database = {
         };
         Update: {
           archived_at?: string | null;
+          color?: string;
           created_at?: string;
+          icon?: string;
           id?: string;
           monthly_enabled?: boolean;
           name?: string;
@@ -414,6 +420,8 @@ export type Database = {
           ends_at: string;
           field_price: number;
           field_slots: number;
+          group_color: string;
+          group_icon: string;
           group_id: string;
           group_name: string;
           id: string;
@@ -547,6 +555,8 @@ export type Database = {
           ends_at: string;
           field_price: number;
           field_slots: number;
+          group_color: string;
+          group_icon: string;
           group_id: string;
           group_name: string;
           id: string;
@@ -649,6 +659,20 @@ export type Database = {
           p_hash_key_version: number;
           p_input_hmac: string;
           p_invite_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      set_group_appearance: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_color: string;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_icon: string;
+          p_input_hmac: string;
           p_request_id: string;
         };
         Returns: Json;

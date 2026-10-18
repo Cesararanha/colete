@@ -76,7 +76,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   const requests = members.data?.filter((member) => member.status === 'pending').length ?? 0;
   const intro = group ? (
     <View style={styles.intro} testID="group-detail-card">
-      <GroupIcon size={56} tile />
+      <GroupIcon appearance={group.appearance} size={56} tile />
       <View style={styles.introText}>
         <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
           {group.name}

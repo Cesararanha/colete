@@ -47,6 +47,21 @@ const textPairs: Pair[] = [
   ['info', 'surface', 4.5],
   ['critical', 'surface', 4.5],
   ['accent', 'surface', 4.5],
+  // Group colours (PR H): the glyph on its tile, on cards and on the screen.
+  ['lilac', 'lilacSoft', 4.5],
+  ['sand', 'sandSoft', 4.5],
+  ['lilac', 'surface', 4.5],
+  ['sand', 'surface', 4.5],
+  ['lilac', 'surfaceRaised', 4.5],
+  ['sand', 'surfaceRaised', 4.5],
+  ['accent', 'surfaceRaised', 4.5],
+  // The check on the selected swatch is drawn in the background colour.
+  ['background', 'info', 4.5],
+  ['background', 'positive', 4.5],
+  ['background', 'warning', 4.5],
+  ['background', 'accent', 4.5],
+  ['background', 'lilac', 4.5],
+  ['background', 'sand', 4.5],
   // Labels inside the scoreboard use its own tokens, identical in both themes.
   ['digitDim', 'scoreboard', 4.5],
 ];
@@ -69,6 +84,12 @@ const componentPairs: Pair[] = [
   ['warning', 'track', 3],
   ['info', 'track', 3],
   ['critical', 'track', 3],
+  // A colour swatch and the ring of the selected icon against the screen.
+  ['info', 'background', 3],
+  ['positive', 'background', 3],
+  ['accent', 'background', 3],
+  ['lilac', 'background', 3],
+  ['sand', 'background', 3],
   // The outline of an outline button, on the screen and inside a card.
   ['fieldBorder', 'surface', 3],
 ];

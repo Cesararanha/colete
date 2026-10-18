@@ -210,14 +210,21 @@ anteriores divergem, vale esta seção, que é a decisão mais recente.
   `fieldBorder` ou `critical`) e a opção `compact` (pílula de 44 px).
 - **Tokens novos** (`src/theme/colors.ts`): `positiveSoft`, `warningSoft`, `infoSoft`,
   `criticalSoft`, `primarySoft`, `accent`, `accentSoft`, `avatar`, `textSoft`,
-  `onPositive`, `onWarning`, `track` e `divider`. O teste de contraste calcula cada par
+  `onPositive`, `onWarning`, `track` e `divider`; o PR H acrescentou `lilac`,
+  `lilacSoft`, `sand` e `sandSoft`. O teste de contraste calcula cada par
   de texto sobre fundo (≥ 4,5:1) e cada barra sobre o trilho (≥ 3:1), nos dois temas. No
   tema escuro, o menor par de texto novo é 6,5:1.
 - **Avatar.** Iniciais sobre um de 5 tons, escolhido de forma fixa pelo id do perfil
   (FNV-1a, `avatar-tone.ts`). O avatar é sempre decorativo: o nome está ao lado dele, ou
   no controle que o contém. Conta excluída usa a camada neutra.
-- **Ícone do grupo.** Neste PR, todo grupo usa a bola em azul (`GroupIcon`, SVG inline
-  no web). A escolha pelo dono fica para o PR H.
+- **Ícone do grupo.** O dono escolhe o ícone (bola, gol, campo, apito, camisa, troféu,
+  raio ou chama) e a cor (azul, verde, laranja, rosa, lilás ou areia) na tela "Ícone do
+  grupo", aberta por Configurações (PR H, `0027`). Azul, verde, laranja e rosa usam
+  `info`, `positive`, `warning` e `accent` com o fundo `*Soft`; lilás e areia têm
+  `lilac`/`lilacSoft` e `sand`/`sandSoft`. O glifo sobre o fundo suave passa de 4,5:1 nos
+  dois temas (no escuro, o menor é 7,5:1, azul). `GroupIcon` desenha os SVGs da prévia no
+  web e glifos da fonte de ícones já instalada no nativo. Todo grupo começa como bola
+  azul.
 - **Placares.** A Agenda e o Grupo perderam o placar. O Racha mantém um: confirmados
   sobre vagas, com o chip de estado e a barra.
 - **Dados que a prévia mostra e o contrato não tem:** posição na fila no cartão da Agenda

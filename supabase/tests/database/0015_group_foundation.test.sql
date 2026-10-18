@@ -21,8 +21,8 @@ select set_eq(
   $$select column_name::text from information_schema.columns
     where table_schema = 'public' and table_name = 'groups'$$,
   array['id', 'name', 'photo_url', 'owner_id', 'monthly_enabled', 'ratings_visibility',
-        'suspended_at', 'archived_at', 'created_at'],
-  'groups tem exatamente as colunas de docs/10 §3'
+        'suspended_at', 'archived_at', 'created_at', 'icon', 'color'],
+  'groups tem exatamente as colunas de docs/10 §3 (icon e color pela 0027)'
 );
 select set_eq(
   $$select column_name::text from information_schema.columns
@@ -318,7 +318,7 @@ select set_eq(
   array[
     'groups.id:SELECT', 'groups.name:SELECT', 'groups.owner_id:SELECT',
     'groups.monthly_enabled:SELECT', 'groups.ratings_visibility:SELECT',
-    'groups.suspended_at:SELECT',
+    'groups.suspended_at:SELECT', 'groups.icon:SELECT', 'groups.color:SELECT',
     'group_members.group_id:SELECT', 'group_members.profile_id:SELECT',
     'group_members.role:SELECT', 'group_members.status:SELECT',
     'group_members.is_monthly:SELECT', 'group_members.joined_at:SELECT',

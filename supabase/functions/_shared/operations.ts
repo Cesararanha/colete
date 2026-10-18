@@ -25,6 +25,7 @@ export const IDENTITY_OPERATIONS = [
 // the invite slice and is not here. create_match is the Rachas v1 cut of
 // docs/13 section 3.1 (docs/25 section 8.1); join_match, leave_match and
 // set_match_payment are the Racha completo cut of sections 1.1, 1.2 and 2.6.
+// set_group_appearance is section 5.0.7, the owner's icon and colour (0027).
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -34,6 +35,7 @@ export const GROUP_OPERATIONS = [
   'transfer_ownership',
   'leave_group',
   'rename_group',
+  'set_group_appearance',
   'create_match',
   'join_match',
   'leave_match',
@@ -56,6 +58,18 @@ const DOCUMENT_TYPES = ['terms', 'privacy'];
 const VERSION_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ROLES = ['organizer', 'player'];
 const VISIBILITIES = ['private', 'members'];
+// docs/13 section 5.0.7: the keys the database stores, never the labels.
+export const GROUP_ICONS = [
+  'ball',
+  'goal',
+  'field',
+  'whistle',
+  'shirt',
+  'trophy',
+  'bolt',
+  'flame',
+] as const;
+export const GROUP_COLORS = ['blue', 'green', 'orange', 'pink', 'lilac', 'sand'] as const;
 
 // Names that belong only to the internal call. Seeing one in an external body
 // is not a stray key, it is a client trying to supply its own actor or its own
@@ -294,6 +308,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     transfer_ownership: ['request_id', 'group_id', 'new_owner_id'],
     leave_group: ['request_id', 'group_id'],
     rename_group: ['request_id', 'group_id', 'name'],
+    set_group_appearance: ['request_id', 'group_id', 'icon', 'color'],
     create_match: ['request_id', 'group_id', 'config'],
     join_match: ['request_id', 'match_id'],
     leave_match: ['request_id', 'match_id'],
@@ -422,6 +437,16 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         canonicalInput: {
           group_id: requiredUuid(record['group_id'], 'group_id'),
           name: normaliseGroupName(record['name']),
+        },
+      };
+    case 'set_group_appearance':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          icon: requiredEnum(record['icon'], 'icon', GROUP_ICONS),
+          color: requiredEnum(record['color'], 'color', GROUP_COLORS),
         },
       };
     case 'create_match': {
