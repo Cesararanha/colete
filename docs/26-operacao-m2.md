@@ -2833,3 +2833,21 @@ cancelado no passo seguinte. Na base o mesmo job levou 18 min 5 s no #75 e
 24 min 19 s no #74; o passo de grupos sozinho variou de 363 s a 602 s entre
 runners. O spec novo custava 51 s nos dois projetos e passou a rodar só no
 mobile. A folga do job é pequena para qualquer e2e novo.
+
+**Correção do P1 da revisão.** Com o grupo travado por outra transação, a
+prévia de convite revogado, expirado ou esgotado respondia em ~1,23 s, e a de
+código inexistente em 30–47 ms: o tempo revelava o convite. A `0026` (ainda
+não aplicada em ambiente nenhum) passou a ter o corpo `STABLE` e sem trava
+nenhuma. O ator é conferido antes do lookup, o `CODE_INVALID` sai só pela
+linha do convite, e grupo e membership são lidos sem trava, apenas para
+convite vivo. O resgate segue com as travas da M2-D13.
+
+| Prova | Resultado |
+|---|---|
+| db:test:invites, prévia com grupo, convite e memberships em `FOR UPDATE` | código e link × inexistente, revogado, expirado, esgotado e vivo: nunca em espera de Lock, todos terminam com a trava presa (0,5–2,4 ms) |
+| mesmo harness com o corpo de `c118363` | exit 1: "preview code revogado under held group: waited on the holder's lock" |
+| mutantes no harness | trava no corpo `STABLE` recusada pelo PostgreSQL; em `VOLATILE` com a trava do grupo, o detector vê a espera nos três terminais e não no inexistente |
+| sonda do revisor, sem alteração | para em "must observe PostgreSQL lock barrier": não há mais barreira |
+| sonda do revisor, só medindo | com a trava presa: existente 18,9 / 25,6 / 49,1 ms; inexistente 26,6 / 49,7 / 49,3 ms; todos 400 `CODE_INVALID`; limitador 20 → 429 |
+| db:test | 24 arquivos, 1549 asserções (`0026`: 55) |
+| demais itens de §5 | exit 0; test:groups:web 75 + 5 skip, qr 30, vitest 587; test:auth:web segue com a falha `:450` da base |

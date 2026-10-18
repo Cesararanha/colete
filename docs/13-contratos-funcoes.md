@@ -899,11 +899,14 @@ de domínio. Cada requisição tem correlação no envelope e debita o limitador
 inclusive repetição da leitura. Quem chama é o titular autenticado com conta
 ativa e aceite em dia; não precisa ser membro do grupo do convite (M2-D28).
 
-Depois da RPC estreita do limitador, a RPC de preview resolve IDs sem lock e
-trava perfil próprio → grupo → membership própria, se existente → convite
-em `FOR NO KEY UPDATE`; o modo de lock segue a M2-D13.
-Revalida material e estado sob locks. Não incrementa `used_count`, não cria
-membership ou pedido, não atualiza `last_requested_at` e não muda papel.
+Depois da RPC estreita do limitador, a RPC de preview é só leitura e não pega
+trava nenhuma (`0026`, P1 da revisão do #76): confere o ator, faz o lookup do
+convite e decide `CODE_INVALID` só pela linha do convite, sem esperar trava de
+grupo, membership ou convite, para que o tempo de resposta não revele um
+código que existiu. Só o convite vivo lê grupo e membership própria, sem
+trava, numa única foto. A revalidação sob locks da M2-D13 fica no resgate.
+Não incrementa `used_count`, não cria membership ou pedido, não atualiza
+`last_requested_at` e não muda papel.
 
 **Página do convite (decisão humana de César, 18/10/2026; `0026`).** A
 resposta de sucesso é exatamente

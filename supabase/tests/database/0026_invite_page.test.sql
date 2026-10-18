@@ -25,6 +25,13 @@ from unnest(array['anon','authenticated','service_role']) as roles(role);
 select ok(prosecdef and proconfig = array['search_path=""'],
   'corpo privado é security definer com search_path vazio')
 from pg_proc where oid='private.preview_group_invite(uuid,uuid,uuid,smallint,text,text)'::regprocedure;
+-- A prévia é só leitura: STABLE impede FOR UPDATE/SHARE no corpo, e nenhum
+-- código, existente ou não, espera trava (prova com barreira no harness).
+select is(provolatile,'s','corpo privado é STABLE, sem trava de linha')
+from pg_proc where oid='private.preview_group_invite(uuid,uuid,uuid,smallint,text,text)'::regprocedure;
+select ok(prosrc !~* 'for\s+(no\s+key\s+)?(update|share)|for\s+key\s+share',
+  'corpo privado não contém cláusula de trava')
+from pg_proc where oid='private.preview_group_invite(uuid,uuid,uuid,smallint,text,text)'::regprocedure;
 
 -- Atores sintéticos: dono (com apelido), pendente, membro ativo, membro ativo
 -- em exclusão (não conta), pessoa de fora e pessoa de fora no limite de grupos.

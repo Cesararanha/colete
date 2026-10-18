@@ -6,8 +6,18 @@
 -- A prévia continua sendo preview_group_by_code / preview_group_by_invite,
 -- chamadas só pela Edge groups com o contexto do autor e depois do mesmo
 -- limitador de tentativas da 0017 (check_and_debit_invite_attempt). As
--- assinaturas públicas, os grants e a ordem de locks (perfil → grupo →
--- membership própria → convite, M2-D13) não mudam; muda só o corpo privado.
+-- assinaturas públicas e os grants não mudam; muda só o corpo privado.
+--
+-- A prévia é só leitura e não pega trava nenhuma. Com as travas da 0017
+-- (perfil → grupo → membership → convite, antes de olhar o estado), um código
+-- que existiu esperava por quem segurasse o grupo e um inexistente não: o
+-- tempo de resposta revelava o convite (P1 da revisão do #76). Agora todo
+-- código passa pelas mesmas checagens do ator, por um lookup sem trava e, se
+-- não for um convite vivo, sai no mesmo CODE_INVALID, sem tocar no grupo. Só
+-- um convite vivo lê o grupo, sempre sem trava, numa única foto da transação.
+-- A função é STABLE: o PostgreSQL recusa FOR UPDATE/SHARE dentro dela, e uma
+-- trava reintroduzida quebra a chamada em vez de reabrir o canal. O resgate
+-- continua revalidando tudo sob as travas da M2-D13.
 --
 -- Mudanças de contrato (docs/13 §5.0.2, docs/25 §5.3, docs/11 tela 12):
 --   * convite inexistente, revogado, expirado ou esgotado dá a mesma resposta,
@@ -29,7 +39,7 @@ create or replace function private.preview_group_invite(
   p_actor_auth_user_id uuid, p_actor_session_id uuid,
   p_invite_id uuid, p_token_version smallint, p_token_digest text,
   p_code_digest text
-) returns jsonb language plpgsql volatile security definer set search_path = '' as $function$
+) returns jsonb language plpgsql stable security definer set search_path = '' as $function$
 declare
   v_actor_id uuid;
   v_invite public.group_invites%rowtype;
@@ -42,7 +52,9 @@ declare
   v_owner_name text;
   v_refusal text;
 begin
+  -- O ator é conferido antes do lookup, igual para todo código.
   v_actor_id := private.require_actor_context(p_actor_auth_user_id, p_actor_session_id);
+  perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
   if p_code_digest is not null then
     if p_code_digest !~ '^[0-9a-f]{64}$' then
       raise exception using errcode='22023', message='CODE_INVALID';
@@ -56,16 +68,11 @@ begin
     end if;
     select * into v_invite from public.group_invites where id=p_invite_id;
   end if;
-  if not found then raise exception using errcode='22023', message='CODE_INVALID'; end if;
-  perform 1 from public.profiles where id=v_actor_id for no key update;
-  select * into v_group from public.groups where id=v_invite.group_id for no key update;
-  select * into v_membership from public.group_members
-    where group_id=v_invite.group_id and profile_id=v_actor_id for no key update;
-  select * into v_invite from public.group_invites where id=v_invite.id for no key update;
-  perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
-  -- Material divergente e convite terminal têm a mesma resposta: nenhuma
-  -- causa, nenhum grupo. Só um convite vivo chega ao estado do grupo.
-  if (p_code_digest is not null and v_invite.code_digest is distinct from p_code_digest)
+  -- Inexistente, material divergente e convite terminal têm a mesma resposta,
+  -- decidida só pela linha do convite e sem esperar trava: nenhuma causa,
+  -- nenhum grupo. Só um convite vivo chega ao estado do grupo.
+  if not found
+     or (p_code_digest is not null and v_invite.code_digest is distinct from p_code_digest)
      or (p_code_digest is null and (v_invite.token_version is distinct from p_token_version
          or v_invite.token_digest is distinct from p_token_digest))
      or v_invite.revoked_at is not null
@@ -73,6 +80,9 @@ begin
      or v_invite.used_count >= v_invite.max_uses then
     raise exception using errcode='22023', message='CODE_INVALID';
   end if;
+  select * into v_group from public.groups where id=v_invite.group_id;
+  select * into v_membership from public.group_members
+    where group_id=v_invite.group_id and profile_id=v_actor_id;
   if v_group.archived_at is not null then
     raise exception using errcode='P0001', message='GROUP_ARCHIVED';
   elsif v_group.suspended_at is not null then
