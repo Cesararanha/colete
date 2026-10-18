@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { dispatchInvite, inviteShareUrl, normaliseGroupName } from './invite-gateway.ts';
+import {
+  dispatchInvite,
+  invitePageProjection,
+  inviteShareUrl,
+  normaliseGroupName,
+} from './invite-gateway.ts';
 import type { InviteDependencies } from './invite-gateway.ts';
 
+const page = {
+  group_name: 'Teste',
+  member_count: 3,
+  owner_name: 'Dona',
+  viewer_status: null,
+  group_id: null,
+  refusal: null,
+};
 const key = Uint8Array.from({ length: 32 }, (_, index) => index);
 const actor = {
   authUserId: '17000000-0000-4000-8000-000000000001',
@@ -234,7 +247,7 @@ describe('dispatcher de convites do gateway produtivo', () => {
               available_at: null,
             },
           };
-        if (name === 'preview_group_by_code') return { data: { group_name: 'Teste' } };
+        if (name === 'preview_group_by_code') return { data: page };
         return { data: null };
       }),
       'preview_group_by_code',
@@ -246,7 +259,7 @@ describe('dispatcher de convites do gateway produtivo', () => {
       'mark_invite_attempt_success',
     ]);
     expect(result.status).toBe(200);
-    expect(result.body.data).toEqual({ group_name: 'Teste' });
+    expect(result.body.data).toEqual(page);
   });
 
   it('falha da marcação conserva sucesso do domínio sem reexecutá-lo', async () => {
@@ -263,7 +276,7 @@ describe('dispatcher de convites do gateway produtivo', () => {
               available_at: null,
             },
           };
-        if (name === 'preview_group_by_code') return { data: { group_name: 'Teste' } };
+        if (name === 'preview_group_by_code') return { data: page };
         return { error: { message: 'mark failed' } };
       }),
       'preview_group_by_code',
@@ -321,5 +334,54 @@ describe('dispatcher de convites do gateway produtivo', () => {
     for (const field of ['p_invite_id', 'p_nonce_hex', 'p_token_digest', 'p_code_digest']) {
       expect(attempts[1]?.[field]).not.toBe(attempts[0]?.[field]);
     }
+  });
+
+  it('a página do convite deixa sair só os seis campos, e o id só para membro ativo', async () => {
+    const groupId = '26200000-0000-4000-8000-000000000001';
+    const extra = { ...page, members: [{ profile_id: groupId }], email: 'x@example.invalid' };
+    expect(invitePageProjection(extra)).toEqual(page);
+    expect(
+      invitePageProjection({ ...page, viewer_status: 'active', group_id: groupId }),
+    ).toMatchObject({ viewer_status: 'active', group_id: groupId });
+    for (const invalid of [
+      null,
+      { ...page, group_name: 1 },
+      { ...page, member_count: -1 },
+      { ...page, member_count: 1.5 },
+      { ...page, viewer_status: 'removed' },
+      { ...page, refusal: 'GROUP_ARCHIVED' },
+      { ...page, group_id: groupId },
+      { ...page, viewer_status: 'pending', group_id: groupId },
+      { ...page, viewer_status: 'active', group_id: null },
+    ]) {
+      expect(() => invitePageProjection(invalid)).toThrow();
+    }
+    const calls: string[] = [];
+    const result = await dispatchInvite(
+      fake(async (name) => {
+        calls.push(name);
+        if (name === 'check_and_debit_invite_attempt')
+          return {
+            data: {
+              allowed: true,
+              attempt_id: crypto.randomUUID(),
+              retry_after: null,
+              available_at: null,
+            },
+          };
+        if (name === 'preview_group_by_invite') return { data: { ...page, group_id: groupId } };
+        return { data: null };
+      }),
+      'preview_group_by_invite',
+      {
+        token:
+          'AYkPfulIfFOxOko25LfSHgABICEiIyQlJicoKSorLC0uLwBkiD3y3keHZQjrN7V9NVqjT_0DhN72hp1weI75F-Dy',
+      },
+    );
+    // A malformed page is an internal failure: nothing of it is sent and the
+    // attempt is not marked as a success.
+    expect(result.status).toBe(500);
+    expect(JSON.stringify(result.body)).not.toContain(groupId);
+    expect(calls).toEqual(['check_and_debit_invite_attempt', 'preview_group_by_invite']);
   });
 });

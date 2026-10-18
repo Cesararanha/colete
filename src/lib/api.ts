@@ -188,6 +188,19 @@ export type GroupInvite = {
   max_uses: number;
   used_count: number;
 };
+/**
+ * The invitation page (0026): what a live code, QR or link shows before the
+ * request. No member list, profile ID or e-mail; the group ID only for an
+ * active member, to open the group.
+ */
+export type InvitePage = {
+  group_name: string;
+  member_count: number;
+  owner_name: string | null;
+  viewer_status: 'active' | 'pending' | null;
+  group_id: string | null;
+  refusal: 'GROUP_FULL' | 'GROUP_LIMIT' | null;
+};
 export type InviteShare = {
   invite_id: string;
   expires_at: string;
@@ -621,10 +634,9 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       mutation<GroupOutcome>('regenerate_group_invite', { invite_id: inviteId }),
     issueGroupInvite: (groupId: string) =>
       mutation<GroupOutcome>('issue_group_invite', { group_id: groupId }),
-    previewGroupByCode: (code: string) =>
-      groupRead<{ group_name: string }>('preview_group_by_code', { code }),
+    previewGroupByCode: (code: string) => groupRead<InvitePage>('preview_group_by_code', { code }),
     previewGroupByInvite: (token: string) =>
-      groupRead<{ group_name: string }>('preview_group_by_invite', { token }),
+      groupRead<InvitePage>('preview_group_by_invite', { token }),
     getMyPendingGroupRequests: () =>
       groupRead<{ group_id: string; group_name: string; status: 'pending' }[]>(
         'get_my_pending_group_requests',

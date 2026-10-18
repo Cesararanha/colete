@@ -271,14 +271,22 @@ async function proveHttp(status, db) {
     await groups(status, joiner, 'preview_group_by_invite', { token: material.token }),
     'preview link',
   );
-  assert.deepEqual(previewCode, { group_name: 'Racha do Bairro' });
+  // 0026: the invitation page, exactly six fields, no member list or ID.
+  assert.deepEqual(previewCode, {
+    group_name: 'Racha do Bairro',
+    member_count: 1,
+    owner_name: 'Invite owner',
+    viewer_status: null,
+    group_id: null,
+    refusal: null,
+  });
   assert.deepEqual(previewLink, previewCode);
   assert.equal(
     (await db.query('select used_count from public.group_invites where id=$1', [inviteId])).rows[0]
       .used_count,
     before,
   );
-  console.log('ok - HTTP preview by code and link returns only group name, without use');
+  console.log('ok - HTTP preview by code and link returns only the invitation page, without use');
 
   const joinId = crypto.randomUUID();
   const joined = ok(
@@ -415,9 +423,9 @@ async function proveHttp(status, db) {
   assert.equal(revoked.outcome.logical_result, 'invite_revoked');
   denied(
     await groups(status, joiner, 'preview_group_by_code', { code: material.code }),
-    409,
-    'INVITE_REVOKED',
-    'revoked preview',
+    400,
+    'CODE_INVALID',
+    'revoked preview is generic (0026)',
   );
   assert.equal(
     (
@@ -921,6 +929,156 @@ async function proveLockCounterexamples(db, connections, context) {
     } finally {
       await db.query(original);
     }
+  }
+}
+
+// P1 da revisão do #76: a prévia é só leitura e não espera trava nenhuma.
+// Com o grupo, o convite e as memberships presos por outra transação, todo
+// código que responde CODE_INVALID (inexistente, revogado, expirado,
+// esgotado), por código e por link, e também o convite vivo, precisam
+// terminar enquanto a trava ainda está presa, sem nunca aparecer em espera
+// de Lock no pg_stat_activity. Antes, só o código que existiu esperava.
+const PREVIEW_SIGNATURE = 'private.preview_group_invite(uuid,uuid,uuid,smallint,text,text)';
+const PREVIEW_HOLD_MS = 1500;
+async function previewWhileGroupHeld({ observer, holder, first }, fixture, call) {
+  const { track, backendPid } = await import('./lock-barrier.mjs');
+  const firstPid = await backendPid(first);
+  const holderPid = await backendPid(holder);
+  await holder.query('begin');
+  let running;
+  let finished;
+  let waited = false;
+  let doneWhileHeld = false;
+  try {
+    await holder.query('select 1 from public.groups where id=$1 for update', [fixture.groupId]);
+    await holder.query('select 1 from public.group_invites where id=$1 for update', [
+      fixture.inviteId,
+    ]);
+    await holder.query('select 1 from public.group_members where group_id=$1 for update', [
+      fixture.groupId,
+    ]);
+    const started = performance.now();
+    running = track(call(first));
+    finished = running.settled.then((result) => ({ result, ms: performance.now() - started }));
+    const deadline = Date.now() + PREVIEW_HOLD_MS;
+    while (!running.state.done && !waited && Date.now() < deadline) {
+      const { rows } = await observer.query(
+        `select wait_event_type, pg_blocking_pids(pid) as blockers
+           from pg_stat_activity where pid=$1`,
+        [firstPid],
+      );
+      waited =
+        rows[0]?.wait_event_type === 'Lock' && rows[0].blockers.map(Number).includes(holderPid);
+      if (!waited) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    doneWhileHeld = running.state.done;
+  } finally {
+    await holder.query('rollback');
+  }
+  const { result, ms } = await finished;
+  return { waited, doneWhileHeld, result, ms: Math.round(ms * 10) / 10 };
+}
+async function setInviteState(db, inviteId, state) {
+  await db.query(
+    `update public.group_invites
+        set revoked_at=case when $2='revogado' then now() end,
+            expires_at=case when $2='expirado' then now()-interval '1 second'
+                            else now()+interval '1 day' end,
+            used_count=case when $2='esgotado' then max_uses else 0 end
+      where id=$1`,
+    [inviteId, state],
+  );
+}
+function previewCalls(fixture, visitor) {
+  const strangerDigest = crypto.randomBytes(32).toString('hex');
+  return {
+    code: (state) => (connection) =>
+      connection.query('select public.preview_group_by_code($1,$2,$3) as page', [
+        visitor.authId,
+        visitor.sessionId,
+        state === 'inexistente' ? strangerDigest : fixture.material.codeDigest,
+      ]),
+    link: (state) => (connection) =>
+      connection.query(
+        'select public.preview_group_by_invite($1,$2,$3,1::smallint,$4) as page',
+        state === 'inexistente'
+          ? [visitor.authId, visitor.sessionId, crypto.randomUUID(), strangerDigest]
+          : [visitor.authId, visitor.sessionId, fixture.inviteId, fixture.material.tokenDigest],
+      ),
+  };
+}
+async function provePreviewWithoutLocks(db, connections) {
+  const [owner, visitor] = await createSqlRaceActors(db, 2, 'preview-lock');
+  const fixture = await createRaceGroup(db, owner);
+  const calls = previewCalls(fixture, visitor);
+  const timings = {};
+  for (const state of ['inexistente', 'revogado', 'expirado', 'esgotado', 'vivo']) {
+    await setInviteState(db, fixture.inviteId, state);
+    for (const kind of ['code', 'link']) {
+      const probe = await previewWhileGroupHeld(connections, fixture, calls[kind](state));
+      const label = `preview ${kind} ${state} under held group`;
+      assert.equal(probe.waited, false, `${label}: waited on the holder's lock`);
+      assert.equal(probe.doneWhileHeld, true, `${label}: did not finish while the lock was held`);
+      assert.ok(probe.ms < PREVIEW_HOLD_MS, `${label}: took ${probe.ms} ms`);
+      if (state === 'vivo') {
+        assert.equal(probe.result.status, 'fulfilled', `${label}: live invite must show the page`);
+        assert.deepEqual(Object.keys(probe.result.value.rows[0].page).sort(), [
+          'group_id',
+          'group_name',
+          'member_count',
+          'owner_name',
+          'refusal',
+          'viewer_status',
+        ]);
+      } else {
+        assert.equal(probe.result.status, 'rejected', `${label}: must be refused`);
+        assert.equal(probe.result.reason.code, '22023', label);
+        assert.equal(probe.result.reason.message, 'CODE_INVALID', label);
+      }
+      timings[`${kind}:${state}`] = probe.ms;
+    }
+  }
+  console.log(
+    `ok - preview never waits on held group/invite/member locks; ms with lock held ${JSON.stringify(timings)}`,
+  );
+
+  // Contraprova: a trava do grupo antes da decisão (o caminho do c118363)
+  // reabre o canal. Em STABLE o PostgreSQL recusa a trava; em VOLATILE o
+  // detector acima precisa ver o convite revogado esperando pelo detentor.
+  const original = (
+    await db.query('select pg_get_functiondef($1::regprocedure) as definition', [PREVIEW_SIGNATURE])
+  ).rows[0].definition;
+  const decision = /\n(\s*)-- Inexistente, material divergente/u;
+  assert.match(original, decision);
+  assert.match(original, /\bSTABLE\b/u);
+  const locked = original.replace(
+    decision,
+    (match, indent) =>
+      `\n${indent}perform 1 from public.groups where id=v_invite.group_id for no key update;${match}`,
+  );
+  await setInviteState(db, fixture.inviteId, 'revogado');
+  try {
+    await db.query(locked);
+    await assert.rejects(
+      calls.code('revogado')(connections.first),
+      /not allowed in a non-volatile function/u,
+      'a lock inside the STABLE preview must be refused by PostgreSQL',
+    );
+    console.log('ok - mutant: a lock in the STABLE preview is refused by PostgreSQL');
+    await db.query(locked.replace(/\bSTABLE\b/u, 'VOLATILE'));
+    for (const state of ['revogado', 'expirado', 'esgotado']) {
+      await setInviteState(db, fixture.inviteId, state);
+      const probe = await previewWhileGroupHeld(connections, fixture, calls.code(state));
+      assert.equal(probe.waited, true, `mutant ${state}: the detector missed the lock wait`);
+      assert.equal(probe.doneWhileHeld, false, `mutant ${state}: finished under the lock`);
+      const unknown = await previewWhileGroupHeld(connections, fixture, calls.code('inexistente'));
+      assert.equal(unknown.waited, false, `mutant ${state}: unknown code also waited`);
+      console.log(
+        `ok - mutant with group lock: ${state} seen waiting on the holder, unknown code did not wait (${unknown.ms} ms)`,
+      );
+    }
+  } finally {
+    await db.query(original);
   }
 }
 
@@ -2275,6 +2433,7 @@ async function main() {
       const context = await proveHttp(status, db);
       await proveTerminalRevocationAndEmptyIssue(status, db);
       await proveNameVectorsHttp(status);
+      await provePreviewWithoutLocks(db, { observer, holder, first });
       await proveUnbarrieredStorm(status, db, { first, second }, 'before');
       await proveSameActorRaces(status, db, { observer, holder, first, second }, context);
       await proveLockCounterexamples(db, { observer, holder, first, second }, context);

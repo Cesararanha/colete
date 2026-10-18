@@ -876,19 +876,23 @@ resgate. Razão: `10` §3 conta `pending + active` na capacidade e uso de convit
 não volta; confirmar depois do resgate faria um código digitado errado ou uma
 desistência consumir uso e vaga do grupo alheio até alguém recusar, e mudaria o
 fluxo de `11` §3. A projeção de preview recebe o mesmo material do resgate, está
-sob o mesmo rate limit, devolve somente o nome do grupo, não consome uso, não
-cria linha, não devolve foto, membros, dono nem contagem e, pela M2-D42, distingue código inexistente de convite terminal com
-erros próprios, sem revelar membership de terceiros. O pedido próprio pendente de
+sob o mesmo rate limit, não consome uso e não cria linha. Pela decisão humana
+de 18/10/2026 (página do convite, §8.1), devolve o nome, a contagem de membros
+ativos, o nome de exibição do dono e o estado próprio do titular, nunca lista
+de membros, IDs de terceiros, e-mail ou foto, e responde `CODE_INVALID` a
+código inexistente e a convite revogado, expirado ou esgotado, sem revelar
+membership de terceiros. O pedido próprio pendente de
 tela 10 recebe pela projeção de memberships do titular somente `group_id`, nome
 do grupo e status. As duas estão registradas em `13` §5.0.2; nomes
 externos/projeções novas
 foram fixados pela M2-D31 antes da `0017`.
 
 O preview e o resgate debitam **o mesmo orçamento de todas as tentativas**
-por perfil (M2-D25/M2-D39); falha de preview também conta. O preview distingue convite existente revogado, expirado ou esgotado:
-`INVITE_REVOKED`, `INVITE_EXPIRED` ou `INVITE_USED` (409); código inexistente
-recebe `CODE_INVALID` (400). Grupo arquivado, suspenso, cheio ou cota pessoal
-seguem os códigos de `13` §5.0.1. Quota antecede toda consulta de material
+por perfil (M2-D25/M2-D39); falha de preview também conta. O preview não
+distingue convite inexistente de revogado, expirado ou esgotado: todos recebem
+`CODE_INVALID` (400) (página do convite, §8.1). Grupo arquivado ou suspenso
+segue os códigos de `13` §5.0.1; grupo cheio e cota pessoal voltam como
+`refusal` da página (`13` §5.0.2). Quota antecede toda consulta de material
 e devolve `RATE_LIMITED` (429) para qualquer código; indisponibilidade do
 contador também antecede o domínio (M2-D42). O resgate distingue as mesmas
 causas pelo mesmo orçamento de 20/h: esse oráculo limitado é aceito
@@ -1269,6 +1273,18 @@ código produtivo.
   distância calculada no aparelho no detalhe, máscaras e validação por campo.
   O GPS sai da criação. A posição da pessoa nunca sai do aparelho. O registro
   completo está em `27`.
+
+- **Página do convite — decisão humana de César, 18/10/2026, AGENTS §8.**
+  Itens 3 e 4 do feedback do teste. Quem tem código, QR ou link vê uma
+  página do grupo antes de pedir para entrar, a mesma pelos três caminhos;
+  sem sessão, o link entra e volta à página. A `0026` redefine só o corpo
+  privado de `preview_group_by_code`/`preview_group_by_invite`, com as mesmas
+  assinaturas, grants, locks e limitador: devolve nome, contagem de membros
+  ativos, nome de exibição do dono, estado próprio (`active`/`pending`), o ID
+  do grupo só ao membro ativo e a recusa de capacidade/cota (`13` §5.0.2).
+  Código inexistente, revogado, expirado ou esgotado recebe a mesma resposta
+  genérica; a distinção da M2-D42 fica só no resgate. Emenda a M2-D28 e a
+  M2-D42 somente no preview. O registro está em `26` e `27`.
 
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
@@ -1719,6 +1735,8 @@ Os rótulos M2-D* não se confundem com as decisões D1–D62 de `09`.
   M2-D28; as provas exigem cada causa, inexistente e precedência da quota.
   O resgate permite inferir existência pelo mesmo orçamento de 20/h do
   preview: esse oráculo limitado é aceito expressamente para o piloto.
+  No preview, a distinção foi substituída pela decisão humana de 18/10/2026
+  (página do convite): o resgate conserva esta decisão.
 - **M2-D43 (decidida por César em 2026-09-30).** A passada manual com leitor de
   tela de `15` §3 acontece uma única vez no gate do piloto e cobre todas as
   telas do piloto. A evidência fica em documento operacional fora do manifesto,

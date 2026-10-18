@@ -1,7 +1,7 @@
 # Colete — Contratos das funções (v2, implementação incremental)
 
 **A API do app: entradas, saídas, autorização, erros e efeitos transacionais.**
-31/08/2026; emendas documentais de 28–30/09/2026 (M2-D22 a M2-D42 e decisões técnicas). Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
+31/08/2026; emendas documentais de 28–30/09/2026 (M2-D22 a M2-D42 e decisões técnicas) e de 18/10/2026 (página do convite, §5.0.2). Fontes: `10-schema-db.md` · `11-telas-v1.md` · `12-notificacoes.md`.
 
 ## 0. Envelope e regras comuns
 
@@ -851,8 +851,8 @@ Sucesso é HTTP 200. Aplicam-se a todos os contratos, quando cabíveis:
 | `NOT_MEMBER`, `NOT_ORGANIZER`, `OWNER_ONLY`, `FORBIDDEN` | 403 | falta de autoridade atual da ação; nunca expor informação de terceiro |
 | `NOT_ACTIVE_MEMBER` | 409 | alvo da operação sem membership `active`; não designa o ator |
 | `NOT_FOUND` | 404 | alvo não encontrado em chamada administrativa autorizada |
-| `CODE_INVALID` | 400 | código inexistente ou material malformado; não confirma convite |
-| `INVITE_REVOKED`, `INVITE_EXPIRED`, `INVITE_USED` | 409 | convite existente revogado, expirado ou esgotado, respectivamente; preview e resgate informam a causa (M2-D42), sem consumir uso |
+| `CODE_INVALID` | 400 | código inexistente ou material malformado; não confirma convite. No preview, também convite revogado, expirado ou esgotado (página do convite, 18/10/2026) |
+| `INVITE_REVOKED`, `INVITE_EXPIRED`, `INVITE_USED` | 409 | convite existente revogado, expirado ou esgotado, respectivamente; o resgate informa a causa (M2-D42), sem consumir uso; o preview responde `CODE_INVALID` |
 | `INVITE_ALREADY_ACTIVE` | 409 | já existe convite vivo no grupo; usar ou encerrar o atual antes de emitir outro |
 | `GROUP_ARCHIVED` | 410 | grupo arquivado não admite a operação |
 | `GROUP_SUSPENDED` | 403 | grupo suspenso não admite a operação |
@@ -873,7 +873,7 @@ na aplicação continua para a `0017`/`0018`.
 
 | Operação | `outcome` contratado (somente mutação) | `current`/dados contratados, somente se autorizados |
 | --- | --- | --- |
-| preview | não há | `{ group_name }` |
+| preview | não há | `{ group_name, member_count, owner_name, viewer_status, group_id, refusal }` (§5.0.2) |
 | criar grupo | `{ group_id, invite_id, logical_result:'group_created' }` | `{ group_id, group_name }`, sem material de convite |
 | pedidos próprios pendentes | não há | array de `{ group_id, group_name, status:'pending' }` |
 | resgate | `{ group_id, invite_id, logical_result, reentry }`, com `membership_requested`, `membership_reentry_requested`, `membership_request_unchanged` ou `membership_already_active`; `reentry` é derivado na resposta, não armazenado | `{ group_id, group_name, status:'pending'|'active' }` |
@@ -899,28 +899,47 @@ de domínio. Cada requisição tem correlação no envelope e debita o limitador
 inclusive repetição da leitura. Quem chama é o titular autenticado com conta
 ativa e aceite em dia; não precisa ser membro do grupo do convite (M2-D28).
 
-Depois da RPC estreita do limitador, a RPC de preview resolve IDs sem lock e
-trava perfil próprio → grupo → membership própria, se existente → convite
-em `FOR NO KEY UPDATE`; o modo de lock segue a M2-D13.
-Revalida material e estado sob locks. Não incrementa `used_count`, não cria
-membership ou pedido, não atualiza `last_requested_at` e não muda papel.
-A resposta de sucesso é somente `{ group_name: string }`, sem ID do grupo,
-foto, dono, membro, contagem ou causa interna (M2-D28; `25` §5.3, linhas 772–793).
+Depois da RPC estreita do limitador, a RPC de preview é só leitura e não pega
+trava nenhuma (`0026`, P1 da revisão do #76): confere o ator, faz o lookup do
+convite e decide `CODE_INVALID` só pela linha do convite, sem esperar trava de
+grupo, membership ou convite, para que o tempo de resposta não revele um
+código que existiu. Só o convite vivo lê grupo e membership própria, sem
+trava, numa única foto. A revalidação sob locks da M2-D13 fica no resgate.
+Não incrementa `used_count`, não cria membership ou pedido, não atualiza
+`last_requested_at` e não muda papel.
 
-Depois do débito obrigatório, código inexistente ou material malformado
-retorna `CODE_INVALID` (400). Convite existente mas revogado, expirado ou
-esgotado retorna, respectivamente, `INVITE_REVOKED`, `INVITE_EXPIRED` ou
-`INVITE_USED` (409); grupo arquivado/suspenso e capacidade/cota usam seus
-códigos de §5.0.1. Quota sempre precede lookup e devolve `RATE_LIMITED`
-(429) para **qualquer** código; falha do contador devolve
-`RATE_LIMIT_UNAVAILABLE` antes do domínio. Essa distinção de causas e o
-oráculo limitado do resgate são aceitos pela M2-D42. Autenticação negada
-mantém seu erro próprio, sem preview.
+**Página do convite (decisão humana de César, 18/10/2026; `0026`).** A
+resposta de sucesso é exatamente
+`{ group_name: string, member_count: integer, owner_name: string | null,
+viewer_status: 'active' | 'pending' | null, group_id: uuid | null,
+refusal: 'GROUP_FULL' | 'GROUP_LIMIT' | null }`. `member_count` conta os
+membros `active` cuja conta não está em exclusão e `owner_name` é o nome de
+exibição do dono (apelido não vazio, senão nome), as mesmas regras de
+`get_group_members` (`0019`); conta do dono em exclusão dá `null`.
+`viewer_status` é o estado próprio do titular no grupo. `group_id` só vem
+para o membro `active`, que já o lê pelas próprias memberships, para abrir o
+grupo; nos demais casos é `null`. Nunca há lista de membros, ID de perfil,
+e-mail, foto ou dado de racha. A Edge projeta exatamente esses seis campos e
+recusa como erro interno uma resposta fora do formato. O ícone do grupo
+mostrado pela página vem do app, não desta resposta.
+
+Depois do débito obrigatório, código inexistente, material malformado ou
+divergente e convite revogado, expirado ou esgotado retornam o mesmo
+`CODE_INVALID` (400), sem revelar se o código existiu nem se o grupo existe.
+Só com convite vivo a prévia chega ao grupo: arquivado/suspenso usam seus
+códigos de §5.0.1, sem página. Grupo cheio e cota pessoal de quem ainda não
+é membro deixam de ser erro da prévia e voltam em `refusal`, para a página
+mostrar o grupo com a mensagem atual no lugar do botão. Quota sempre precede
+lookup e devolve `RATE_LIMITED` (429) para **qualquer** código; falha do
+contador devolve `RATE_LIMIT_UNAVAILABLE` antes do domínio. A distinção de
+causas da M2-D42 continua só no resgate (§5.0.3), com o oráculo limitado
+aceito por ela. Autenticação negada mantém seu erro próprio, sem preview.
 
 Para material válido, membership própria já `active` ou `pending` é resgate
 sem efeito: capacidade/cota de nova entrada não o tornam irrealizável
-(M2-D29/M2-D30). Preview também não revela essa membership. A tela 12 mostra
-o nome para confirmar a intenção; somente o resgate informa o estado próprio.
+(M2-D29/M2-D30) e não geram `refusal`. A tela 12 mostra a página com
+**Abrir grupo** para o membro, **Aguardando aprovação** para o pedido
+pendente e **Pedir para entrar** para os demais.
 
 Assinatura contratada da leitura própria: `get_my_pending_group_requests()`.
 Retorna exclusivamente linhas próprias tipadas
@@ -1467,9 +1486,8 @@ Tente novamente mais tarde.”, sem detalhe de provedor nem prazo inventado.
 Retry de resgate conserva a intenção e seu `request_id`; continua sujeito ao
 mesmo limitador. A dimensão por IP é pós-piloto (`25` §8.2).
 
-`CODE_INVALID` no preview é HTTP 400 para código inexistente ou
-material malformado. Convite existente revogado, expirado ou esgotado retorna
-`INVITE_REVOKED`, `INVITE_EXPIRED` ou `INVITE_USED` (409), respectivamente.
-Grupo arquivado/suspenso, capacidade e limite pessoal usam o erro próprio
-quando aplicável. `RATE_LIMITED` (429) vem antes do lookup para qualquer
+`CODE_INVALID` no preview é HTTP 400 para código inexistente, material
+malformado e convite revogado, expirado ou esgotado, a mesma resposta para
+todos (página do convite, 18/10/2026). Grupo arquivado/suspenso usa o erro
+próprio; capacidade e limite pessoal voltam em `refusal` (§5.0.2). `RATE_LIMITED` (429) vem antes do lookup para qualquer
 código; não contém `fields`, `current`, grupo ou perfil (M2-D42).

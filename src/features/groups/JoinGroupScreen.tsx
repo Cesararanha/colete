@@ -2,29 +2,33 @@ import { useQueryClient } from '@tanstack/react-query';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
-import { AppError, TransportError, api, type GroupOutcome, type MutationIntent } from '@/lib/api';
+import {
+  AppError,
+  TransportError,
+  api,
+  type GroupOutcome,
+  type InvitePage,
+  type MutationIntent,
+} from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
-import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
-import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
+import { InvitePageBody, InvitePageIntro } from './InvitePage';
 import { InviteQrScanner } from './InviteQrScanner';
 import { inviteAppOrigin, parseInviteLink } from './join-fragment';
 import { joinDestination } from './join-result';
 
 export function JoinGroupScreen({ initialToken }: { initialToken: string | null }) {
-  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [token, setToken] = useState(initialToken);
   const [scanning, setScanning] = useState(false);
@@ -34,13 +38,17 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
     if (cameraError) cameraErrorRef.current?.focus();
   }, [cameraError]);
   useFocusEffect(useCallback(() => () => setScanning(false), []));
-  const [preview, setPreview] = useState<{ group_name: string } | null>(null);
+  const [preview, setPreview] = useState<InvitePage | null>(null);
+  const pageRef = useRef<View>(null);
+  // The page replaces the form: the focus moves to the group's name.
+  useLayoutEffect(() => {
+    if (preview) pageRef.current?.focus();
+  }, [preview]);
   const [previewError, setPreviewError] = useState<unknown>(null);
   const [previewPending, setPreviewPending] = useState(false);
   const [joiningPending, setJoiningPending] = useState(false);
   const [joiningError, setJoiningError] = useState<unknown>(null);
   const [fieldError, setFieldError] = useState<string | undefined>();
-  const [result, setResult] = useState<GroupOutcome | null>(null);
   const previewStarted = useRef(false);
   const previewSequence = useRef(0);
   const joiningBusy = useRef(false);
@@ -106,7 +114,6 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
       setPreview(null);
       setPreviewError(null);
       setJoiningError(null);
-      setResult(null);
       intent.current = null;
       previewStarted.current = true;
       setToken(scannedToken);
@@ -128,7 +135,6 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
     setPreview(null);
     setPreviewError(null);
     setJoiningError(null);
-    setResult(null);
     setToken(null);
     void previewGroup('code', code);
   };
@@ -142,17 +148,23 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
         token === null ? api.joinGroupByCode(getValues('code')) : api.joinGroupByInvite(token);
       const data = await intent.current.execute();
       intent.current = null;
-      setPreview(null);
       setToken(null);
       await queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'groups'] });
       // A request sent goes to Grupos, replacing this form: the request shows
       // there as "Aguardando aprovação" and there is no way back to the form.
       const destination = joinDestination(data);
       if (destination !== null) {
+        setPreview(null);
         backTo(destination);
         return;
       }
-      setResult(data);
+      // Approved in the meantime: the page now opens the group.
+      const groupId = data.current?.status === 'active' ? data.current.group_id : undefined;
+      setPreview((page) =>
+        page && groupId
+          ? { ...page, viewer_status: 'active', group_id: groupId, refusal: null }
+          : null,
+      );
     } catch (error) {
       const sameIntentCanRetry =
         error instanceof TransportError ||
@@ -167,6 +179,40 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
       setJoiningPending(false);
     }
   };
+
+  // Back to the form: the invitation leaves memory with the page.
+  const leavePage = () => {
+    previewSequence.current += 1;
+    intent.current = null;
+    setPreview(null);
+    setToken(null);
+    setJoiningError(null);
+    requestAnimationFrame(() => setFocus('code'));
+  };
+
+  if (preview) {
+    return (
+      <AuthenticatedShell
+        back={{
+          label: pt.groups.join.title,
+          href: '/join',
+          onPress: leavePage,
+          testID: 'invite-page-back',
+        }}
+        description=""
+        intro={<InvitePageIntro page={preview} ref={pageRef} />}
+        title={pt.groups.join.title}
+      >
+        <InvitePageBody
+          joining={joiningPending}
+          joiningError={joiningError ? groupErrorMessage(joiningError) : null}
+          onJoin={() => void join()}
+          onOpen={(groupId) => router.replace(`/grupos/${groupId}`)}
+          page={preview}
+        />
+      </AuthenticatedShell>
+    );
+  }
 
   return (
     <AuthenticatedShell {...pt.groups.join}>
@@ -198,7 +244,6 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
               setPreview(null);
               setPreviewError(null);
               setJoiningError(null);
-              setResult(null);
               setToken(null);
               intent.current = null;
               setCameraError(null);
@@ -234,7 +279,6 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
                 setPreview(null);
                 setPreviewError(null);
                 setJoiningError(null);
-                setResult(null);
                 intent.current = null;
                 setToken(null);
               }}
@@ -257,37 +301,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
             ) : null}
           </>
         ) : null}
-        {preview ? (
-          <View style={styles.confirm} testID="join-confirmation">
-            <Text aria-level={2} role="heading" style={[styles.title, { color: colors.text }]}>
-              {pt.groups.join.confirm(preview.group_name)}
-            </Text>
-            {joiningError ? (
-              <AppAlert message={groupErrorMessage(joiningError)} testID="join-error" />
-            ) : null}
-            {joiningPending ? <AppSkeleton lines={2} /> : null}
-            <AppButton
-              label={pt.groups.join.enter}
-              onPress={() => void join()}
-              testID="join-submit"
-            />
-          </View>
-        ) : null}
-        {result?.current?.status === 'active' ? (
-          <AppStatus message={pt.groups.join.active} testID="join-active" />
-        ) : null}
-        {result?.current?.status === 'active' && result.current.group_id ? (
-          <AppButton
-            label={pt.groups.list.open}
-            onPress={() => router.replace(`/grupos/${result.current?.group_id}`)}
-          />
-        ) : null}
       </AppCard>
     </AuthenticatedShell>
   );
 }
-
-const styles = StyleSheet.create({
-  confirm: { gap: spacing.md },
-  title: { ...typography.title },
-});
