@@ -330,6 +330,9 @@ export const pt = {
       end: 'Fim',
       nextDay: (end: string) => `Termina às ${end} do dia seguinte`,
       groupFixed: 'Grupo do racha',
+      groupUnavailableTitle: 'Não dá para criar racha neste grupo',
+      groupUnavailable:
+        'Só o dono ou um organizador do grupo cria rachas. Volte aos grupos e escolha um que você organiza.',
       place: 'Nome do local',
       address: 'Endereço (opcional)',
       search: 'Buscar',
@@ -342,6 +345,9 @@ export const pt = {
       searchShort: 'Digite pelo menos 3 caracteres do endereço para buscar.',
       searchRateLimited: 'Muitas buscas agora. Espere alguns segundos e toque em Buscar de novo.',
       attribution: 'Dados de endereço © OpenStreetMap',
+      // The free plan's credit, in its own words (human decision of 18/10/2026).
+      searchCredit: 'Search by LocationIQ.com',
+      searchCreditLabel: 'Search by LocationIQ.com, abre o site da LocationIQ',
       choose: (label: string) => `Usar o endereço ${label}`,
       chosen:
         'Endereço escolhido na busca. A posição vai para o racha arredondada para cerca de 11 metros.',

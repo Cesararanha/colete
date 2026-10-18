@@ -186,17 +186,19 @@ export function serveGateway(served: readonly string[]): void {
           return errorResponse('UNAUTHENTICATED', requestIdHint);
         }
 
-        // The address search leaves the Edge for Nominatim; the app never
-        // calls OpenStreetMap, so the app's CSP does not change.
+        // The address search leaves the Edge for LocationIQ; the app never
+        // calls the search service, so the app's CSP does not change.
         if (isGeocodeOperation(operation)) {
           const search = await dispatchGeocode(
             {
               actor,
               callRpc,
               fetchUpstream: (url, init) => fetch(url, init),
+              apiKey: readEnv('LOCATIONIQ_API_KEY')?.trim() ?? '',
               userAgent: readEnv('GEOCODER_USER_AGENT') || DEFAULT_USER_AGENT,
               // A fixed code only, like the worker's health alert: the cause of
-              // an unavailable search shows in the function log.
+              // an unavailable search shows in the function log, never the
+              // query, the key or the URL that carries them.
               report: (code) => console.warn(code),
             },
             body,

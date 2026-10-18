@@ -136,7 +136,7 @@ function tomorrowInZone(): string {
 
 /**
  * The Edge's search_address, simulated: the app asks the groups gateway and
- * never OpenStreetMap; these tests never reach Nominatim.
+ * never OpenStreetMap; these tests never reach LocationIQ.
  */
 async function simulateAddressSearch(page: Page) {
   await page.route('**/functions/v1/groups/search_address', (route) =>

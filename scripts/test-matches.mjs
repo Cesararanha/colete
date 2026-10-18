@@ -661,7 +661,7 @@ async function proveGroupBarrier(connections, db, context) {
 }
 
 // Busca de endereço (PR E, 17/10/2026): só as recusas, que param antes da
-// saída ao Nominatim. O relógio compartilhado não se move em nenhuma delas, e
+// saída ao LocationIQ. O relógio compartilhado não se move em nenhuma delas, e
 // é isso que prova que nada saiu da Edge.
 async function proveAddressSearch(status, db, context) {
   const clock = async () =>

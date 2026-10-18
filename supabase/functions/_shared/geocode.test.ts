@@ -5,9 +5,9 @@ import {
   CACHE_TTL_MS,
   DEFAULT_USER_AGENT,
   dispatchGeocode,
-  nominatimUrl,
+  locationIqUrl,
   normaliseAddressQuery,
-  parseNominatim,
+  parseSearchResults,
   MIN_UPSTREAM_GAP_MS,
   type AddressResult,
   type GeocodeDependencies,
@@ -17,6 +17,8 @@ const ACTOR = {
   authUserId: '23000000-0000-4000-8000-000000000001',
   sessionId: '23900000-0000-4000-8000-000000000001',
 };
+// A fake key: it must never show in a report, an answer or a log line.
+const FAKE_KEY = 'pk.fake-locationiq-key-0000';
 const PLACES = [
   { display_name: 'Arena da Vila, Rua Um, São Paulo', lat: '-23.550519', lon: '-46.633309' },
   { display_name: 'Arena da Vila, Rua Dois, Campinas', lat: '-22.90556', lon: '-47.06083' },
@@ -35,6 +37,7 @@ function harness(
     oversleep?: number;
     upstream?: () => Promise<Response>;
     spacing?: number;
+    apiKey?: string;
   } = {},
 ) {
   const granted = [...(options.granted ?? [0])];
@@ -62,6 +65,7 @@ function harness(
       upstreamCalls.push({ url, init, at: clock });
       return options.upstream ? options.upstream() : Response.json(PLACES);
     },
+    apiKey: options.apiKey ?? FAKE_KEY,
     userAgent: DEFAULT_USER_AGENT,
     now: () => clock,
     clock: () => clock,
@@ -86,7 +90,7 @@ function harness(
 }
 
 describe('address search through the Edge (human decision of 17/10/2026)', () => {
-  it('asks Nominatim for five Brazilian results in Portuguese, naming Colete', async () => {
+  it('asks LocationIQ for five Brazilian results in Portuguese, naming Colete', async () => {
     const run = harness();
     const answer = await dispatchGeocode(run.deps, { query: '  Arena   da Vila ' });
     expect(answer.status).toBe(200);
@@ -99,10 +103,11 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     });
     expect(run.upstreamCalls).toHaveLength(1);
     const url = new URL(run.upstreamCalls[0]!.url);
-    expect(url.origin + url.pathname).toBe('https://nominatim.openstreetmap.org/search');
+    expect(url.origin + url.pathname).toBe('https://us1.locationiq.com/v1/search');
     expect(Object.fromEntries(url.searchParams)).toEqual({
+      key: FAKE_KEY,
       q: 'Arena da Vila',
-      format: 'jsonv2',
+      format: 'json',
       addressdetails: '0',
       limit: '5',
       countrycodes: 'br',
@@ -118,6 +123,54 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
       },
     ]);
     expect(ATTRIBUTION).toBe('© OpenStreetMap');
+    expect(JSON.stringify(answer.body)).not.toContain(FAKE_KEY);
+  });
+
+  it('fails closed without the key: unavailable, nothing leaves, the session still checked', async () => {
+    const run = harness({ apiKey: '' });
+    const answer = await dispatchGeocode(run.deps, { query: 'Arena da Vila' });
+    expect(answer.status).toBe(200);
+    expect(answer.body['data']).toEqual({
+      attribution: ATTRIBUTION,
+      results: [],
+      unavailable: true,
+    });
+    expect(run.upstreamCalls).toHaveLength(0);
+    expect(run.rpcCalls.map((call) => call['p_spend'])).toEqual([false]);
+    expect(run.reports).toEqual(['GEOCODE_CONFIG_MISSING']);
+    const revoked = harness({ apiKey: '' });
+    revoked.deps = {
+      ...revoked.deps,
+      callRpc: async () => ({ error: { message: 'UNAUTHENTICATED', code: '28000' } }),
+    };
+    const refused = await dispatchGeocode(revoked.deps, { query: 'Arena da Vila' });
+    expect((refused.body['error'] as { code: string }).code).toBe('UNAUTHENTICATED');
+    expect(revoked.reports).toEqual([]);
+  });
+
+  it('answers LocationIQ "Unable to geocode" (404) as an empty search, and caches it', async () => {
+    const run = harness({
+      granted: [0, 0],
+      upstream: async () => Response.json({ error: 'Unable to geocode' }, { status: 404 }),
+    });
+    const answer = await dispatchGeocode(run.deps, { query: 'Rua Inexistente 9' });
+    expect(answer.status).toBe(200);
+    expect(answer.body['data']).toEqual({ attribution: ATTRIBUTION, results: [] });
+    expect(run.reports).toEqual([]);
+    await dispatchGeocode(run.deps, { query: 'Rua Inexistente 9' });
+    expect(run.upstreamCalls).toHaveLength(1);
+    // A 404 that is not the no-match answer is a failure, not an empty search.
+    const other = harness({ upstream: async () => new Response('gone', { status: 404 }) });
+    const failed = await dispatchGeocode(other.deps, { query: 'Rua Um' });
+    expect(failed.body['data']).toMatchObject({ results: [], unavailable: true });
+    expect(other.reports).toEqual(['GEOCODE_UPSTREAM_HTTP_404']);
+    // Only the 404 status means no match, whatever the body says.
+    const server = harness({
+      upstream: async () => Response.json({ error: 'Unable to geocode' }, { status: 500 }),
+    });
+    const broken = await dispatchGeocode(server.deps, { query: 'Rua Um' });
+    expect(broken.body['data']).toMatchObject({ results: [], unavailable: true });
+    expect(server.reports).toEqual(['GEOCODE_UPSTREAM_HTTP_500']);
   });
 
   it('serves a repeated search from the short cache, still checking the session', async () => {
@@ -227,7 +280,7 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     expect(run.upstreamCalls).toHaveLength(0);
   });
 
-  it('answers an empty, unavailable list when Nominatim fails, and does not cache it', async () => {
+  it('answers an empty, unavailable list when LocationIQ fails, and does not cache it', async () => {
     const run = harness({
       granted: [0, 0],
       upstream: async () => new Response('busy', { status: 503 }),
@@ -243,8 +296,20 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
     expect(run.upstreamCalls).toHaveLength(2);
   });
 
-  it('names the real cause of an unavailable search, never the query', async () => {
+  it('names the real cause of an unavailable search, never the query or the key', async () => {
     const cases: [() => Promise<Response>, string][] = [
+      [
+        async () => Response.json({ error: 'Invalid key' }, { status: 401 }),
+        'GEOCODE_UPSTREAM_HTTP_401',
+      ],
+      [
+        async () => Response.json({ error: 'Access restricted' }, { status: 403 }),
+        'GEOCODE_UPSTREAM_HTTP_403',
+      ],
+      [
+        async () => Response.json({ error: 'Rate Limited Day' }, { status: 429 }),
+        'GEOCODE_UPSTREAM_HTTP_429',
+      ],
       [async () => new Response('blocked', { status: 403 }), 'GEOCODE_UPSTREAM_HTTP_403'],
       [async () => new Response('slow down', { status: 429 }), 'GEOCODE_UPSTREAM_HTTP_429'],
       [
@@ -255,11 +320,13 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
       ],
       [
         async () => {
-          throw new TypeError('dns error');
+          // A runtime error may carry the URL, and with it the key.
+          throw new TypeError(`error sending request for url (${locationIqUrl(FAKE_KEY, 'x')})`);
         },
         'GEOCODE_UPSTREAM_NETWORK',
       ],
       [async () => new Response('not json', { status: 200 }), 'GEOCODE_UPSTREAM_BODY'],
+      [async () => Response.json({ error: 'x' }), 'GEOCODE_UPSTREAM_BODY'],
     ];
     for (const [upstream, code] of cases) {
       const run = harness({ upstream });
@@ -267,6 +334,8 @@ describe('address search through the Edge (human decision of 17/10/2026)', () =>
       expect(answer.body['data']).toMatchObject({ results: [], unavailable: true });
       expect(run.reports).toEqual([code]);
       expect(run.reports.join()).not.toContain('Secreta');
+      expect(run.reports.join()).not.toContain(FAKE_KEY);
+      expect(JSON.stringify(answer.body)).not.toContain(FAKE_KEY);
     }
     const busy = harness({ granted: [null] });
     await dispatchGeocode(busy.deps, { query: 'Rua Um' });
@@ -314,9 +383,9 @@ describe('query and result shapes', () => {
       lat: '-23.5',
       lon: '-46.6',
     }));
-    expect(parseNominatim(many)).toHaveLength(5);
+    expect(parseSearchResults(many)).toHaveLength(5);
     expect(
-      parseNominatim([
+      parseSearchResults([
         { display_name: 'Repetido', lat: '1', lon: '2' },
         { display_name: 'Repetido', lat: '1', lon: '2' },
         { display_name: 'Fora', lat: '91', lon: '0' },
@@ -324,10 +393,12 @@ describe('query and result shapes', () => {
         { display_name: 'NaN', lat: 'x', lon: '2' },
       ]),
     ).toEqual([{ label: 'Repetido', latitude: 1, longitude: 2 }]);
-    expect(parseNominatim({ error: 'x' })).toEqual([]);
+    expect(parseSearchResults({ error: 'x' })).toEqual([]);
   });
 
-  it('puts the query only in the Nominatim query string', () => {
-    expect(nominatimUrl('Rua & Cia')).toContain('q=Rua+%26+Cia');
+  it('puts the key and the query only in the LocationIQ query string', () => {
+    const url = locationIqUrl('k&y', 'Rua & Cia');
+    expect(url).toContain('q=Rua+%26+Cia');
+    expect(url).toContain('key=k%26y');
   });
 });

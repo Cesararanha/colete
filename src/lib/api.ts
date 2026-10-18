@@ -99,13 +99,13 @@ export type MatchSummary = {
   field_slots: number;
   field_price: number;
 };
-/** One address found by search_address: Nominatim through the Edge, never from the app. */
+/** One address found by search_address: LocationIQ through the Edge, never from the app. */
 export type AddressResult = { label: string; latitude: number; longitude: number };
 export type AddressSearch = {
   results: AddressResult[];
   /** "© OpenStreetMap", shown with the results. */
   attribution: string;
-  /** Nominatim did not answer: the person types the address instead. */
+  /** The search service did not answer (or has no key): the person types the address instead. */
   unavailable?: boolean;
 };
 /** The presence of the viewer in one match, recomputed on every answer. */
@@ -607,7 +607,7 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       }),
     getMatchRoster: (matchId: string, signal?: AbortSignal) =>
       groupRead<MatchRoster>('get_match_roster', { match_id: matchId }, signal),
-    /** One search per press; the Edge asks Nominatim and keeps the text out of every log. */
+    /** One search per press; the Edge asks LocationIQ and keeps the text and the key out of every log. */
     searchAddress: (query: string, signal?: AbortSignal) =>
       groupRead<AddressSearch>('search_address', { query }, signal),
     getMatchesOccupancy: (signal?: AbortSignal) =>

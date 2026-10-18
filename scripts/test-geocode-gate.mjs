@@ -3,7 +3,10 @@
 // (supabase/functions/_shared/geocode.ts) e um upstream simulado. Mede os
 // instantes reais de chamada ao upstream: duas saídas nunca ficam a menos de
 // 1 s, mesmo com atraso entre o portão e a chamada, com a ida e volta da RPC
-// em 300–800 ms (PR F) e com várias instâncias. O Nominatim nunca é chamado.
+// em 300–800 ms (PR F) e com várias instâncias. Com o portão real, cobre
+// também a chave ausente, as recusas 401/403/429 do LocationIQ, o timeout e o
+// corpo inválido, e prova que a chave (falsa) não aparece em nenhum log. O
+// LocationIQ nunca é chamado: o upstream é sempre simulado.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -22,6 +25,7 @@ const AUTH_PREFIX = 'geocode-gate-';
 const APP_PREFIX = 'colete_geocode_';
 const GATE = 'public.geocode_reserve(uuid,uuid,boolean)';
 const MIN_GAP_MS = 1_000;
+const FAKE_KEY = 'pk.fake-harness-locationiq-0000';
 const guard = installHarnessGuard('db:test:geocode', {
   applicationPrefix: APP_PREFIX,
   authEmailPrefix: AUTH_PREFIX,
@@ -111,6 +115,7 @@ async function createOrganizers(db, count) {
 function dispatcher(connection, actor, outgoing, label, deliveryDelay = () => 0, epoch) {
   return {
     actor: { authUserId: actor.authId, sessionId: actor.sessionId },
+    apiKey: FAKE_KEY,
     userAgent: DEFAULT_USER_AGENT,
     cache: new Map(),
     callRpc: async (name, parameters) => {
@@ -353,6 +358,111 @@ async function proveMarginMutant(db, workers, actors) {
   );
 }
 
+// Cada falha do LocationIQ com o portão real: a busca responde vazia e
+// "indisponível", registra só o código fixo (como a Edge, por console.warn) e
+// nada do que sai pelo console, nem a resposta, nem a RPC, contém a chave, o
+// texto buscado ou a URL. Sem a chave, nada sai e nenhum horário é gasto.
+async function proveFailuresKeepTheKey(db, workers, actors) {
+  await db.query("update private.geocode_throttle set last_slot_at = '-infinity'");
+  const query = 'Rua Segredo Sintético 77';
+  const json = (status, body) => async () => Response.json(body, { status });
+  const cases = [
+    ['chave ausente', '', null, 'GEOCODE_CONFIG_MISSING'],
+    ['401', FAKE_KEY, json(401, { error: 'Invalid key' }), 'GEOCODE_UPSTREAM_HTTP_401'],
+    ['403', FAKE_KEY, json(403, { error: 'Access restricted' }), 'GEOCODE_UPSTREAM_HTTP_403'],
+    ['429', FAKE_KEY, json(429, { error: 'Rate Limited Second' }), 'GEOCODE_UPSTREAM_HTTP_429'],
+    [
+      'timeout',
+      FAKE_KEY,
+      // Honours the real 8 s AbortSignal.timeout of the dispatch.
+      async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+        }),
+      'GEOCODE_UPSTREAM_TIMEOUT',
+    ],
+    [
+      'corpo inválido',
+      FAKE_KEY,
+      async () => new Response('<html>', { status: 200 }),
+      'GEOCODE_UPSTREAM_BODY',
+    ],
+  ];
+  const captured = [];
+  const original = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+    info: console.info,
+  };
+  for (const name of Object.keys(original)) {
+    console[name] = (...items) => captured.push(items.map(String).join(' '));
+  }
+  const outcomes = [];
+  try {
+    for (const [label, apiKey, upstream, code] of cases) {
+      const before = captured.length;
+      const urls = [];
+      const rpcParameters = [];
+      const base = dispatcher(workers[0], actors[0], [], label, () => 0, performance.now());
+      const answer = await dispatchGeocode(
+        {
+          ...base,
+          apiKey,
+          callRpc: async (name, parameters) => {
+            rpcParameters.push(JSON.stringify(parameters));
+            return base.callRpc(name, parameters);
+          },
+          fetchUpstream: async (url, init) => {
+            urls.push(url);
+            assert.equal(new URL(url).origin, 'https://us1.locationiq.com');
+            return upstream(url, init);
+          },
+          report: (reported) => console.warn(reported),
+        },
+        { query },
+      );
+      const lines = captured.slice(before);
+      outcomes.push({ label, answer, lines, urls, rpcParameters, code });
+    }
+  } finally {
+    Object.assign(console, original);
+  }
+  for (const { label, answer, lines, urls, rpcParameters, code } of outcomes) {
+    assert.equal(answer.status, 200, `${label}: ${JSON.stringify(answer.body)}`);
+    assert.deepEqual(answer.body.data, {
+      results: [],
+      attribution: '© OpenStreetMap',
+      unavailable: true,
+    });
+    assert.deepEqual(lines, [code], `${label}: only the fixed code is logged`);
+    if (code === 'GEOCODE_CONFIG_MISSING') {
+      assert.equal(urls.length, 0, 'without the key nothing leaves the Edge');
+      assert.deepEqual(
+        rpcParameters.map((item) => JSON.parse(item).p_spend),
+        [false],
+        'without the key the session is checked and no slot is spent',
+      );
+    } else {
+      assert.equal(urls.length, 1, label);
+      assert.equal(new URL(urls[0]).searchParams.get('key'), FAKE_KEY, label);
+    }
+    for (const text of [...lines, JSON.stringify(answer.body), ...rpcParameters]) {
+      assert.ok(!text.includes(FAKE_KEY), `${label}: the key leaked`);
+      assert.ok(!text.includes('Segredo'), `${label}: the query leaked`);
+      assert.ok(!text.includes('locationiq.com'), `${label}: the URL leaked`);
+    }
+  }
+  assert.equal(captured.length, cases.length, 'nothing else was printed');
+  console.log(
+    `ok - LocationIQ failures with the real gate (${outcomes
+      .map((item) => `${item.label}: ${item.lines[0]}`)
+      .join(
+        '; ',
+      )}): all unavailable, ${captured.length} log lines, none with the key, query or URL`,
+  );
+}
+
 async function main() {
   const url = dbUrl();
   const db = client(url, 'admin');
@@ -392,6 +502,7 @@ async function main() {
     await proveSlowRoundTrip(db, workers, actors);
     await proveManyInstances(db, workers, actors);
     await proveMarginMutant(db, workers, actors);
+    await proveFailuresKeepTheKey(db, workers, actors);
   } catch (error) {
     failure = error;
   }

@@ -1261,9 +1261,10 @@ código produtivo.
 
 - **Rachas: usabilidade — decisão humana de César, 17/10/2026, AGENTS §8.**
   Racha dentro do grupo ("Próximos rachas" e "Criar racha" com o grupo já
-  escolhido), aba Rachas renomeada para "Agenda", busca de endereço pelo
-  OpenStreetMap (Nominatim) somente pela Edge (`search_address` no gateway
-  `groups`, com o portão `public.geocode_gate` da `0023`: sessão, dono ou
+  escolhido), aba Rachas renomeada para "Agenda", busca de endereço com dados
+  do OpenStreetMap pelo LocationIQ (decisão de César, 18/10/2026, depois que o
+  Nominatim recusou os IPs do Supabase) somente pela Edge (`search_address`
+  no gateway `groups`, com o portão `public.geocode_gate` da `0023`: sessão, dono ou
   organizador ativo e no máximo uma requisição por segundo para o app),
   distância calculada no aparelho no detalhe, máscaras e validação por campo.
   O GPS sai da criação. A posição da pessoa nunca sai do aparelho. O registro

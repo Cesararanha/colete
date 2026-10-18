@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -130,9 +130,10 @@ function GroupChoice({
 }
 
 /**
- * The address search results: up to five places to choose from and the
- * OpenStreetMap attribution under them. The search itself goes through the
- * Edge on the press of "Buscar"; the app never calls OpenStreetMap.
+ * The address search results: up to five places to choose from and, under
+ * them, the LocationIQ credit (a link to its site) and the OpenStreetMap
+ * attribution. The search itself goes through the Edge on the press of
+ * "Buscar"; the app never calls the search service.
  */
 function AddressResults({
   onChoose,
@@ -189,9 +190,24 @@ function AddressResults({
           </View>
         </>
       )}
-      <Text style={[styles.attribution, { color: colors.textMuted }]} testID="match-attribution">
-        {pt.matches.create.attribution}
-      </Text>
+      <View style={styles.credits}>
+        <Link
+          accessibilityLabel={pt.matches.create.searchCreditLabel}
+          accessibilityRole="link"
+          href="https://locationiq.com"
+          rel="noopener noreferrer"
+          style={styles.credit}
+          target="_blank"
+          testID="match-search-credit"
+        >
+          <Text style={[styles.creditText, { color: colors.link }]}>
+            {pt.matches.create.searchCredit}
+          </Text>
+        </Link>
+        <Text style={[styles.attribution, { color: colors.textMuted }]} testID="match-attribution">
+          {pt.matches.create.attribution}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -210,7 +226,7 @@ export function CreateMatchScreen({
   const [values, setValues] = useState<MatchFormValues>(EMPTY);
   const [errors, setErrors] = useState<MatchFormErrors>({});
   const [formError, setFormError] = useState('');
-  const [chosenGroup, setChosenGroup] = useState<string | undefined>(initialGroupId);
+  const [chosenGroup, setChosenGroup] = useState<string | undefined>();
   const [groupError, setGroupError] = useState<string | undefined>();
   const [place, setPlace] = useState<ConfirmedPlace>(null);
   const [search, setSearch] = useState<AddressSearch | undefined>();
@@ -226,17 +242,20 @@ export function CreateMatchScreen({
       ),
   });
   const groups = eligible.data ?? [];
-  // From a group's page the group is already chosen and the selector is gone;
-  // a group the person cannot organise falls back to the selector.
-  const fixedGroup =
-    initialGroupId === undefined ? undefined : groups.find((group) => group.id === initialGroupId);
-  const groupId =
-    fixedGroup?.id ??
-    (chosenGroup !== undefined && groups.some((group) => group.id === chosenGroup)
+  // Opened from a group, the match always belongs to that group: the form
+  // shows only its name, never the selector. A group the person cannot
+  // organise gets a refusal, not a choice of other groups. Without a group
+  // (the Agenda), the selector stays.
+  const fromGroup = initialGroupId !== undefined;
+  const fixedGroup = fromGroup ? groups.find((group) => group.id === initialGroupId) : undefined;
+  const groupId = fromGroup
+    ? fixedGroup?.id
+    : chosenGroup !== undefined && groups.some((group) => group.id === chosenGroup)
       ? chosenGroup
       : groups.length === 1
         ? groups[0]?.id
-        : undefined);
+        : undefined;
+  const fixedUnavailable = fromGroup && eligible.isSuccess && groups.length > 0 && !fixedGroup;
 
   const searching = useMutation({
     mutationFn: (query: string) => api.searchAddress(query),
@@ -400,7 +419,16 @@ export function CreateMatchScreen({
           title={pt.matches.create.noGroupsTitle}
         />
       ) : null}
-      {groups.length > 0 ? (
+      {fixedUnavailable ? (
+        <AsyncNotice
+          action={() => router.replace('/grupos')}
+          actionLabel={pt.matches.create.groups}
+          kind="empty"
+          message={pt.matches.create.groupUnavailable}
+          title={pt.matches.create.groupUnavailableTitle}
+        />
+      ) : null}
+      {groups.length > 0 && !fixedUnavailable ? (
         <AppCard testID="create-match-card">
           <View tabIndex={-1} testID="match-create-error-box">
             <AppAlert message={formError} testID="match-create-error" />
@@ -415,7 +443,7 @@ export function CreateMatchScreen({
                 <Text style={[styles.optionText, { color: colors.text }]}>{fixedGroup.name}</Text>
               </View>
             </View>
-          ) : (
+          ) : fromGroup ? null : (
             <GroupChoice
               error={groupError}
               groups={groups}
@@ -529,10 +557,20 @@ export function CreateMatchScreen({
 
 const styles = StyleSheet.create({
   address: { gap: spacing.sm },
-  attribution: { ...typography.support, alignSelf: 'flex-end' },
+  attribution: { ...typography.support },
   choice: { gap: spacing.sm },
   chosen: { gap: spacing.xs },
   counter: { ...typography.support, alignSelf: 'flex-end' },
+  credit: {
+    alignItems: 'center',
+    borderRadius: radius.field,
+    justifyContent: 'center',
+    minHeight: size.target,
+    minWidth: size.target,
+    paddingHorizontal: spacing.sm,
+  },
+  creditText: { ...typography.support, textDecorationLine: 'underline' },
+  credits: { alignItems: 'flex-end' },
   description: { gap: spacing.xs },
   fixed: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, minHeight: size.target },
   hint: { ...typography.support },

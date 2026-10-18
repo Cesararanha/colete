@@ -1,17 +1,23 @@
 // The address search of the create-match form (Rachas: usabilidade, human
-// decision of 17/10/2026). The app never calls OpenStreetMap: it asks this
-// gateway, which asks Nominatim under its usage policy
-// (https://operations.osmfoundation.org/policies/nominatim/):
+// decision of 17/10/2026). The app never calls the search service: it asks
+// this gateway, which asks LocationIQ (OpenStreetMap data, answers in the
+// Nominatim shape; human decision of 18/10/2026, after Nominatim refused the
+// Supabase addresses with 403), on the free plan (5,000 searches a day, 2 a
+// second, the "Search by LocationIQ.com" credit shown with the results):
 //   - one search per press, never an autocomplete (the app sends on press);
+//   - the access key from the LOCATIONIQ_API_KEY secret; without it the
+//     search is unavailable and nothing leaves the Edge;
 //   - a User-Agent that names Colete;
-//   - at most one request per second for the whole app: public.geocode_reserve
+//   - at most one request per second for the whole app, under the plan's two:
+//     public.geocode_reserve
 //     (0024) reserves slots 2000 ms apart on the single row of
 //     private.geocode_throttle, shared by every Edge instance, and this file
 //     calls only within spacing - 1000 ms after its slot (see dispatchGeocode);
 //   - a short in-memory cache, so a repeated search does not go out again;
 //   - the attribution travels with the results and the app shows it.
-// The searched text is never logged, never echoed in an error and never put
-// in a URL of the app; it leaves only in the query string to Nominatim.
+// The searched text and the key are never logged, never echoed in an error
+// or a response and never put in a URL of the app; they leave only in the
+// query string to LocationIQ, and that URL is never logged either.
 // The gate also checks the session (a revoked one is refused) and lets only
 // an owner or organizer of an active group search, the people who create
 // matches.
@@ -31,14 +37,15 @@ export function isGeocodeOperation(value: string): value is GeocodeOperation {
   return (GEOCODE_OPERATIONS as readonly string[]).includes(value);
 }
 
-export const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+/** The US region of the forward search (https://docs.locationiq.com/reference/search). */
+export const LOCATIONIQ_SEARCH_URL = 'https://us1.locationiq.com/v1/search';
 export const DEFAULT_USER_AGENT =
   'Colete/0.1 (app de racha; +https://github.com/Cesararanha/colete)';
 export const ATTRIBUTION = '© OpenStreetMap';
 export const MAX_RESULTS = 5;
 export const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 200;
-/** Public Nominatim answers in well under a second, but has slow moments. */
+/** LocationIQ answers in well under a second, but has slow moments. */
 export const UPSTREAM_TIMEOUT_MS = 8_000;
 /**
  * The smallest gap between two upstream calls, for the whole app. The gate
@@ -65,6 +72,8 @@ export interface GeocodeDependencies {
     error?: { message?: string | null; code?: string | null } | null;
   }>;
   readonly fetchUpstream: (url: string, init: RequestInit) => Promise<Response>;
+  /** The LocationIQ access key; empty when the secret is missing. */
+  readonly apiKey: string;
   readonly userAgent: string;
   readonly now?: () => number;
   /** Monotonic milliseconds for the slot window; performance.now by default. */
@@ -73,8 +82,8 @@ export interface GeocodeDependencies {
   readonly cache?: Map<string, { expires: number; results: AddressResult[] }>;
   /**
    * Receives a fixed diagnostic code when a search ends unavailable or busy,
-   * so the real cause shows in the function log. Never the query, the URL or
-   * an upstream body.
+   * so the real cause shows in the function log. Never the query, the key,
+   * the URL or an upstream body.
    */
   readonly report?: (code: string) => void;
 }
@@ -105,8 +114,11 @@ function roundCoordinate(value: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
-/** Up to five distinct places with a label and finite, in-range coordinates. */
-export function parseNominatim(value: unknown): AddressResult[] {
+/**
+ * Up to five distinct places with a label and finite, in-range coordinates,
+ * from a LocationIQ answer (the Nominatim shape).
+ */
+export function parseSearchResults(value: unknown): AddressResult[] {
   if (!Array.isArray(value)) return [];
   const results: AddressResult[] = [];
   const seen = new Set<string>();
@@ -133,17 +145,21 @@ export function parseNominatim(value: unknown): AddressResult[] {
   return results;
 }
 
-/** The Nominatim search URL: Brazil only, Portuguese labels, five results. */
-export function nominatimUrl(query: string): string {
+/**
+ * The LocationIQ search URL: Brazil only, Portuguese labels, five results.
+ * It carries the key and the query, so it never goes to a log or an answer.
+ */
+export function locationIqUrl(apiKey: string, query: string): string {
   const parameters = new URLSearchParams({
+    key: apiKey,
     q: query,
-    format: 'jsonv2',
+    format: 'json',
     addressdetails: '0',
     limit: String(MAX_RESULTS),
     countrycodes: 'br',
     'accept-language': 'pt-BR',
   });
-  return `${NOMINATIM_SEARCH_URL}?${parameters.toString()}`;
+  return `${LOCATIONIQ_SEARCH_URL}?${parameters.toString()}`;
 }
 
 function failure(code: ErrorCode, requestId: string, extra: Record<string, unknown> = {}) {
@@ -187,7 +203,7 @@ export async function dispatchGeocode(
     const fresh = cached !== undefined && cached.expires > now() ? cached : undefined;
 
     // The gate always runs: it refuses a revoked session even for a cached
-    // answer. Only a search that leaves for Nominatim spends the slot.
+    // answer. Only a search that leaves for LocationIQ spends the slot.
     const gate = async (spend: boolean) => {
       const result = await deps.callRpc('geocode_reserve', {
         p_actor_auth_user_id: deps.actor.authUserId,
@@ -210,6 +226,13 @@ export async function dispatchGeocode(
     if (fresh !== undefined) {
       await gate(false);
       return success(requestId, fresh.results);
+    }
+    // Without the key the search fails closed: the session is still checked,
+    // no slot is spent and nothing leaves the Edge.
+    if (deps.apiKey.length === 0) {
+      await gate(false);
+      report('GEOCODE_CONFIG_MISSING');
+      return success(requestId, [], true);
     }
 
     // The gate answers w, the whole milliseconds until the reserved slot
@@ -245,22 +268,19 @@ export async function dispatchGeocode(
 
     let response: Response;
     try {
-      response = await deps.fetchUpstream(nominatimUrl(query), {
+      response = await deps.fetchUpstream(locationIqUrl(deps.apiKey, query), {
         method: 'GET',
         headers: { 'User-Agent': deps.userAgent, Accept: 'application/json' },
         redirect: 'error',
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
     } catch (error) {
+      // The error may carry the URL, and with it the key: only a fixed code.
       report(
         error instanceof DOMException && error.name === 'TimeoutError'
           ? 'GEOCODE_UPSTREAM_TIMEOUT'
           : 'GEOCODE_UPSTREAM_NETWORK',
       );
-      return success(requestId, [], true);
-    }
-    if (!response.ok) {
-      report(`GEOCODE_UPSTREAM_HTTP_${response.status}`);
       return success(requestId, [], true);
     }
     // A body that times out or is not JSON is an unavailable answer, never an
@@ -269,10 +289,26 @@ export async function dispatchGeocode(
     try {
       payload = await response.json();
     } catch {
+      report(response.ok ? 'GEOCODE_UPSTREAM_BODY' : `GEOCODE_UPSTREAM_HTTP_${response.status}`);
+      return success(requestId, [], true);
+    }
+    // LocationIQ answers a search with no match as 404 "Unable to geocode":
+    // an empty search, not an unavailable one. Any other refusal (401 key,
+    // 403 access, 429 plan limit, 5xx) is unavailable.
+    const noMatch =
+      response.status === 404 &&
+      typeof payload === 'object' &&
+      payload !== null &&
+      (payload as Record<string, unknown>)['error'] === 'Unable to geocode';
+    if (!response.ok && !noMatch) {
+      report(`GEOCODE_UPSTREAM_HTTP_${response.status}`);
+      return success(requestId, [], true);
+    }
+    if (response.ok && !Array.isArray(payload)) {
       report('GEOCODE_UPSTREAM_BODY');
       return success(requestId, [], true);
     }
-    const results = parseNominatim(payload);
+    const results = noMatch ? [] : parseSearchResults(payload);
     if (cache.size >= CACHE_MAX_ENTRIES) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
