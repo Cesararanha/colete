@@ -144,6 +144,24 @@ async function putSigned(status, url, bytes, contentType = 'image/jpeg') {
   await response.arrayBuffer();
   return response.status;
 }
+// P1 da revisão do #81: a URL de upload original ainda vale depois de a foto
+// ser confirmada, trocada, removida ou apagada. Regravar por ela precisa ser
+// recusado pelo banco (a linha de storage.objects), não pelo prazo do token:
+// a mensagem é conferida, e a contraprova sem o trigger regrava com 200.
+async function assertStaleUrlRefused(status, db, url, bucket, objectPath, label) {
+  const response = await fetch(`${status.apiUrl}${url}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'image/jpeg', 'x-upsert': 'false' },
+    body: await jpeg(64, 64, { gps: true }),
+  });
+  const text = await response.text();
+  assert.notEqual(response.status, 200, `${label}: the original URL recreated the object`);
+  assert.ok(
+    text.includes('PHOTO_UPLOAD_NOT_PENDING'),
+    `${label}: refused for another reason (${response.status}): ${text}`,
+  );
+  assert.deepEqual(await objects(db, bucket, objectPath), [], `${label}: object at the path`);
+}
 async function getBytes(url, headers = {}) {
   const response = await fetch(url, { headers });
   return { status: response.status, bytes: new Uint8Array(await response.arrayBuffer()) };
@@ -244,6 +262,7 @@ async function upload(status, actor, bytes, target = { target: 'profile' }) {
   assert.equal(await putSigned(status, started.upload.url, bytes), 200, 'signed upload');
   return started.upload;
 }
+// Devolve a sessão, com a URL de upload original, e o caminho que ela grava.
 async function setProfilePhoto(status, actor, bytes) {
   const session = await upload(status, actor, bytes);
   ok(await mutate(status, actor, 'set_profile_photo', { upload_id: session.upload_id }), 'set');
@@ -545,6 +564,52 @@ async function proveOldObjectDeleted(status, db, owner, first) {
   console.log('ok - every refused or abandoned session ends deleted, with no object left');
 }
 
+// Pedir URL → confirmar → trocar ou remover → regravar com a URL original:
+// em todos os casos o objeto não volta, nos dois buckets.
+async function proveStaleUploadUrls(status, db, { owner, groupId }) {
+  const first = await setProfilePhoto(status, owner, await jpeg(200, 200, { hue: 20 }));
+  const firstPath = `${owner.profileId}/${first.upload_id}.jpg`;
+  const second = await setProfilePhoto(status, owner, await jpeg(200, 200, { hue: 60 }));
+  const secondPath = `${owner.profileId}/${second.upload_id}.jpg`;
+  await worker(db, status, 'process_external_effects');
+  assert.deepEqual(await objects(db, 'avatars', firstPath), [], 'the swapped object survived');
+  await assertStaleUrlRefused(status, db, first.url, 'avatars', firstPath, 'after the swap');
+
+  ok(await mutate(status, owner, 'remove_profile_photo'), 'remove');
+  await worker(db, status, 'process_external_effects');
+  await assertStaleUrlRefused(status, db, second.url, 'avatars', secondPath, 'after the removal');
+
+  const group = await upload(status, owner, await jpeg(200, 200, { hue: 150 }), {
+    target: 'group',
+    group_id: groupId,
+  });
+  const groupPath = `${groupId}/${group.upload_id}.jpg`;
+  ok(
+    await mutate(status, owner, 'set_group_photo', {
+      group_id: groupId,
+      upload_id: group.upload_id,
+    }),
+    'set group photo',
+  );
+  ok(await mutate(status, owner, 'remove_group_photo', { group_id: groupId }), 'remove group');
+  await worker(db, status, 'process_external_effects');
+  await assertStaleUrlRefused(status, db, group.url, 'group-photos', groupPath, 'group photo');
+  assert.deepEqual(
+    (
+      await db.query(
+        `select count(*)::integer as n from storage.objects
+          where bucket_id in ('avatars', 'group-photos')
+            and (name like $1 or name like $2)`,
+        [`${owner.profileId}/%`, `${groupId}/%`],
+      )
+    ).rows[0].n,
+    0,
+  );
+  console.log(
+    'ok - the original upload URL recreates nothing after confirm + swap, confirm + remove and a removed group photo (refused PHOTO_UPLOAD_NOT_PENDING)',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Prova 4: foto do grupo
 // ---------------------------------------------------------------------------
@@ -722,10 +787,10 @@ async function proveExport(status, db, titular) {
 }
 
 async function proveAccountDeletion(status, db, deletee) {
-  await setProfilePhoto(status, deletee, await jpeg(300, 200, { hue: 10 }));
+  const first = await setProfilePhoto(status, deletee, await jpeg(300, 200, { hue: 10 }));
   // Uma troca deixa um objeto retired, e uma sessão aberta com objeto
   // enviado e nunca confirmado: a URL assinada ainda poderia gravar.
-  await setProfilePhoto(status, deletee, await jpeg(300, 200, { hue: 70 }));
+  const second = await setProfilePhoto(status, deletee, await jpeg(300, 200, { hue: 70 }));
   const open = await upload(status, deletee, await jpeg(100, 100));
   const before = await objects(db, 'avatars', `${deletee.profileId}/`);
   assert.equal(before.length, 3, `three objects before the deletion: ${before}`);
@@ -806,6 +871,22 @@ async function proveAccountDeletion(status, db, deletee) {
     auth_exists: false,
     open_rows: 0,
   });
+  assert.deepEqual(await objects(db, 'avatars', `${deletee.profileId}/`), [], 'orphan object');
+  // Pedir URL → excluir a conta → regravar com as URLs originais.
+  for (const [session, label] of [
+    [first, 'first photo'],
+    [second, 'current photo'],
+    [open, 'open session'],
+  ]) {
+    await assertStaleUrlRefused(
+      status,
+      db,
+      session.url,
+      'avatars',
+      `${deletee.profileId}/${session.upload_id}.jpg`,
+      `after the account deletion, ${label}`,
+    );
+  }
   assert.deepEqual(await objects(db, 'avatars', `${deletee.profileId}/`), [], 'orphan object');
   console.log(
     'ok - account deletion completes with no photo object left: current, swapped and abandoned',
@@ -975,6 +1056,7 @@ async function main() {
     await proveVisibility(status, db, people, photo);
     await proveVisibilityMutant(status, db, people);
     await proveOldObjectDeleted(status, db, owner, photo);
+    await proveStaleUploadUrls(status, db, people);
     await proveGroupPhoto(status, db, people);
     await proveDeletedGroupWithoutWait(status, holder, people);
     await proveExport(status, db, titular);

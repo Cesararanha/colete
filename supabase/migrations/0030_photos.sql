@@ -146,6 +146,49 @@ revoke all on function private.retire_photo_object(text, uuid, uuid, text)
   from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
+-- Nenhum objeto nasce fora de uma sessão de envio aberta
+-- ---------------------------------------------------------------------------
+-- A URL de upload assinada é do Storage e vale até expirar, mesmo depois de a
+-- sessão ser confirmada, a foto trocada ou removida, o objeto apagado pelo
+-- worker ou a conta excluída: sem upsert ela não sobrescreve, mas recria o
+-- objeto ausente (P1 da revisão do #81). O banco recusa a linha de
+-- storage.objects, nos dois buckets de foto, cujo caminho não seja de uma
+-- sessão pending ainda antes do reclaim_after. O Storage testa essa mesma
+-- inserção antes de gravar os bytes (canUpload) e, se a inserção final falhar,
+-- apaga a versão enviada; vale para todo papel, URL assinada inclusive, e para
+-- copiar ou mover para dentro dos buckets. A foto corrente não muda: quem já
+-- existe não é reinserido.
+create function private.require_pending_photo_upload()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if new.bucket_id in ('avatars', 'group-photos')
+     and (tg_op = 'INSERT' or new.name is distinct from old.name
+          or new.bucket_id is distinct from old.bucket_id)
+     and not exists (
+       select 1 from private.photo_uploads as upload
+       where upload.object_path = new.name
+         and upload.state = 'pending'
+         and upload.reclaim_after > now()
+         and (upload.kind = 'profile_avatar') = (new.bucket_id = 'avatars')
+     ) then
+    raise exception using errcode = '42501', message = 'PHOTO_UPLOAD_NOT_PENDING';
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function private.require_pending_photo_upload()
+  from public, anon, authenticated, service_role;
+
+create trigger objects_require_pending_photo_upload
+before insert or update of name, bucket_id on storage.objects
+for each row execute function private.require_pending_photo_upload();
+
+-- ---------------------------------------------------------------------------
 -- Livro de idempotência: lista fechada de operações e desfechos
 -- ---------------------------------------------------------------------------
 -- Todas as operações e todos os desfechos que já existem continuam, inclusive

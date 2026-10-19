@@ -423,6 +423,44 @@ select is(public.worker_get_deletion_effect_target(
   '{"action":"none"}'::jsonb, 'a retry after the confirmation has nothing to delete');
 
 -- ---------------------------------------------------------------------------
+-- Storage: nenhum objeto de foto nasce sem sessão de envio aberta (P1 do #81)
+-- ---------------------------------------------------------------------------
+-- O Storage proíbe apagar linhas direto; o rollback do fim desfaz tudo.
+select ok((select tgenabled = 'O' and not tgisinternal from pg_trigger
+  where tgrelid = 'storage.objects'::regclass and tgname = 'objects_require_pending_photo_upload'),
+  'storage.objects carries the pending-session trigger');
+select ok((select prosecdef and proconfig = array['search_path=""']
+  from pg_proc where oid = 'private.require_pending_photo_upload()'::regprocedure),
+  'the trigger function is security definer with a fixed search_path');
+select throws_ok($$insert into storage.objects (bucket_id, name)
+    values ('avatars', '30100000-0000-4000-8000-000000000003/stale.jpg')$$,
+  '42501', 'PHOTO_UPLOAD_NOT_PENDING', 'no session, no object: the stale URL recreates nothing');
+insert into private.photo_uploads (id, kind, profile_id, object_path, commit_before, reclaim_after)
+values ('30c00000-0000-4000-8000-0000000000aa', 'profile_avatar',
+        '30100000-0000-4000-8000-000000000002', '30100000-0000-4000-8000-000000000002/open.jpg',
+        now() + interval '15 minutes', now() + interval '2 hours');
+select throws_ok($$insert into storage.objects (bucket_id, name)
+    values ('group-photos', '30100000-0000-4000-8000-000000000002/open.jpg')$$,
+  '42501', 'PHOTO_UPLOAD_NOT_PENDING', 'an avatar session does not open the group bucket');
+select lives_ok($$insert into storage.objects (bucket_id, name)
+    values ('avatars', '30100000-0000-4000-8000-000000000002/open.jpg')$$,
+  'an open session accepts its own object');
+insert into private.photo_uploads
+  (id, kind, profile_id, object_path, created_at, commit_before, reclaim_after)
+values ('30c00000-0000-4000-8000-0000000000ab', 'profile_avatar',
+        '30100000-0000-4000-8000-000000000002', '30100000-0000-4000-8000-000000000002/late.jpg',
+        now() - interval '3 hours', now() - interval '2 seconds', now() - interval '1 second');
+select throws_ok($$insert into storage.objects (bucket_id, name)
+    values ('avatars', '30100000-0000-4000-8000-000000000002/late.jpg')$$,
+  '42501', 'PHOTO_UPLOAD_NOT_PENDING', 'a session past its reclaim instant accepts nothing');
+select lives_ok($$insert into storage.objects (bucket_id, name)
+    values ('data-exports', 'exports/x/fixture.zip')$$,
+  'the other buckets are untouched');
+select throws_ok($$update storage.objects set bucket_id = 'avatars'
+    where bucket_id = 'data-exports' and name = 'exports/x/fixture.zip'$$,
+  '42501', 'PHOTO_UPLOAD_NOT_PENDING', 'nothing moves into a photo bucket either');
+
+-- ---------------------------------------------------------------------------
 -- Exportação: a foto fica fora do snapshot
 -- ---------------------------------------------------------------------------
 select ok(pg_get_functiondef('public.worker_get_data_export_build_target(uuid,uuid)'::regprocedure)

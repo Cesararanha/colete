@@ -3100,3 +3100,23 @@ sem Exif. Capturas a 390 px em `~/colete-noite/fotos-prints`.
 
 Fica para a revisão: a foto de um grupo apagado fica inacessível, mas o objeto só sai quando
 o dono exclui a conta (o grupo apagado está arquivado e entra no fence da `0015`).
+
+**Correção do P1 da revisão do #81.** A URL de upload assinada original, ainda válida,
+recriava a foto depois de confirmada e trocada, removida, apagada pelo worker e até depois
+da exclusão de conta, sem linha que a recolhesse. Abordagem escolhida: recusar no banco. O
+trigger `objects_require_pending_photo_upload` (`before insert or update of name,
+bucket_id` em `storage.objects`, função `security definer` de `postgres`) recusa com
+`PHOTO_UPLOAD_NOT_PENDING` todo objeto de `avatars` ou `group-photos` cujo caminho não seja
+de uma sessão `pending` antes de `reclaim_after`. O Storage testa essa inserção antes de
+gravar os bytes (`canUpload`), então nada chega ao disco; vale para a URL assinada e para
+qualquer papel. As fixtures de foto dos harnesses de grupos e de exclusão passaram a abrir
+uma sessão antes de gravar, como a Edge. Preferi isto a manter as linhas aposentadas até a
+URL vencer e varrer de novo: aqui nenhum objeto existe nem por um instante, e a segurança
+não depende da validade do token.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:photos`, prova nova | pedir URL → confirmar → trocar, → remover, e a foto do grupo removida: o PUT na URL original responde erro `PHOTO_UPLOAD_NOT_PENDING`, nenhum objeto no caminho |
+| `db:test:photos`, exclusão de conta | depois da saga concluída, as URLs da primeira foto, da corrente e da sessão aberta não regravam; nenhum objeto sob o perfil; censo de todas as tabelas, Storage inclusive, no baseline |
+| contraprova com a `0030` de `13ecc09` | o mesmo harness reprova em "after the swap: the original URL recreated the object"; sem a prova da troca, reprova em "after the account deletion, first photo" |
+| pgTAP da `0030` | trigger presente e `security definer`; sem sessão, sessão de outro bucket e sessão vencida recusam; sessão aberta aceita; mover para bucket de foto recusa; outros buckets intactos |

@@ -1263,7 +1263,11 @@ prévia do convite (§5.0.2), que continua só com ícone e cor.
   url, expires_at, content_type, max_bytes, max_side } }`: a URL de upload assinada do
   Storage para aquele caminho, sem `upsert`, e nunca o caminho solto. A Edge recusa entregar
   URL cuja validade passe de `reclaim_after` − 60 s. Mais de 10 sessões abertas por pessoa
-  recusa com `RATE_LIMITED`.
+  recusa com `RATE_LIMITED`. A URL é do Storage e vale até expirar, mesmo depois da troca,
+  da remoção ou da exclusão de conta; por isso o banco recusa, em `storage.objects`, todo
+  objeto dos dois buckets cujo caminho não seja de uma sessão `pending` antes de
+  `reclaim_after`: depois de confirmada, trocada, removida ou apagada, a URL antiga não
+  recria nada.
 - **Limites:** o app reduz a imagem (lado maior até 512 px) e a recodifica como JPEG, o que
   descarta os metadados, GPS inclusive. O bucket aceita só `image/jpeg` até 1 MB. Antes da
   troca, a Edge lê o objeto e recusa com `VALIDATION` (`fields.photo`) o que não for JPEG
