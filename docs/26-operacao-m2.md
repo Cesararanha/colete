@@ -2851,3 +2851,59 @@ convite vivo. O resgate segue com as travas da M2-D13.
 | sonda do revisor, só medindo | com a trava presa: existente 18,9 / 25,6 / 49,1 ms; inexistente 26,6 / 49,7 / 49,3 ms; todos 400 `CODE_INVALID`; limitador 20 → 429 |
 | db:test | 24 arquivos, 1549 asserções (`0026`: 55) |
 | demais itens de §5 | exit 0; test:groups:web 75 + 5 skip, qr 30, vitest 587; test:auth:web segue com a falha `:450` da base |
+
+## Editar e cancelar racha — `0028_edit_cancel_match.sql` (18/10/2026)
+
+- **`0028`.** `private.matches` ganha `canceled_at` e `canceled_by` (o par
+  anda junto). `update_match` e `cancel_match` no padrão idempotente atual,
+  com a lista de operações completa (inclusive `set_group_appearance`) e o
+  validador encadeado; trava `lock_match_context`, a mesma de `join_match`.
+  `join_match`, `leave_match` e `set_match_payment` recusam
+  `MATCH_CANCELED`; a saída do grupo não promove a espera de racha
+  cancelado. `get_match`, `list_my_matches`, `get_matches_occupancy` e
+  `get_match_roster` devolvem `canceled`.
+- **Edge `groups`.** Rotas `update_match` e `cancel_match`; `MATCH_CANCELED`,
+  `MATCH_DONE` e `SLOTS_BELOW_CONFIRMED` (409). `SLOTS_BELOW_CONFIRMED` entrou
+  no catálogo de `13` §8.
+- **App.** "Editar" no canto do detalhe abre o formulário de criar preenchido
+  (rota modal `editar-racha`); "Cancelar racha" no fim, com confirmação na
+  tela; chip "Cancelado" no placar e nos cards; presença e marcação de pago
+  fecham no cancelado.
+
+| Comando | Resultado |
+|---|---|
+| db:test | 26 arquivos, 1702 asserções, PASS (`0028`: 103) |
+| db:test:match-players | 20 provas, exit 0; novas: chamada forçada pela Edge (jogador 403, ex-organizador e estranho 404 iguais ao ID inexistente), vagas e promoção, preço com pago, cancelado fechando presença/espera/pagamento, editar × confirmar com barreira de lock nas duas ordens, mutante sem travas |
+| demais harnesses de §5 | exit 0 |
+| test:matches:web | 24 passed (spec novo `editar-racha`: 2 testes × 2 projetos) |
+| test:groups:web / qr / smoke / cors | 77 + 5 skip / 30 / 6 / exit 0 |
+| test:auth:web / test:privacy:web | auth em 3 rodadas: 10 passed; 9 + 1 failed; 9 + 1 failed, sempre o foco do Perfil (`:450`), que esta fatia não toca e que falha também com o app de `origin/main` (PR D); 2 skipped. privacy: 5 + 5 skip |
+| verify:app | exit 0; vitest 49 arquivos, 644 testes |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high | exit 0 |
+
+Contraprovas do pgTAP da `0028`, com mutantes aplicados nas funções vivas e
+restaurados byte a byte: sem `MATCH_CANCELED` em `join_match`, 2 asserções
+reprovam; em `leave_match`, 3; em `set_match_payment`, 1; sem
+`SLOTS_BELOW_CONFIRMED`, 1; sem a promoção, 2; sem `MATCH_DONE` na edição, 1;
+no cancelamento, 1; sem a autoridade, 4 em cada RPC (e o arquivo aborta);
+trigger promovendo espera de cancelado, 2; regra temporal sem a exceção dos
+horários mantidos e `acquire_group_idempotency` sem `set_group_appearance`,
+o arquivo aborta. No harness, sem as travas de grupo e racha e sem a defesa
+final, uma edição para 1 vaga e um "Vou jogar" no meio deixam 2 confirmados
+em 1 vaga; com as travas e a mesma pausa, 1 confirmado e o outro na espera.
+
+**Correção do P1 da revisão.** Depois do cancelamento, o replay com a mesma
+chave de `join_match` (confirmado e espera), `leave_match` e
+`set_match_payment` feitos antes ainda devolvia HTTP 200 com o desfecho e a
+projeção. A `0028` (ainda não aplicada em ambiente nenhum) passou a conferir
+o cancelamento depois da autoridade e antes do replay: a mesma chave recebe a
+recusa de uma chamada nova, 409 `MATCH_CANCELED`, sem desfecho, `current` ou
+resumo, e o registro idempotente concluído fica como está. Quem perdeu a
+autoridade continua na M2-D20 (o desfecho, sem projeção), como no #71.
+
+| Prova | Resultado |
+|---|---|
+| pgTAP da `0028`, chamar → cancelar → repetir as quatro chaves | com o código de `ae3556f`: 4 asserções reprovam (os quatro replays); corrigido: 115 asserções, PASS |
+| sonda do revisor (`rev79/probe.mjs`) | antes: 4 replays com 200; depois: 409 `MATCH_CANCELED` nos quatro, `DEFECTS []`, os oito pares de concorrência passam |
+| db:test | 26 arquivos, 1714 asserções, PASS |
+| demais itens de §5 | exit 0; matches:web 24, groups:web 77 + 5 skip, qr 30, smoke 6, vitest 644, privacy 5 + 5 skip; test:auth:web 9 + 1 / 10 / 9 + 1, só o `:450` da base |

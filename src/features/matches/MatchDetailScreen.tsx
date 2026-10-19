@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -14,6 +15,7 @@ import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import {
   api,
+  type MatchEditOutcome,
   type MatchPaymentResult,
   type MatchPresenceResult,
   type MatchRoster,
@@ -58,6 +60,7 @@ function entryDetail(entry: MatchRosterEntry): string {
 function viewerChip(
   roster: MatchRoster,
 ): { tone: ChipTone; label: string; icon?: IconName } | null {
+  if (roster.canceled) return { label: pt.matches.detail.canceledChip, tone: 'critical' };
   if (roster.started) return { label: pt.matches.detail.startedChip, tone: 'neutral' };
   const viewer = roster.viewer;
   if (viewer.status === 'starter')
@@ -108,15 +111,18 @@ function Board({ roster }: { roster: MatchRoster }) {
           />
         ) : null}
       </View>
+      {/* Canceled: the count stays as history, dimmed; no open slots to announce. */}
       <OccupancyBar
-        color={colors.digit}
+        color={roster.canceled ? colors.digitDim : colors.digit}
         height={8}
         ratio={roster.confirmed_count / Math.max(1, roster.field_slots)}
         track={colors.scoreTileTop}
       />
-      <Text style={[styles.boardFoot, { color: colors.digitDim }]} testID="match-board-summary">
-        {pt.matches.detail.openSummary(open, roster.waitlist_count)}
-      </Text>
+      {roster.canceled ? null : (
+        <Text style={[styles.boardFoot, { color: colors.digitDim }]} testID="match-board-summary">
+          {pt.matches.detail.openSummary(open, roster.waitlist_count)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -238,6 +244,8 @@ function Presence({
   }, [confirming]);
   const [message, setMessage] = useState('');
   const viewer = roster.viewer;
+  // A canceled match takes no "Vou jogar" and no "Desistir" (0028); the chip says why.
+  const closed = roster.started || roster.canceled;
   const resultMessage = (result: MatchPresenceResult) => {
     switch (result.outcome.logical_result) {
       case 'match_joined':
@@ -272,7 +280,7 @@ function Presence({
   };
   return (
     <View style={styles.presence} testID="match-presence">
-      {roster.started ? (
+      {roster.started && !roster.canceled ? (
         <Text style={[styles.small, { color: colors.textMuted }]} testID="match-viewer-status">
           {pt.matches.detail.started}
         </Text>
@@ -282,7 +290,7 @@ function Presence({
         message={actions.error ? matchErrorMessage(actions.error) : ''}
         testID="match-presence-error"
       />
-      {roster.started ? null : viewer.status === 'out' ? (
+      {closed ? null : viewer.status === 'out' ? (
         <AppButton
           ariaDisabled={actions.pending}
           icon="check"
@@ -338,12 +346,15 @@ function Presence({
 /** One confirmed player: initials, name and detail, and the payment where it can be seen. */
 function ConfirmedRow({
   entry,
+  locked,
   manage,
   onMark,
   ownPaid,
   testID,
 }: {
   entry: MatchRosterEntry;
+  /** A canceled match keeps its marks as they are: they show, but do not change. */
+  locked: boolean;
   manage: boolean;
   onMark: (entry: MatchRosterEntry, paid: boolean) => void;
   /** The viewer's own payment, which a player sees only on their own line. */
@@ -356,7 +367,7 @@ function ConfirmedRow({
   // The organisation sees every line; a player only their own (viewer.paid).
   const paid =
     manage && typeof entry.paid === 'boolean' ? entry.paid : entry.is_viewer ? ownPaid : null;
-  const canMark = manage && typeof entry.paid === 'boolean' && entry.profile_id !== null;
+  const canMark = manage && !locked && typeof entry.paid === 'boolean' && entry.profile_id !== null;
   return (
     <View style={[styles.entry, { backgroundColor: colors.surface }]} testID={testID}>
       <View style={styles.line}>
@@ -467,11 +478,12 @@ function Rosters({
         <FlatList
           contentContainerStyle={styles.rows}
           data={shown}
-          extraData={[manage, actions.pending, roster.viewer.paid]}
+          extraData={[manage, actions.pending, roster.viewer.paid, roster.canceled]}
           keyExtractor={(entry, index) => entry.profile_id ?? `removed-${index}`}
           renderItem={({ item, index }) => (
             <ConfirmedRow
               entry={item}
+              locked={roster.canceled}
               manage={manage}
               onMark={mark}
               ownPaid={roster.viewer.paid}
@@ -532,6 +544,103 @@ function Rosters({
   );
 }
 
+/**
+ * "Cancelar racha" at the end of the detail, for whoever may create matches
+ * in the group, as the destructive action of the screen (like "Sair da
+ * conta"): the confirmation opens in place and names the date. Final: there
+ * is no undo. After it, only the result stays here; the chip on the board
+ * says "Cancelado".
+ */
+function CancelMatch({
+  date,
+  manageable,
+  matchId,
+  profileId,
+}: {
+  date: string;
+  /** False once the match is canceled or over; the result of this screen's own cancel stays. */
+  manageable: boolean;
+  matchId: string;
+  profileId: string;
+}) {
+  const actions = useMatchActions(profileId);
+  const [confirming, setConfirming] = useState(false);
+  const [done, setDone] = useState(false);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!confirming && restoreFocus.current) {
+      restoreFocus.current = false;
+      focusGroupControl('match-cancel');
+    }
+  }, [confirming]);
+  const cancel = () => {
+    void actions
+      .run<MatchEditOutcome>('cancel', () => api.cancelMatch(matchId))
+      .then((result) => {
+        if (result) {
+          setDone(true);
+          setConfirming(false);
+        }
+      });
+  };
+  if (!manageable && !done) return null;
+  return (
+    <View style={styles.manage} testID="match-cancel-section">
+      <AppStatus
+        message={done ? pt.matches.detail.canceledResult : ''}
+        testID="match-cancel-result"
+      />
+      <AppAlert
+        message={actions.error ? matchErrorMessage(actions.error, 'manage') : ''}
+        testID="match-cancel-error"
+      />
+      {done || !manageable ? null : confirming ? (
+        <GroupConfirmation
+          level={2}
+          title={pt.matches.detail.cancelMatchTitle(date)}
+          testID="match-cancel-confirmation"
+        >
+          <View style={styles.actions}>
+            <AppButton
+              ariaDisabled={actions.pending}
+              label={
+                actions.pending ? pt.matches.detail.canceling : pt.matches.detail.confirmCancelMatch
+              }
+              onPress={() => {
+                if (!actions.pending) cancel();
+              }}
+              testID="match-cancel-confirm"
+              variant="destructive"
+            />
+            <AppButton
+              label={pt.matches.detail.keepMatch}
+              onPress={() => {
+                if (actions.pending) return;
+                restoreFocus.current = true;
+                actions.clearError();
+                actions.discardIntent();
+                setConfirming(false);
+              }}
+              testID="match-cancel-keep"
+              variant="secondary"
+            />
+          </View>
+        </GroupConfirmation>
+      ) : (
+        <AppButton
+          label={pt.matches.detail.cancelMatch}
+          onPress={() => {
+            actions.clearError();
+            setConfirming(true);
+          }}
+          testID="match-cancel"
+          variant="outline-destructive"
+        />
+      )}
+    </View>
+  );
+}
+
 export function MatchDetailScreen({ matchId, profile }: { matchId: string; profile: OwnProfile }) {
   const { colors } = useTheme();
   const detail = useQuery({
@@ -545,6 +654,19 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
     queryFn: ({ signal }) => api.getMatchRoster(matchId, signal),
   });
   const roster = rosterQuery.data;
+  // Whoever may create matches in the group edits and cancels it, until it
+  // ends (0028). The server decides again on every call.
+  // "Now" is read once per read of the match: it moves only when the match does.
+  const ended = useMemo(
+    () => match !== undefined && new Date(match.ends_at).getTime() <= new Date().getTime(),
+    [match],
+  );
+  const manageable =
+    match !== undefined &&
+    roster !== undefined &&
+    roster.viewer.can_manage &&
+    !match.canceled &&
+    !ended;
   const back = {
     label: pt.navigation.matches,
     href: '/rachas' as const,
@@ -575,6 +697,22 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       hero={roster ? <Board roster={roster} /> : undefined}
       {...(intro ? { intro } : {})}
       title={match ? matchDateTitle(match.starts_at, match.timezone) : pt.matches.detail.title}
+      {...(manageable
+        ? {
+            trailing: (
+              <AppButton
+                accessibilityLabel={pt.matches.detail.editLabel}
+                compact
+                label={pt.matches.detail.edit}
+                onPress={() =>
+                  router.push({ pathname: '/editar-racha', params: { matchId: match.id } })
+                }
+                testID="match-edit"
+                variant="outline"
+              />
+            ),
+          }
+        : {})}
     >
       {detail.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {detail.isError ? (
@@ -608,6 +746,14 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
               <Rosters matchId={matchId} profileId={profile.id} roster={roster} />
+              {roster.viewer.can_manage ? (
+                <CancelMatch
+                  date={matchDateTitle(match.starts_at, match.timezone)}
+                  manageable={manageable}
+                  matchId={matchId}
+                  profileId={profile.id}
+                />
+              ) : null}
             </>
           ) : null}
         </>
@@ -669,6 +815,8 @@ const styles = StyleSheet.create({
   placeName: { ...typography.bodyStrong, ...face('bold') },
   placeText: { flex: 1, gap: 2, minWidth: 0 },
   presence: { gap: spacing.sm },
+  manage: { gap: spacing.sm, paddingTop: spacing.md },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, minWidth: 0 },
   price: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
   priceText: { ...typography.supportStrong },
   row: {

@@ -412,3 +412,91 @@ describe('racha completo operations (docs/25 section 8.1)', () => {
     }
   });
 });
+
+describe('editar e cancelar racha (docs/25 section 8.1, 0028)', () => {
+  const matchId = '15c00003-0000-4000-8000-000000000000';
+  // A start three days ahead at minute precision, inside the 365-day window.
+  const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 3 * 86_400_000);
+  const config = {
+    description: null,
+    starts_at: start.toISOString(),
+    ends_at: new Date(start.getTime() + 5_400_000).toISOString(),
+    timezone: 'America/Sao_Paulo',
+    location_name: 'Arena Vila',
+    location_address: null,
+    latitude: null,
+    longitude: null,
+    field_slots: 14,
+    field_price: '25.00',
+  };
+
+  it('cancel_match signs only the lowercased match_id, with no reason or note', () => {
+    expect(
+      normaliseRequest('cancel_match', { request_id: REQUEST_ID, match_id: matchId.toUpperCase() })
+        .canonicalInput,
+    ).toEqual({ match_id: matchId });
+    for (const extra of ['reason_code', 'note', 'group_id', 'profile_id']) {
+      expect(
+        refusal(() =>
+          normaliseRequest('cancel_match', {
+            request_id: REQUEST_ID,
+            match_id: matchId,
+            [extra]: 'x',
+          }),
+        ).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('update_match signs the match and the whole config, never the group', () => {
+    expect(
+      normaliseRequest('update_match', { request_id: REQUEST_ID, match_id: matchId, config })
+        .canonicalInput,
+    ).toEqual({ match_id: matchId, config });
+    for (const body of [
+      { match_id: matchId },
+      { match_id: matchId, config, group_id: '15b00001-0000-4000-8000-000000000000' },
+      { match_id: 'nope', config },
+      { match_id: matchId, config: { ...config, field_slots: 0 } },
+      { match_id: matchId, config: { ...config, canceled: true } },
+    ]) {
+      expect(
+        refusal(() => normaliseRequest('update_match', { request_id: REQUEST_ID, ...body })).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('update_match leaves a start already gone to the database, but not the order', () => {
+    // A match in progress keeps its start; only the database knows it is unchanged.
+    const started = {
+      ...config,
+      starts_at: '2020-01-02T22:00:00.000Z',
+      ends_at: '2020-01-02T23:30:00.000Z',
+    };
+    expect(
+      normaliseRequest('update_match', {
+        request_id: REQUEST_ID,
+        match_id: matchId,
+        config: started,
+      }).canonicalInput,
+    ).toEqual({ match_id: matchId, config: started });
+    expect(
+      refusal(() =>
+        normaliseRequest('update_match', {
+          request_id: REQUEST_ID,
+          match_id: matchId,
+          config: { ...config, ends_at: config.starts_at },
+        }),
+      ).code,
+    ).toBe('TIME_ORDER');
+    expect(
+      refusal(() =>
+        normaliseRequest('create_match', {
+          request_id: REQUEST_ID,
+          group_id: '15b00001-0000-4000-8000-000000000000',
+          config: started,
+        }),
+      ).code,
+    ).toBe('TIME_ORDER');
+  });
+});

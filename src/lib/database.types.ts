@@ -333,6 +333,18 @@ export type Database = {
         };
         Returns: Json;
       };
+      cancel_match: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       check_and_debit_invite_attempt: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; profile_id: string };
         Returns: Json;
@@ -416,6 +428,7 @@ export type Database = {
       get_match: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
         Returns: {
+          canceled: boolean;
           description: string;
           ends_at: string;
           field_price: number;
@@ -440,6 +453,7 @@ export type Database = {
       get_matches_occupancy: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
         Returns: {
+          canceled: boolean;
           confirmed_count: number;
           match_id: string;
           viewer_status: string;
@@ -552,6 +566,7 @@ export type Database = {
       list_my_matches: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
         Returns: {
+          canceled: boolean;
           ends_at: string;
           field_price: number;
           field_slots: number;
@@ -742,6 +757,19 @@ export type Database = {
           p_hash_key_version: number;
           p_input_hmac: string;
           p_new_owner_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      update_match: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_config: Json;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
           p_request_id: string;
         };
         Returns: Json;

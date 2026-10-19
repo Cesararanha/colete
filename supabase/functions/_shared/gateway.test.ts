@@ -53,6 +53,8 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   join_match: { request_id: REQUEST_ID, match_id: MATCH },
   leave_match: { request_id: REQUEST_ID, match_id: MATCH },
   set_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET, paid: true },
+  update_match: { request_id: REQUEST_ID, match_id: MATCH, config: MATCH_CONFIG },
+  cancel_match: { request_id: REQUEST_ID, match_id: MATCH },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -84,6 +86,17 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   join_match: { p_match_id: MATCH },
   leave_match: { p_match_id: MATCH },
   set_match_payment: { p_match_id: MATCH, p_profile_id: TARGET, p_paid: true },
+  update_match: {
+    p_match_id: MATCH,
+    p_config: {
+      ...MATCH_CONFIG,
+      latitude: '-23.5505',
+      longitude: '-46.6333',
+      field_price: '25.00',
+      description: null,
+    },
+  },
+  cancel_match: { p_match_id: MATCH },
 };
 
 describe('gateway internal call', () => {

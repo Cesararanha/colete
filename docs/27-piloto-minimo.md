@@ -358,8 +358,7 @@ mesma no formulário, na Edge e no banco (`private.normalize_match_description`,
 `0022`); o detalhe mostra o texto puro, sem link ativo nem marcação, e a lista
 não o carrega. Fica fora de desfecho idempotente, log e mensagem de erro.
 
-**Depois:** sorteio; Pix e instrução de pagamento; editar e cancelar o
-racha; notificações; organizador inscrever ou remover outros; goleiros e
+**Depois:** sorteio; Pix e instrução de pagamento; notificações; organizador inscrever ou remover outros; goleiros e
 `list_kind`; convidado avulso; mensalista e prioridade TP; T1/T2, claims e
 reconciliação; obrigação de devolução (`refund_due`) para quem pagou e saiu
 do grupo ou excluiu a conta, e o bloqueio financeiro da exclusão; exibir na
@@ -441,3 +440,25 @@ detalhe, cartões da Agenda, detalhe do racha, Criar racha com grupo fixo e a
 página do convite mostram a escolha: a prévia da `0026` ganha `group_icon` e
 `group_color`, e a Edge projeta os oito campos. Todo grupo começa como bola
 azul. Foto de grupo continua fora.
+
+## Editar e cancelar racha — decisão humana de 18/10/2026
+
+Item 10 do feedback do teste. No detalhe do racha, quem pode criar racha no
+grupo (dono ou organizador ativo) vê "Editar" no canto de cima, que abre o
+formulário de criar preenchido, e "Cancelar racha" no fim da tela, com a
+confirmação na própria tela ("Cancelar racha de <data>?"). Jogador, ex-membro
+e quem não é membro recebem a recusa padrão, inclusive chamando a Edge
+direto (`0028`, `update_match` e `cancel_match`, contrato em `13` §3.3.1).
+A edição segue as regras do criar (12 h no servidor, virada de dia até 6 h no
+formulário) e a busca do LocationIQ; vagas não ficam abaixo dos confirmados
+("Já há N confirmados") e, se sobem, a espera é promovida em ordem; o preço
+muda e as marcações de pago ficam. Um racha em andamento pode ter o resto
+editado mantendo início e fim. O cancelamento é definitivo: o racha continua
+na Agenda e no detalhe com o chip vermelho "Cancelado", a lista fica como
+histórico, e "Vou jogar", "Desistir", a espera e o pagamento fecham no
+servidor e na tela. Sem push nem e-mail. Racha terminado não é editado nem
+cancelado.
+
+**Depois:** motivo e nota do cancelamento, notificação N14/N15, estorno
+(`refund_due`) de quem pagou, `revision`, a matriz de recomputação e as
+travas de `13` §3.2 (`DATE_LOCKED`, `PRICE_LOCKED` e as demais).

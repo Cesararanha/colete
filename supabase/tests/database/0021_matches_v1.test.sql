@@ -9,8 +9,9 @@ select has_table('private', 'matches', 'matches lives in private (docs/14 sectio
 select hasnt_table('public', 'matches', 'no client-facing copy of the table exists');
 select columns_are('private', 'matches', array['id', 'group_id', 'starts_at', 'ends_at',
   'timezone', 'location_name', 'location_address', 'latitude', 'longitude',
-  'field_slots', 'field_price', 'created_by', 'created_at', 'description']::name[],
-  'matches has exactly the v1 cut of docs/10 plus coordinates and the 0022 description');
+  'field_slots', 'field_price', 'created_by', 'created_at', 'description', 'canceled_at',
+  'canceled_by']::name[],
+  'matches has exactly the v1 cut of docs/10 plus coordinates, the 0022 description and the 0028 cancellation');
 select col_type_is('private', 'matches', 'latitude', 'numeric(6,4)', 'latitude keeps 4 decimals');
 select col_type_is('private', 'matches', 'longitude', 'numeric(7,4)', 'longitude keeps 4 decimals');
 select col_type_is('private', 'matches', 'field_price', 'numeric(10,2)', 'price is docs/10 numeric');

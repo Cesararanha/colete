@@ -1295,6 +1295,18 @@ código produtivo.
   também `group_icon` e `group_color`. Todo grupo começa como bola azul. Foto de
   grupo continua fora.
 
+- **Editar e cancelar racha — decisão humana de César, 18/10/2026, AGENTS §8.**
+  Item 10 do feedback do teste. Corte de `13` §§3.2 e 3.3 na `0028`, com o
+  padrão idempotente atual (`update_match` e `cancel_match` no gateway
+  `groups`, contrato em `13` §3.3.1): quem cria racha no grupo edita data,
+  início, fim, local, endereço, vagas, preço e descrição, e cancela de vez,
+  com a confirmação na tela. Vagas não descem abaixo dos confirmados (código
+  `SLOTS_BELOW_CONFIRMED`, novo no catálogo de `13` §8); subir promove a
+  espera. As marcações de pago ficam. O cancelado continua visível aos membros
+  com "Cancelado" no detalhe e na Agenda; presença, espera e pagamento fecham
+  no servidor e na tela. Sem notificação, motivo, estorno ou matriz de
+  recomputação. Racha terminado não muda.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar
