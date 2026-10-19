@@ -209,9 +209,16 @@ export function httpStatusFor(code: ErrorCode): number {
  * Maps a PostgREST failure onto the catalogue. The RPCs raise with the stable
  * code as the message, so the message is the mapping; anything unrecognised
  * collapses to INTERNAL instead of travelling outward as-is.
+ *
+ * GROUP_DELETED (0029) is the database's own name for a group its owner
+ * deleted. It never leaves the gateway: outside, the group answers like one
+ * that never existed, so nobody learns that it did (docs/13 section 5.0.8).
  */
 export function fromDatabaseError(raw: { message?: string | null }): GatewayError {
   const message = (raw.message ?? '').trim();
+  if (message === 'GROUP_DELETED') {
+    return new GatewayError('NOT_FOUND', defaultMessage('NOT_FOUND'));
+  }
   if (isErrorCode(message)) {
     return new GatewayError(message, defaultMessage(message));
   }

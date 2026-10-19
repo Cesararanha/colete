@@ -150,6 +150,7 @@ npm run db:test:invites
 npm run db:test:groups
 npm run db:test:membership
 npm run db:test:rename
+npm run db:test:group-deletion
 npm run db:test:members
 npm run db:test:matches
 npm run db:test:match-players

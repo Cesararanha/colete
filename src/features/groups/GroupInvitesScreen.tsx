@@ -29,6 +29,7 @@ import { typography } from '@/theme/typography';
 
 import { absoluteInviteTime, groupErrorMessage } from './group-errors';
 import { InviteQrCode } from './InviteQrCode';
+import { useLeaveMissingGroup } from './leave-missing-group';
 
 // Revocation and use counts are server projections. The sensitive share read
 // decides expiry using the server clock; this screen never compares Date.now().
@@ -155,6 +156,7 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
         return { group, invites };
       }),
   });
+  useLeaveMissingGroup(listing.data?.group === null);
   const candidate = listing.data?.invites.find(candidateInvite);
   const active = candidate?.id === terminalInviteId ? undefined : candidate;
   const onTerminal = useCallback((inviteId: string) => setTerminalInviteId(inviteId), []);
@@ -207,7 +209,6 @@ export function GroupInvitesScreen({ groupId, profile }: { groupId: string; prof
           action={() => void listing.refetch()}
         />
       ) : null}
-      {listing.data?.group === null ? <AppAlert message={pt.groups.detail.missing} /> : null}
       {listing.data?.group && !['owner', 'organizer'].includes(listing.data.group.role) ? (
         <AppAlert message={pt.groups.errors.notOrganizer} />
       ) : null}

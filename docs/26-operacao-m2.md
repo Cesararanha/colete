@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de dez harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players` e `db:test:geocode`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de onze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:geocode` e `db:test:group-deletion`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -2907,3 +2907,52 @@ autoridade continua na M2-D20 (o desfecho, sem projeção), como no #71.
 | sonda do revisor (`rev79/probe.mjs`) | antes: 4 replays com 200; depois: 409 `MATCH_CANCELED` nos quatro, `DEFECTS []`, os oito pares de concorrência passam |
 | db:test | 26 arquivos, 1714 asserções, PASS |
 | demais itens de §5 | exit 0; matches:web 24, groups:web 77 + 5 skip, qr 30, smoke 6, vitest 644, privacy 5 + 5 skip; test:auth:web 9 + 1 / 10 / 9 + 1, só o `:450` da base |
+
+## Apagar grupo — `0029_delete_group.sql` (19/10/2026)
+
+- **`0029`.** `private.group_deletions` (`group_id`, `deleted_by`,
+  `deleted_at`), privada, sem RLS nem privilégio; `delete_group` no padrão
+  idempotente atual, com a lista de operações completa (inclusive
+  `set_group_appearance`, `update_match` e `cancel_match`) e o validador
+  encadeado. Trava perfil → grupo → membership própria e, sob o grupo,
+  pendentes, rachas e convites em ordem crescente. Numa transação: rachas não
+  terminados nem cancelados passam a cancelados, convites revogados,
+  pendentes `removed` sem incremento (M2-D9), `archived_at` e a linha de
+  encerramento no mesmo instante. `group_actor_authority` e
+  `match_actor_authority` recusam `GROUP_DELETED` antes de tudo, fora das
+  listas da M2-D20; `create_match` e o resgate de convite ganham a mesma
+  checagem no replay; `get_group_members` responde `NOT_MEMBER`. A prévia não
+  muda (STABLE, `CODE_INVALID` pelo convite revogado).
+- **Edge `groups`.** Rota `delete_group`; `GROUP_DELETED` sai como o
+  `NOT_FOUND` (404) de um grupo inexistente, com corpo idêntico.
+- **App.** "Apagar grupo" no fim de Configurações, só para o dono, com a
+  confirmação na tela e o nome digitado liberando o botão; Grupos mostra
+  "Grupo apagado.". Detalhe, membros, configurações, ícone e convites, quando
+  a leitura não acha o grupo, voltam para Grupos com "Grupo não encontrado.";
+  três asserções da UI-B passaram a esperar esse retorno (organizador
+  expulso, CP3 de pendente/removido/estranho, grupo arquivado pela exclusão).
+
+| Comando | Resultado |
+|---|---|
+| db:test | 27 arquivos, 1882 asserções, PASS (`0029`: 168) |
+| db:test:group-deletion | 9 linhas `ok`, exit 0: chamada forçada pela Edge (organizador e jogador 403 `OWNER_ONLY`, ex-membro e estranho 403 `NOT_MEMBER`), replay e chamadas novas iguais às de grupo inexistente, apagar × entrar, × criar racha e × confirmar com barreira de lock nas duas ordens, sem `40P01`, e o mutante sem a trava do grupo |
+| db:test:membership | 75 `ok`; o censo de texto canônico passa a esperar a `0029` em cinco funções da `0016` |
+| demais harnesses de §5 e geocode, cors | exit 0 (invites 68, groups 29, rename 11, members 6, matches 15, match-players 21, export 32, deletion 10) |
+| test:groups:web | 81 passed + 5 skipped (spec novo `apagar-grupo`: 2 testes × 2 projetos) |
+| test:matches:web / qr / cors / smoke / privacy | 24 / 30 / 4 / 6 / 5 + 5 skip |
+| test:auth:web | sempre o foco do Perfil (`:450`), que esta fatia não toca: 7 rodadas com o app da PR, 9 passed + 1 failed em todas; 5 rodadas com o app de `b6657ea` (base, sem esta fatia), 3 com a mesma falha e 2 com 10 passed |
+| verify:app | exit 0; vitest 50 arquivos, 654 testes; 1 aviso de lint da base (`PrivacyAccountScreen`) |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 |
+
+Contraprovas, com mutantes aplicados nas funções vivas e restaurados byte a
+byte. No pgTAP da `0029`: helper de autoridade sem a checagem, 26 asserções
+reprovam; helper do racha, 11; replay de `create_match`, 1; replay do resgate,
+1; leitura de membros, 1; encerramento sem revogar convites, 5; cancelando
+todo racha, 1; sem `archived_at`, 10; sem encerrar pendentes, 1; organizador
+apagando, 8; replay de `delete_group` como chamada nova, o arquivo aborta. Na
+Edge, sem o mapeamento de `GROUP_DELETED`, 3 testes reprovam; no app, o
+campo liberando qualquer nome reprova o teste do helper, e o retorno para
+Grupos desligado reprova o e2e novo. No harness, sem a trava do grupo e com
+uma pausa depois de cancelar os rachas, um "Criar racha" no meio deixa um
+racha vivo no grupo apagado; com a trava e a mesma pausa, a criação espera e
+é recusada.

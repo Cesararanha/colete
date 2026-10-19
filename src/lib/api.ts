@@ -70,7 +70,8 @@ export type GroupOperation =
   | 'leave_match'
   | 'set_match_payment'
   | 'update_match'
-  | 'cancel_match';
+  | 'cancel_match'
+  | 'delete_group';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -370,6 +371,7 @@ const groupOperations = new Set<string>([
   'set_match_payment',
   'update_match',
   'cancel_match',
+  'delete_group',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -645,6 +647,8 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       mutation<GroupOutcome>('set_group_appearance', { group_id: groupId, icon, color }),
     transferOwnership: (groupId: string, targetId: string) =>
       mutation<GroupOutcome>('transfer_ownership', { group_id: groupId, new_owner_id: targetId }),
+    /** Owner only, and final (0029): the typed name stays on the screen, never in the call. */
+    deleteGroup: (groupId: string) => mutation<GroupOutcome>('delete_group', { group_id: groupId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
     createMatch: (groupId: string, config: MatchConfig) =>
       mutation<MatchOutcome>('create_match', { group_id: groupId, config }),

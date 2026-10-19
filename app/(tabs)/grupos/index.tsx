@@ -5,13 +5,24 @@ import { GroupsListScreen } from '@/features/groups/GroupsListScreen';
 import { pt } from '@/lib/i18n/pt';
 
 export default function GroupsRoute() {
-  const { left, requested } = useLocalSearchParams<{ left?: string; requested?: string }>();
+  const { deleted, left, missing, requested } = useLocalSearchParams<{
+    deleted?: string;
+    left?: string;
+    missing?: string;
+    requested?: string;
+  }>();
   return (
     <AuthGateScreen
       // Grupos shows only its title and scoreboard: no description.
       page={{ description: '', title: pt.groups.list.title }}
       renderAuthenticated={(profile) => (
-        <GroupsListScreen left={left === '1'} profile={profile} requested={requested === '1'} />
+        <GroupsListScreen
+          deleted={deleted === '1'}
+          left={left === '1'}
+          missing={missing === '1'}
+          profile={profile}
+          requested={requested === '1'}
+        />
       )}
     />
   );

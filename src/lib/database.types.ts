@@ -406,6 +406,18 @@ export type Database = {
         };
         Returns: Json;
       };
+      delete_group: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       enqueue_data_export_purge: { Args: { p_export_id: string }; Returns: Json };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
       geocode_reserve: {

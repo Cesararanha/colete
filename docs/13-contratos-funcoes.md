@@ -752,6 +752,8 @@ em `profiles`; a policy própria permanece intacta.
 Decisão técnica do planejador (03/10/2026): o ramo 410 é defesa do contrato
 de arquivamento pós-piloto e não é alcançável no fluxo normal do piloto,
 pois o arquivamento passa as memberships a `removed`.
+Grupo apagado pelo dono (§5.0.8, `0029`) responde `NOT_MEMBER` (403), como
+grupo inexistente, também ao membro que continua `active` no histórico.
 
 **Decisão humana de 2026-10-02:** `display_name` é `nickname` após trim
 quando não vazio; caso contrário, `name`. Com apelido, o nome completo
@@ -1191,6 +1193,45 @@ O contrato integral de `archive_group`, suas provas e a leitura por policy
 de grupo arquivado estão preservados em `25` §8.2 como obrigatórios antes
 de abrir o app ao público (M2-D40). O arquivamento por exclusão de conta
 (M2-D9) e `GROUP_ARCHIVED` já entregues em `main` não mudam.
+
+#### 5.0.8 Apagar — `0029`
+
+Assinatura contratada: `delete_group(group_id, request_id)`, no gateway `groups` (decisão
+humana de César, 19/10/2026, `25` §8.1). Somente o dono, com membership `active`, apaga;
+organizador e jogador recebem `OWNER_ONLY` (403), ex-membro, pendente e estranho recebem
+`NOT_MEMBER` (403) e grupo inexistente, `NOT_FOUND` (404). Grupo suspenso recusa com
+`GROUP_SUSPENDED` (403); grupo arquivado pela exclusão de conta, com `GROUP_ARCHIVED` (410).
+O corpo é só `group_id`: o nome que a tela pede para digitar não viaja nem entra na
+intenção. Autenticação e replay seguem §5.0.1; o replay do próprio encerramento devolve o
+outcome gravado, sem `current`. Trava perfil próprio → grupo → membership própria e,
+sob o grupo, os pedidos pendentes, os rachas a cancelar e os convites, cada conjunto em
+ordem crescente: quem entra, cria racha ou confirma presença trava o grupo antes e, depois
+do encerramento, recebe a recusa abaixo.
+
+Numa única transação: os rachas que não terminaram nem foram cancelados passam a
+cancelados (`canceled_at`/`canceled_by` de §3.3.1, inclusive o em andamento); o terminado e
+o já cancelado não mudam. Todos os convites recebem `revoked_at` do servidor; o já revogado
+conserva o seu. Pedidos pendentes passam a `removed`, com `removed_at` do servidor e
+`removal_count` inalterado (M2-D9). `groups.archived_at` e `private.group_deletions`
+(`group_id`, `deleted_by`, `deleted_at`) recebem o mesmo instante. Nada é apagado
+fisicamente: memberships ativas, listas e marcações de pago ficam como histórico, para a
+exportação e a retenção. O outcome é `{group_id, logical_result: "group_deleted"}`.
+
+É definitivo: não há reativar, e ninguém, nem o dono, acessa mais. As memberships do grupo
+deixam de contar no limite de 5 grupos ativos (D6). Toda mutação sobre ele (aprovar,
+expulsar, papel, mensalista, visibilidade, titularidade, sair, renomear, ícone e cor,
+convites, criar, editar e cancelar racha, presença, espera, pagamento, apagar de novo)
+recusa, inclusive o replay de um pedido feito antes do encerramento, com o mesmo
+`NOT_FOUND` (404) de um grupo ou racha inexistente. O banco nomeia essa recusa
+`GROUP_DELETED`; a Edge nunca a expõe e não há código novo no catálogo de §8. O resgate por
+código ou link encontra o convite revogado (`INVITE_REVOKED`, M2-D42). Nas leituras, lista,
+detalhe, memberships e convites não devolvem linha pela policy; `get_group_members` responde
+`NOT_MEMBER` (403); `get_match`, `get_match_roster` e `get_invite_share_link` respondem
+`NOT_FOUND` (404); `list_my_matches` e `get_matches_occupancy` omitem os rachas; a prévia de
+§5.0.2 responde o `CODE_INVALID` genérico, sem trava. A exportação de §5.3 continua
+listando a membership do titular no grupo encerrado, e a exclusão de conta não pede
+substituto nem transfere o grupo encerrado. Ao contrário de `archive_group` (`25` §8.2),
+não há leitura histórica.
 
 ### 5.1 Autenticação e vínculo
 

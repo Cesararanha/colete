@@ -1307,6 +1307,23 @@ código produtivo.
   no servidor e na tela. Sem notificação, motivo, estorno ou matriz de
   recomputação. Racha terminado não muda.
 
+- **Apagar grupo — decisão humana de César, 19/10/2026, AGENTS §8.** Item 1
+  do feedback do teste. `delete_group` na `0029`, no padrão idempotente atual
+  e no gateway `groups` (contrato em `13` §5.0.8): só o dono ativo apaga, em
+  Configurações, digitando o nome do grupo, e é definitivo. Na mesma
+  transação, os rachas não terminados nem cancelados passam a cancelados, os
+  convites são revogados, os pedidos pendentes são encerrados (M2-D9) e as
+  memberships deixam de contar no limite de 5. O grupo fica encerrado
+  (`archived_at` e `private.group_deletions`), com os dados preservados para
+  a exportação e a retenção, e ninguém, nem o dono, o acessa mais: toda
+  mutação recusa, inclusive o replay de pedido anterior, e toda leitura
+  responde como a um grupo que não existe. Não substitui `archive_group`
+  (§8.2), que continua pós-piloto, com leitura histórica; a PERGUNTA de §8.2
+  sobre sair de grupo arquivado não se aplica ao apagado. No app, a tela de
+  um grupo que deixou de ser lido volta para Grupos com "Grupo não
+  encontrado.", para o grupo apagado e, do mesmo modo, para quem saiu ou foi
+  expulso.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

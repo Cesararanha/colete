@@ -462,3 +462,23 @@ cancelado.
 **Depois:** motivo e nota do cancelamento, notificação N14/N15, estorno
 (`refund_due`) de quem pagou, `revision`, a matriz de recomputação e as
 travas de `13` §3.2 (`DATE_LOCKED`, `PRICE_LOCKED` e as demais).
+
+## Apagar grupo — decisão humana de 19/10/2026
+
+Item 1 do feedback do teste. No fim de Configurações do grupo, só o dono vê
+"Apagar grupo", como ação destrutiva; a confirmação abre na própria tela
+("Apagar <nome>?", "Ninguém mais vai acessar o grupo e os rachas futuros
+serão cancelados.") e o botão só libera depois de digitar o nome do grupo.
+Depois, o app vai para Grupos com "Grupo apagado.". Organizador, jogador,
+ex-membro e quem não é membro recebem a recusa padrão, inclusive chamando a
+Edge direto (`0029`, `delete_group`, contrato em `13` §5.0.8). É definitivo:
+os rachas que não terminaram são cancelados, os convites revogados e os
+pedidos pendentes encerrados; o grupo some da lista e da Agenda de todos, e
+detalhe, racha, convites, membros e configurações respondem como a um grupo
+que não existe. Quem estiver com uma tela do grupo aberta, ao atualizar, vê
+"Grupo não encontrado." em Grupos. As participações deixam de contar no
+limite de 5 grupos ativos. Os dados ficam no banco para a exportação e a
+retenção.
+
+**Depois:** `archive_group` com leitura histórica (`25` §8.2), notificação aos
+membros e estorno de quem já pagou um racha cancelado.

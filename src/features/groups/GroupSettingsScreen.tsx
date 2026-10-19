@@ -14,9 +14,11 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
+import { DeleteGroup } from './DeleteGroup';
 import { groupErrorMessage } from './group-errors';
 import { groupNameSchema } from './group-name-schema';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
+import { useLeaveMissingGroup } from './leave-missing-group';
 import { useGroupAdministration } from './useGroupAdministration';
 import { ProfileLinkRow } from '../profile/ProfileLinkRow';
 
@@ -32,6 +34,7 @@ export function GroupSettingsScreen({
   const { listing, run, error } = administration;
   const data = listing.isSuccess ? listing.data : undefined;
   const group = data?.group;
+  useLeaveMissingGroup(data?.missing === true);
   const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [message, setMessage] = useState<string | null>(null);
@@ -74,7 +77,9 @@ export function GroupSettingsScreen({
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
-      {data && !group ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
+      {data && !group && !data.missing ? (
+        <AppAlert message={pt.groups.errors.notOrganizer} />
+      ) : null}
       <AppButton
         icon="refresh-cw"
         label={pt.groups.members.refresh}
@@ -220,6 +225,14 @@ export function GroupSettingsScreen({
             </>
           ) : null}
         </AppCard>
+      ) : null}
+      {group?.role === 'owner' ? (
+        // The screen's one final action stands apart from the card, last.
+        <DeleteGroup
+          groupId={groupId}
+          name={group.name}
+          onGone={() => void administration.refresh()}
+        />
       ) : null}
     </AuthenticatedShell>
   );

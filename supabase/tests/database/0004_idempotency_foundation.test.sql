@@ -640,7 +640,7 @@ select is(
    from information_schema.routine_privileges
    where grantee = 'service_role'
      and specific_schema = 'public'),
-  'accept_policies, approve_member, cancel_match, check_and_debit_invite_attempt, complete_profile, consume_data_export, create_group, create_match, delete_account, enqueue_data_export_purge, finalize_deletion, geocode_reserve, get_group_members, get_invite_share_link, get_match, get_match_roster, get_matches_occupancy, get_my_pending_group_requests, issue_group_invite, join_by_code, join_by_invite, join_match, leave_group, leave_match, list_my_matches, mark_invite_attempt_success, preview_group_by_code, preview_group_by_invite, regenerate_group_invite, remove_member, rename_group, request_data_export, revoke_current_session, revoke_group_invite, set_group_appearance, set_match_payment, set_monthly, set_ratings_visibility, set_role, transfer_ownership, update_match, update_profile, worker_acquire_external_effect, worker_begin_job, worker_complete_external_effect, worker_confirm_deletion_effect, worker_execute_database_job, worker_finish_job, worker_get_data_export_build_target, worker_get_deletion_effect_target, worker_publish_data_export',
+  'accept_policies, approve_member, cancel_match, check_and_debit_invite_attempt, complete_profile, consume_data_export, create_group, create_match, delete_account, delete_group, enqueue_data_export_purge, finalize_deletion, geocode_reserve, get_group_members, get_invite_share_link, get_match, get_match_roster, get_matches_occupancy, get_my_pending_group_requests, issue_group_invite, join_by_code, join_by_invite, join_match, leave_group, leave_match, list_my_matches, mark_invite_attempt_success, preview_group_by_code, preview_group_by_invite, regenerate_group_invite, remove_member, rename_group, request_data_export, revoke_current_session, revoke_group_invite, set_group_appearance, set_match_payment, set_monthly, set_ratings_visibility, set_role, transfer_ownership, update_match, update_profile, worker_acquire_external_effect, worker_begin_job, worker_complete_external_effect, worker_confirm_deletion_effect, worker_execute_database_job, worker_finish_job, worker_get_data_export_build_target, worker_get_deletion_effect_target, worker_publish_data_export',
   'service_role executes only the nominal gateway allowlist, and nothing else'
 );
 -- string_agg(distinct ...) collapses overloads, so a second signature of an
@@ -651,8 +651,8 @@ select is(
    from information_schema.routine_privileges
    where grantee = 'service_role'
      and specific_schema = 'public'),
-  51::bigint,
-  'the allowlist is exactly fifty-one routines, so no overload can hide inside a name'
+  52::bigint,
+  'the allowlist is exactly fifty-two routines, so no overload can hide inside a name'
 );
 select ok(
   not has_table_privilege('anon', 'private.idempotency_records', 'select'),
