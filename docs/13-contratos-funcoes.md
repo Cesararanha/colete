@@ -1223,7 +1223,10 @@ expulsar, papel, mensalista, visibilidade, titularidade, sair, renomear, ícone 
 convites, criar, editar e cancelar racha, presença, espera, pagamento, apagar de novo)
 recusa, inclusive o replay de um pedido feito antes do encerramento, com o mesmo
 `NOT_FOUND` (404) de um grupo ou racha inexistente. O banco nomeia essa recusa
-`GROUP_DELETED`; a Edge nunca a expõe e não há código novo no catálogo de §8. O resgate por
+`GROUP_DELETED`; a Edge nunca a expõe e não há código novo no catálogo de §8. A recusa
+também não espera trava: a decisão sobre o grupo apagado vem antes de travar qualquer linha
+dele, pelo mesmo caminho e custo de um ID inexistente, e só o grupo vivo é travado (P1 da
+revisão do #80, como a prévia do #76). O resgate por
 código ou link encontra o convite revogado (`INVITE_REVOKED`, M2-D42). Nas leituras, lista,
 detalhe, memberships e convites não devolvem linha pela policy; `get_group_members` responde
 `NOT_MEMBER` (403); `get_match`, `get_match_roster` e `get_invite_share_link` respondem

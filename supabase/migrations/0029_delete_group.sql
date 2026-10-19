@@ -21,6 +21,12 @@
 -- devolve desfecho. create_match e o resgate de convite devolvem o desfecho
 -- do replay sem passar pelo helper e ganham a mesma checagem.
 --
+-- A resposta também não pode esperar trava (P1 da revisão do #80, como o da
+-- prévia no #76): o grupo apagado é decidido antes de qualquer espera, e a
+-- linha dele nunca é travada por quem recebe a recusa, como a de um ID
+-- inexistente. O encerramento é definitivo, então essa decisão sem trava não
+-- muda depois.
+--
 -- Ao apagar, na mesma transação: os rachas que não terminaram nem foram
 -- cancelados passam a cancelados (o estado da 0028); todos os convites são
 -- revogados, e a prévia da 0026/0027, STABLE e sem trava, cai no CODE_INVALID
@@ -568,9 +574,11 @@ begin
 
   -- A FK da idempotência já segura FOR KEY SHARE no perfil próprio.
   perform 1 from public.profiles where id = v_actor_id for no key update;
-  perform 1 from public.groups where id = p_group_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
   perform 1 from public.group_members
-    where group_id = p_group_id and profile_id = v_actor_id for no key update;
+    where group_id = p_group_id and profile_id = v_actor_id
+      and not private.is_group_deleted(group_id) for no key update;
   perform private.require_group_actor_after_locks(
     v_actor_id, p_actor_auth_user_id, p_actor_session_id);
 
@@ -749,6 +757,14 @@ begin
   v_actor := private.require_actor_context(p_actor_auth_user_id,p_actor_session_id,true);
   perform 1 from public.profiles p where p.id=v_actor for no key update;
   v_actor := private.require_actor_context(p_actor_auth_user_id,p_actor_session_id,true);
+  -- 0029: quem não lê o grupo (apagado, inexistente ou de fora) recebe
+  -- NOT_MEMBER antes da trava do grupo, sem esperar por ela. O membro ativo
+  -- trava o grupo e relê a própria membership sob a trava.
+  select m.* into v_member from public.group_members m
+    where m.group_id=p_group_id and m.profile_id=v_actor;
+  if v_member.status is distinct from 'active' or private.is_group_deleted(p_group_id) then
+    raise exception using errcode='42501', message='NOT_MEMBER';
+  end if;
   select g.* into v_group from public.groups g where g.id=p_group_id for no key update;
   select m.* into v_member from public.group_members m
     where m.group_id=p_group_id and m.profile_id=v_actor;
@@ -781,6 +797,1185 @@ revoke all on function public.get_group_members(uuid,uuid,uuid)
 grant execute on function public.create_match(uuid, uuid, uuid, text, integer, integer, uuid, jsonb)
   to service_role;
 grant execute on function public.get_group_members(uuid,uuid,uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Sem espera de trava para o grupo apagado
+-- ---------------------------------------------------------------------------
+-- Toda RPC que recusa o grupo apagado decide antes de travar a linha dele, e
+-- pelo mesmo caminho de um grupo inexistente: a trava do grupo e das
+-- memberships leva o predicado not private.is_group_deleted, avaliado antes
+-- de esperar, e não trava nada; o perfil próprio e a autenticação seguem
+-- iguais, e o helper recusa depois sem trava nova. O compartilhamento e a
+-- revogação ou regeneração de convite recusam na busca do convite, sem trava,
+-- como o convite inexistente; a emissão e os replays chegam à busca travada
+-- do grupo e não o encontram; o racha de grupo apagado segue o caminho do
+-- racha inexistente em lock_match_context. A leitura de membros decide
+-- NOT_MEMBER antes da trava do grupo para quem não é membro ativo, apagado
+-- ou não, e só o membro ativo trava. O resgate não muda: o convite revogado
+-- responde INVITE_REVOKED, diferente do código inexistente (M2-D42). Corpos
+-- da 0016, 0017, 0018, 0022 e 0027, mais o predicado; o replace preserva o
+-- ACL, reafirmado abaixo.
+create or replace function public.approve_member(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_profile_id uuid,
+  p_approve boolean
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_authority text;
+  v_status text;
+  v_active bigint;
+  v_open bigint;
+  v_max_groups bigint;
+  v_capacity bigint;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null or p_profile_id is null or p_approve is null then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'approve_member', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  perform 1 from public.profiles where id = p_profile_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  select membership.status into v_status
+  from public.group_members as membership
+  where membership.group_id = p_group_id and membership.profile_id = p_profile_id
+    and not private.is_group_deleted(membership.group_id)
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    v_authority := private.group_actor_authority(p_group_id, v_actor_id);
+    if v_authority not in ('owner', 'organizer') then
+      raise exception using errcode = '42501', message = 'NOT_ORGANIZER';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'status', (select status from public.group_members
+                 where group_id = p_group_id and profile_id = p_profile_id)));
+  end if;
+
+  if v_status is null then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if v_status <> 'pending' then
+    raise exception using errcode = 'P0001', message = 'MEMBERSHIP_ALREADY_DECIDED';
+  end if;
+
+  if p_approve then
+    select max(limit_value) filter (where limit_key = 'max_active_groups_per_profile'),
+           max(limit_value) filter (where limit_key = 'max_group_capacity')
+    into v_max_groups, v_capacity
+    from private.app_limits
+    where limit_key in ('max_active_groups_per_profile', 'max_group_capacity');
+    if v_max_groups is null or v_max_groups <= 0 or v_capacity is null or v_capacity <= 0 then
+      raise exception using errcode = '22023', message = 'VALIDATION';
+    end if;
+
+    -- Cota pessoal (docs/10 §3): memberships active em grupos não
+    -- arquivados, grupo próprio incluído; pedido pending não conta.
+    select count(*) into v_active
+    from public.group_members as membership
+    join public.groups as grp on grp.id = membership.group_id
+    where membership.profile_id = p_profile_id
+      and membership.status = 'active'
+      and grp.archived_at is null;
+    if v_active >= v_max_groups then
+      raise exception using errcode = 'P0001', message = 'GROUP_LIMIT';
+    end if;
+
+    -- Capacidade pending + active. O pendente aprovado já está na conta, então
+    -- a aprovação não muda o total: é defesa contra estado já inválido.
+    select count(*) into v_open
+    from public.group_members
+    where group_id = p_group_id and status in ('pending', 'active');
+    if v_open > v_capacity then
+      raise exception using errcode = 'P0001', message = 'GROUP_FULL';
+    end if;
+
+    update public.group_members
+    set status = 'active'
+    where group_id = p_group_id and profile_id = p_profile_id;
+    v_outcome := jsonb_build_object('group_id', p_group_id::text,
+      'profile_id', p_profile_id::text, 'logical_result', 'member_approved');
+  else
+    update public.group_members
+    set status = 'removed', removed_at = now()
+    where group_id = p_group_id and profile_id = p_profile_id;
+    v_outcome := jsonb_build_object('group_id', p_group_id::text,
+      'profile_id', p_profile_id::text, 'logical_result', 'member_refused');
+  end if;
+
+  perform private.complete_group_idempotency(
+    v_actor_key, 'approve_member', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'status', (select status from public.group_members
+               where group_id = p_group_id and profile_id = p_profile_id)));
+end;
+$function$;
+
+create or replace function public.remove_member(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_profile_id uuid,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_authority text;
+  v_status text;
+  v_reason_length integer;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  v_reason_length := char_length(regexp_replace(p_reason, '^\s+|\s+$', '', 'g'));
+  if p_group_id is null or p_profile_id is null
+     or v_reason_length is null or v_reason_length not between 1 and 500 then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'remove_member', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  perform 1 from public.profiles where id = p_profile_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  select membership.status into v_status
+  from public.group_members as membership
+  where membership.group_id = p_group_id and membership.profile_id = p_profile_id
+    and not private.is_group_deleted(membership.group_id)
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    v_authority := private.group_actor_authority(p_group_id, v_actor_id);
+    if v_authority not in ('owner', 'organizer') then
+      raise exception using errcode = '42501', message = 'NOT_ORGANIZER';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'ok', true, 'refunds', '[]'::jsonb, 'invalidated_matches', '[]'::jsonb));
+  end if;
+
+  if exists (select 1 from public.groups where id = p_group_id and owner_id = p_profile_id) then
+    raise exception using errcode = 'P0001', message = 'IS_OWNER';
+  end if;
+  if v_status is distinct from 'active' then
+    raise exception using errcode = 'P0001', message = 'NOT_ACTIVE_MEMBER';
+  end if;
+
+  -- docs/25 §4.2: active → removed grava removed_at, desliga is_monthly e
+  -- retira autoridade; a linha nunca é apagada nem substituída.
+  update public.group_members
+  set status = 'removed', removed_at = now(), is_monthly = false
+  where group_id = p_group_id and profile_id = p_profile_id;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'profile_id', p_profile_id::text, 'logical_result', 'member_removed');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'remove_member', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'ok', true, 'refunds', '[]'::jsonb, 'invalidated_matches', '[]'::jsonb));
+end;
+$function$;
+
+create or replace function public.set_role(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_profile_id uuid,
+  p_role text
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_status text;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null or p_profile_id is null
+     or p_role is null or p_role not in ('organizer', 'player') then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'set_role', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  perform 1 from public.profiles where id = p_profile_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  select membership.status into v_status
+  from public.group_members as membership
+  where membership.group_id = p_group_id and membership.profile_id = p_profile_id
+    and not private.is_group_deleted(membership.group_id)
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) <> 'owner' then
+      raise exception using errcode = '42501', message = 'OWNER_ONLY';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'role', (select role from public.group_members
+               where group_id = p_group_id and profile_id = p_profile_id)));
+  end if;
+  if v_status is distinct from 'active' then
+    raise exception using errcode = 'P0001', message = 'NOT_ACTIVE_MEMBER';
+  end if;
+
+  update public.group_members
+  set role = p_role
+  where group_id = p_group_id and profile_id = p_profile_id;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'profile_id', p_profile_id::text, 'logical_result', 'role_set');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'set_role', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'role', (select role from public.group_members
+             where group_id = p_group_id and profile_id = p_profile_id)));
+end;
+$function$;
+
+create or replace function public.set_monthly(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_profile_id uuid,
+  p_enabled boolean
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_status text;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null or p_profile_id is null or p_enabled is null then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'set_monthly', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  perform 1 from public.profiles where id = p_profile_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  select membership.status into v_status
+  from public.group_members as membership
+  where membership.group_id = p_group_id and membership.profile_id = p_profile_id
+    and not private.is_group_deleted(membership.group_id)
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) not in ('owner', 'organizer') then
+      raise exception using errcode = '42501', message = 'NOT_ORGANIZER';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'enabled', (select is_monthly from public.group_members
+                  where group_id = p_group_id and profile_id = p_profile_id)));
+  end if;
+  if v_status is distinct from 'active' then
+    raise exception using errcode = 'P0001', message = 'NOT_ACTIVE_MEMBER';
+  end if;
+  if p_enabled and not exists (
+    select 1 from public.groups where id = p_group_id and monthly_enabled
+  ) then
+    raise exception using errcode = 'P0001', message = 'MONTHLY_DISABLED';
+  end if;
+
+  -- docs/13 §5: não altera inscrição já materializada; no M2 não há racha.
+  update public.group_members
+  set is_monthly = p_enabled
+  where group_id = p_group_id and profile_id = p_profile_id;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'profile_id', p_profile_id::text, 'logical_result', 'monthly_set');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'set_monthly', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'enabled', (select is_monthly from public.group_members
+                where group_id = p_group_id and profile_id = p_profile_id)));
+end;
+$function$;
+
+create or replace function public.set_ratings_visibility(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_visibility text,
+  p_confirm_members_visibility boolean
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null or p_confirm_members_visibility is null
+     or p_visibility is null or p_visibility not in ('private', 'members') then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'set_ratings_visibility', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  -- M2-D14: o perfil do próprio ator em FOR NO KEY UPDATE, compatível com o
+  -- FOR KEY SHARE que a idempotência acima já segura nele.
+  perform 1 from public.profiles where id = v_actor_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) <> 'owner' then
+      raise exception using errcode = '42501', message = 'OWNER_ONLY';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'visibility', (select ratings_visibility from public.groups where id = p_group_id)));
+  end if;
+  if p_visibility = 'members' and not p_confirm_members_visibility then
+    raise exception using errcode = 'P0001', message = 'VISIBILITY_CONFIRMATION_REQUIRED';
+  end if;
+
+  update public.groups
+  set ratings_visibility = p_visibility
+  where id = p_group_id;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'logical_result', 'ratings_visibility_set');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'set_ratings_visibility', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'visibility', (select ratings_visibility from public.groups where id = p_group_id)));
+end;
+$function$;
+
+create or replace function public.transfer_ownership(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid,
+  p_new_owner_id uuid
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null or p_new_owner_id is null then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'transfer_ownership', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  perform 1 from public.profiles
+  where id = any(array[v_actor_id, p_new_owner_id])
+  order by id
+  for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  perform 1 from public.group_members
+  where group_id = p_group_id and profile_id = any(array[v_actor_id, p_new_owner_id])
+    and not private.is_group_deleted(group_id)
+  order by profile_id
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) <> 'owner' then
+      raise exception using errcode = '42501', message = 'OWNER_ONLY';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'owner_id', (select owner_id from public.groups where id = p_group_id)));
+  end if;
+  if not exists (
+    select 1
+    from public.group_members as membership
+    join public.profiles as candidate on candidate.id = membership.profile_id
+    where membership.group_id = p_group_id
+      and membership.profile_id = p_new_owner_id
+      and membership.status = 'active'
+      and candidate.account_status = 'active'
+  ) then
+    raise exception using errcode = 'P0001', message = 'NOT_ACTIVE_MEMBER';
+  end if;
+
+  -- M2-D19 (4): concluir sem efeito também exclui UPDATE e seus triggers.
+  if p_new_owner_id <> v_actor_id then
+    update public.groups
+    set owner_id = p_new_owner_id
+    where id = p_group_id;
+  end if;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'new_owner_id', p_new_owner_id::text, 'logical_result', 'ownership_transferred');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'transfer_ownership', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'owner_id', (select owner_id from public.groups where id = p_group_id)));
+end;
+$function$;
+
+create or replace function public.leave_group(
+  p_actor_auth_user_id uuid,
+  p_actor_session_id uuid,
+  p_request_id uuid,
+  p_input_hmac text,
+  p_canonical_version integer,
+  p_hash_key_version integer,
+  p_group_id uuid
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  -- Resolver identidade não concede autoridade: conta e sessão são checadas
+  -- sob os locks abaixo, inclusive no replay de um desfecho já concluído.
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  if p_group_id is null then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'leave_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+  -- M2-D14: o perfil do próprio ator em FOR NO KEY UPDATE.
+  perform 1 from public.profiles where id = v_actor_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  perform 1 from public.group_members
+  where group_id = p_group_id and profile_id = v_actor_id
+    and not private.is_group_deleted(group_id)
+  for no key update;
+
+  -- M2-D20, ajuste de 28/09: perda de autenticação devolve o erro normal,
+  -- inclusive no replay, sem desfecho. Fica fora do tratamento de autoridade.
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  -- O sub-bloco cobre só essa checagem: locks e projeções ficam fora dele.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) = 'owner' then
+      raise exception using errcode = 'P0001', message = 'OWNER_MUST_TRANSFER';
+    end if;
+  exception
+    when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if not v_acquired.acquired and sqlerrm in (
+        'NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+        'NOT_ORGANIZER', 'OWNER_ONLY', 'GROUP_SUSPENDED', 'OWNER_MUST_TRANSFER'
+      ) then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+  end;
+
+  -- M2-D20 emendada: current só depois da autoridade atual autorizada.
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome, 'current', jsonb_build_object(
+      'ok', true, 'refunds', '[]'::jsonb, 'invalidated_matches', '[]'::jsonb));
+  end if;
+
+  update public.group_members
+  set status = 'removed', removed_at = now(), is_monthly = false
+  where group_id = p_group_id and profile_id = v_actor_id;
+
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'logical_result', 'group_left');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'leave_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+
+  return jsonb_build_object('outcome', v_outcome, 'current', jsonb_build_object(
+    'ok', true, 'refunds', '[]'::jsonb, 'invalidated_matches', '[]'::jsonb));
+end;
+$function$;
+
+create or replace function public.rename_group(
+  p_actor_auth_user_id uuid, p_actor_session_id uuid, p_request_id uuid,
+  p_input_hmac text, p_canonical_version integer, p_hash_key_version integer,
+  p_group_id uuid, p_name text
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_name text;
+  v_authority text;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  v_name := private.normalize_group_name(p_name);
+  if p_group_id is null then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'rename_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+
+  -- A FK da idempotência já segura FOR KEY SHARE no perfil próprio.
+  perform 1 from public.profiles where id = v_actor_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  perform 1 from public.group_members
+    where group_id = p_group_id and profile_id = v_actor_id
+      and not private.is_group_deleted(group_id) for no key update;
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  begin
+    v_authority := private.group_actor_authority(p_group_id, v_actor_id);
+    if v_authority not in ('owner', 'organizer') then
+      raise exception using errcode = '42501', message = 'NOT_ORGANIZER';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+    if not v_acquired.acquired and sqlerrm in
+      ('NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER', 'NOT_ORGANIZER', 'GROUP_SUSPENDED') then
+      return jsonb_build_object('outcome', v_acquired.outcome);
+    end if;
+    raise;
+  end;
+
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome,
+      'current', jsonb_build_object('group_id', p_group_id,
+        'group_name', (select name from public.groups where id = p_group_id)));
+  end if;
+
+  update public.groups set name = v_name where id = p_group_id;
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'logical_result', 'group_renamed');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'rename_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+  return jsonb_build_object('outcome', v_outcome,
+    'current', jsonb_build_object('group_id', p_group_id, 'group_name', v_name));
+end;
+$function$;
+
+create or replace function public.set_group_appearance(
+  p_actor_auth_user_id uuid, p_actor_session_id uuid, p_request_id uuid,
+  p_input_hmac text, p_canonical_version integer, p_hash_key_version integer,
+  p_group_id uuid, p_icon text, p_color text
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_outcome jsonb;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  if p_group_id is null
+     or p_icon is null
+     or p_icon not in ('ball', 'goal', 'field', 'whistle', 'shirt', 'trophy', 'bolt', 'flame')
+     or p_color is null
+     or p_color not in ('blue', 'green', 'orange', 'pink', 'lilac', 'sand') then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'set_group_appearance', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+
+  -- A FK da idempotência já segura FOR KEY SHARE no perfil próprio.
+  perform 1 from public.profiles where id = v_actor_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
+  perform 1 from public.group_members
+    where group_id = p_group_id and profile_id = v_actor_id
+      and not private.is_group_deleted(group_id) for no key update;
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+
+  -- Só a perda de autoridade no grupo conserva o desfecho sem projeção.
+  begin
+    if private.group_actor_authority(p_group_id, v_actor_id) <> 'owner' then
+      raise exception using errcode = '42501', message = 'OWNER_ONLY';
+    end if;
+    perform private.require_group_not_suspended(p_group_id);
+  exception when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+    if not v_acquired.acquired and sqlerrm in
+      ('NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER', 'OWNER_ONLY', 'GROUP_SUSPENDED') then
+      return jsonb_build_object('outcome', v_acquired.outcome);
+    end if;
+    raise;
+  end;
+
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome,
+      'current', (select jsonb_build_object('group_id', grp.id, 'icon', grp.icon,
+        'color', grp.color) from public.groups as grp where grp.id = p_group_id));
+  end if;
+
+  update public.groups set icon = p_icon, color = p_color where id = p_group_id;
+  v_outcome := jsonb_build_object('group_id', p_group_id::text,
+    'logical_result', 'group_appearance_set');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'set_group_appearance', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+  return jsonb_build_object('outcome', v_outcome,
+    'current', jsonb_build_object('group_id', p_group_id, 'icon', p_icon, 'color', p_color));
+end;
+$function$;
+
+create or replace function public.get_invite_share_link(
+  p_actor_auth_user_id uuid,p_actor_session_id uuid,p_invite_id uuid
+) returns jsonb language plpgsql volatile security definer set search_path = '' as $function$
+declare v_actor_id uuid; v_group_id uuid; v_invite public.group_invites%rowtype; v_authority text;
+begin
+  v_actor_id:=private.require_actor_context(p_actor_auth_user_id,p_actor_session_id);
+  select group_id into v_group_id from public.group_invites
+    where id=p_invite_id and not private.is_group_deleted(group_id);
+  if not found then raise exception using errcode='P0002',message='NOT_FOUND'; end if;
+  perform 1 from public.profiles where id=v_actor_id for no key update;
+  perform 1 from public.groups where id=v_group_id for no key update;
+  perform 1 from public.group_members where group_id=v_group_id
+    and profile_id=v_actor_id for no key update;
+  select * into v_invite from public.group_invites where id=p_invite_id for no key update;
+  perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
+  v_authority:=private.group_actor_authority(v_group_id,v_actor_id);
+  if v_authority not in ('owner','organizer') then
+    raise exception using errcode='42501',message='NOT_ORGANIZER';
+  end if;
+  perform private.require_group_not_suspended(v_group_id);
+  perform private.require_live_group_invite(p_invite_id);
+  if v_invite.token_version<>1 or v_invite.code_digest is null then
+    raise exception using errcode='P0001',message='CONCURRENT_CHANGE';
+  end if;
+  return jsonb_build_object('invite_id',v_invite.id,'token_version',v_invite.token_version,
+    'nonce_hex',encode(v_invite.public_nonce,'hex'),
+    'token_digest',v_invite.token_digest,'code_digest',v_invite.code_digest,
+    'expires_at',v_invite.expires_at,
+    'remaining_uses',v_invite.max_uses-v_invite.used_count);
+end;
+$function$;
+
+create or replace function private.mutate_group_invite(
+  p_operation text,p_actor_auth_user_id uuid,p_actor_session_id uuid,
+  p_request_id uuid,p_input_hmac text,p_canonical_version integer,
+  p_hash_key_version integer,p_group_id uuid,p_invite_id uuid,
+  p_new_invite_id uuid,p_token_version smallint,p_nonce_hex text,
+  p_token_digest text,p_code_digest text
+) returns jsonb language plpgsql volatile security definer set search_path = '' as $function$
+declare
+  v_actor_id uuid; v_actor_key text; v_acquired record; v_group_id uuid;
+  v_invite_id uuid; v_invite public.group_invites%rowtype;
+  v_group public.groups%rowtype; v_authority text; v_outcome jsonb;
+  v_result text; v_current jsonb;
+begin
+  perform private.require_internal_transport(p_request_id,p_input_hmac,
+    p_canonical_version,p_hash_key_version);
+  v_actor_id:=private.require_actor_context(p_actor_auth_user_id,p_actor_session_id);
+  v_actor_key:='profile:'||v_actor_id::text;
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key,p_operation,p_request_id,p_input_hmac,p_canonical_version,p_hash_key_version);
+  if not v_acquired.acquired then
+    v_group_id:=(v_acquired.outcome->>'group_id')::uuid;
+    v_invite_id:=(v_acquired.outcome->>'invite_id')::uuid;
+  elsif p_operation='issue_group_invite' then
+    v_group_id:=p_group_id;
+    if v_group_id is null then raise exception using errcode='22023',message='VALIDATION'; end if;
+  else
+    v_invite_id:=p_invite_id;
+    select group_id into v_group_id from public.group_invites
+      where id=v_invite_id and not private.is_group_deleted(group_id);
+    if not found then raise exception using errcode='P0002',message='NOT_FOUND'; end if;
+  end if;
+  if private.is_group_deleted(v_group_id) then v_group_id:=null; end if;
+  perform 1 from public.profiles where id=v_actor_id for no key update;
+  select * into v_group from public.groups where id=v_group_id for no key update;
+  if not found then raise exception using errcode='P0002',message='NOT_FOUND'; end if;
+  perform 1 from public.group_members where group_id=v_group_id
+    and profile_id=v_actor_id for no key update;
+  if p_operation='issue_group_invite' then
+    -- O grupo é o lock-pai. O predicado de convite vivo é recontado aqui,
+    -- inclusive se todas as linhas terminais já tiverem sido expurgadas.
+    perform 1 from public.group_invites where group_id=v_group_id
+      order by id for no key update;
+  else
+    if p_operation='regenerate_group_invite' then
+      select * into v_invite from public.group_invites where id=v_invite_id for update;
+    else
+      select * into v_invite from public.group_invites where id=v_invite_id for no key update;
+    end if;
+  end if;
+  perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
+  if not v_acquired.acquired then
+    begin
+      v_authority:=private.group_actor_authority(v_group_id,v_actor_id);
+      perform private.require_group_not_suspended(v_group_id);
+      if v_authority not in ('owner','organizer') then
+        raise exception using errcode='42501',message='NOT_ORGANIZER';
+      end if;
+    exception when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if sqlerrm in ('NOT_FOUND','NOT_MEMBER','NOT_ORGANIZER','GROUP_ARCHIVED','GROUP_SUSPENDED') then
+        return jsonb_build_object('outcome',v_acquired.outcome);
+      end if;
+      raise;
+    end;
+    select * into v_invite from public.group_invites where id=v_invite_id;
+    if not found then return jsonb_build_object('outcome',v_acquired.outcome); end if;
+    v_current:=case when p_operation='revoke_group_invite' then
+      jsonb_build_object('invite_id',v_invite_id,'revoked_at',v_invite.revoked_at)
+      when p_operation='regenerate_group_invite' then
+      jsonb_build_object('invite_id',v_invite_id,'expires_at',v_invite.expires_at,
+        'remaining_uses',v_invite.max_uses-v_invite.used_count)
+      else jsonb_build_object('invite_id',v_invite_id,'expires_at',v_invite.expires_at,
+        'max_uses',v_invite.max_uses,'remaining_uses',v_invite.max_uses-v_invite.used_count) end;
+    return jsonb_build_object('outcome',v_acquired.outcome,'current',v_current);
+  end if;
+  v_authority:=private.group_actor_authority(v_group_id,v_actor_id);
+  if v_authority not in ('owner','organizer') then
+    raise exception using errcode='42501',message='NOT_ORGANIZER';
+  end if;
+  perform private.require_group_not_suspended(v_group_id);
+  if p_operation='revoke_group_invite' then
+    if v_invite.revoked_at is null and v_invite.expires_at>now()
+       and v_invite.used_count<v_invite.max_uses then
+      update public.group_invites set revoked_at=now() where id=v_invite_id;
+      v_result:='invite_revoked';
+      select revoked_at into v_invite.revoked_at from public.group_invites where id=v_invite_id;
+    else
+      v_result:='invite_revocation_unchanged';
+    end if;
+    v_current:=jsonb_build_object('invite_id',v_invite_id,'revoked_at',v_invite.revoked_at);
+  elsif p_operation='regenerate_group_invite' then
+    perform private.require_live_group_invite(v_invite_id);
+    perform private.require_invite_material(v_invite_id,p_token_version,
+      p_nonce_hex,p_token_digest,p_code_digest);
+    update public.group_invites set public_nonce=decode(p_nonce_hex,'hex'),
+      token_digest=p_token_digest,code_digest=p_code_digest where id=v_invite_id;
+    v_result:='invite_regenerated';
+    v_current:=jsonb_build_object('invite_id',v_invite_id,'expires_at',v_invite.expires_at,
+      'remaining_uses',v_invite.max_uses-v_invite.used_count);
+  elsif p_operation='issue_group_invite' then
+    if exists (select 1 from public.group_invites where group_id=v_group_id
+      and revoked_at is null and expires_at>now() and used_count<max_uses) then
+      raise exception using errcode='P0001',message='INVITE_ALREADY_ACTIVE';
+    end if;
+    perform private.require_invite_material(p_new_invite_id,p_token_version,
+      p_nonce_hex,p_token_digest,p_code_digest);
+    insert into public.group_invites(id,group_id,token_version,public_nonce,
+      token_digest,code_digest,created_by,expires_at)
+    values(p_new_invite_id,v_group_id,p_token_version,decode(p_nonce_hex,'hex'),
+      p_token_digest,p_code_digest,v_actor_id,now()+interval '30 days');
+    v_invite_id:=p_new_invite_id;
+    select * into v_invite from public.group_invites where id=v_invite_id;
+    v_result:='invite_issued';
+    v_current:=jsonb_build_object('invite_id',v_invite_id,'expires_at',v_invite.expires_at,
+      'max_uses',v_invite.max_uses,'remaining_uses',v_invite.max_uses);
+  else
+    raise exception using errcode='22023',message='VALIDATION';
+  end if;
+  v_outcome:=jsonb_build_object('group_id',v_group_id,'invite_id',v_invite_id,
+    'logical_result',v_result);
+  perform private.complete_group_idempotency(v_actor_key,p_operation,p_request_id,
+    p_input_hmac,p_canonical_version,p_hash_key_version,v_outcome);
+  return jsonb_build_object('outcome',v_outcome,'current',v_current);
+end;
+$function$;
+
+create or replace function private.lock_match_context(
+  p_actor_id uuid, p_actor_auth_user_id uuid, p_actor_session_id uuid, p_match_id uuid
+)
+returns uuid
+language plpgsql
+volatile
+set search_path = ''
+as $function$
+declare
+  v_group_id uuid;
+begin
+  select match.group_id into v_group_id from private.matches as match where match.id = p_match_id;
+  perform 1 from public.profiles where id = p_actor_id for no key update;
+  if v_group_id is null or private.is_group_deleted(v_group_id) then
+    perform private.require_group_actor_after_locks(
+      p_actor_id, p_actor_auth_user_id, p_actor_session_id);
+    return v_group_id;
+  end if;
+  perform 1 from public.groups where id = v_group_id for no key update;
+  perform 1 from public.group_members
+    where group_id = v_group_id and profile_id = p_actor_id for no key update;
+  perform 1 from private.matches where id = p_match_id for no key update;
+  perform private.require_group_actor_after_locks(
+    p_actor_id, p_actor_auth_user_id, p_actor_session_id);
+  return v_group_id;
+end;
+$function$;
+
+revoke all on function private.mutate_group_invite(text,uuid,uuid,uuid,text,integer,integer,uuid,uuid,uuid,smallint,text,text,text)
+  from public,anon,authenticated,service_role;
+revoke all on function private.lock_match_context(uuid, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.approve_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, boolean)
+  from public, anon, authenticated, service_role;
+revoke all on function public.remove_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.set_role(uuid, uuid, uuid, text, integer, integer, uuid, uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.set_monthly(uuid, uuid, uuid, text, integer, integer, uuid, uuid, boolean)
+  from public, anon, authenticated, service_role;
+revoke all on function public.set_ratings_visibility(uuid, uuid, uuid, text, integer, integer, uuid, text, boolean)
+  from public, anon, authenticated, service_role;
+revoke all on function public.transfer_ownership(uuid, uuid, uuid, text, integer, integer, uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.leave_group(uuid, uuid, uuid, text, integer, integer, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.rename_group(uuid, uuid, uuid, text, integer, integer, uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.set_group_appearance(uuid, uuid, uuid, text, integer, integer, uuid, text, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.get_invite_share_link(uuid,uuid,uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.approve_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, boolean)
+  to service_role;
+grant execute on function public.remove_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, text)
+  to service_role;
+grant execute on function public.set_role(uuid, uuid, uuid, text, integer, integer, uuid, uuid, text)
+  to service_role;
+grant execute on function public.set_monthly(uuid, uuid, uuid, text, integer, integer, uuid, uuid, boolean)
+  to service_role;
+grant execute on function public.set_ratings_visibility(uuid, uuid, uuid, text, integer, integer, uuid, text, boolean)
+  to service_role;
+grant execute on function public.transfer_ownership(uuid, uuid, uuid, text, integer, integer, uuid, uuid)
+  to service_role;
+grant execute on function public.leave_group(uuid, uuid, uuid, text, integer, integer, uuid)
+  to service_role;
+grant execute on function public.rename_group(uuid, uuid, uuid, text, integer, integer, uuid, text)
+  to service_role;
+grant execute on function public.set_group_appearance(uuid, uuid, uuid, text, integer, integer, uuid, text, text)
+  to service_role;
+grant execute on function public.get_invite_share_link(uuid,uuid,uuid) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- delete_group(group_id, request_id)
@@ -838,9 +2033,11 @@ begin
 
   -- A FK da idempotência já segura FOR KEY SHARE no perfil próprio.
   perform 1 from public.profiles where id = v_actor_id for no key update;
-  perform 1 from public.groups where id = p_group_id for no key update;
+  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)
+    for no key update;
   perform 1 from public.group_members
-    where group_id = p_group_id and profile_id = v_actor_id for no key update;
+    where group_id = p_group_id and profile_id = v_actor_id
+      and not private.is_group_deleted(group_id) for no key update;
   perform private.require_group_actor_after_locks(
     v_actor_id, p_actor_auth_user_id, p_actor_session_id);
 

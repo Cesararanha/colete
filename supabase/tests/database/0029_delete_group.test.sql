@@ -443,7 +443,11 @@ create temporary table state_after as
   union all select 'match', id::text || coalesce(canceled_at::text, '-') || coalesce(description, '-') from private.matches
   union all select 'invite', id::text || coalesce(revoked_at::text, '-') from public.group_invites
   union all select 'group', id::text || name || icon || color || coalesce(archived_at::text, '-') from public.groups;
-select throws_ok(call, 'P0002', 'GROUP_DELETED', 'replay after the deletion: ' || label)
+-- O convite de grupo apagado não é achado, como um inexistente: a revogação
+-- recusa com NOT_FOUND na busca, antes de qualquer trava (P1 da revisão do #80).
+select throws_ok(call, 'P0002',
+  case when label = 'revoke_group_invite' then 'NOT_FOUND' else 'GROUP_DELETED' end,
+  'replay after the deletion: ' || label)
 from replay_calls;
 select is((select count(*)::integer from (
     select operation, request_id, state, outcome, updated_at from private.idempotency_records
@@ -491,14 +495,14 @@ insert into new_calls values
     'P0002', 'GROUP_DELETED'),
   ('revoke_group_invite', $$select public.revoke_group_invite(pg_temp.auth('01'), gen_random_uuid(),
     gen_random_uuid(), repeat('a', 64), 1, 1, '29400000-0000-4000-8000-000000000001')$$,
-    'P0002', 'GROUP_DELETED'),
+    'P0002', 'NOT_FOUND'),
   ('regenerate_group_invite', $$select public.regenerate_group_invite(pg_temp.auth('01'), gen_random_uuid(),
     gen_random_uuid(), repeat('a', 64), 1, 1, '29400000-0000-4000-8000-000000000001', 1::smallint,
-    repeat('9', 32), repeat('9a', 32), repeat('9c', 32))$$, 'P0002', 'GROUP_DELETED'),
+    repeat('9', 32), repeat('9a', 32), repeat('9c', 32))$$, 'P0002', 'NOT_FOUND'),
   ('issue_group_invite', $$select public.issue_group_invite(pg_temp.auth('01'), gen_random_uuid(),
     gen_random_uuid(), repeat('a', 64), 1, 1, '29200000-0000-4000-8000-000000000001',
     '29400000-0000-4000-8000-000000000099', 1::smallint, repeat('8', 32), repeat('8a', 32), repeat('8c', 32))$$,
-    'P0002', 'GROUP_DELETED'),
+    'P0002', 'NOT_FOUND'),
   ('create_match', $$select public.create_match(pg_temp.auth('01'), gen_random_uuid(), gen_random_uuid(),
     repeat('a', 64), 1, 1, '29200000-0000-4000-8000-000000000001', pg_temp.new_cfg(6))$$,
     'P0002', 'GROUP_DELETED'),
@@ -552,8 +556,16 @@ select throws_ok($$select public.get_match_roster(pg_temp.auth('03'), gen_random
     '29300000-0000-4000-8000-000000000001')$$, 'P0002', 'GROUP_DELETED',
   'the roster refuses (the Edge answers NOT_FOUND)');
 select throws_ok($$select public.get_invite_share_link(pg_temp.auth('01'), gen_random_uuid(),
-    '29400000-0000-4000-8000-000000000001')$$, 'P0002', 'GROUP_DELETED',
-  'the share link refuses (the Edge answers NOT_FOUND)');
+    '29400000-0000-4000-8000-000000000001')$$, 'P0002', 'NOT_FOUND',
+  'the share link of a deleted group is NOT_FOUND');
+select throws_ok($$select public.get_invite_share_link(pg_temp.auth('01'), gen_random_uuid(),
+    '29400000-0000-4000-8000-0000000000ee')$$, 'P0002', 'NOT_FOUND',
+  'which is exactly the unknown invite answer');
+-- Mesmo erro do grupo inexistente na emissão, pela mesma busca travada.
+select throws_ok($$select public.issue_group_invite(pg_temp.auth('01'), gen_random_uuid(),
+    gen_random_uuid(), repeat('a', 64), 1, 1, '29200000-0000-4000-8000-0000000000ff',
+    '29400000-0000-4000-8000-000000000098', 1::smallint, repeat('7', 32), repeat('7a', 32), repeat('7c', 32))$$,
+  'P0002', 'NOT_FOUND', 'issuing for an unknown group is the same NOT_FOUND');
 select is((select count(*)::integer from public.list_my_matches(pg_temp.auth('03'), gen_random_uuid())
   where group_id = '29200000-0000-4000-8000-000000000001'), 0,
   'the Agenda no longer lists the matches of the group');

@@ -2956,3 +2956,37 @@ Grupos desligado reprova o e2e novo. No harness, sem a trava do grupo e com
 uma pausa depois de cancelar os rachas, um "Criar racha" no meio deixa um
 racha vivo no grupo apagado; com a trava e a mesma pausa, a criação espera e
 é recusada.
+
+**Correção do P1 da revisão do #80.** Com a linha do grupo apagado travada
+por outra transação, `get_group_members` e `get_invite_share_link` esperavam
+a trava (cerca de 680 ms na sonda do revisor) enquanto um ID inexistente
+respondia na hora: o tempo revelava que o grupo existiu. O mesmo valia para
+as escritas que travam o grupo antes da autoridade. A `0029` (ainda não
+aplicada em ambiente nenhum) passou a decidir o grupo apagado antes de
+travar qualquer linha dele, pelo mesmo caminho de um ID inexistente: as
+travas de grupo e memberships levam `not private.is_group_deleted`, avaliado
+antes de esperar; o compartilhamento e a revogação ou regeneração recusam na
+busca sem trava do convite, como o convite inexistente, com `NOT_FOUND`; o
+racha de grupo apagado segue o caminho do racha inexistente em
+`lock_match_context`; a leitura de membros recusa `NOT_MEMBER` antes da trava
+do grupo para quem não é membro ativo, o que vale também para o estranho em
+grupo vivo. Ficam redefinidas, com o predicado, as sete RPCs de membros da
+`0016`, `rename_group`, `set_group_appearance`, `get_invite_share_link`,
+`mutate_group_invite` e `lock_match_context`. O encerramento é definitivo, então
+a decisão sem trava não muda depois.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova | conexão segurando `FOR UPDATE` o grupo apagado, memberships, convites e rachas, tomada e solta a cada operação: 23 operações (4 leituras e 19 escritas) × membro antigo e estranho, contra o ID apagado e um ID inexistente, 46 chamadas respondem com a trava presa, mesmo status e erro, a mais lenta em 34 ms; estranho lendo membros de grupo vivo travado responde `NOT_MEMBER` sem esperar |
+| contraprova com a `0029` de `3054d03` | o mesmo harness reprova: 42 das 46 chamadas ao grupo apagado esperam a trava (todas, menos `get_match` e `get_match_roster`, que não travam o grupo) |
+| sonda do revisor (`rev80-evidencias/probe.mjs`) | exit 0; `DELETED_READ_NO_WAIT` passa nas quatro leituras antes reprovadas: apagado 19–22 ms contra inexistente 15–16 ms, `blocked: false`; replays (22) e indistinguibilidade seguem passando |
+| pgTAP da `0029` | 170 asserções, PASS; revogar, regenerar, emitir e compartilhar convite de grupo apagado passam a `NOT_FOUND`, igual ao ID inexistente |
+| db:test | 27 arquivos, 1884 asserções, PASS |
+| demais itens de §5 | exit 0; membership com o censo da `0029` em doze funções da `0016`; members com o mutante de autoridade derrubando as duas checagens; groups:web 81 + 5 skip, matches:web 24, qr 30, cors 4, smoke 6, privacy 5 + 5 skip, auth 10 + 2 skip, vitest 654 |
+
+O canal do estranho em grupo vivo nas escritas e no compartilhamento já
+existia antes do #80 e não fica igual: lá a resposta já difere do ID
+inexistente pelo corpo (`NOT_MEMBER` contra `NOT_FOUND`), não só pelo tempo.
+O resgate por código ou link de grupo apagado continua respondendo
+`INVITE_REVOKED`, diferente do código inexistente, pela precedência da
+M2-D42.

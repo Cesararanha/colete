@@ -1,6 +1,7 @@
 // Fatia 0029 (apagar grupo): permissões e chamada forçada pela Edge com JWT
 // GoTrue real; depois do encerramento, replay e chamada nova recusados e as
-// leituras iguais às de um grupo que não existe; apagar × entrar, apagar ×
+// leituras iguais às de um grupo que não existe, também sem esperar trava
+// (P1 da revisão do #80); apagar × entrar, apagar ×
 // criar racha e apagar × confirmar presença na mesma trava do grupo, nas duas
 // ordens e com commit de verdade; contraprova executável sem a trava.
 import assert from 'node:assert/strict';
@@ -429,6 +430,174 @@ async function proveHttp(status, db) {
 }
 
 // ---------------------------------------------------------------------------
+// Sem espera de trava: o grupo apagado responde como o inexistente, também no
+// tempo (P1 da revisão do #80)
+// ---------------------------------------------------------------------------
+// Uma conexão segura FOR UPDATE a linha do grupo apagado, as memberships, os
+// convites e os rachas dele. Cada operação, chamada pelo membro antigo e por
+// um estranho, com o ID do grupo apagado e com um ID inexistente, precisa
+// responder com a trava ainda presa, com o mesmo status e o mesmo erro. Uma
+// chamada que esperasse a trava não terminaria antes do prazo.
+const NO_WAIT_MS = 3000;
+async function withinHold(label, request) {
+  const started = performance.now();
+  let timer;
+  const result = await Promise.race([
+    request,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve('waited'), NO_WAIT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (result === 'waited') return { waited: label };
+  return { ...result, ms: performance.now() - started };
+}
+async function proveNoLockWait(status, db, holder) {
+  const [owner, former, stranger, target] = await Promise.all(
+    ['nw-owner', 'nw-former', 'nw-stranger', 'nw-target'].map((label) =>
+      createActor(status, label),
+    ),
+  );
+  const { groupId, inviteId } = await createGroup(status, owner, 'Grupo da Trava');
+  await addMembers(db, groupId, [
+    [former, 'organizer', 'active'],
+    [target, 'player', 'active'],
+  ]);
+  const matchId = await createMatch(status, owner, groupId, 9);
+  ok(await mutate(status, owner, 'delete_group', { group_id: groupId }), 'delete');
+  // Uma leitura e uma escrita de cada família, mais as do racha.
+  const unknownGroup = crypto.randomUUID();
+  const unknownInvite = crypto.randomUUID();
+  const unknownMatch = crypto.randomUUID();
+  const calls = [
+    ['get_group_members', 'read', (g) => ({ group_id: g })],
+    ['get_invite_share_link', 'read', (_g, i) => ({ invite_id: i })],
+    ['get_match', 'read', (_g, _i, m) => ({ match_id: m })],
+    ['get_match_roster', 'read', (_g, _i, m) => ({ match_id: m })],
+    [
+      'approve_member',
+      'write',
+      (g) => ({ group_id: g, profile_id: target.profileId, approve: true }),
+    ],
+    ['remove_member', 'write', (g) => ({ group_id: g, profile_id: target.profileId, reason: 'x' })],
+    [
+      'set_role',
+      'write',
+      (g) => ({ group_id: g, profile_id: target.profileId, role: 'organizer' }),
+    ],
+    ['set_monthly', 'write', (g) => ({ group_id: g, profile_id: target.profileId, enabled: true })],
+    [
+      'set_ratings_visibility',
+      'write',
+      (g) => ({ group_id: g, visibility: 'private', confirm_members_visibility: false }),
+    ],
+    ['transfer_ownership', 'write', (g) => ({ group_id: g, new_owner_id: target.profileId })],
+    ['leave_group', 'write', (g) => ({ group_id: g })],
+    ['rename_group', 'write', (g) => ({ group_id: g, name: 'Outro nome' })],
+    ['set_group_appearance', 'write', (g) => ({ group_id: g, icon: 'ball', color: 'blue' })],
+    ['revoke_group_invite', 'write', (_g, i) => ({ invite_id: i })],
+    ['regenerate_group_invite', 'write', (_g, i) => ({ invite_id: i })],
+    ['issue_group_invite', 'write', (g) => ({ group_id: g })],
+    ['create_match', 'write', (g) => ({ group_id: g, config: matchConfig(10) })],
+    ['update_match', 'write', (_g, _i, m) => ({ match_id: m, config: matchConfig(11) })],
+    ['cancel_match', 'write', (_g, _i, m) => ({ match_id: m })],
+    ['join_match', 'write', (_g, _i, m) => ({ match_id: m })],
+    ['leave_match', 'write', (_g, _i, m) => ({ match_id: m })],
+    [
+      'set_match_payment',
+      'write',
+      (_g, _i, m) => ({ match_id: m, profile_id: target.profileId, paid: true }),
+    ],
+    ['delete_group', 'write', (g) => ({ group_id: g })],
+  ];
+  const call = (actor, operation, kind, body) =>
+    kind === 'read' ? read(status, actor, operation, body) : mutate(status, actor, operation, body);
+  // A trava é tomada e solta a cada operação, e a chamada que esperou termina
+  // antes da próxima: cada operação é julgada sozinha, sem fila herdada.
+  const hold = async () => {
+    await holder.query('begin');
+    await holder.query('select 1 from public.groups where id=$1 for update', [groupId]);
+    await holder.query('select 1 from public.group_members where group_id=$1 for update', [
+      groupId,
+    ]);
+    await holder.query('select 1 from public.group_invites where group_id=$1 for update', [
+      groupId,
+    ]);
+    await holder.query('select 1 from private.matches where group_id=$1 for update', [groupId]);
+  };
+  const timings = [];
+  const waited = [];
+  for (const [who, actor] of [
+    ['former member', former],
+    ['stranger', stranger],
+  ]) {
+    for (const [operation, kind, body] of calls) {
+      const label = `${who} ${operation}`;
+      const requests = [];
+      let unknown;
+      let deleted;
+      await hold();
+      try {
+        requests.push(
+          call(actor, operation, kind, body(unknownGroup, unknownInvite, unknownMatch)),
+        );
+        unknown = await withinHold(`${label} unknown`, requests[0]);
+        requests.push(call(actor, operation, kind, body(groupId, inviteId, matchId)));
+        deleted = await withinHold(`${label} deleted`, requests[1]);
+      } finally {
+        await holder.query('rollback');
+      }
+      await Promise.allSettled(requests);
+      if (unknown.waited || deleted.waited) {
+        waited.push(unknown.waited ?? deleted.waited);
+        continue;
+      }
+      assert.equal(deleted.status, unknown.status, `${label}: status`);
+      assert.deepEqual(deleted.body.error, unknown.body.error, `${label}: error`);
+      assert.equal(Object.hasOwn(deleted.body, 'data'), false, `${label}: no data`);
+      timings.push(deleted.ms);
+    }
+  }
+  assert.deepEqual(waited, [], `waited for the lock of the deleted group: ${waited.join(', ')}`);
+  const unchanged = await db.query(
+    `select (select count(*)::integer from private.matches
+              where group_id = $1 and canceled_at is null) as live,
+            (select name from public.groups where id = $1) as name,
+            (select count(*)::integer from public.group_invites
+              where group_id = $1 and revoked_at is null) as invites`,
+    [groupId],
+  );
+  assert.deepEqual(unchanged.rows[0], { live: 0, name: 'Grupo da Trava', invites: 0 });
+  console.log(
+    `ok - with the deleted group, its memberships, invites and matches held FOR UPDATE: ${timings.length} calls (${calls.length} operations × former member and stranger) answer like an unknown ID while the lock is held, slowest ${Math.round(Math.max(...timings))} ms`,
+  );
+
+  // Um estranho lendo os membros de um grupo vivo também não espera a trava:
+  // responde NOT_MEMBER como para um grupo inexistente.
+  const live = await createGroup(status, owner, 'Grupo Vivo da Trava');
+  await holder.query('begin');
+  try {
+    await holder.query('select 1 from public.groups where id=$1 for update', [live.groupId]);
+    const unknown = await withinHold(
+      'stranger members unknown',
+      read(status, stranger, 'get_group_members', { group_id: unknownGroup }),
+    );
+    const alive = await withinHold(
+      'stranger members live',
+      read(status, stranger, 'get_group_members', { group_id: live.groupId }),
+    );
+    assert.equal(unknown.waited ?? alive.waited, undefined, 'a stranger waited for a live group');
+    assert.equal(alive.status, unknown.status);
+    assert.deepEqual(alive.body.error, unknown.body.error);
+  } finally {
+    await holder.query('rollback');
+  }
+  console.log(
+    'ok - a stranger reading the members of a live group held FOR UPDATE answers NOT_MEMBER like an unknown group, without waiting',
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Concorrência: apagar × entrar, criar racha e confirmar, nas duas ordens
 // ---------------------------------------------------------------------------
 // Os dois parados atrás de quem segura o grupo. Quem pega a trava primeiro
@@ -628,7 +797,8 @@ async function proveLockMutant(status, connections, db) {
   const { first, second } = connections;
   const original = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [DELETE]))
     .rows[0].d;
-  const groupLock = '  perform 1 from public.groups where id = p_group_id for no key update;\n';
+  const groupLock =
+    '  perform 1 from public.groups where id = p_group_id and not private.is_group_deleted(id)\n    for no key update;\n';
   const cancel = `  update private.matches
   set canceled_at = now(), canceled_by = v_actor_id
   where group_id = p_group_id and canceled_at is null and ends_at > now();
@@ -710,6 +880,7 @@ async function main() {
     assert.equal(initial, 0, 'auth.users before proofs');
     console.log('ok - auth.users=0 before proofs');
     await proveHttp(status, db);
+    await proveNoLockWait(status, db, holder);
     await proveBarriers(status, { observer, holder, first, second }, db);
     await proveLockMutant(status, { first, second }, db);
   } catch (error) {
