@@ -633,6 +633,7 @@ declare
   v_invite public.group_invites%rowtype; v_group public.groups%rowtype;
   v_member public.group_members%rowtype; v_group_id uuid; v_invite_id uuid;
   v_count bigint; v_limit bigint; v_capacity bigint; v_result text; v_outcome jsonb;
+  v_deleted boolean:=false;
 begin
   perform private.require_internal_transport(p_request_id,p_input_hmac,
     p_canonical_version,p_hash_key_version);
@@ -656,9 +657,19 @@ begin
     end if;
     if not found then raise exception using errcode='22023',message='CODE_INVALID'; end if;
     v_group_id:=v_invite.group_id; v_invite_id:=v_invite.id;
+    if private.is_group_deleted(v_group_id) then
+      if p_operation='join_by_invite' and (v_invite.token_version is distinct from p_token_version
+         or v_invite.token_digest is distinct from p_token_digest) then
+        raise exception using errcode='22023',message='CODE_INVALID';
+      end if;
+      raise exception using errcode='P0001',message='INVITE_REVOKED';
+    end if;
   else
     v_group_id:=(v_acquired.outcome->>'group_id')::uuid;
     v_invite_id:=(v_acquired.outcome->>'invite_id')::uuid;
+    if private.is_group_deleted(v_group_id) then
+      v_deleted:=true; v_group_id:=null; v_invite_id:=null;
+    end if;
   end if;
   perform 1 from public.profiles where id=v_actor_id for no key update;
   select * into v_group from public.groups where id=v_group_id for no key update;
@@ -668,7 +679,7 @@ begin
   perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
   if not v_acquired.acquired then
     -- 0029: grupo apagado recusa também o replay de antes do encerramento.
-    if private.is_group_deleted(v_group_id) then
+    if v_deleted then
       raise exception using errcode='P0002',message='GROUP_DELETED';
     end if;
     if v_member.status in ('pending','active') and v_group.archived_at is null then
@@ -811,10 +822,13 @@ grant execute on function public.get_group_members(uuid,uuid,uuid) to service_ro
 -- do grupo e não o encontram; o racha de grupo apagado segue o caminho do
 -- racha inexistente em lock_match_context. A leitura de membros decide
 -- NOT_MEMBER antes da trava do grupo para quem não é membro ativo, apagado
--- ou não, e só o membro ativo trava. O resgate não muda: o convite revogado
--- responde INVITE_REVOKED, diferente do código inexistente (M2-D42). Corpos
--- da 0016, 0017, 0018, 0022 e 0027, mais o predicado; o replace preserva o
--- ACL, reafirmado abaixo.
+-- ou não, e só o membro ativo trava. Os replays conferem o estado atual sem
+-- travar: o de create_group trava só grupo vivo, e o do resgate não trava o
+-- grupo apagado. O resgate novo de convite de grupo apagado responde na
+-- busca do convite, sem trava, como o código inexistente, mantendo a
+-- precedência da M2-D42 (INVITE_REVOKED; material divergente, CODE_INVALID).
+-- Corpos da 0016, 0017, 0018, 0022 e 0027, mais o predicado; o replace
+-- preserva o ACL, reafirmado abaixo.
 create or replace function public.approve_member(
   p_actor_auth_user_id uuid,
   p_actor_session_id uuid,
@@ -1933,6 +1947,110 @@ begin
 end;
 $function$;
 
+create or replace function public.create_group(
+  p_actor_auth_user_id uuid, p_actor_session_id uuid, p_request_id uuid,
+  p_input_hmac text, p_canonical_version integer, p_hash_key_version integer,
+  p_name text, p_invite_id uuid, p_token_version smallint,
+  p_nonce_hex text, p_token_digest text, p_code_digest text
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  v_actor_id uuid;
+  v_actor_key text;
+  v_acquired record;
+  v_group_id uuid;
+  v_invite_id uuid;
+  v_name text;
+  v_count bigint;
+  v_limit bigint;
+  v_outcome jsonb;
+  v_authority text;
+begin
+  perform private.require_internal_transport(
+    p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
+  v_name := private.normalize_group_name(p_name);
+  if p_actor_auth_user_id is null or p_actor_session_id is null then
+    raise exception using errcode = '28000', message = 'UNAUTHENTICATED';
+  end if;
+  select id into v_actor_id from public.profiles
+  where auth_user_id = p_actor_auth_user_id;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NOT_FOUND';
+  end if;
+  v_actor_key := 'profile:' || v_actor_id::text;
+  select * into v_acquired from private.acquire_group_idempotency(
+    v_actor_key, 'create_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version);
+
+  perform 1 from public.profiles where id = v_actor_id for no key update;
+  if not v_acquired.acquired then
+    v_group_id := (v_acquired.outcome ->> 'group_id')::uuid;
+    v_invite_id := (v_acquired.outcome ->> 'invite_id')::uuid;
+    perform 1 from public.groups where id = v_group_id and not private.is_group_deleted(id)
+      for no key update;
+    perform 1 from public.group_members
+      where group_id = v_group_id and profile_id = v_actor_id
+        and not private.is_group_deleted(group_id) for no key update;
+    perform 1 from public.group_invites
+      where id = v_invite_id and not private.is_group_deleted(group_id) for no key update;
+  end if;
+  perform private.require_group_actor_after_locks(
+    v_actor_id, p_actor_auth_user_id, p_actor_session_id);
+  if not v_acquired.acquired then
+    begin
+      v_authority := private.group_actor_authority(v_group_id, v_actor_id);
+      perform private.require_group_not_suspended(v_group_id);
+    exception when sqlstate '42501' or sqlstate 'P0001' or sqlstate 'P0002' then
+      if sqlerrm in ('NOT_FOUND', 'GROUP_ARCHIVED', 'NOT_MEMBER',
+                     'GROUP_SUSPENDED') then
+        return jsonb_build_object('outcome', v_acquired.outcome);
+      end if;
+      raise;
+    end;
+    return jsonb_build_object('outcome', v_acquired.outcome,
+      'current', jsonb_build_object('group_id', v_group_id,
+        'group_name', (select name from public.groups where id = v_group_id)));
+  end if;
+
+  perform private.require_invite_material(p_invite_id, p_token_version,
+    p_nonce_hex, p_token_digest, p_code_digest);
+  select limit_value into v_limit from private.app_limits
+  where limit_key = 'max_active_groups_per_profile';
+  if v_limit is null or v_limit <= 0 then
+    raise exception using errcode = '22023', message = 'VALIDATION';
+  end if;
+  select count(*) into v_count from public.group_members as membership
+  join public.groups as grp on grp.id = membership.group_id
+  where membership.profile_id = v_actor_id
+    and membership.status = 'active' and grp.archived_at is null;
+  if v_count >= v_limit then
+    raise exception using errcode = 'P0001', message = 'GROUP_LIMIT';
+  end if;
+
+  insert into public.groups (name, owner_id) values (v_name, v_actor_id)
+  returning id into v_group_id;
+  insert into public.group_members (group_id, profile_id, role, status)
+  values (v_group_id, v_actor_id, 'organizer', 'active');
+  insert into public.group_invites
+    (id, group_id, token_version, public_nonce, token_digest, code_digest,
+     created_by, expires_at)
+  values (p_invite_id, v_group_id, p_token_version, decode(p_nonce_hex, 'hex'),
+          p_token_digest, p_code_digest, v_actor_id, now() + interval '30 days');
+  v_outcome := jsonb_build_object('group_id', v_group_id::text,
+    'invite_id', p_invite_id::text, 'logical_result', 'group_created');
+  perform private.complete_group_idempotency(
+    v_actor_key, 'create_group', p_request_id, p_input_hmac,
+    p_canonical_version, p_hash_key_version, v_outcome);
+  return jsonb_build_object('outcome', v_outcome,
+    'current', jsonb_build_object('group_id', v_group_id, 'group_name', v_name));
+end;
+$function$;
+
 revoke all on function private.mutate_group_invite(text,uuid,uuid,uuid,text,integer,integer,uuid,uuid,uuid,smallint,text,text,text)
   from public,anon,authenticated,service_role;
 revoke all on function private.lock_match_context(uuid, uuid, uuid, uuid)
@@ -1957,6 +2075,12 @@ revoke all on function public.set_group_appearance(uuid, uuid, uuid, text, integ
   from public, anon, authenticated, service_role;
 revoke all on function public.get_invite_share_link(uuid,uuid,uuid)
   from public,anon,authenticated,service_role;
+revoke all on function public.create_group(
+  uuid, uuid, uuid, text, integer, integer, text, uuid, smallint, text, text, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.create_group(
+  uuid, uuid, uuid, text, integer, integer, text, uuid, smallint, text, text, text)
+  to service_role;
 grant execute on function public.approve_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, boolean)
   to service_role;
 grant execute on function public.remove_member(uuid, uuid, uuid, text, integer, integer, uuid, uuid, text)

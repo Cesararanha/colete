@@ -597,6 +597,218 @@ async function proveNoLockWait(status, db, holder) {
   );
 }
 
+// Os replays e o resgate. Cada operação de grupo e de racha é concluída antes
+// do encerramento pelo próprio titular (dono, membro, membro antigo) e
+// repetida depois com o mesmo corpo e request_id, com o grupo apagado, as
+// memberships, os convites e os rachas presos: a recusa precisa sair com a
+// trava presa, sem desfecho. O replay do próprio encerramento devolve o
+// desfecho, também sem esperar. O resgate e a prévia de um convite do grupo
+// apagado, pelo membro antigo e por um estranho, respondem com a trava presa,
+// como um código inexistente (o resgate com INVITE_REVOKED, M2-D42); e o
+// pedido encerrado sai da lista de pendentes sem esperar.
+async function holdDeleted(holder, groupId) {
+  await holder.query('begin');
+  await holder.query('select 1 from public.groups where id=$1 for update', [groupId]);
+  await holder.query('select 1 from public.group_members where group_id=$1 for update', [groupId]);
+  await holder.query('select 1 from public.group_invites where group_id=$1 for update', [groupId]);
+  await holder.query('select 1 from private.matches where group_id=$1 for update', [groupId]);
+}
+function tokenOf(shareUrl) {
+  return new URLSearchParams(new URL(shareUrl).hash.slice(1)).get('token');
+}
+async function proveNoLockWaitReplays(status, db, holder) {
+  const [owner, m1, m2, m3, m4, m5, stranger] = await Promise.all(
+    ['rp-owner', 'rp-m1', 'rp-m2', 'rp-m3', 'rp-m4', 'rp-m5', 'rp-stranger'].map((label) =>
+      createActor(status, label),
+    ),
+  );
+  const recorded = [];
+  // Executa e guarda o pedido para repetir depois, com o mesmo corpo.
+  const record = async (actor, operation, body, label = operation) => {
+    const requestId = crypto.randomUUID();
+    const data = ok(await mutate(status, actor, operation, body, requestId), `record ${label}`);
+    recorded.push({ actor, operation, body, requestId, label });
+    return data;
+  };
+  const created = await record(owner, 'create_group', { name: 'Grupo dos Replays' });
+  const groupId = created.outcome.group_id;
+  const firstInvite = created.outcome.invite_id;
+  const first = ok(
+    await read(status, owner, 'get_invite_share_link', { invite_id: firstInvite }),
+    'share',
+  );
+  await record(m1, 'join_by_code', { code: first.code });
+  await record(m2, 'join_by_invite', { token: tokenOf(first.share_url) });
+  await record(owner, 'approve_member', {
+    group_id: groupId,
+    profile_id: m1.profileId,
+    approve: true,
+  });
+  ok(
+    await mutate(status, owner, 'approve_member', {
+      group_id: groupId,
+      profile_id: m2.profileId,
+      approve: true,
+    }),
+    'approve m2',
+  );
+  await addMembers(db, groupId, [
+    [m3, 'player', 'active'],
+    [m4, 'player', 'active'],
+  ]);
+  await db.query('update public.groups set monthly_enabled = true where id = $1', [groupId]);
+  await record(owner, 'set_role', {
+    group_id: groupId,
+    profile_id: m1.profileId,
+    role: 'organizer',
+  });
+  await record(owner, 'set_monthly', {
+    group_id: groupId,
+    profile_id: m2.profileId,
+    enabled: true,
+  });
+  await record(owner, 'set_ratings_visibility', {
+    group_id: groupId,
+    visibility: 'private',
+    confirm_members_visibility: false,
+  });
+  await record(owner, 'rename_group', { group_id: groupId, name: 'Grupo dos Replays' });
+  await record(owner, 'set_group_appearance', { group_id: groupId, icon: 'goal', color: 'green' });
+  await record(owner, 'remove_member', {
+    group_id: groupId,
+    profile_id: m3.profileId,
+    reason: 'x',
+  });
+  await record(m4, 'leave_group', { group_id: groupId }, 'leave_group (former member)');
+  await record(owner, 'transfer_ownership', { group_id: groupId, new_owner_id: m1.profileId });
+  await record(
+    m1,
+    'transfer_ownership',
+    { group_id: groupId, new_owner_id: owner.profileId },
+    'transfer_ownership back',
+  );
+  await record(owner, 'revoke_group_invite', { invite_id: firstInvite });
+  const issued = await record(owner, 'issue_group_invite', { group_id: groupId });
+  await record(owner, 'regenerate_group_invite', { invite_id: issued.outcome.invite_id });
+  const second = ok(
+    await read(status, owner, 'get_invite_share_link', { invite_id: issued.outcome.invite_id }),
+    'share after regenerate',
+  );
+  // Um pedido que fica pendente e o encerramento fecha.
+  ok(await mutate(status, m5, 'join_by_code', { code: second.code }), 'm5 requests');
+  const matchId = (
+    await record(owner, 'create_match', { group_id: groupId, config: matchConfig(12) })
+  ).outcome.match_id;
+  await record(owner, 'update_match', { match_id: matchId, config: matchConfig(13) });
+  await record(m1, 'join_match', { match_id: matchId });
+  ok(await mutate(status, m2, 'join_match', { match_id: matchId }), 'm2 joins');
+  await record(m2, 'leave_match', { match_id: matchId });
+  await record(owner, 'set_match_payment', {
+    match_id: matchId,
+    profile_id: m1.profileId,
+    paid: true,
+  });
+  const other = (
+    await record(
+      owner,
+      'create_match',
+      { group_id: groupId, config: matchConfig(14) },
+      'create_match (second)',
+    )
+  ).outcome.match_id;
+  await record(owner, 'cancel_match', { match_id: other });
+  const deleted = await record(owner, 'delete_group', { group_id: groupId });
+
+  const judged = [];
+  const waited = [];
+  const judge = async (label, run, check) => {
+    let result;
+    let request;
+    await holdDeleted(holder, groupId);
+    try {
+      request = run();
+      result = await withinHold(label, request);
+    } finally {
+      await holder.query('rollback');
+    }
+    await Promise.allSettled([request]);
+    if (result.waited) {
+      waited.push(result.waited);
+      return;
+    }
+    check(result);
+    judged.push(result.ms);
+  };
+  for (const item of recorded) {
+    await judge(
+      `replay ${item.label}`,
+      () => mutate(status, item.actor, item.operation, item.body, item.requestId),
+      (result) => {
+        if (item.operation === 'delete_group') {
+          assert.equal(result.status, 200, 'replay of the deletion');
+          assert.deepEqual(result.body.data, deleted);
+          return;
+        }
+        denied(result, 404, 'NOT_FOUND', `replay ${item.label}`);
+      },
+    );
+  }
+  const unknownCode = second.code.replace(/[A-Z0-9]/u, (c) => (c === 'A' ? 'B' : 'A'));
+  const unknownToken = `${tokenOf(second.share_url).slice(0, -2)}AA`;
+  for (const [who, actor] of [
+    ['former member', m3],
+    ['stranger', stranger],
+  ]) {
+    for (const [operation, body, unknown, code] of [
+      ['join_by_code', { code: second.code }, { code: unknownCode }, 'INVITE_REVOKED'],
+      [
+        'join_by_invite',
+        { token: tokenOf(second.share_url) },
+        { token: unknownToken },
+        'INVITE_REVOKED',
+      ],
+    ]) {
+      await judge(
+        `${who} ${operation} unknown`,
+        () => mutate(status, actor, operation, unknown),
+        () => {},
+      );
+      await judge(
+        `${who} ${operation}`,
+        () => mutate(status, actor, operation, body),
+        (result) => denied(result, 409, code, `${who} ${operation}`),
+      );
+    }
+    for (const [operation, body, unknown] of [
+      ['preview_group_by_code', { code: second.code }, { code: unknownCode }],
+      ['preview_group_by_invite', { token: tokenOf(second.share_url) }, { token: unknownToken }],
+    ]) {
+      await judge(
+        `${who} ${operation} unknown`,
+        () => read(status, actor, operation, unknown),
+        () => {},
+      );
+      await judge(
+        `${who} ${operation}`,
+        () => read(status, actor, operation, body),
+        (result) => denied(result, 400, 'CODE_INVALID', `${who} ${operation}`),
+      );
+    }
+  }
+  await judge(
+    'closed request list',
+    () => read(status, m5, 'get_my_pending_group_requests'),
+    (result) => {
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body.data, []);
+    },
+  );
+  assert.deepEqual(waited, [], `waited for the lock of the deleted group: ${waited.join(', ')}`);
+  console.log(
+    `ok - with the deleted group, its memberships, invites and matches held FOR UPDATE: ${recorded.length} replays recorded before the deletion (every group and match operation) answer while the lock is held, NOT_FOUND without outcome and the deletion its own outcome; redemption and preview of its code and link by a former member and a stranger, and the closed request list, too: ${judged.length} calls, slowest ${Math.round(Math.max(...judged))} ms`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Concorrência: apagar × entrar, criar racha e confirmar, nas duas ordens
 // ---------------------------------------------------------------------------
@@ -881,6 +1093,7 @@ async function main() {
     console.log('ok - auth.users=0 before proofs');
     await proveHttp(status, db);
     await proveNoLockWait(status, db, holder);
+    await proveNoLockWaitReplays(status, db, holder);
     await proveBarriers(status, { observer, holder, first, second }, db);
     await proveLockMutant(status, { first, second }, db);
   } catch (error) {

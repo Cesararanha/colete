@@ -1226,7 +1226,9 @@ recusa, inclusive o replay de um pedido feito antes do encerramento, com o mesmo
 `GROUP_DELETED`; a Edge nunca a expõe e não há código novo no catálogo de §8. A recusa
 também não espera trava: a decisão sobre o grupo apagado vem antes de travar qualquer linha
 dele, pelo mesmo caminho e custo de um ID inexistente, e só o grupo vivo é travado (P1 da
-revisão do #80, como a prévia do #76). O resgate por
+revisão do #80, como a prévia do #76). Vale também para o replay, que confere o estado atual
+do grupo sem travar antes de recusar, e para o resgate novo, que recusa na busca do convite,
+sem trava, como um código inexistente. O resgate por
 código ou link encontra o convite revogado (`INVITE_REVOKED`, M2-D42). Nas leituras, lista,
 detalhe, memberships e convites não devolvem linha pela policy; `get_group_members` responde
 `NOT_MEMBER` (403); `get_match`, `get_match_roster` e `get_invite_share_link` respondem

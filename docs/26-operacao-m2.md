@@ -2990,3 +2990,40 @@ inexistente pelo corpo (`NOT_MEMBER` contra `NOT_FOUND`), não só pelo tempo.
 O resgate por código ou link de grupo apagado continua respondendo
 `INVITE_REVOKED`, diferente do código inexistente, pela precedência da
 M2-D42.
+
+**Correção do P1 residual da conferência de `4c930a2`.** Os replays de
+`create_group`, `join_by_code` e `join_by_invite` ainda travavam o grupo
+apagado antes do `NOT_FOUND` (cerca de 690 ms na sonda do revisor), e o
+resgate novo de convite do grupo apagado também travava antes do
+`INVITE_REVOKED`. A `0029` passou a conferir o grupo sem travar nesses
+caminhos: o replay de `create_group` só trava grupo vivo; o do resgate não
+trava o grupo apagado e recusa depois da autenticação; o resgate novo de
+convite de grupo apagado recusa na busca do convite, sem trava, como o código
+inexistente, mantendo a precedência da M2-D42 (`INVITE_REVOKED`; material
+divergente, `CODE_INVALID`). `create_group` passa a ser redefinida pela `0029`.
+
+Varredura feita pelo catálogo vivo (`pg_get_functiondef` de todas as funções
+de `public` e `private` com cláusula de trava) e pelos caminhos de replay.
+Operações que tocam grupo apagado ou algo dele, todas conferidas, com a
+recusa antes de qualquer trava das linhas do grupo:
+
+| Família | Operações (chamada nova e replay) |
+|---|---|
+| leitura | `get_group_members`, `get_invite_share_link`, `get_match`, `get_match_roster`, `list_my_matches`, `get_matches_occupancy`, `get_my_pending_group_requests`, `preview_group_by_code`, `preview_group_by_invite`; lista, detalhe, memberships e convites por RLS (sem trava) |
+| membros e pedidos | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership`, `leave_group` |
+| grupo | `create_group` (replay), `rename_group`, `set_group_appearance`, `delete_group` |
+| convites | `issue_group_invite`, `revoke_group_invite`, `regenerate_group_invite`, `join_by_code`, `join_by_invite` |
+| rachas | `create_match`, `update_match`, `cancel_match`, `join_match`, `leave_match`, `set_match_payment` (as cinco últimas por `lock_match_context`) |
+
+Fora da recusa, por desenho: `delete_account` trava as memberships do próprio
+titular, inclusive em grupo apagado, porque a saga precisa encerrá-las; não
+responde "não encontrado". Exportação, worker e expurgos de retenção leem
+sem trava ou com `SKIP LOCKED`. Fotos de grupo ficam para outro PR.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova de replays | 24 replays concluídos antes do encerramento, um por operação de grupo e de racha, cada um pelo próprio titular, repetidos com o grupo apagado, memberships, convites e rachas presos `FOR UPDATE`: recusa `NOT_FOUND` sem desfecho (o encerramento devolve o próprio), com a trava presa; resgate e prévia por código e link do grupo apagado, por membro antigo e estranho, contra código inexistente, e a lista de pedidos encerrados: 41 chamadas, a mais lenta em 53 ms |
+| contraprova com a `0029` de `4c930a2` | o harness reprova: esperam a trava os replays de `create_group`, `join_by_code` e `join_by_invite` e os quatro resgates novos (membro antigo e estranho × código e link) |
+| sondas do revisor | `replay-only.mjs`, `extra.mjs` e `probe.mjs`, exit 0; os seis replays isolados terminam com a trava presa, 23–27 ms |
+| db:test | 27 arquivos, 1884 asserções, PASS |
+| demais itens de §5 | exit 0; groups:web 81 + 5 skip, matches:web 24, qr 30, cors 4, smoke 6, privacy 5 + 5 skip, auth 10 + 2 skip, vitest 654 |
