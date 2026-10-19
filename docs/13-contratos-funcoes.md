@@ -1228,7 +1228,9 @@ também não espera trava: a decisão sobre o grupo apagado vem antes de travar 
 dele, pelo mesmo caminho e custo de um ID inexistente, e só o grupo vivo é travado (P1 da
 revisão do #80, como a prévia do #76). Vale também para o replay, que confere o estado atual
 do grupo sem travar antes de recusar, e para o resgate novo, que recusa na busca do convite,
-sem trava, como um código inexistente. O resgate por
+sem trava, como um código inexistente. A checagem sem trava não dispensa a revalidação: o
+grupo apagado enquanto a chamada ou o replay esperava a trava é recusado depois dela, nunca
+com o desfecho guardado. O resgate por
 código ou link encontra o convite revogado (`INVITE_REVOKED`, M2-D42). Nas leituras, lista,
 detalhe, memberships e convites não devolvem linha pela policy; `get_group_members` responde
 `NOT_MEMBER` (403); `get_match`, `get_match_roster` e `get_invite_share_link` respondem

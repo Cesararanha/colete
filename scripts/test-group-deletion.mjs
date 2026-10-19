@@ -809,6 +809,368 @@ async function proveNoLockWaitReplays(status, db, holder) {
   );
 }
 
+// A exclusão commita enquanto a chamada espera (revisão de 4d58e22). Para
+// cada operação que decide algo antes da trava, um grupo novo e vivo: a
+// conexão A executa delete_group e segura sem commit; a chamada, por quem tem
+// acesso ao grupo, ou o replay de um pedido concluído antes, é observada
+// esperando uma trava de A; A commita; a resposta precisa ser a recusa de um
+// grupo inexistente (o resgate novo, o INVITE_REVOKED da M2-D42), nunca o
+// desfecho guardado.
+async function awaitBlockedBy(observer, blockerPid, pending, label) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    if (pending.state.done) {
+      throw new Error(
+        `${label}: finished before waiting for the uncommitted deletion: ${JSON.stringify(
+          pending.state.result?.value?.body ?? String(pending.state.result?.reason),
+        )}`,
+      );
+    }
+    const { rows } = await observer.query(
+      `select count(*)::integer as n from pg_stat_activity
+        where wait_event_type = 'Lock' and $1 = any(pg_blocking_pids(pid))`,
+      [blockerPid],
+    );
+    if (rows[0].n > 0) return;
+    if (Date.now() > deadline) throw new Error(`${label}: no wait on the deletion was observed`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+async function proveDeletionDuringWait(status, db, { observer, first }) {
+  const names = ['dw-owner', 'dw-m1', 'dw-m2', 'dw-tp', 'dw-ta', 'dw-stranger', 'dw-j1', 'dw-j2'];
+  const [owner, m1, m2, tp, ta, stranger, j1, j2] = await Promise.all(
+    names.map((label) => createActor(status, label)),
+  );
+  const actors = { owner, m1, m2, stranger };
+  const firstPid = Number((await first.query('select pg_backend_pid() as pid')).rows[0].pid);
+  let serial = 0;
+  const fixture = async () => {
+    serial += 1;
+    const createRequest = crypto.randomUUID();
+    const created = ok(
+      await mutate(status, owner, 'create_group', { name: `Corrida ${serial}` }, createRequest),
+      'create group',
+    );
+    const groupId = created.outcome.group_id;
+    const inviteId = created.outcome.invite_id;
+    await addMembers(db, groupId, [
+      [m1, 'organizer', 'active'],
+      [m2, 'player', 'active'],
+      [tp, 'player', 'pending'],
+      [ta, 'player', 'active'],
+    ]);
+    await db.query('update public.groups set monthly_enabled = true where id = $1', [groupId]);
+    const matchId = await createMatch(status, owner, groupId, 15);
+    const share = ok(
+      await read(status, owner, 'get_invite_share_link', { invite_id: inviteId }),
+      'share',
+    );
+    return { groupId, inviteId, matchId, createRequest, share, deleter: owner };
+  };
+  const results = [];
+  const failures = [];
+  const race = async (label, f, run, check) => {
+    await first.query('begin');
+    let pending;
+    try {
+      await first.query('set local role service_role');
+      const requestId = crypto.randomUUID();
+      const deleted = await first.query(
+        'select public.delete_group($1::uuid,$2::uuid,$3::uuid,$4::text,1,1,$5::uuid) as result',
+        [f.deleter.authId, f.deleter.sessionId, requestId, hmac(requestId), f.groupId],
+      );
+      assert.equal(deleted.rows[0].result.outcome.logical_result, 'group_deleted', label);
+      pending = track(run());
+      await awaitBlockedBy(observer, firstPid, pending, label);
+    } catch (error) {
+      await first.query('rollback');
+      if (pending) await pending.settled;
+      throw error;
+    }
+    await first.query('commit');
+    const settled = await pending.settled;
+    try {
+      assert.equal(settled.status, 'fulfilled', `${label}: ${String(settled.reason)}`);
+      await check(settled.value);
+      results.push(label);
+    } catch (error) {
+      failures.push(`${label}: ${settled.value?.status} ${JSON.stringify(settled.value?.body)}`);
+    }
+  };
+  const unknownGroup = crypto.randomUUID();
+  const unknownInvite = crypto.randomUUID();
+  const unknownMatch = crypto.randomUUID();
+  const call = (who, operation, kind, body, requestId) =>
+    kind === 'read'
+      ? read(status, actors[who], operation, body)
+      : mutate(status, actors[who], operation, body, requestId);
+  // Chamadas novas, por quem tem acesso ao grupo ainda vivo.
+  const newCalls = [
+    [
+      'get_group_members',
+      'read',
+      'm1',
+      (f) => ({ group_id: f.groupId }),
+      { group_id: unknownGroup },
+    ],
+    [
+      'get_invite_share_link',
+      'read',
+      'm1',
+      (f) => ({ invite_id: f.inviteId }),
+      { invite_id: unknownInvite },
+    ],
+    [
+      'approve_member',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId, profile_id: tp.profileId, approve: true }),
+      { group_id: unknownGroup, profile_id: tp.profileId, approve: true },
+    ],
+    [
+      'remove_member',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId, profile_id: ta.profileId, reason: 'x' }),
+      { group_id: unknownGroup, profile_id: ta.profileId, reason: 'x' },
+    ],
+    [
+      'set_role',
+      'write',
+      'owner',
+      (f) => ({ group_id: f.groupId, profile_id: ta.profileId, role: 'organizer' }),
+      { group_id: unknownGroup, profile_id: ta.profileId, role: 'organizer' },
+    ],
+    [
+      'set_monthly',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId, profile_id: ta.profileId, enabled: true }),
+      { group_id: unknownGroup, profile_id: ta.profileId, enabled: true },
+    ],
+    [
+      'set_ratings_visibility',
+      'write',
+      'owner',
+      (f) => ({ group_id: f.groupId, visibility: 'private', confirm_members_visibility: false }),
+      { group_id: unknownGroup, visibility: 'private', confirm_members_visibility: false },
+    ],
+    [
+      'transfer_ownership',
+      'write',
+      'owner',
+      (f) => ({ group_id: f.groupId, new_owner_id: m1.profileId }),
+      { group_id: unknownGroup, new_owner_id: m1.profileId },
+    ],
+    ['leave_group', 'write', 'm2', (f) => ({ group_id: f.groupId }), { group_id: unknownGroup }],
+    [
+      'rename_group',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId, name: 'Outro nome' }),
+      { group_id: unknownGroup, name: 'Outro nome' },
+    ],
+    [
+      'set_group_appearance',
+      'write',
+      'owner',
+      (f) => ({ group_id: f.groupId, icon: 'ball', color: 'blue' }),
+      { group_id: unknownGroup, icon: 'ball', color: 'blue' },
+    ],
+    [
+      'revoke_group_invite',
+      'write',
+      'm1',
+      (f) => ({ invite_id: f.inviteId }),
+      { invite_id: unknownInvite },
+    ],
+    [
+      'regenerate_group_invite',
+      'write',
+      'm1',
+      (f) => ({ invite_id: f.inviteId }),
+      { invite_id: unknownInvite },
+    ],
+    [
+      'issue_group_invite',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId }),
+      { group_id: unknownGroup },
+    ],
+    [
+      'create_match',
+      'write',
+      'm1',
+      (f) => ({ group_id: f.groupId, config: matchConfig(16) }),
+      { group_id: unknownGroup, config: matchConfig(16) },
+    ],
+    [
+      'update_match',
+      'write',
+      'm1',
+      (f) => ({ match_id: f.matchId, config: matchConfig(17) }),
+      { match_id: unknownMatch, config: matchConfig(17) },
+    ],
+    ['cancel_match', 'write', 'm1', (f) => ({ match_id: f.matchId }), { match_id: unknownMatch }],
+    ['join_match', 'write', 'm2', (f) => ({ match_id: f.matchId }), { match_id: unknownMatch }],
+    ['leave_match', 'write', 'm2', (f) => ({ match_id: f.matchId }), { match_id: unknownMatch }],
+    [
+      'set_match_payment',
+      'write',
+      'm1',
+      (f) => ({ match_id: f.matchId, profile_id: m2.profileId, paid: true }),
+      { match_id: unknownMatch, profile_id: m2.profileId, paid: true },
+    ],
+    [
+      'delete_group',
+      'write',
+      'owner',
+      (f) => ({ group_id: f.groupId }),
+      { group_id: unknownGroup },
+    ],
+  ];
+  for (const [operation, kind, who, body, unknownBody] of newCalls) {
+    const f = await fixture();
+    await race(
+      `new ${operation}`,
+      f,
+      () => call(who, operation, kind, body(f)),
+      async (result) => {
+        const unknown = await call(who, operation, kind, unknownBody);
+        assert.equal(
+          result.status,
+          unknown.status,
+          `new ${operation}: status ${JSON.stringify(result.body)}`,
+        );
+        assert.deepEqual(result.body.error, unknown.body.error, `new ${operation}: error`);
+        assert.equal(Object.hasOwn(result.body, 'data'), false, `new ${operation}: no data`);
+      },
+    );
+  }
+  // Resgate novo por um estranho: o convite fica revogado pela exclusão (M2-D42).
+  for (const [operation, body] of [
+    ['join_by_code', (f) => ({ code: f.share.code })],
+    ['join_by_invite', (f) => ({ token: tokenOf(f.share.share_url) })],
+  ]) {
+    const f = await fixture();
+    await race(
+      `new ${operation}`,
+      f,
+      () => call('stranger', operation, 'write', body(f)),
+      (result) => denied(result, 409, 'INVITE_REVOKED', `new ${operation}`),
+    );
+  }
+  // Replays de pedidos concluídos com o grupo vivo, pelo próprio titular.
+  const replays = [
+    [
+      'create_group',
+      owner,
+      async (f) => ({ body: { name: `Corrida ${serial}` }, requestId: f.createRequest }),
+    ],
+    ['join_by_code', j1, async (f) => ({ body: { code: f.share.code } })],
+    ['join_by_invite', j2, async (f) => ({ body: { token: tokenOf(f.share.share_url) } })],
+    [
+      'approve_member',
+      owner,
+      async (f) => ({ body: { group_id: f.groupId, profile_id: tp.profileId, approve: true } }),
+    ],
+    [
+      'remove_member',
+      owner,
+      async (f) => ({ body: { group_id: f.groupId, profile_id: ta.profileId, reason: 'x' } }),
+    ],
+    [
+      'set_role',
+      owner,
+      async (f) => ({ body: { group_id: f.groupId, profile_id: ta.profileId, role: 'organizer' } }),
+    ],
+    [
+      'set_monthly',
+      m1,
+      async (f) => ({ body: { group_id: f.groupId, profile_id: ta.profileId, enabled: true } }),
+    ],
+    [
+      'set_ratings_visibility',
+      owner,
+      async (f) => ({
+        body: { group_id: f.groupId, visibility: 'private', confirm_members_visibility: false },
+      }),
+    ],
+    [
+      'transfer_ownership',
+      owner,
+      async (f) => {
+        f.after = () => {
+          f.deleter = m1;
+        };
+        return { body: { group_id: f.groupId, new_owner_id: m1.profileId } };
+      },
+    ],
+    ['leave_group', m2, async (f) => ({ body: { group_id: f.groupId } })],
+    [
+      'rename_group',
+      m1,
+      async (f) => ({ body: { group_id: f.groupId, name: `Corrida ${serial}` } }),
+    ],
+    [
+      'set_group_appearance',
+      owner,
+      async (f) => ({ body: { group_id: f.groupId, icon: 'goal', color: 'green' } }),
+    ],
+    ['revoke_group_invite', m1, async (f) => ({ body: { invite_id: f.inviteId } })],
+    ['regenerate_group_invite', m1, async (f) => ({ body: { invite_id: f.inviteId } })],
+    [
+      'issue_group_invite',
+      m1,
+      async (f) => {
+        ok(
+          await mutate(status, m1, 'revoke_group_invite', { invite_id: f.inviteId }),
+          'revoke first',
+        );
+        return { body: { group_id: f.groupId } };
+      },
+    ],
+    ['create_match', m1, async (f) => ({ body: { group_id: f.groupId, config: matchConfig(18) } })],
+    ['update_match', m1, async (f) => ({ body: { match_id: f.matchId, config: matchConfig(19) } })],
+    ['cancel_match', m1, async (f) => ({ body: { match_id: f.matchId } })],
+    ['join_match', m2, async (f) => ({ body: { match_id: f.matchId } })],
+    [
+      'leave_match',
+      m2,
+      async (f) => {
+        ok(await mutate(status, m2, 'join_match', { match_id: f.matchId }), 'join first');
+        return { body: { match_id: f.matchId } };
+      },
+    ],
+    [
+      'set_match_payment',
+      m1,
+      async (f) => {
+        ok(await mutate(status, m2, 'join_match', { match_id: f.matchId }), 'join first');
+        return { body: { match_id: f.matchId, profile_id: m2.profileId, paid: true } };
+      },
+    ],
+  ];
+  for (const [operation, actor, prepare] of replays) {
+    const f = await fixture();
+    const { body, requestId = crypto.randomUUID() } = await prepare(f);
+    if (operation !== 'create_group')
+      ok(await mutate(status, actor, operation, body, requestId), `record ${operation}`);
+    f.after?.();
+    await race(
+      `replay ${operation}`,
+      f,
+      () => mutate(status, actor, operation, body, requestId),
+      (result) => denied(result, 404, 'NOT_FOUND', `replay ${operation}`),
+    );
+  }
+  assert.deepEqual(failures, [], `answered after the deletion committed: ${failures.join(' | ')}`);
+  console.log(
+    `ok - deletion committing while the call waits for it: ${results.length} races (${newCalls.length + 2} new calls by members with access and ${replays.length} replays recorded while the group was live), each observed waiting on the uncommitted deletion, all answer like an unknown group after the commit, never the stored outcome`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Concorrência: apagar × entrar, criar racha e confirmar, nas duas ordens
 // ---------------------------------------------------------------------------
@@ -1094,6 +1456,7 @@ async function main() {
     await proveHttp(status, db);
     await proveNoLockWait(status, db, holder);
     await proveNoLockWaitReplays(status, db, holder);
+    await proveDeletionDuringWait(status, db, { observer, first });
     await proveBarriers(status, { observer, holder, first, second }, db);
     await proveLockMutant(status, { first, second }, db);
   } catch (error) {

@@ -3027,3 +3027,28 @@ sem trava ou com `SKIP LOCKED`. Fotos de grupo ficam para outro PR.
 | sondas do revisor | `replay-only.mjs`, `extra.mjs` e `probe.mjs`, exit 0; os seis replays isolados terminam com a trava presa, 23–27 ms |
 | db:test | 27 arquivos, 1884 asserções, PASS |
 | demais itens de §5 | exit 0; groups:web 81 + 5 skip, matches:web 24, qr 30, cors 4, smoke 6, privacy 5 + 5 skip, auth 10 + 2 skip, vitest 654 |
+
+**Correção da regressão concorrente da conferência de `4d58e22`.** No replay
+de `join_by_code` e `join_by_invite`, o estado do grupo lido antes da trava
+era reaproveitado depois dela sem revalidar: se a exclusão commitasse enquanto
+o replay esperava, a resposta era 200 com o desfecho guardado. A `0029` volta
+a conferir `private.is_group_deleted` depois das travas, além da checagem sem
+trava que recusa o grupo já apagado na hora.
+
+Conferidas as operações que decidem algo antes da trava: só o replay do
+resgate (`private.join_group_invite`, comum a `join_by_code` e
+`join_by_invite`) usava o estado anterior sem revalidar. As demais já
+revalidam depois das travas: o resgate novo pelo convite revogado
+(`require_live_group_invite`); `mutate_group_invite`, `get_invite_share_link`,
+`lock_match_context` e as travas com predicado (sete RPCs de membros,
+`rename_group`, `set_group_appearance`, `create_match`, `create_group`,
+`delete_group`) pelo helper de autoridade, que lê o encerramento de novo;
+`get_group_members` pela releitura sob a trava; o replay de `create_match`
+pela checagem depois das travas.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova de exclusão durante a espera | 44 corridas, cada uma num grupo vivo: a conexão A executa `delete_group` sem commit; 23 chamadas novas por quem tem acesso e 21 replays concluídos com o grupo vivo são observados esperando uma trava de A; depois do commit, todos respondem como grupo inexistente (o resgate novo, `INVITE_REVOKED` da M2-D42), sem desfecho |
+| contraprova com a `0029` de `4d58e22` | o harness reprova: só os replays de `join_by_code` e `join_by_invite` respondem 200 com o desfecho; as outras 42 corridas recusam |
+| provas anteriores | grupo já apagado continua respondendo sem esperar: 46 chamadas novas e 41 replays, resgates, prévias e lista |
+| sondas do revisor | `supplement.mjs` e `race-confirm.mjs` (de `4d58e22`), `replay-only.mjs`, `extra.mjs` e `probe.mjs`: exit 0, sem falhas |

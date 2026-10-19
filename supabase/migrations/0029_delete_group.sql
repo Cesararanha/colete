@@ -678,8 +678,10 @@ begin
   select * into v_invite from public.group_invites where id=v_invite_id for no key update;
   perform private.require_group_actor_after_locks(v_actor_id,p_actor_auth_user_id,p_actor_session_id);
   if not v_acquired.acquired then
-    -- 0029: grupo apagado recusa também o replay de antes do encerramento.
-    if v_deleted then
+    -- 0029: grupo apagado recusa também o replay de antes do encerramento:
+    -- o já apagado foi decidido sem trava; o apagado enquanto este replay
+    -- esperava é visto aqui, depois das travas.
+    if v_deleted or private.is_group_deleted(v_group_id) then
       raise exception using errcode='P0002',message='GROUP_DELETED';
     end if;
     if v_member.status in ('pending','active') and v_group.archived_at is null then
