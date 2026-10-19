@@ -7,7 +7,6 @@ import { AppIcon } from '@/components/ui/AppIcon';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { Avatar } from '@/components/ui/Avatar';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -19,6 +18,7 @@ import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
 import { useLeaveMissingGroup } from './leave-missing-group';
 import { MemberRow } from './MemberRow';
 import { useGroupAdministration } from './useGroupAdministration';
+import { PhotoAvatar } from '../photos/PhotoAvatar';
 
 export function GroupMembersScreen({ groupId, profile }: { groupId: string; profile: OwnProfile }) {
   const { colors } = useTheme();
@@ -111,7 +111,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                   style={[styles.request, { backgroundColor: colors.surface }]}
                   testID={`member-${member.profile_id}`}
                 >
-                  <Avatar id={member.profile_id} name={member.display_name} size={44} />
+                  <PhotoAvatar id={member.profile_id} name={member.display_name} size={44} />
                   <Text style={[styles.requestName, { color: colors.text }]}>
                     {member.display_name}
                   </Text>

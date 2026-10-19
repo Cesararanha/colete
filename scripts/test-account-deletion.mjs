@@ -346,7 +346,8 @@ async function main() {
       headers: {
         apikey: status.serviceRoleKey,
         Authorization: `Bearer ${status.serviceRoleKey}`,
-        'content-type': 'image/webp',
+        // The bucket (0030) takes only JPEG; the bytes are a fixture.
+        'content-type': 'image/jpeg',
         'x-upsert': 'false',
       },
       body: new TextEncoder().encode('local-avatar-fixture'),

@@ -7,7 +7,6 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { GroupIcon } from '@/components/ui/GroupIcon';
 import type { GroupAppearance } from '@/components/ui/group-icon';
 import { Scoreboard } from '@/components/ui/Scoreboard';
 import { api, type OwnProfile } from '@/lib/api';
@@ -20,6 +19,7 @@ import { typography } from '@/theme/typography';
 
 import { MAX_ACTIVE_GROUPS } from './group-limits';
 import { roleIcon, roleName } from './group-roles';
+import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 
 type ListedGroup =
   | { kind: 'group'; id: string; name: string; role: string; appearance: GroupAppearance }
@@ -88,7 +88,7 @@ function GroupRow({
                 : null,
             ]}
           >
-            <GroupIcon appearance={appearance} size={size.compact} tile />
+            <GroupPhotoIcon appearance={appearance} groupId={id} size={size.compact} tile />
             <View style={styles.rowText}>
               <Text aria-level={2} role="heading" style={[styles.rowName, { color: colors.text }]}>
                 {name}

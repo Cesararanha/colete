@@ -7,7 +7,6 @@ import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { Chip } from '@/components/ui/Chip';
-import { GroupIcon } from '@/components/ui/GroupIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { AppError, TransportError, api, type MutationIntent, type OwnProfile } from '@/lib/api';
@@ -24,6 +23,7 @@ import { MemberRow } from './MemberRow';
 import { MemberStack } from './MemberStack';
 import { MatchCard } from '../matches/MatchCard';
 import { useUpcomingMatches } from '../matches/use-upcoming-matches';
+import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 
 export function GroupDetailScreen({ groupId, profile }: { groupId: string; profile: OwnProfile }) {
   const queryClient = useQueryClient();
@@ -78,7 +78,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   const requests = members.data?.filter((member) => member.status === 'pending').length ?? 0;
   const intro = group ? (
     <View style={styles.intro} testID="group-detail-card">
-      <GroupIcon appearance={group.appearance} size={56} tile />
+      <GroupPhotoIcon appearance={group.appearance} groupId={group.id} size={56} tile />
       <View style={styles.introText}>
         <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
           {group.name}

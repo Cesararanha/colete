@@ -389,7 +389,7 @@ test('approved preflight requires Vary Origin independently', async () => {
 
 const expectedCsp =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.example.invalid " +
+  "img-src 'self' data: blob: https://api.example.invalid; font-src 'self'; connect-src 'self' https://api.example.invalid " +
   "wss://api.example.invalid; manifest-src 'self'; worker-src 'self'; object-src 'none'; " +
   "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests";
 test('generator equals the fixed complete policy, independent of checker and fake', () => {

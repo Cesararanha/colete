@@ -1,8 +1,8 @@
 import type { DeletionProviders } from './deletion.ts';
-import type { ExportAuth, ExportStorage } from './data-export.ts';
+import type { ExportAuth, ExportPhotos, ExportStorage } from './data-export.ts';
 import { providerHttpError } from './worker.ts';
 
-function providerHeaders(secretKey: string): Record<string, string> {
+export function providerHeaders(secretKey: string): Record<string, string> {
   const headers: Record<string, string> = { apikey: secretKey };
   // Legacy service_role keys are JWTs and belong in both headers. Modern
   // sb_secret keys authenticate through apikey; sending one as Bearer makes
@@ -13,7 +13,7 @@ function providerHeaders(secretKey: string): Record<string, string> {
   return headers;
 }
 
-function encodedObjectPath(bucket: string, path: string): string {
+export function encodedObjectPath(bucket: string, path: string): string {
   return [bucket, ...path.split('/')].map(encodeURIComponent).join('/');
 }
 
@@ -25,7 +25,7 @@ function encodedObjectPath(bucket: string, path: string): string {
  * permanent provider refusal. HEAD has no body, so `exists` re-probes a 400
  * with a one-byte ranged GET before trusting the status alone.
  */
-async function isStorageObjectMissing(response: Response): Promise<boolean> {
+export async function isStorageObjectMissing(response: Response): Promise<boolean> {
   if (response.status === 404) return true;
   if (response.status !== 400) return false;
   const body = (await response.json().catch(() => undefined)) as
@@ -90,11 +90,22 @@ export function createDeletionProviders(supabaseUrl: string, secretKey: string):
 export function createExportProviders(
   supabaseUrl: string,
   secretKey: string,
-): { auth: ExportAuth; storage: ExportStorage } {
+): { auth: ExportAuth; storage: ExportStorage; photos: ExportPhotos } {
   const headers = providerHeaders(secretKey);
   const objectUrl = (path: string) =>
     `${supabaseUrl}/storage/v1/object/${encodedObjectPath('data-exports', path)}`;
   return {
+    photos: {
+      read: async (bucket, path) => {
+        const response = await fetch(
+          `${supabaseUrl}/storage/v1/object/${encodedObjectPath(bucket, path)}`,
+          { headers },
+        );
+        if (response.ok) return new Uint8Array(await response.arrayBuffer());
+        if (await isStorageObjectMissing(response)) return null;
+        throw providerHttpError('STORAGE_UNAVAILABLE', response.status);
+      },
+    },
     storage: {
       read: async (path: string) => {
         const response = await fetch(objectUrl(path), { headers });

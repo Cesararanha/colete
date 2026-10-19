@@ -770,6 +770,33 @@ export const pt = {
         'Seu perfil está suspenso. Os dados continuam visíveis, mas não podem ser alterados.',
     },
   },
+  // Fotos de perfil e do grupo (0030). Sem texto de ajuda: os botões dizem o
+  // que fazem, e o resultado aparece no próprio avatar ou ícone.
+  photos: {
+    openProfile: 'Foto de perfil',
+    change: 'Trocar foto',
+    remove: 'Remover foto',
+    choose: 'Escolher foto',
+    library: 'Galeria',
+    camera: 'Câmera',
+    sending: 'Enviando foto…',
+    removing: 'Removendo foto…',
+    saved: 'Foto atualizada.',
+    removed: 'Foto removida.',
+    groupTitle: 'Foto do grupo',
+    errors: {
+      permission:
+        'Sem permissão para acessar as fotos. Libere o acesso nas configurações do aparelho.',
+      cameraPermission:
+        'Sem permissão para usar a câmera. Libere o acesso nas configurações do aparelho.',
+      invalid: 'Essa imagem não pôde ser usada. Escolha outra foto.',
+      unreadable: 'Não foi possível abrir essa imagem. Escolha outra foto.',
+      rateLimited: 'Muitos envios seguidos. Espere alguns minutos e tente de novo.',
+      network: 'A foto não foi enviada. Confira a conexão e tente de novo.',
+      ownerOnly: 'Só o dono troca a foto do grupo.',
+      failed: 'A foto não foi alterada. Tente de novo.',
+    },
+  },
   support: {
     // The real support channel is question 2 of docs/22 section 8 and is still
     // open. Every screen that must refer to it goes through this single label

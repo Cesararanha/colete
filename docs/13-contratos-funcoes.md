@@ -1240,6 +1240,59 @@ listando a membership do titular no grupo encerrado, e a exclusão de conta não
 substituto nem transfere o grupo encerrado. Ao contrário de `archive_group` (`25` §8.2),
 não há leitura histórica.
 
+#### 5.0.9 Fotos de perfil e do grupo — `0030`
+
+Decisão humana de César, 19/10/2026 (`25` §8.1), no gateway `groups`. Sem foto, nada muda:
+iniciais no avatar e ícone no grupo; com foto, ela os substitui onde aparecem, menos na
+prévia do convite (§5.0.2), que continua só com ícone e cor.
+
+- **Quem troca e remove:** a foto de perfil, a própria pessoa, conta `active`; a do grupo,
+  só o dono com membership `active`, como §5.0.7 (organizador e jogador `OWNER_ONLY`, quem
+  não é membro `NOT_MEMBER`, suspenso `GROUP_SUSPENDED`, arquivado `GROUP_ARCHIVED`,
+  apagado o `NOT_FOUND` de §5.0.8, decidido antes de esperar qualquer trava do grupo, pelo
+  mesmo caminho de um grupo inexistente).
+- **Quem vê:** a foto de perfil, a própria pessoa e quem divide com ela ao menos um grupo
+  não arquivado em que as duas estão `active`; a do grupo, os membros `active`. Conta em
+  exclusão não aparece. Ninguém mais, nem pelo endereço do objeto: os buckets `avatars` e
+  `group-photos` são privados e sem policy de cliente.
+- **Envio:** `begin_photo_upload(target, group_id?, request_id)`, com `target` `profile`
+  (sem `group_id`) ou `group`, abre uma sessão. O banco decide o caminho
+  (`avatars/<profile_id>/<upload_id>.jpg` ou `group-photos/<group_id>/<upload_id>.jpg`) e
+  os prazos: confirmar em até 15 min, recolher depois de 2 h 05. A Edge devolve só
+  `{ outcome: { upload_id, logical_result: 'photo_upload_started' }, upload: { upload_id,
+  url, expires_at, content_type, max_bytes, max_side } }`: a URL de upload assinada do
+  Storage para aquele caminho, sem `upsert`, e nunca o caminho solto. A Edge recusa entregar
+  URL cuja validade passe de `reclaim_after` − 60 s. Mais de 10 sessões abertas por pessoa
+  recusa com `RATE_LIMITED`.
+- **Limites:** o app reduz a imagem (lado maior até 512 px) e a recodifica como JPEG, o que
+  descarta os metadados, GPS inclusive. O bucket aceita só `image/jpeg` até 1 MB. Antes da
+  troca, a Edge lê o objeto e recusa com `VALIDATION` (`fields.photo`) o que não for JPEG
+  completo, passar de 512 px, terminar depois do fim da imagem ou trouxer APP1 (Exif/XMP),
+  APP13 (IPTC) ou MPF; o objeto recusado é apagado na hora.
+- **Troca e remoção:** `set_profile_photo(upload_id, request_id)`,
+  `remove_profile_photo(request_id)`, `set_group_photo(group_id, upload_id, request_id)` e
+  `remove_group_photo(group_id, request_id)`. A sessão precisa ser do próprio ator, do mesmo
+  alvo, aberta e no prazo; qualquer outra coisa é `NOT_FOUND`. Travas perfil próprio →
+  (grupo → membership própria) → sessão. A foto anterior sai para `private.photo_uploads`
+  com `delete_storage_object` de `resource_type='photo_upload'`, executado pelo worker. O
+  outcome guarda só `{ profile_id | group_id, logical_result }` (`profile_photo_set`,
+  `profile_photo_removed`, `profile_photo_unchanged` e os três de grupo); `current` é
+  `{ has_photo }`. Autenticação e replay seguem §5.0.1.
+- **Leitura:** `get_photo_urls(profile_ids, group_ids, self?)`, até 100 IDs de cada, sem
+  chave idempotente. A própria foto vem por `self: true`, nunca pelo próprio ID, que não
+  viaja em corpo de requisição (`22` §6). O banco (`get_visible_photos`) devolve só o que o
+  ator pode ver; a Edge assina URLs de leitura de 5 min e responde `{ expires_in: 300,
+  self: url | null, profiles: { id: url }, groups: { id: url } }`, com as URLs relativas à
+  URL do Supabase. ID sem foto ou sem direito some da resposta, sem dizer por quê. Uma URL
+  já entregue vale até expirar.
+- **Sessão nunca confirmada:** o job `reclaim_photo_uploads` (a cada 5 min) a recolhe depois
+  de `reclaim_after`, quando a URL assinada já não vale, e o objeto é apagado como o trocado.
+- **Exclusão e exportação:** `private.deletion_has_pending_storage` conta `photo_upload`:
+  a exclusão de conta só libera o Auth quando não sobra objeto da pessoa, inclusive de
+  sessão aberta. A exportação de §5.3 leva a foto corrente do titular como
+  `profile-photo.jpg`, enumerada no `manifest.json`. No grupo apagado (§5.0.8), a foto fica
+  inacessível a todos.
+
 ### 5.1 Autenticação e vínculo
 
 No beta: e-mail/senha com OTP por SMTP externo e Google OAuth. Callback incompleto leva
@@ -1297,7 +1350,8 @@ canonicamente por `document_type` e depois `version`. Esta é toda a entrada ext
   grava o instante **antes** de abrir o stream sem signed URL/cache; logo apenas uma tentativa
   concorrente vence. Queda posterior consome o one-shot e exige gerar novo export. A Edge
   enfileira purge ao terminar/abortar, e a reconciliação remove qualquer `downloaded` restante;
-  só depois do delete confirmado zera path/digest.
+  só depois do delete confirmado zera path/digest. A foto de perfil corrente do titular entra
+  como `profile-photo.jpg`, enumerada no manifesto (§5.0.9); o caminho dela não entra em JSON.
 - `delete_account` não tenta apagar Auth dentro da RPC. Na transação inicial, transfere grupos/
   casos, cancela e enfileira purge de exports, cria `deletion_requests`, muda para
   `deletion_pending`, revoga o `session_id` atual e remove toda autoridade de RLS/RPC. Grupo
@@ -1390,8 +1444,8 @@ Edição dos próprios dados da tela 13. Não é evento de grupo: não gera noti
   `position = 'goalkeeper'` não tem relação com a vaga de goleiro do racha, que é conceito de
   match, tem contagem e preço próprios e é decidida por `list_kind`. Nenhuma função pode
   derivar uma coisa da outra.
-- `photo_url` fica fora desta allowlist até existir o bucket `avatars`. Quando entrar, a
-  validação exige caminho do próprio perfil dentro de `avatars`, nunca URL arbitrária.
+- `photo_url` fica fora desta allowlist: a foto entra pelas operações de §5.0.9, que gravam
+  só caminho decidido pelo banco dentro de `avatars`, nunca URL arbitrária.
 - **Saída:** `{ outcome: { logical_result: 'profile_updated' }, current: { name, nickname,
   position, dominant_foot, shirt_number } }`. O outcome não ecoa os campos gravados: eles
   continuam mutáveis depois do commit e `current` é projeção fresca.

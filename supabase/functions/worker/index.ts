@@ -165,6 +165,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     exportRpc(supabaseUrl, secretKey),
     exportDependencies.storage,
     exportDependencies.auth,
+    exportDependencies.photos,
   );
   const result = await runScheduledJob(
     {

@@ -7,10 +7,12 @@ import { GROUP_OPERATIONS } from '../_shared/operations.ts';
 import { INVITE_OPERATIONS } from '../_shared/invite-gateway.ts';
 import { MATCH_READ_OPERATIONS } from '../_shared/match-reads.ts';
 import { GEOCODE_OPERATIONS } from '../_shared/geocode.ts';
+import { PHOTO_OPERATIONS } from '../_shared/photo-gateway.ts';
 
 serveGateway([
   ...GROUP_OPERATIONS,
   ...INVITE_OPERATIONS,
   ...MATCH_READ_OPERATIONS,
   ...GEOCODE_OPERATIONS,
+  ...PHOTO_OPERATIONS,
 ]);

@@ -14,6 +14,7 @@ export const WORKER_JOBS = [
   'purge_removed_memberships',
   'purge_invite_rate_limits',
   'purge_terminal_group_invites',
+  'reclaim_photo_uploads',
 ] as const;
 
 export type WorkerJob = (typeof WORKER_JOBS)[number];

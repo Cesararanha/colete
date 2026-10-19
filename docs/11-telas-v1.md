@@ -405,7 +405,8 @@ notas, por decisão humana de César em 03/10/2026. Fica ausente da UI-B do
 M2; a RPC `set_ratings_visibility` e a especificação acima continuam preservadas.
 
 No M2, a `0018` publica **somente renomear**; foto e controle de
-`archive_group` ficam fora (M2-D40).
+`archive_group` ficam fora (M2-D40). A foto do grupo entrou depois, na tela
+"Ícone do grupo", só para o dono (`0030`, `13` §5.0.9).
 Dono ou organizador ativo pode renomear, com a mesma validação da criação
 (M2-D36). Nome confirmado pelo servidor é relido nas projeções, não vai para
 outcome. No pós-piloto, somente o dono poderá arquivar por RPC, depois de
@@ -492,4 +493,4 @@ registrada em `25-plano-m2.md` §8: o domínio de rachas não existe no M2, e `1
 §5 (“Fronteira da área autenticada no M1-A”) põe Rachas no M3.
 
 A UI-A (10, 11, 12, 16 e 24) depende da `0017`; a UI-B (17 e 25) usa
-também renomear da `0018`; arquivar por RPC é pós-piloto. Nenhuma tela antecipa operação ainda não publicada. A foto do grupo continua fora do M2 (M2-D24).
+também renomear da `0018`; arquivar por RPC é pós-piloto. Nenhuma tela antecipa operação ainda não publicada. A foto do grupo ficou fora do M2 (M2-D24) e entrou com a `0030` (`13` §5.0.9).

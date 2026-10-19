@@ -24,6 +24,9 @@ import { typography } from '@/theme/typography';
 import { groupErrorMessage } from './group-errors';
 import { useLeaveMissingGroup } from './leave-missing-group';
 import { useGroupAdministration } from './useGroupAdministration';
+import { PhotoActions } from '../photos/PhotoControls';
+import { usePhotoUrl } from '../photos/photo-urls';
+import { usePhotoChange } from '../photos/usePhotoChange';
 
 /** The icon tile and the colour swatch of the prévia (icone-do-grupo.html). */
 const ICON_TILE = 72;
@@ -52,6 +55,10 @@ export function GroupAppearanceScreen({
   const [draft, setDraft] = useState<GroupAppearance | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const choice = draft ?? group?.appearance;
+  // Item 6: the photo takes the icon's place wherever the group shows, so the
+  // preview shows it too. It changes at once; "Salvar" is only the icon's.
+  const photo = usePhotoUrl('group', isOwner ? groupId : null);
+  const photoChange = usePhotoChange({ kind: 'group', groupId });
   const activeMembers = data?.members.filter((member) => member.status === 'active').length ?? 0;
   const pick = (next: GroupAppearance) => {
     setDraft(next);
@@ -97,7 +104,7 @@ export function GroupAppearanceScreen({
             style={[styles.preview, { backgroundColor: colors.surface }]}
             testID="appearance-preview"
           >
-            <GroupIcon appearance={choice} size={56} tile />
+            <GroupIcon appearance={choice} photo={photo} size={56} tile />
             <View style={styles.previewText}>
               <Text style={[styles.previewName, { color: colors.text }]}>{group.name}</Text>
               <Text style={[styles.previewCount, { color: colors.textMuted }]}>
@@ -171,6 +178,17 @@ export function GroupAppearanceScreen({
               testID="appearance-save"
             />
           </View>
+
+          <Text aria-level={2} role="heading" style={[styles.section, { color: colors.text }]}>
+            {pt.photos.groupTitle}
+          </Text>
+          <PhotoActions
+            align="start"
+            change={photoChange}
+            chooseLabel={pt.photos.choose}
+            hasPhoto={photo !== null}
+            testID="group-photo"
+          />
         </>
       ) : null}
     </AuthenticatedShell>

@@ -33,6 +33,8 @@ import {
 import type { ErrorCode } from './errors.ts';
 import { dispatchMatchRead, isMatchReadOperation } from './match-reads.ts';
 import { DEFAULT_USER_AGENT, dispatchGeocode, isGeocodeOperation } from './geocode.ts';
+import { dispatchPhoto, isPhotoOperation } from './photo-gateway.ts';
+import { createPhotoStorage } from './photo-storage.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -60,6 +62,13 @@ export function serveGateway(served: readonly string[]): void {
   const SECRET_KEY = requireEnv('SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY');
 
   const resolveKey = keyResolverFromEnvironment(readEnv, [1]);
+  // Storage versions of the local stack may predate sb_secret keys while
+  // PostgREST accepts them, so the photo calls prefer the legacy service-role
+  // JWT when the platform supplies both, as the worker does.
+  const photoStorage = createPhotoStorage(
+    SUPABASE_URL,
+    readEnv('SUPABASE_SERVICE_ROLE_KEY') ?? SECRET_KEY,
+  );
 
   function jsonResponse(status: number, body: unknown): Response {
     const headers: Record<string, string> = {
@@ -204,6 +213,15 @@ export function serveGateway(served: readonly string[]): void {
             body,
           );
           return jsonResponse(search.status, search.body);
+        }
+
+        if (isPhotoOperation(operation)) {
+          const photo = await dispatchPhoto(
+            { actor, resolveKey, callRpc, storage: photoStorage },
+            operation,
+            body,
+          );
+          return jsonResponse(photo.status, photo.body);
         }
 
         if (isMatchReadOperation(operation)) {

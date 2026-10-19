@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de onze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:geocode` e `db:test:group-deletion`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de doze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:geocode`, `db:test:group-deletion` e `db:test:photos`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -3052,3 +3052,51 @@ pela checagem depois das travas.
 | contraprova com a `0029` de `4d58e22` | o harness reprova: só os replays de `join_by_code` e `join_by_invite` respondem 200 com o desfecho; as outras 42 corridas recusam |
 | provas anteriores | grupo já apagado continua respondendo sem esperar: 46 chamadas novas e 41 replays, resgates, prévias e lista |
 | sondas do revisor | `supplement.mjs` e `race-confirm.mjs` (de `4d58e22`), `replay-only.mjs`, `extra.mjs` e `probe.mjs`: exit 0, sem falhas |
+
+## Fotos de perfil e do grupo — `0030_photos.sql` (19/10/2026)
+
+Item 6 do feedback do teste, decisão humana de César (`25` §8.1, contrato em `13` §5.0.9).
+Empilhado sobre o #80 (`4c930a2`, que traz a `0028` e a `0029`).
+
+- **`0030`.** Buckets `avatars` (novo) e `group-photos` privados, só `image/jpeg`, até
+  1 MB, sem policy de cliente. `private.photo_uploads` (pending → retired → deleted),
+  privada, sem RLS nem privilégio, guarda todo objeto que não é a foto corrente; o caminho
+  (`<profile_id>|<group_id>/<upload_id>.jpg`) nasce no banco. Cinco operações no padrão
+  idempotente atual (`begin_photo_upload`, `set_profile_photo`, `remove_profile_photo`,
+  `set_group_photo`, `remove_group_photo`), com a lista de operações completa, o validador
+  encadeado e `photo_upload` no vocabulário de recursos; `get_photo_upload_target` e
+  `get_visible_photos` (com `p_self`) para a Edge. Foto trocada, removida ou sessão vencida
+  vira `delete_storage_object` de `resource_type='photo_upload'`, executado pelo handler
+  genérico do worker; `deletion_has_pending_storage`, o mapeamento de falha, o alvo e o
+  confirmador da `0015` ganham o tipo, sem segunda lista. Job `reclaim_photo_uploads` a cada
+  5 min. A exportação leva a foto como `profile-photo.jpg`. As operações de grupo decidem o
+  grupo apagado antes de esperar trava, como a correção do P1 do #80.
+- **Edge `groups`.** `photo-gateway.ts`: a URL de upload assinada só sai se morrer 60 s antes
+  do recolhimento; antes da troca, a Edge lê o objeto e recusa o que não for JPEG completo de
+  até 512 px, ou trouxer APP1 (Exif/XMP), APP13 (IPTC) ou MPF, apagando-o. Leitura por URL
+  assinada de 5 min; a própria foto vem por `self`, sem o próprio ID na requisição.
+- **App.** No Perfil, o avatar grande abre "Trocar foto" e "Remover foto"; na tela "Ícone do
+  grupo", só o dono tem "Foto do grupo". A foto entra na lista, no detalhe, nos membros, na
+  Agenda, no racha e no avatar do topo; o convite continua com ícone e cor. O app reduz a
+  512 px e recodifica em JPEG (`expo-image-manipulator`); a escolha usa `expo-image-picker`.
+  `img-src` do CSP passa a incluir a origem do Supabase (`docs/14`).
+
+| Comando | Resultado |
+|---|---|
+| db:test | 28 arquivos, 1976 asserções, PASS |
+| db:test:photos (novo) | 20 linhas `ok`, exit 0: caminho imposto, PNG e 1 MB + 1 recusados pelo Storage, JPEG com GPS no Exif recusado e apagado pela Edge, quem vê (colega sim, estranho não, nenhum JWT nem URL pública lê o objeto), troca e remoção apagando pelo worker real, sessão abandonada recolhida, foto do grupo só do dono, grupo apagado, exportação byte a byte, exclusão de conta sem objeto órfão (o Auth espera a sessão aberta), censo de todas as tabelas no baseline |
+| db:test:groups / membership | 29 / 75 `ok`; o texto canônico passa a aprovar a `0030` em cinco funções da `0015` e seis da `0016` |
+| demais harnesses de §5 | exit 0 (idempotency 7, gateway 9, cors 6, worker 8, deletion 10, export 32, invites 68, rename 11, group-deletion 11, members 6, matches 15, match-players 21, geocode 7) |
+| test:groups:web | 85 passed + 5 skipped (spec novo `fotos`: 2 testes × 2 projetos) |
+| test:auth / privacy / matches / smoke | 10 + 2 skip / 5 + 5 skip / 24 / 6 |
+| verify:app | exit 0; vitest 55 arquivos, 692 testes; 1 aviso de lint da base (`PrivacyAccountScreen`) |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 (test:staging 102) |
+
+Contraprovas: no harness, `get_visible_photos` sem a regra de grupo em comum entrega a URL
+ao estranho, e `remove_group_photo` sem o predicado de grupo apagado espera a trava até o
+timeout de 5 s; os dois restaurados. No vitest, o inspetor sem a recusa de APP1 reprova três
+testes. O e2e confere no objeto guardado que a foto escolhida com GPS chega com 512 × 384 e
+sem Exif. Capturas a 390 px em `~/colete-noite/fotos-prints`.
+
+Fica para a revisão: a foto de um grupo apagado fica inacessível, mas o objeto só sai quando
+o dono exclui a conta (o grupo apagado está arquivado e entra no fence da `0015`).

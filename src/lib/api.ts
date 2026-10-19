@@ -71,7 +71,12 @@ export type GroupOperation =
   | 'set_match_payment'
   | 'update_match'
   | 'cancel_match'
-  | 'delete_group';
+  | 'delete_group'
+  | 'begin_photo_upload'
+  | 'set_profile_photo'
+  | 'remove_profile_photo'
+  | 'set_group_photo'
+  | 'remove_group_photo';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -245,6 +250,37 @@ export type InviteShare = {
   code_format: 'v1';
 };
 
+/**
+ * A photo upload session (0030): the signed URL that accepts exactly one JPEG
+ * at the path the server chose, relative to the Supabase URL. The path itself
+ * never reaches the app.
+ */
+export type PhotoUpload = {
+  upload_id: string;
+  url: string;
+  expires_at: string;
+  content_type: 'image/jpeg';
+  max_bytes: number;
+  max_side: number;
+};
+export type PhotoUploadStart = {
+  outcome: { upload_id: string; logical_result: 'photo_upload_started' };
+  /** Null on a replay whose session can no longer receive the photo. */
+  upload: PhotoUpload | null;
+};
+export type PhotoOutcome = {
+  outcome: { logical_result: string; profile_id?: string; group_id?: string };
+  current?: { has_photo: boolean };
+};
+/** Short-lived signed read URLs (0030), relative to the Supabase URL, of the photos the caller may see. */
+export type PhotoUrls = {
+  expires_in: number;
+  /** The caller's own photo, asked by a flag and never by the own ID (docs/22 section 6). */
+  self: string | null;
+  profiles: Record<string, string>;
+  groups: Record<string, string>;
+};
+
 export type DataExportRequestResult = {
   outcome: { export_id: string; logical_result: 'data_export_requested' };
   current: DataExportProjection[];
@@ -372,6 +408,11 @@ const groupOperations = new Set<string>([
   'update_match',
   'cancel_match',
   'delete_group',
+  'begin_photo_upload',
+  'set_profile_photo',
+  'remove_profile_photo',
+  'set_group_photo',
+  'remove_group_photo',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -650,6 +691,59 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     /** Owner only, and final (0029): the typed name stays on the screen, never in the call. */
     deleteGroup: (groupId: string) => mutation<GroupOutcome>('delete_group', { group_id: groupId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
+    /** Opens a session for one photo: the own profile's, or (owner only) a group's. */
+    beginPhotoUpload: (target: 'profile' | 'group', groupId?: string) =>
+      mutation<PhotoUploadStart>(
+        'begin_photo_upload',
+        target === 'group' ? { target, group_id: groupId } : { target },
+      ),
+    setProfilePhoto: (uploadId: string) =>
+      mutation<PhotoOutcome>('set_profile_photo', { upload_id: uploadId }),
+    removeProfilePhoto: () => mutation<PhotoOutcome>('remove_profile_photo', {}),
+    setGroupPhoto: (groupId: string, uploadId: string) =>
+      mutation<PhotoOutcome>('set_group_photo', { group_id: groupId, upload_id: uploadId }),
+    removeGroupPhoto: (groupId: string) =>
+      mutation<PhotoOutcome>('remove_group_photo', { group_id: groupId }),
+    /** Signed read URLs of the photos the caller may see; the others are simply absent. */
+    getPhotoUrls: (profileIds: readonly string[], groupIds: readonly string[], self = false) =>
+      groupRead<PhotoUrls>('get_photo_urls', {
+        profile_ids: [...profileIds],
+        group_ids: [...groupIds],
+        ...(self ? { self } : {}),
+      }),
+    /** An absolute URL for a path the gateway returned relative to the Supabase URL. */
+    supabaseUrl: (relative: string) => `${config().url}${relative}`,
+    /**
+     * Sends the prepared JPEG to the session's signed URL. Storage accepts it
+     * once, as image/jpeg, up to the bucket's size; the server checks it again
+     * before the photo is used.
+     */
+    async uploadPhoto(upload: PhotoUpload, body: BodyInit): Promise<void> {
+      const { url, publishableKey } = config();
+      let response: Response;
+      try {
+        response = await fetcher(`${url}${upload.url}`, {
+          method: 'PUT',
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
+          headers:
+            typeof FormData !== 'undefined' && body instanceof FormData
+              ? { apikey: publishableKey, 'x-upsert': 'false' }
+              : {
+                  apikey: publishableKey,
+                  'content-type': upload.content_type,
+                  'x-upsert': 'false',
+                },
+          body,
+        });
+      } catch {
+        throw new TransportError();
+      }
+      if (response.status === 413 || response.status === 415 || response.status === 400) {
+        throw new AppError('VALIDATION', pt.photos.errors.invalid);
+      }
+      if (!response.ok) throw new TransportError();
+    },
     createMatch: (groupId: string, config: MatchConfig) =>
       mutation<MatchOutcome>('create_match', { group_id: groupId, config }),
     /** The whole form again, as create_match takes it; the group never changes. */

@@ -1,9 +1,10 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Avatar } from '@/components/ui/Avatar';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { typography } from '@/theme/typography';
+
+import { PhotoAvatar } from '../photos/PhotoAvatar';
 
 const SHOWN = 4;
 
@@ -19,7 +20,7 @@ export function MemberStack({
     <View aria-hidden style={styles.stack}>
       {members.slice(0, SHOWN).map((member, index) => (
         <View key={member.profile_id} style={index === 0 ? undefined : styles.overlap}>
-          <Avatar
+          <PhotoAvatar
             id={member.profile_id}
             name={member.display_name}
             ring={colors.surface}

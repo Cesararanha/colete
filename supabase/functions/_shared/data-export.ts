@@ -23,6 +23,8 @@ export type ExportBuildTarget =
       action: 'build';
       path: string;
       auth_user_id: string;
+      /** The titular's current photo (0030), outside the snapshot: its path never enters a JSON. */
+      photo?: { bucket: 'avatars'; path: string } | null;
       snapshot: Omit<ExportSnapshot, 'auth'>;
     };
 
@@ -41,6 +43,14 @@ export interface ExportStorage {
 export interface ExportAuth {
   projection(authUserId: string): Promise<Record<string, unknown>>;
 }
+
+/** Reads the titular's own photo from its private bucket, or null when it is absent. */
+export interface ExportPhotos {
+  read(bucket: 'avatars', path: string): Promise<Uint8Array | null>;
+}
+
+/** The fixed name of the titular's photo inside the ZIP (0030). */
+export const EXPORT_PHOTO_NAME = 'profile-photo.jpg';
 
 function exactKeys(value: Record<string, unknown>, allowed: readonly string[], subject: string) {
   const actual = Object.keys(value).sort();
@@ -217,7 +227,10 @@ async function zipStore(entries: readonly Entry[]): Promise<Uint8Array> {
   return join([...local, centralBytes, end]);
 }
 
-export async function buildDataExport(snapshot: ExportSnapshot): Promise<{
+export async function buildDataExport(
+  snapshot: ExportSnapshot,
+  photo: Uint8Array | null = null,
+): Promise<{
   bytes: Uint8Array;
   digest: string;
   names: string[];
@@ -238,6 +251,9 @@ export async function buildDataExport(snapshot: ExportSnapshot): Promise<{
     { name: 'policy-acceptances.json', bytes: json(snapshot.policy_acceptances) },
     { name: 'privacy-requests.json', bytes: json(snapshot.privacy_requests) },
     { name: 'profile.json', bytes: json(snapshot.profile) },
+    // docs/22 §5.1: a fixed-name entry, enumerated in the manifest, only when
+    // the titular has a photo. The other entries keep their bytes.
+    ...(photo === null ? [] : [{ name: EXPORT_PHOTO_NAME, bytes: photo }]),
   ].sort((left, right) => left.name.localeCompare(right.name, 'en'));
   const files = [];
   for (const entry of base) {
@@ -259,6 +275,7 @@ export function dataExportBuildHandler(
   rpc: ExportRpc,
   storage: ExportStorage,
   auth: ExportAuth,
+  photos?: ExportPhotos,
 ): EffectHandler {
   return async (effect: ExternalEffect) => {
     const target = await rpc.getBuildTarget(effect.id, effect.lease_token);
@@ -268,7 +285,15 @@ export function dataExportBuildHandler(
       return;
     }
     const authProjection = await auth.projection(target.auth_user_id);
-    const artifact = await buildDataExport({ ...target.snapshot, auth: authProjection });
+    let photo: Uint8Array | null = null;
+    if (target.photo !== undefined && target.photo !== null) {
+      if (photos === undefined) throw new WorkerEffectError('EXPORT_PHOTO_UNAVAILABLE', true);
+      photo = await photos.read(target.photo.bucket, target.photo.path);
+      // The photo was swapped between the snapshot and this read. The next
+      // attempt reads the new one; an export never leaves it out silently.
+      if (photo === null) throw new WorkerEffectError('EXPORT_PHOTO_UNAVAILABLE');
+    }
+    const artifact = await buildDataExport({ ...target.snapshot, auth: authProjection }, photo);
     const existing = await storage.read(target.path);
     if (existing !== null) {
       const existingDigest = await sha256(existing);
