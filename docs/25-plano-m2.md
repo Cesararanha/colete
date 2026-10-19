@@ -1286,6 +1286,15 @@ código produtivo.
   genérica; a distinção da M2-D42 fica só no resgate. Emenda a M2-D28 e a
   M2-D42 somente no preview. O registro está em `26` e `27`.
 
+- **Ícone e cor do grupo — decisão humana de César, 18/10/2026, AGENTS §8.**
+  O dono escolhe um de oito ícones e uma de seis cores da prévia aprovada
+  (`set_group_appearance` no gateway `groups`, `0027`, contrato em `13` §5.0.7,
+  colunas em `10` §3), com o padrão idempotente atual. Organizador e jogador não
+  escolhem. Lista de grupos, detalhe, Agenda, Criar racha com grupo fixo e a
+  página do convite mostram a escolha; a prévia da `0026` passa a devolver
+  também `group_icon` e `group_color`. Todo grupo começa como bola azul. Foto de
+  grupo continua fora.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

@@ -10,6 +10,7 @@ import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { Avatar } from '@/components/ui/Avatar';
 import { Chip, type ChipTone } from '@/components/ui/Chip';
 import { GroupIcon } from '@/components/ui/GroupIcon';
+import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import {
   api,
@@ -562,7 +563,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
         ) : null}
       </Text>
       <View style={styles.group} testID="match-fact-group">
-        <GroupIcon size={16} />
+        <GroupIcon appearance={groupAppearance(match.group_icon, match.group_color)} size={16} />
         <Text style={[styles.small, { color: colors.textMuted }]}>{match.group_name}</Text>
       </View>
     </View>

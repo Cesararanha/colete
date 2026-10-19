@@ -18,6 +18,8 @@ const prefix = `convite-${Date.now()}-${process.pid}`;
 const origin = 'http://127.0.0.1:4173';
 const screenshotRoot = process.env.COLETE_INVITE_PAGE_SCREENSHOTS_DIR;
 const pageFields = [
+  'group_color',
+  'group_icon',
   'group_id',
   'group_name',
   'member_count',
@@ -193,7 +195,7 @@ async function expectGroupPage(page: Page, name: string) {
   await expect(page.getByTestId('group-code')).toHaveCount(0);
 }
 
-/** Every preview answer the browser saw: only the six fields, nothing of anyone else. */
+/** Every preview answer the browser saw: only the eight fields, nothing of anyone else. */
 function watchPreviews(page: Page, forbidden: () => string[]) {
   const seen: Record<string, unknown>[] = [];
   page.on('response', async (response) => {

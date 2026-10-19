@@ -48,6 +48,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   transfer_ownership: { request_id: REQUEST_ID, group_id: GROUP, new_owner_id: TARGET },
   leave_group: { request_id: REQUEST_ID, group_id: GROUP },
   rename_group: { request_id: REQUEST_ID, group_id: GROUP, name: '  Café　da　Turma  ' },
+  set_group_appearance: { request_id: REQUEST_ID, group_id: GROUP, icon: 'trophy', color: 'lilac' },
   create_match: { request_id: REQUEST_ID, group_id: GROUP, config: MATCH_CONFIG },
   join_match: { request_id: REQUEST_ID, match_id: MATCH },
   leave_match: { request_id: REQUEST_ID, match_id: MATCH },
@@ -69,6 +70,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   transfer_ownership: { p_group_id: GROUP, p_new_owner_id: TARGET },
   leave_group: { p_group_id: GROUP },
   rename_group: { p_group_id: GROUP, p_name: 'Café da Turma' },
+  set_group_appearance: { p_group_id: GROUP, p_icon: 'trophy', p_color: 'lilac' },
   create_match: {
     p_group_id: GROUP,
     p_config: {

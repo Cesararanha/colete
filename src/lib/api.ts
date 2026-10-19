@@ -1,5 +1,11 @@
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 
+import {
+  groupAppearance,
+  type GroupAppearance,
+  type GroupColorKey,
+  type GroupIconKey,
+} from '../components/ui/group-icon';
 import type { Database } from './database.types';
 import { isErrorCode, type ErrorCode } from './error-codes';
 import { pt } from './i18n/pt';
@@ -57,6 +63,7 @@ export type GroupOperation =
   | 'remove_member'
   | 'set_role'
   | 'rename_group'
+  | 'set_group_appearance'
   | 'transfer_ownership'
   | 'create_match'
   | 'join_match'
@@ -89,6 +96,9 @@ export type MatchSummary = {
   description?: string | null;
   group_id: string;
   group_name: string;
+  /** The owner's choice (0027); read through groupAppearance, never trusted raw. */
+  group_icon: string;
+  group_color: string;
   starts_at: string;
   ends_at: string;
   timezone: string;
@@ -172,12 +182,19 @@ export type MatchOccupancy = {
   waitlist_count: number;
   viewer_status: MatchPresenceStatus;
 };
-export type GroupSummary = { id: string; name: string; owner_id: string; role: string };
+export type GroupSummary = {
+  id: string;
+  name: string;
+  owner_id: string;
+  role: string;
+  appearance: GroupAppearance;
+};
 export type GroupDetail = {
   id: string;
   name: string;
   owner_id: string;
   role: string;
+  appearance: GroupAppearance;
   membershipRole?: string | undefined;
 };
 export type GroupInvite = {
@@ -200,6 +217,9 @@ export type InvitePage = {
   viewer_status: 'active' | 'pending' | null;
   group_id: string | null;
   refusal: 'GROUP_FULL' | 'GROUP_LIMIT' | null;
+  /** The owner's choice (0027); read through groupAppearance. */
+  group_icon: string;
+  group_color: string;
 };
 export type InviteShare = {
   invite_id: string;
@@ -328,6 +348,7 @@ const groupOperations = new Set<string>([
   'remove_member',
   'set_role',
   'rename_group',
+  'set_group_appearance',
   'transfer_ownership',
   'create_match',
   'join_match',
@@ -603,6 +624,9 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       mutation<GroupOutcome>('set_role', { group_id: groupId, profile_id: targetId, role }),
     renameGroup: (groupId: string, name: string) =>
       mutation<GroupOutcome>('rename_group', { group_id: groupId, name }),
+    /** Owner only (OWNER_ONLY otherwise): both keys travel together, as the screen saves them. */
+    setGroupAppearance: (groupId: string, icon: GroupIconKey, color: GroupColorKey) =>
+      mutation<GroupOutcome>('set_group_appearance', { group_id: groupId, icon, color }),
     transferOwnership: (groupId: string, targetId: string) =>
       mutation<GroupOutcome>('transfer_ownership', { group_id: groupId, new_owner_id: targetId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
@@ -656,13 +680,14 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       if (ids.length === 0) return [];
       const groups = await supabase()
         .from('groups')
-        .select('id,name,owner_id')
+        .select('id,name,owner_id,icon,color')
         .in('id', ids)
         .order('name')
         .setHeader('Authorization', `Bearer ${accessToken}`);
       if (groups.error !== null) throw new TransportError();
-      return (groups.data ?? []).map((group) => ({
+      return (groups.data ?? []).map(({ icon, color, ...group }) => ({
         ...group,
+        appearance: groupAppearance(icon, color),
         role:
           group.owner_id === profileId
             ? 'owner'
@@ -693,12 +718,13 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     ): Promise<GroupDetail | null> {
       const result = await supabase()
         .from('groups')
-        .select('id,name,owner_id')
+        .select('id,name,owner_id,icon,color')
         .eq('id', groupId)
         .maybeSingle()
         .setHeader('Authorization', `Bearer ${accessToken}`);
       if (result.error !== null) throw new TransportError();
       if (result.data === null) return null;
+      const { icon, color, ...group } = result.data;
       const membership = await supabase()
         .from('group_members')
         .select('role,status')
@@ -708,8 +734,9 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         .setHeader('Authorization', `Bearer ${accessToken}`);
       if (membership.error !== null) throw new TransportError();
       return {
-        ...result.data,
-        role: result.data.owner_id === profileId ? 'owner' : (membership.data?.role ?? 'player'),
+        ...group,
+        appearance: groupAppearance(icon, color),
+        role: group.owner_id === profileId ? 'owner' : (membership.data?.role ?? 'player'),
         membershipRole: membership.data?.role,
       };
     },

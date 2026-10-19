@@ -147,6 +147,13 @@ function rpcParameters(
         p_group_id: canonicalInput['group_id'],
         p_name: canonicalInput['name'],
       };
+    case 'set_group_appearance':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_icon: canonicalInput['icon'],
+        p_color: canonicalInput['color'],
+      };
     case 'create_match':
       return {
         ...common,

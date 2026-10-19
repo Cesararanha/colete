@@ -640,27 +640,34 @@ const EXPECTED_0021_OVERRIDES = new Set([
 // the same four lists, still in the current pattern.
 const EXPECTED_0022_OVERRIDES = EXPECTED_0021_OVERRIDES;
 
+// 0027 (ícone e cor do grupo) adds set_group_appearance to the same four lists,
+// still in the current pattern.
+const EXPECTED_0027_OVERRIDES = EXPECTED_0021_OVERRIDES;
+
 async function proveCanonicalText(admin) {
   const defined = migrationFunctions(MIGRATION);
   const overrides = migrationFunctions('0017_group_invites.sql');
   const renameOverrides = migrationFunctions('0018_rename_group.sql');
   const matchOverrides = migrationFunctions('0021_matches_v1.sql');
   const playerOverrides = migrationFunctions('0022_match_players.sql');
+  const appearanceOverrides = migrationFunctions('0027_group_appearance.sql');
   assert.deepEqual(
     [...defined.keys()].sort(),
     DEFINED_0016,
     'the extractor did not find exactly the functions defined by 0016',
   );
   for (const [qualifiedName, expected] of defined) {
-    const expectedLive = EXPECTED_0022_OVERRIDES.has(qualifiedName)
-      ? playerOverrides.get(qualifiedName)
-      : EXPECTED_0021_OVERRIDES.has(qualifiedName)
-        ? matchOverrides.get(qualifiedName)
-        : EXPECTED_0018_OVERRIDES.has(qualifiedName)
-          ? renameOverrides.get(qualifiedName)
-          : EXPECTED_0017_OVERRIDES.has(qualifiedName)
-            ? overrides.get(qualifiedName)
-            : expected;
+    const expectedLive = EXPECTED_0027_OVERRIDES.has(qualifiedName)
+      ? appearanceOverrides.get(qualifiedName)
+      : EXPECTED_0022_OVERRIDES.has(qualifiedName)
+        ? playerOverrides.get(qualifiedName)
+        : EXPECTED_0021_OVERRIDES.has(qualifiedName)
+          ? matchOverrides.get(qualifiedName)
+          : EXPECTED_0018_OVERRIDES.has(qualifiedName)
+            ? renameOverrides.get(qualifiedName)
+            : EXPECTED_0017_OVERRIDES.has(qualifiedName)
+              ? overrides.get(qualifiedName)
+              : expected;
     assert.ok(expectedLive, `${qualifiedName} has no expected live definition`);
     const differences = compareDefinition(expectedLive, await liveFunction(admin, qualifiedName));
     assert.deepEqual(
@@ -679,7 +686,8 @@ async function proveCanonicalText(admin) {
           (file === '0017_group_invites.sql' && EXPECTED_0017_OVERRIDES.has(qualifiedName)) ||
             (file === '0018_rename_group.sql' && EXPECTED_0018_OVERRIDES.has(qualifiedName)) ||
             (file === '0021_matches_v1.sql' && EXPECTED_0021_OVERRIDES.has(qualifiedName)) ||
-            (file === '0022_match_players.sql' && EXPECTED_0022_OVERRIDES.has(qualifiedName)),
+            (file === '0022_match_players.sql' && EXPECTED_0022_OVERRIDES.has(qualifiedName)) ||
+            (file === '0027_group_appearance.sql' && EXPECTED_0027_OVERRIDES.has(qualifiedName)),
           `${file} unexpectedly redefines ${qualifiedName}`,
         );
       }
@@ -704,6 +712,11 @@ async function proveCanonicalText(admin) {
     [...playerOverrides.keys()].filter((name) => defined.has(name)).sort(),
     [...EXPECTED_0022_OVERRIDES].sort(),
     '0022 must redefine exactly the four expected 0016 functions',
+  );
+  assert.deepEqual(
+    [...appearanceOverrides.keys()].filter((name) => defined.has(name)).sort(),
+    [...EXPECTED_0027_OVERRIDES].sort(),
+    '0027 must redefine exactly the four expected 0016 functions',
   );
   // Nenhuma função que a 0015 fixou é redefinida pela 0016.
   for (const qualifiedName of migrationFunctions('0015_group_foundation.sql').keys()) {

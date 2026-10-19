@@ -8,6 +8,7 @@ import { AppSkeleton } from '@/components/ui/AppSkeleton';
 import { Avatar } from '@/components/ui/Avatar';
 import { Chip } from '@/components/ui/Chip';
 import { GroupIcon } from '@/components/ui/GroupIcon';
+import { groupAppearance } from '@/components/ui/group-icon';
 import type { InvitePage } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -28,7 +29,7 @@ export const InvitePageIntro = forwardRef<View, { page: InvitePage }>(function I
   const { colors } = useTheme();
   return (
     <View ref={ref} style={styles.intro} tabIndex={-1} testID="invite-page-header">
-      <GroupIcon size={56} tile />
+      <GroupIcon appearance={groupAppearance(page.group_icon, page.group_color)} size={56} tile />
       <View style={styles.introText}>
         <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
           {page.group_name}

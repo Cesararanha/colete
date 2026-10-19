@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { GatewayError, normaliseRequest } from './operations.ts';
+import { GROUP_COLORS, GROUP_ICONS, GatewayError, normaliseRequest } from './operations.ts';
 import { canonicalise } from './jcs.ts';
 
 const REQUEST_ID = '01890f7e-e948-7c53-b13a-4a36e4b7d21e';
@@ -301,6 +301,60 @@ describe('rename_group uses the creation name rule', () => {
             request_id: REQUEST_ID,
             group_id: groupId,
             name,
+          }),
+        ).code,
+      ).toBe('VALIDATION');
+    }
+  });
+});
+
+describe('set_group_appearance takes only the listed keys (docs/13 section 5.0.7)', () => {
+  const groupId = '15b00001-0000-4000-8000-000000000000';
+  it('signs the lowercased group and the exact icon and colour keys', () => {
+    const normalised = normaliseRequest('set_group_appearance', {
+      request_id: REQUEST_ID,
+      group_id: groupId.toUpperCase(),
+      icon: 'flame',
+      color: 'sand',
+    });
+    expect(normalised.canonicalInput).toEqual({ group_id: groupId, icon: 'flame', color: 'sand' });
+  });
+  it('accepts every key of the two lists', () => {
+    for (const icon of GROUP_ICONS) {
+      for (const color of GROUP_COLORS) {
+        expect(() =>
+          normaliseRequest('set_group_appearance', {
+            request_id: REQUEST_ID,
+            group_id: groupId,
+            icon,
+            color,
+          }),
+        ).not.toThrow();
+      }
+    }
+    expect(GROUP_ICONS).toHaveLength(8);
+    expect(GROUP_COLORS).toHaveLength(6);
+  });
+  it('refuses labels, other spellings, absence and extra keys before idempotency', () => {
+    const bodies: Record<string, unknown>[] = [
+      { icon: 'Bola', color: 'blue' },
+      { icon: 'BALL', color: 'blue' },
+      { icon: 'ball', color: '#9DB6FF' },
+      { icon: 'ball', color: 'Azul' },
+      { icon: 'rocket', color: 'blue' },
+      { icon: null, color: 'blue' },
+      { color: 'blue' },
+      { icon: 'ball' },
+      { icon: 'ball', color: 'blue', name: 'Outro nome' },
+      { icon: 'ball', color: 'blue', profile_id: groupId },
+    ];
+    for (const body of bodies) {
+      expect(
+        refusal(() =>
+          normaliseRequest('set_group_appearance', {
+            request_id: REQUEST_ID,
+            group_id: groupId,
+            ...body,
           }),
         ).code,
       ).toBe('VALIDATION');

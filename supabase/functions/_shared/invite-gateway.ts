@@ -16,6 +16,7 @@ import {
 import type { ErrorCode } from './errors.ts';
 import { normaliseGroupName } from './group-name.ts';
 export { normaliseGroupName } from './group-name.ts';
+import { GROUP_COLORS, GROUP_ICONS } from './operations.ts';
 import {
   deriveInviteMaterial,
   inviteKeyV1,
@@ -191,9 +192,10 @@ async function fingerprint(
   };
 }
 /**
- * The invitation page (0026): exactly these six fields leave the Edge, even
- * if the RPC ever returns more. The group ID only goes to an active member,
- * who already reads it through their own memberships.
+ * The invitation page (0026, icon and colour by 0027): exactly these eight
+ * fields leave the Edge, even if the RPC ever returns more. The group ID only
+ * goes to an active member, who already reads it through their own
+ * memberships.
  */
 export function invitePageProjection(data: unknown): Record<string, unknown> {
   const page = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
@@ -208,7 +210,9 @@ export function invitePageProjection(data: unknown): Record<string, unknown> {
     (owner !== null && typeof owner !== 'string') ||
     ![null, 'active', 'pending'].includes(viewer as string | null) ||
     ![null, 'GROUP_FULL', 'GROUP_LIMIT'].includes(refusal as string | null) ||
-    (viewer === 'active' ? typeof groupId !== 'string' || !UUID.test(groupId) : groupId !== null)
+    (viewer === 'active' ? typeof groupId !== 'string' || !UUID.test(groupId) : groupId !== null) ||
+    !(GROUP_ICONS as readonly unknown[]).includes(page['group_icon']) ||
+    !(GROUP_COLORS as readonly unknown[]).includes(page['group_color'])
   ) {
     throw new Error('invalid invite page projection');
   }
@@ -219,6 +223,8 @@ export function invitePageProjection(data: unknown): Record<string, unknown> {
     viewer_status: viewer,
     group_id: groupId,
     refusal,
+    group_icon: page['group_icon'],
+    group_color: page['group_color'],
   };
 }
 function stringField(input: Record<string, unknown>, key: string): string {

@@ -7,6 +7,8 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { GroupIcon } from '@/components/ui/GroupIcon';
+import type { GroupAppearance } from '@/components/ui/group-icon';
 import { Scoreboard } from '@/components/ui/Scoreboard';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
@@ -20,7 +22,7 @@ import { MAX_ACTIVE_GROUPS } from './group-limits';
 import { roleIcon, roleName } from './group-roles';
 
 type ListedGroup =
-  | { kind: 'group'; id: string; name: string; role: string }
+  | { kind: 'group'; id: string; name: string; role: string; appearance: GroupAppearance }
   | { kind: 'pending'; id: string; name: string };
 
 /** A request still waiting for approval: shown, but it opens nothing. */
@@ -47,8 +49,18 @@ function PendingRow({ name }: { name: string }) {
   );
 }
 
-/** One group: the whole row opens it. Name, role (icon + text) and a chevron. */
-function GroupRow({ id, name, role }: { id: string; name: string; role: string }) {
+/** One group: the whole row opens it. Its icon, name, role (icon + text) and a chevron. */
+function GroupRow({
+  appearance,
+  id,
+  name,
+  role,
+}: {
+  appearance: GroupAppearance;
+  id: string;
+  name: string;
+  role: string;
+}) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   return (
@@ -76,6 +88,7 @@ function GroupRow({ id, name, role }: { id: string; name: string; role: string }
                 : null,
             ]}
           >
+            <GroupIcon appearance={appearance} size={size.compact} tile />
             <View style={styles.rowText}>
               <Text aria-level={2} role="heading" style={[styles.rowName, { color: colors.text }]}>
                 {name}
@@ -180,7 +193,7 @@ export function GroupsListScreen({
       keyExtractor={(row) => `${row.kind}:${row.id}`}
       renderItem={(row) =>
         row.kind === 'group' ? (
-          <GroupRow id={row.id} name={row.name} role={row.role} />
+          <GroupRow appearance={row.appearance} id={row.id} name={row.name} role={row.role} />
         ) : (
           <PendingRow name={row.name} />
         )
@@ -229,7 +242,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     minHeight: size.row + spacing.ms,
-    paddingLeft: spacing.lg,
+    paddingLeft: spacing.md,
     paddingRight: spacing.md,
     paddingVertical: spacing.md,
   },

@@ -40,6 +40,16 @@ export type ThemeColors = {
   /** The fifth avatar tone; never a state. */
   accent: string;
   accentSoft: string;
+  /**
+   * Two group colours the state tones do not cover (PR H). The owner picks
+   * blue, green, orange, pink, lilac or sand: the first four reuse info,
+   * positive, warning and accent with their soft fills; these are the last
+   * two. Never a state.
+   */
+  lilac: string;
+  lilacSoft: string;
+  sand: string;
+  sandSoft: string;
   /** The neutral avatar tone. */
   avatar: string;
   /** Secondary text brighter than textMuted: times, counts, descriptions. */
@@ -91,6 +101,10 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     primarySoft: '#E3E7F2',
     accent: '#9C2A5B',
     accentSoft: '#F8E1EB',
+    lilac: '#5B3DAE',
+    lilacSoft: '#ECE6FB',
+    sand: '#6A5424',
+    sandSoft: '#F2ECDF',
     avatar: '#D6DCEB',
     textSoft: '#2A3550',
     onPositive: '#FFFFFF',
@@ -127,6 +141,10 @@ export const colors: Record<ThemeMode, ThemeColors> = {
     primarySoft: '#3A2C0E',
     accent: '#F2A7C3',
     accentSoft: '#3A1F2C',
+    lilac: '#C9B3FF',
+    lilacSoft: '#271F42',
+    sand: '#E3D3B0',
+    sandSoft: '#2D2718',
     avatar: '#2B3A63',
     textSoft: '#D5DAE4',
     onPositive: '#0A1120',

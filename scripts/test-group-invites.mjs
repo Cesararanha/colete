@@ -271,7 +271,7 @@ async function proveHttp(status, db) {
     await groups(status, joiner, 'preview_group_by_invite', { token: material.token }),
     'preview link',
   );
-  // 0026: the invitation page, exactly six fields, no member list or ID.
+  // 0026: the invitation page, no member list or ID; 0027 adds icon and colour.
   assert.deepEqual(previewCode, {
     group_name: 'Racha do Bairro',
     member_count: 1,
@@ -279,6 +279,8 @@ async function proveHttp(status, db) {
     viewer_status: null,
     group_id: null,
     refusal: null,
+    group_icon: 'ball',
+    group_color: 'blue',
   });
   assert.deepEqual(previewLink, previewCode);
   assert.equal(
@@ -1022,7 +1024,10 @@ async function provePreviewWithoutLocks(db, connections) {
       assert.ok(probe.ms < PREVIEW_HOLD_MS, `${label}: took ${probe.ms} ms`);
       if (state === 'vivo') {
         assert.equal(probe.result.status, 'fulfilled', `${label}: live invite must show the page`);
+        // 0027 adds the group's icon and colour to the same unlocked read.
         assert.deepEqual(Object.keys(probe.result.value.rows[0].page).sort(), [
+          'group_color',
+          'group_icon',
           'group_id',
           'group_name',
           'member_count',

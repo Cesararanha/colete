@@ -11,12 +11,14 @@ import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { api, AppError, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
+import { radius } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { groupNameSchema } from './group-name-schema';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
 import { useGroupAdministration } from './useGroupAdministration';
+import { ProfileLinkRow } from '../profile/ProfileLinkRow';
 
 export function GroupSettingsScreen({
   groupId,
@@ -80,6 +82,17 @@ export function GroupSettingsScreen({
         onPress={() => void administration.refresh()}
         variant="secondary"
       />
+      {group?.role === 'owner' ? (
+        // Only the owner chooses the icon and colour (OWNER_ONLY for the rest).
+        <View style={[styles.links, { backgroundColor: colors.surface }]}>
+          <ProfileLinkRow
+            href={`/grupos/${groupId}/icone`}
+            icon="image"
+            testID="settings-appearance-link"
+            title={pt.groups.settings.appearance}
+          />
+        </View>
+      ) : null}
       {group ? (
         <AppCard testID="group-settings-card">
           <Text style={[styles.body, { color: colors.text }]} testID="confirmed-group-name">
@@ -214,4 +227,5 @@ export function GroupSettingsScreen({
 const styles = StyleSheet.create({
   body: { ...typography.body },
   heading: { ...typography.title },
+  links: { borderRadius: radius.row, overflow: 'hidden' },
 });

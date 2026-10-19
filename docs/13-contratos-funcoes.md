@@ -912,16 +912,18 @@ Não incrementa `used_count`, não cria membership ou pedido, não atualiza
 resposta de sucesso é exatamente
 `{ group_name: string, member_count: integer, owner_name: string | null,
 viewer_status: 'active' | 'pending' | null, group_id: uuid | null,
-refusal: 'GROUP_FULL' | 'GROUP_LIMIT' | null }`. `member_count` conta os
+refusal: 'GROUP_FULL' | 'GROUP_LIMIT' | null, group_icon: string,
+group_color: string }` (`group_icon` e `group_color` pela `0027`, com as chaves
+de §5.0.7). `member_count` conta os
 membros `active` cuja conta não está em exclusão e `owner_name` é o nome de
 exibição do dono (apelido não vazio, senão nome), as mesmas regras de
 `get_group_members` (`0019`); conta do dono em exclusão dá `null`.
 `viewer_status` é o estado próprio do titular no grupo. `group_id` só vem
 para o membro `active`, que já o lê pelas próprias memberships, para abrir o
 grupo; nos demais casos é `null`. Nunca há lista de membros, ID de perfil,
-e-mail, foto ou dado de racha. A Edge projeta exatamente esses seis campos e
-recusa como erro interno uma resposta fora do formato. O ícone do grupo
-mostrado pela página vem do app, não desta resposta.
+e-mail, foto ou dado de racha. A Edge projeta exatamente esses oito campos e
+recusa como erro interno uma resposta fora do formato, inclusive ícone ou cor
+fora das listas. A página desenha o ícone e a cor escolhidos pelo dono.
 
 Depois do débito obrigatório, código inexistente, material malformado ou
 divergente e convite revogado, expirado ou esgotado retornam o mesmo
@@ -1144,6 +1146,23 @@ preview e pedido próprio usam o nome corrente quando relidos.
 Grupo arquivado/suspenso recusa edição com `GROUP_ARCHIVED` (410)/
 `GROUP_SUSPENDED` (403). Falta de autoridade de organização usa
 `NOT_ORGANIZER` (403); a regra de nome não deriva do nome pessoal (M2-D36).
+
+#### 5.0.7 Ícone e cor — `0027`
+
+Assinatura contratada: `set_group_appearance(group_id, icon, color, request_id)`, no
+gateway `groups` (decisão humana de César, 18/10/2026, `25` §8.1). Somente o dono, com
+membership `active`, escolhe; organizador e jogador recebem `OWNER_ONLY` (403) e quem não é
+mais membro, `NOT_MEMBER` (403). `icon` é uma de `ball`, `goal`, `field`, `whistle`,
+`shirt`, `trophy`, `bolt` ou `flame`; `color` é uma de `blue`, `green`, `orange`, `pink`,
+`lilac` ou `sand`. Os dois campos são obrigatórios e chegam juntos; chave fora da lista,
+rótulo ("Bola", "Azul"), outra grafia ou ausência devolve `VALIDATION` (422), na Edge antes
+de gastar a chave idempotente e de novo no banco. Autenticação e replay seguem §5.0.1.
+Trava perfil próprio → grupo → membership própria. Altera somente `groups.icon` e
+`groups.color`. O outcome é `{group_id, logical_result: "group_appearance_set"}`; a
+escolha corrente vem em `current` como projeção fresca e nunca entra no outcome. Grupo
+arquivado/suspenso recusa com `GROUP_ARCHIVED` (410)/`GROUP_SUSPENDED` (403). Lista e
+detalhe leem `icon` e `color` de `groups`; a Agenda os recebe como `group_icon` e
+`group_color` em `list_my_matches` e `get_match`. O padrão de todo grupo é `ball`/`blue`.
 
 O contrato integral de `archive_group`, suas provas e a leitura por policy
 de grupo arquivado estão preservados em `25` §8.2 como obrigatórios antes

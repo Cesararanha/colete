@@ -223,7 +223,12 @@ create table groups (
                      check (ratings_visibility in ('private','members')),
   suspended_at    timestamptz,
   archived_at     timestamptz,
-  created_at      timestamptz not null default now()
+  created_at      timestamptz not null default now(),
+  -- ícone e cor escolhidos pelo dono: adição da 0027 (decisão humana de 18/10/2026)
+  icon            text not null default 'ball'
+                  check (icon in ('ball','goal','field','whistle','shirt','trophy','bolt','flame')),
+  color           text not null default 'blue'
+                  check (color in ('blue','green','orange','pink','lilac','sand'))
 );
 
 create table group_members (
@@ -313,6 +318,10 @@ create table group_invites (
   não estiver arquivado. Grupo solo arquivado pode apontar historicamente para perfil
   desidentificado/removido, sem conferir autoridade ativa.
 - Grupo é arquivado, nunca apagado pela API.
+- `icon` e `color` guardam só a chave da escolha; rótulo e desenho moram no app. Todo grupo,
+  existente ou novo, começa como bola azul. Somente `set_group_appearance` (`13` §5.0.7)
+  altera as duas colunas; membro ativo as lê pela mesma policy de `groups`, e `get_match` e
+  `list_my_matches` as projetam como `group_icon` e `group_color`.
 
 ### 3.1 Limitador privado de convites — contrato da `0017`
 

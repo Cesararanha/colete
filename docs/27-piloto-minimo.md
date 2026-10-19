@@ -431,3 +431,13 @@ inexistente, revogado, expirado ou esgotado tem a mesma resposta genérica na
 prévia; o resgate continua distinguindo as causas (M2-D42), pelo mesmo
 orçamento. A prévia nunca devolve lista de membros, IDs de terceiros, e-mail
 ou dado de racha; a Edge projeta só os seis campos do contrato (`13` §5.0.2).
+
+## Ícone e cor do grupo — decisão humana de 18/10/2026
+
+O dono escolhe o ícone e a cor do grupo entre oito ícones e seis cores da
+prévia aprovada (`0027`, `set_group_appearance` no gateway `groups`, contrato
+em `13` §5.0.7). Organizador e jogador recebem `OWNER_ONLY`. Lista de grupos,
+detalhe, cartões da Agenda, detalhe do racha, Criar racha com grupo fixo e a
+página do convite mostram a escolha: a prévia da `0026` ganha `group_icon` e
+`group_color`, e a Edge projeta os oito campos. Todo grupo começa como bola
+azul. Foto de grupo continua fora.

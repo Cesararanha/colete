@@ -88,14 +88,17 @@ insert into vector values (
  '3f74864231a4de1049f1ed9ddbbb7afa998bd6ddd924799939003cc801633104',
  'b44d03c9a10a8a4e3b5696ead1bbe81471f3e9eaa2b05ab888161d1c6093c2b9');
 
--- Código válido: exatamente seis campos, sem id de perfil, e-mail ou lista.
+-- Código válido: exatamente oito campos (ícone e cor pela 0027), sem id de
+-- perfil, e-mail ou lista.
 select is((select array_agg(key order by key) from jsonb_object_keys(
   pg_temp.by_code('5',(select code_digest from vector))) as key),
-  array['group_id','group_name','member_count','owner_name','refusal','viewer_status'],
-  'a prévia devolve só os seis campos da página');
+  array['group_color','group_icon','group_id','group_name','member_count','owner_name',
+    'refusal','viewer_status'],
+  'a prévia devolve só os oito campos da página');
 select is(pg_temp.by_code('5',(select code_digest from vector)),
   jsonb_build_object('group_name','Racha da Página','member_count',2,
-    'owner_name','Capitão','viewer_status',null,'group_id',null,'refusal',null),
+    'owner_name','Capitão','viewer_status',null,'group_id',null,'refusal',null,
+    'group_icon','ball','group_color','blue'),
   'código válido: nome, membros ativos sem conta em exclusão e apelido do dono');
 select is(pg_temp.by_link('5',(select token_digest from vector)),
   pg_temp.by_code('5',(select code_digest from vector)),
@@ -112,6 +115,13 @@ select is((select count(*)::integer from public.group_members m join page_group 
 select is((select count(*)::integer from private.invite_rate_limits
   where profile_id='26100000-0000-4000-8000-000000000005'),0,
   'a prévia não debita sozinha: o débito é a RPC do limitador, antes dela');
+
+-- 0027: o ícone e a cor são os do grupo, não o padrão fixo.
+update public.groups set icon='flame', color='lilac' where id=(select id from page_group);
+select is(pg_temp.by_code('5',(select code_digest from vector))->>'group_icon'
+  || '/' || (pg_temp.by_link('5',(select token_digest from vector))->>'group_color'),
+  'flame/lilac', 'a página mostra o ícone e a cor escolhidos pelo dono, por código e link');
+update public.groups set icon='ball', color='blue' where id=(select id from page_group);
 
 update public.profiles set nickname='   ' where id='26100000-0000-4000-8000-000000000001';
 select is(pg_temp.by_code('5',(select code_digest from vector))->>'owner_name','Dono Sintético',
