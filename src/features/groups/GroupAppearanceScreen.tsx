@@ -22,6 +22,7 @@ import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
+import { useLeaveMissingGroup } from './leave-missing-group';
 import { useGroupAdministration } from './useGroupAdministration';
 
 /** The icon tile and the colour swatch of the prévia (icone-do-grupo.html). */
@@ -47,6 +48,7 @@ export function GroupAppearanceScreen({
   const data = listing.isSuccess ? listing.data : undefined;
   const group = data?.group;
   const isOwner = group?.role === 'owner';
+  useLeaveMissingGroup(data?.missing === true);
   const [draft, setDraft] = useState<GroupAppearance | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const choice = draft ?? group?.appearance;
@@ -86,7 +88,7 @@ export function GroupAppearanceScreen({
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
-      {data && !isOwner ? (
+      {data && !isOwner && !data.missing ? (
         <AppAlert message={pt.groups.appearance.ownerOnly} testID="appearance-owner-only" />
       ) : null}
       {group && isOwner && choice && selected ? (

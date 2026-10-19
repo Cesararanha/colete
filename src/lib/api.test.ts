@@ -503,6 +503,31 @@ describe('UI-B group targets and transport', () => {
       },
     ]);
   });
+  it('sends the deletion of a group to the groups gateway with the group alone', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: { outcome: { group_id: 'group', logical_result: 'group_deleted' } },
+          request_id: body.request_id,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    await expect(client.deleteGroup('group').execute()).resolves.toEqual({
+      outcome: { group_id: 'group', logical_result: 'group_deleted' },
+    });
+    expect(calls).toEqual([
+      {
+        url: 'http://local.test/functions/v1/groups/delete_group',
+        body: { request_id: REQUEST_ID, group_id: 'group' },
+      },
+    ]);
+  });
   it('does not relax rejection of nested actor fields inside a business target', () => {
     const client = createApiClient({ fetch: vi.fn() });
     expect(() =>

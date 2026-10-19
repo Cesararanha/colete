@@ -19,6 +19,7 @@ import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
+import { useLeaveMissingGroup } from './leave-missing-group';
 import { MemberRow } from './MemberRow';
 import { MemberStack } from './MemberStack';
 import { MatchCard } from '../matches/MatchCard';
@@ -65,6 +66,7 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
     },
   });
   const group = detail.data;
+  useLeaveMissingGroup(detail.isSuccess && group === null);
   // The group's own upcoming matches, by start, from the Agenda's cached read.
   const upcoming = useUpcomingMatches(profile);
   const groupMatches = (upcoming.data?.matches ?? []).filter((match) => match.group_id === groupId);
@@ -106,7 +108,6 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
           action={() => void detail.refetch()}
         />
       ) : null}
-      {detail.isSuccess && group === null ? <AppAlert message={pt.groups.detail.missing} /> : null}
       {group ? (
         <View style={styles.section} testID="group-upcoming-matches">
           <View style={styles.sectionHeader}>

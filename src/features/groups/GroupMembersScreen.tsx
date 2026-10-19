@@ -16,6 +16,7 @@ import { face, typography } from '@/theme/typography';
 
 import { groupErrorMessage } from './group-errors';
 import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
+import { useLeaveMissingGroup } from './leave-missing-group';
 import { MemberRow } from './MemberRow';
 import { useGroupAdministration } from './useGroupAdministration';
 
@@ -39,6 +40,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
   const reasonRef = useRef<TextInput>(null);
   const data = listing.isSuccess ? listing.data : undefined;
   const allowed = data?.group;
+  useLeaveMissingGroup(data?.missing === true);
   const validReason = (value: string) => value.trim().length > 0 && [...value.trim()].length <= 500;
   const close = () => {
     const origin = target?.id;
@@ -74,7 +76,9 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
       {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
-      {data && !allowed ? <AppAlert message={pt.groups.errors.notOrganizer} /> : null}
+      {data && !allowed && !data.missing ? (
+        <AppAlert message={pt.groups.errors.notOrganizer} />
+      ) : null}
       {allowed ? (
         <View style={styles.sections} testID="group-management-card">
           <AppStatus message={message} testID="member-result" />

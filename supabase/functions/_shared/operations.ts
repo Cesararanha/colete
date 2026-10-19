@@ -27,7 +27,8 @@ export const IDENTITY_OPERATIONS = [
 // set_match_payment are the Racha completo cut of sections 1.1, 1.2 and 2.6.
 // set_group_appearance is section 5.0.7, the owner's icon and colour (0027).
 // update_match and cancel_match are the presentation cut of sections 3.2 and
-// 3.3 (0028, human decision of 18/10/2026).
+// 3.3 (0028, human decision of 18/10/2026). delete_group is section 5.0.8, the
+// owner's final closing of the group (0029, human decision of 19/10/2026).
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -44,6 +45,7 @@ export const GROUP_OPERATIONS = [
   'set_match_payment',
   'update_match',
   'cancel_match',
+  'delete_group',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -319,6 +321,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     set_match_payment: ['request_id', 'match_id', 'profile_id', 'paid'],
     update_match: ['request_id', 'match_id', 'config'],
     cancel_match: ['request_id', 'match_id'],
+    delete_group: ['request_id', 'group_id'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -431,6 +434,9 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         },
       };
     case 'leave_group':
+    // The typed group name that unlocks the button stays on the screen: it is
+    // not an input, so the intent is the group alone.
+    case 'delete_group':
       return {
         operation,
         requestId,

@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de dez harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players` e `db:test:geocode`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de onze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:geocode` e `db:test:group-deletion`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -2907,3 +2907,148 @@ autoridade continua na M2-D20 (o desfecho, sem projeção), como no #71.
 | sonda do revisor (`rev79/probe.mjs`) | antes: 4 replays com 200; depois: 409 `MATCH_CANCELED` nos quatro, `DEFECTS []`, os oito pares de concorrência passam |
 | db:test | 26 arquivos, 1714 asserções, PASS |
 | demais itens de §5 | exit 0; matches:web 24, groups:web 77 + 5 skip, qr 30, smoke 6, vitest 644, privacy 5 + 5 skip; test:auth:web 9 + 1 / 10 / 9 + 1, só o `:450` da base |
+
+## Apagar grupo — `0029_delete_group.sql` (19/10/2026)
+
+- **`0029`.** `private.group_deletions` (`group_id`, `deleted_by`,
+  `deleted_at`), privada, sem RLS nem privilégio; `delete_group` no padrão
+  idempotente atual, com a lista de operações completa (inclusive
+  `set_group_appearance`, `update_match` e `cancel_match`) e o validador
+  encadeado. Trava perfil → grupo → membership própria e, sob o grupo,
+  pendentes, rachas e convites em ordem crescente. Numa transação: rachas não
+  terminados nem cancelados passam a cancelados, convites revogados,
+  pendentes `removed` sem incremento (M2-D9), `archived_at` e a linha de
+  encerramento no mesmo instante. `group_actor_authority` e
+  `match_actor_authority` recusam `GROUP_DELETED` antes de tudo, fora das
+  listas da M2-D20; `create_match` e o resgate de convite ganham a mesma
+  checagem no replay; `get_group_members` responde `NOT_MEMBER`. A prévia não
+  muda (STABLE, `CODE_INVALID` pelo convite revogado).
+- **Edge `groups`.** Rota `delete_group`; `GROUP_DELETED` sai como o
+  `NOT_FOUND` (404) de um grupo inexistente, com corpo idêntico.
+- **App.** "Apagar grupo" no fim de Configurações, só para o dono, com a
+  confirmação na tela e o nome digitado liberando o botão; Grupos mostra
+  "Grupo apagado.". Detalhe, membros, configurações, ícone e convites, quando
+  a leitura não acha o grupo, voltam para Grupos com "Grupo não encontrado.";
+  três asserções da UI-B passaram a esperar esse retorno (organizador
+  expulso, CP3 de pendente/removido/estranho, grupo arquivado pela exclusão).
+
+| Comando | Resultado |
+|---|---|
+| db:test | 27 arquivos, 1882 asserções, PASS (`0029`: 168) |
+| db:test:group-deletion | 9 linhas `ok`, exit 0: chamada forçada pela Edge (organizador e jogador 403 `OWNER_ONLY`, ex-membro e estranho 403 `NOT_MEMBER`), replay e chamadas novas iguais às de grupo inexistente, apagar × entrar, × criar racha e × confirmar com barreira de lock nas duas ordens, sem `40P01`, e o mutante sem a trava do grupo |
+| db:test:membership | 75 `ok`; o censo de texto canônico passa a esperar a `0029` em cinco funções da `0016` |
+| demais harnesses de §5 e geocode, cors | exit 0 (invites 68, groups 29, rename 11, members 6, matches 15, match-players 21, export 32, deletion 10) |
+| test:groups:web | 81 passed + 5 skipped (spec novo `apagar-grupo`: 2 testes × 2 projetos) |
+| test:matches:web / qr / cors / smoke / privacy | 24 / 30 / 4 / 6 / 5 + 5 skip |
+| test:auth:web | sempre o foco do Perfil (`:450`), que esta fatia não toca: 7 rodadas com o app da PR, 9 passed + 1 failed em todas; 5 rodadas com o app de `b6657ea` (base, sem esta fatia), 3 com a mesma falha e 2 com 10 passed |
+| verify:app | exit 0; vitest 50 arquivos, 654 testes; 1 aviso de lint da base (`PrivacyAccountScreen`) |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 |
+
+Contraprovas, com mutantes aplicados nas funções vivas e restaurados byte a
+byte. No pgTAP da `0029`: helper de autoridade sem a checagem, 26 asserções
+reprovam; helper do racha, 11; replay de `create_match`, 1; replay do resgate,
+1; leitura de membros, 1; encerramento sem revogar convites, 5; cancelando
+todo racha, 1; sem `archived_at`, 10; sem encerrar pendentes, 1; organizador
+apagando, 8; replay de `delete_group` como chamada nova, o arquivo aborta. Na
+Edge, sem o mapeamento de `GROUP_DELETED`, 3 testes reprovam; no app, o
+campo liberando qualquer nome reprova o teste do helper, e o retorno para
+Grupos desligado reprova o e2e novo. No harness, sem a trava do grupo e com
+uma pausa depois de cancelar os rachas, um "Criar racha" no meio deixa um
+racha vivo no grupo apagado; com a trava e a mesma pausa, a criação espera e
+é recusada.
+
+**Correção do P1 da revisão do #80.** Com a linha do grupo apagado travada
+por outra transação, `get_group_members` e `get_invite_share_link` esperavam
+a trava (cerca de 680 ms na sonda do revisor) enquanto um ID inexistente
+respondia na hora: o tempo revelava que o grupo existiu. O mesmo valia para
+as escritas que travam o grupo antes da autoridade. A `0029` (ainda não
+aplicada em ambiente nenhum) passou a decidir o grupo apagado antes de
+travar qualquer linha dele, pelo mesmo caminho de um ID inexistente: as
+travas de grupo e memberships levam `not private.is_group_deleted`, avaliado
+antes de esperar; o compartilhamento e a revogação ou regeneração recusam na
+busca sem trava do convite, como o convite inexistente, com `NOT_FOUND`; o
+racha de grupo apagado segue o caminho do racha inexistente em
+`lock_match_context`; a leitura de membros recusa `NOT_MEMBER` antes da trava
+do grupo para quem não é membro ativo, o que vale também para o estranho em
+grupo vivo. Ficam redefinidas, com o predicado, as sete RPCs de membros da
+`0016`, `rename_group`, `set_group_appearance`, `get_invite_share_link`,
+`mutate_group_invite` e `lock_match_context`. O encerramento é definitivo, então
+a decisão sem trava não muda depois.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova | conexão segurando `FOR UPDATE` o grupo apagado, memberships, convites e rachas, tomada e solta a cada operação: 23 operações (4 leituras e 19 escritas) × membro antigo e estranho, contra o ID apagado e um ID inexistente, 46 chamadas respondem com a trava presa, mesmo status e erro, a mais lenta em 34 ms; estranho lendo membros de grupo vivo travado responde `NOT_MEMBER` sem esperar |
+| contraprova com a `0029` de `3054d03` | o mesmo harness reprova: 42 das 46 chamadas ao grupo apagado esperam a trava (todas, menos `get_match` e `get_match_roster`, que não travam o grupo) |
+| sonda do revisor (`rev80-evidencias/probe.mjs`) | exit 0; `DELETED_READ_NO_WAIT` passa nas quatro leituras antes reprovadas: apagado 19–22 ms contra inexistente 15–16 ms, `blocked: false`; replays (22) e indistinguibilidade seguem passando |
+| pgTAP da `0029` | 170 asserções, PASS; revogar, regenerar, emitir e compartilhar convite de grupo apagado passam a `NOT_FOUND`, igual ao ID inexistente |
+| db:test | 27 arquivos, 1884 asserções, PASS |
+| demais itens de §5 | exit 0; membership com o censo da `0029` em doze funções da `0016`; members com o mutante de autoridade derrubando as duas checagens; groups:web 81 + 5 skip, matches:web 24, qr 30, cors 4, smoke 6, privacy 5 + 5 skip, auth 10 + 2 skip, vitest 654 |
+
+O canal do estranho em grupo vivo nas escritas e no compartilhamento já
+existia antes do #80 e não fica igual: lá a resposta já difere do ID
+inexistente pelo corpo (`NOT_MEMBER` contra `NOT_FOUND`), não só pelo tempo.
+O resgate por código ou link de grupo apagado continua respondendo
+`INVITE_REVOKED`, diferente do código inexistente, pela precedência da
+M2-D42.
+
+**Correção do P1 residual da conferência de `4c930a2`.** Os replays de
+`create_group`, `join_by_code` e `join_by_invite` ainda travavam o grupo
+apagado antes do `NOT_FOUND` (cerca de 690 ms na sonda do revisor), e o
+resgate novo de convite do grupo apagado também travava antes do
+`INVITE_REVOKED`. A `0029` passou a conferir o grupo sem travar nesses
+caminhos: o replay de `create_group` só trava grupo vivo; o do resgate não
+trava o grupo apagado e recusa depois da autenticação; o resgate novo de
+convite de grupo apagado recusa na busca do convite, sem trava, como o código
+inexistente, mantendo a precedência da M2-D42 (`INVITE_REVOKED`; material
+divergente, `CODE_INVALID`). `create_group` passa a ser redefinida pela `0029`.
+
+Varredura feita pelo catálogo vivo (`pg_get_functiondef` de todas as funções
+de `public` e `private` com cláusula de trava) e pelos caminhos de replay.
+Operações que tocam grupo apagado ou algo dele, todas conferidas, com a
+recusa antes de qualquer trava das linhas do grupo:
+
+| Família | Operações (chamada nova e replay) |
+|---|---|
+| leitura | `get_group_members`, `get_invite_share_link`, `get_match`, `get_match_roster`, `list_my_matches`, `get_matches_occupancy`, `get_my_pending_group_requests`, `preview_group_by_code`, `preview_group_by_invite`; lista, detalhe, memberships e convites por RLS (sem trava) |
+| membros e pedidos | `approve_member`, `remove_member`, `set_role`, `set_monthly`, `set_ratings_visibility`, `transfer_ownership`, `leave_group` |
+| grupo | `create_group` (replay), `rename_group`, `set_group_appearance`, `delete_group` |
+| convites | `issue_group_invite`, `revoke_group_invite`, `regenerate_group_invite`, `join_by_code`, `join_by_invite` |
+| rachas | `create_match`, `update_match`, `cancel_match`, `join_match`, `leave_match`, `set_match_payment` (as cinco últimas por `lock_match_context`) |
+
+Fora da recusa, por desenho: `delete_account` trava as memberships do próprio
+titular, inclusive em grupo apagado, porque a saga precisa encerrá-las; não
+responde "não encontrado". Exportação, worker e expurgos de retenção leem
+sem trava ou com `SKIP LOCKED`. Fotos de grupo ficam para outro PR.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova de replays | 24 replays concluídos antes do encerramento, um por operação de grupo e de racha, cada um pelo próprio titular, repetidos com o grupo apagado, memberships, convites e rachas presos `FOR UPDATE`: recusa `NOT_FOUND` sem desfecho (o encerramento devolve o próprio), com a trava presa; resgate e prévia por código e link do grupo apagado, por membro antigo e estranho, contra código inexistente, e a lista de pedidos encerrados: 41 chamadas, a mais lenta em 53 ms |
+| contraprova com a `0029` de `4c930a2` | o harness reprova: esperam a trava os replays de `create_group`, `join_by_code` e `join_by_invite` e os quatro resgates novos (membro antigo e estranho × código e link) |
+| sondas do revisor | `replay-only.mjs`, `extra.mjs` e `probe.mjs`, exit 0; os seis replays isolados terminam com a trava presa, 23–27 ms |
+| db:test | 27 arquivos, 1884 asserções, PASS |
+| demais itens de §5 | exit 0; groups:web 81 + 5 skip, matches:web 24, qr 30, cors 4, smoke 6, privacy 5 + 5 skip, auth 10 + 2 skip, vitest 654 |
+
+**Correção da regressão concorrente da conferência de `4d58e22`.** No replay
+de `join_by_code` e `join_by_invite`, o estado do grupo lido antes da trava
+era reaproveitado depois dela sem revalidar: se a exclusão commitasse enquanto
+o replay esperava, a resposta era 200 com o desfecho guardado. A `0029` volta
+a conferir `private.is_group_deleted` depois das travas, além da checagem sem
+trava que recusa o grupo já apagado na hora.
+
+Conferidas as operações que decidem algo antes da trava: só o replay do
+resgate (`private.join_group_invite`, comum a `join_by_code` e
+`join_by_invite`) usava o estado anterior sem revalidar. As demais já
+revalidam depois das travas: o resgate novo pelo convite revogado
+(`require_live_group_invite`); `mutate_group_invite`, `get_invite_share_link`,
+`lock_match_context` e as travas com predicado (sete RPCs de membros,
+`rename_group`, `set_group_appearance`, `create_match`, `create_group`,
+`delete_group`) pelo helper de autoridade, que lê o encerramento de novo;
+`get_group_members` pela releitura sob a trava; o replay de `create_match`
+pela checagem depois das travas.
+
+| Prova | Resultado |
+|---|---|
+| `db:test:group-deletion`, prova nova de exclusão durante a espera | 44 corridas, cada uma num grupo vivo: a conexão A executa `delete_group` sem commit; 23 chamadas novas por quem tem acesso e 21 replays concluídos com o grupo vivo são observados esperando uma trava de A; depois do commit, todos respondem como grupo inexistente (o resgate novo, `INVITE_REVOKED` da M2-D42), sem desfecho |
+| contraprova com a `0029` de `4d58e22` | o harness reprova: só os replays de `join_by_code` e `join_by_invite` respondem 200 com o desfecho; as outras 42 corridas recusam |
+| provas anteriores | grupo já apagado continua respondendo sem esperar: 46 chamadas novas e 41 replays, resgates, prévias e lista |
+| sondas do revisor | `supplement.mjs` e `race-confirm.mjs` (de `4d58e22`), `replay-only.mjs`, `extra.mjs` e `probe.mjs`: exit 0, sem falhas |

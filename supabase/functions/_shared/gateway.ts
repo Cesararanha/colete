@@ -140,6 +140,7 @@ function rpcParameters(
         p_new_owner_id: canonicalInput['new_owner_id'],
       };
     case 'leave_group':
+    case 'delete_group':
       return { ...common, p_group_id: canonicalInput['group_id'] };
     case 'rename_group':
       return {

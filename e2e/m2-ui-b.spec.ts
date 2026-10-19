@@ -624,9 +624,10 @@ test('UI-B loses authority on the next action after a second session removes or 
     ).toBe(200);
     await page.getByTestId('rename-group-name').fill('Não pode mudar');
     await page.getByTestId('rename-group-submit').click();
-    await expect(page.getByTestId('administration-error')).toContainText(
-      'Você não participa deste grupo',
-    );
+    // 0029: the refusal refreshes the screen, whose read no longer finds the
+    // group; like a deleted one, it goes back to Grupos and says so.
+    await expect(page).toHaveURL(/\/grupos\?missing=1$/u);
+    await expect(page.getByTestId('group-missing-status')).toHaveText('Grupo não encontrado.');
     await expect(page.getByTestId('group-settings-card')).toHaveCount(0);
     await expect(page.getByText('Grupo UI B', { exact: true })).toHaveCount(0);
   } finally {
@@ -1006,9 +1007,10 @@ test('UI-B real archived error after the actor leaves and the solo owner deletes
     ).toBe(true);
     await page.getByTestId('rename-group-name').fill('Nome não permitido');
     await page.getByTestId('rename-group-submit').click();
-    await expect(page.getByTestId('administration-error')).toHaveText(
-      'Este grupo foi arquivado. Volte à lista de grupos.',
-    );
+    // 0029: the refusal refreshes the screen, whose read no longer finds the
+    // group; it goes back to Grupos, which says so, as for a deleted group.
+    await expect(page).toHaveURL(/\/grupos\?missing=1$/u);
+    await expect(page.getByTestId('group-missing-status')).toHaveText('Grupo não encontrado.');
     await expect(page.getByTestId('group-settings-card')).toHaveCount(0);
     await expect(page.getByText('Grupo UI B', { exact: true })).toHaveCount(0);
     expect(
@@ -1081,9 +1083,18 @@ test('UI-B role matrix CP3 checks administrative network traffic for player pend
         page.on('request', onRequest);
         page.on('response', onResponse);
         await page.goto(`/grupos/${s.groupId}/${route}`);
-        await expect(
-          page.getByText('Você precisa ser dono ou organizador ativo', { exact: false }),
-        ).toBeVisible();
+        if (own === 'Pessoa player') {
+          await expect(
+            page.getByText('Você precisa ser dono ou organizador ativo', { exact: false }),
+          ).toBeVisible();
+        } else {
+          // 0029: whoever does not read the group (pending, removed, outsider)
+          // goes back to Grupos, the same as for a deleted group.
+          await expect(page).toHaveURL(/\/grupos\?missing=1$/u);
+          await expect(page.getByTestId('group-missing-status')).toHaveText(
+            'Grupo não encontrado.',
+          );
+        }
         await expect(
           page.getByRole('button', {
             name: /Aprovar|Recusar|Expulsar|Promover|Rebaixar|Escolher|Salvar nome/,

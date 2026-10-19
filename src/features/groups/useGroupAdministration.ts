@@ -33,14 +33,17 @@ export function useGroupAdministration(groupId: string, profile: OwnProfile) {
         api.getGroupDetail(groupId, profile.id, token),
       );
       if (signal.aborted) throw new TransportError();
-      if (!group || !['owner', 'organizer'].includes(group.role))
-        return { group: null, members: [] };
+      // No group at all (deleted, left, never joined) is not the same as a
+      // group this person cannot organise: the screen goes back to Grupos.
+      if (!group) return { group: null, members: [], missing: true };
+      if (!['owner', 'organizer'].includes(group.role))
+        return { group: null, members: [], missing: false };
       const members = await api.getGroupMembers(groupId, signal);
       // Use the authority in the final server read, including a concurrent demotion.
       const own = members.find((member) => member.profile_id === profile.id);
       if (!own || own.status !== 'active' || !['owner', 'organizer'].includes(own.role))
-        return { group: null, members: [] };
-      return { group: { ...group, role: own.role }, members };
+        return { group: null, members: [], missing: false };
+      return { group: { ...group, role: own.role }, members, missing: false };
     },
   });
   const refresh = async () => {

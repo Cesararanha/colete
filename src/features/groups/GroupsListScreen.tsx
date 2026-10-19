@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, router } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
-import { AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
@@ -109,11 +109,15 @@ function GroupRow({
 }
 
 export function GroupsListScreen({
+  deleted,
   left,
+  missing,
   profile,
   requested,
 }: {
+  deleted?: boolean;
   left?: boolean;
+  missing?: boolean;
   profile: OwnProfile;
   requested?: boolean;
 }) {
@@ -201,6 +205,10 @@ export function GroupsListScreen({
       title={pt.groups.list.title}
     >
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
+      {deleted ? (
+        <AppStatus message={pt.groups.list.deleted} testID="group-deleted-status" />
+      ) : null}
+      {missing ? <AppAlert message={pt.groups.list.missing} testID="group-missing-status" /> : null}
       {requested ? (
         <AppStatus message={pt.groups.list.requestSent} testID="group-request-sent" />
       ) : null}

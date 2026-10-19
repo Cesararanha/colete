@@ -585,8 +585,10 @@ async function prove(status, db) {
       await db.query(original);
     }
   };
+  // 0029 checks the authority before and after the group lock: the mutant
+  // drops both.
   await probeMutant(
-    original.replace("v_member.status is distinct from 'active'", 'false'),
+    original.replaceAll("v_member.status is distinct from 'active'", 'false'),
     async () => {
       for (const actor of [pending, removed, outsider]) {
         const response = await read(actor);

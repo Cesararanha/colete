@@ -55,6 +55,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   set_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET, paid: true },
   update_match: { request_id: REQUEST_ID, match_id: MATCH, config: MATCH_CONFIG },
   cancel_match: { request_id: REQUEST_ID, match_id: MATCH },
+  delete_group: { request_id: REQUEST_ID, group_id: GROUP },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -97,6 +98,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
     },
   },
   cancel_match: { p_match_id: MATCH },
+  delete_group: { p_group_id: GROUP },
 };
 
 describe('gateway internal call', () => {
@@ -151,4 +153,27 @@ describe('gateway internal call', () => {
       request_id: REQUEST_ID,
     });
   });
+
+  // 0029: the database names a deleted group GROUP_DELETED; outside it is the
+  // NOT_FOUND of a group that never existed, with nothing that tells them apart.
+  it.each(['delete_group', 'rename_group', 'join_match'] as const)(
+    '%s answers a deleted group exactly like an unknown one',
+    async (op) => {
+      const deleted = await runOperation(
+        { resolveKey, callRpc: async () => ({ error: { message: 'GROUP_DELETED' } }) },
+        op,
+        BODIES[op],
+        ACTOR,
+      );
+      const unknown = await runOperation(
+        { resolveKey, callRpc: async () => ({ error: { message: 'NOT_FOUND' } }) },
+        op,
+        BODIES[op],
+        ACTOR,
+      );
+      expect(deleted).toEqual(unknown);
+      expect(deleted.status).toBe(404);
+      expect(JSON.stringify(deleted.body)).not.toMatch(/DELETED|delet/i);
+    },
+  );
 });

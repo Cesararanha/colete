@@ -500,3 +500,45 @@ describe('editar e cancelar racha (docs/25 section 8.1, 0028)', () => {
     ).toBe('TIME_ORDER');
   });
 });
+
+describe('delete_group (docs/13 section 5.0.8, 0029)', () => {
+  const groupId = '15b00001-0000-4000-8000-000000000000';
+
+  it('signs only the lowercased group: the typed name never travels', () => {
+    expect(
+      normaliseRequest('delete_group', { request_id: REQUEST_ID, group_id: groupId.toUpperCase() })
+        .canonicalInput,
+    ).toEqual({ group_id: groupId });
+    for (const extra of ['name', 'confirmation', 'reason', 'owner_id']) {
+      expect(
+        refusal(() =>
+          normaliseRequest('delete_group', {
+            request_id: REQUEST_ID,
+            group_id: groupId,
+            [extra]: 'x',
+          }),
+        ).code,
+      ).toBe('VALIDATION');
+    }
+    for (const body of [{}, { group_id: 'nope' }, { group_id: null }]) {
+      expect(
+        refusal(() => normaliseRequest('delete_group', { request_id: REQUEST_ID, ...body })).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('refuses an actor supplied by the client, by name', () => {
+    for (const internal of ['profile_id', 'actor_auth_user_id', 'input_hmac']) {
+      const thrown = refusal(() =>
+        normaliseRequest('delete_group', {
+          request_id: REQUEST_ID,
+          group_id: groupId,
+          [internal]: 'x',
+        }),
+      );
+      expect(thrown.fields?.[internal]).toBe(
+        'belongs to the internal call and is never accepted from a client',
+      );
+    }
+  });
+});

@@ -23,6 +23,8 @@ export const pt = {
       join: 'Entrar com código',
       pending: 'Aguardando aprovação',
       requestSent: 'Pedido enviado. O grupo aparece abaixo como aguardando aprovação.',
+      deleted: 'Grupo apagado.',
+      missing: 'Grupo não encontrado.',
       open: 'Abrir grupo',
       view: (name: string) => `Ver grupo: ${name}`,
       owner: 'Dono',
@@ -45,7 +47,6 @@ export const pt = {
       ownerLeaveReason: 'Transfira a titularidade primeiro para sair deste grupo.',
       invites: 'Convites do grupo',
       left: 'Você saiu do grupo.',
-      missing: 'Não foi possível abrir este grupo. Volte à lista e atualize os dados.',
       activeMembers: (count: number) =>
         `${count} ${count === 1 ? 'membro ativo' : 'membros ativos'}`,
       upcoming: 'Próximos rachas',
@@ -127,6 +128,11 @@ export const pt = {
       transferred: (name: string) => `A titularidade foi transferida para ${name}.`,
       empty: 'Aprove um membro antes de transferir a titularidade.',
       appearance: 'Ícone do grupo',
+      delete: 'Apagar grupo',
+      deleteTitle: (name: string) => `Apagar ${name}?`,
+      deleteBody: 'Ninguém mais vai acessar o grupo e os rachas futuros serão cancelados.',
+      deleteName: 'Nome do grupo',
+      deleting: 'Apagando…',
     },
     appearance: {
       eyebrow: 'Organização',
