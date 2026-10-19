@@ -193,3 +193,57 @@ describe('colete-export-v1', () => {
     );
   });
 });
+
+describe('the titular photo in the export (0030)', () => {
+  it('adds profile-photo.jpg, listed in the manifest, and keeps every other entry', async () => {
+    const photo = Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9);
+    const without = await buildDataExport(fixture());
+    const withPhoto = await buildDataExport(fixture(), photo);
+    expect(withPhoto.names).toContain('profile-photo.jpg');
+    expect(withPhoto.names.filter((name) => name !== 'profile-photo.jpg')).toEqual(without.names);
+    expect(storedEntry(withPhoto.bytes, 'groups.json')).toBe(
+      storedEntry(without.bytes, 'groups.json'),
+    );
+    const manifest = JSON.parse(storedEntry(withPhoto.bytes, 'manifest.json')) as {
+      files: { name: string; size: number }[];
+    };
+    expect(manifest.files.find((file) => file.name === 'profile-photo.jpg')?.size).toBe(9);
+  });
+
+  it('a build whose photo is gone is retried, never published without it', async () => {
+    const { dataExportBuildHandler } = await import('./data-export.ts');
+    const { auth: _auth, ...snapshot } = fixture();
+    const published: string[] = [];
+    const handler = dataExportBuildHandler(
+      {
+        getBuildTarget: async () => ({
+          action: 'build',
+          path: 'exports/p/e.zip',
+          auth_user_id: 'a',
+          photo: { bucket: 'avatars', path: 'p/old.jpg' },
+          snapshot,
+        }),
+        publish: async (_id, _lease, path) => {
+          published.push(path);
+        },
+        enqueuePurge: async () => undefined,
+      },
+      { read: async () => null, upload: async () => undefined, remove: async () => undefined },
+      { projection: async () => ({ email: null, providers: [] }) },
+      { read: async () => null },
+    );
+    await expect(
+      handler({
+        id: 'x',
+        kind: 'build_data_export',
+        resource_type: 'data_export',
+        resource_id: 'e',
+        dedupe_key: 'build_data_export:e',
+        attempts: 1,
+        lease_token: 'l',
+        lease_until: '2026-01-01T00:00:00Z',
+      }),
+    ).rejects.toMatchObject({ code: 'EXPORT_PHOTO_UNAVAILABLE', permanent: false });
+    expect(published).toEqual([]);
+  });
+});

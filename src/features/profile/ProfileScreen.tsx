@@ -7,7 +7,6 @@ import type { Session } from '@supabase/supabase-js';
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
-import { Avatar } from '@/components/ui/Avatar';
 import { AppError, api, TransportError, type MutationIntent, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { applySessionChange } from '@/lib/private-queries';
@@ -17,6 +16,9 @@ import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
+import { PhotoActions, ProfilePhotoButton } from '../photos/PhotoControls';
+import { usePhotoUrl } from '../photos/photo-urls';
+import { usePhotoChange } from '../photos/usePhotoChange';
 import { ProfileDataForm } from './ProfileDataForm';
 import { profileErrorMessage } from './profile-errors';
 import { ProfileLinkRow } from './ProfileLinkRow';
@@ -65,6 +67,10 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
     logout.error instanceof TransportError ||
     (logout.error instanceof AppError && logout.error.retryable);
   const email = session.user.email ?? null;
+  // Item 6: pressing the big avatar opens the photo options under the e-mail.
+  const photo = usePhotoUrl('profile', profile.id);
+  const photoChange = usePhotoChange({ kind: 'profile', profileId: profile.id });
+  const [photoOptions, setPhotoOptions] = useState(false);
 
   // Leaving the edit mode returns focus to the summary it replaced.
   useEffect(() => {
@@ -82,7 +88,17 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
   const stats = profileStats(profile);
   const intro = (
     <View style={styles.intro}>
-      <Avatar id={profile.id} name={profile.name} size={96} />
+      <ProfilePhotoButton
+        change={photoChange}
+        expanded={photoOptions}
+        id={profile.id}
+        name={profile.name}
+        onPress={() => {
+          photoChange.clear();
+          setPhotoOptions((open) => !open);
+        }}
+        photo={photo}
+      />
       <Text
         aria-level={1}
         role="heading"
@@ -102,6 +118,14 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
           {pt.profile.account.signedInAs(email)}
         </Text>
       )}
+      {photoOptions || photoChange.busy || photoChange.error !== null ? (
+        <PhotoActions
+          change={photoChange}
+          chooseLabel={pt.photos.change}
+          hasPhoto={photo !== null}
+          testID="profile-photo"
+        />
+      ) : null}
     </View>
   );
 

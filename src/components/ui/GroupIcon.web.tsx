@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -78,20 +78,46 @@ export function GroupGlyph({
 /**
  * The group's icon in the colour the owner chose (PR H). Same contract as
  * GroupIcon.tsx: always decorative, because the group's name is written
- * beside it.
+ * beside it; a photo (0030) fills the same tile and falls back to the icon.
  */
 export function GroupIcon({
   appearance,
+  photo,
   size,
   tile = false,
 }: {
   appearance: GroupAppearance;
+  photo?: string | null | undefined;
   size: number;
   tile?: boolean;
 }) {
   const { colors } = useTheme();
   const { glyph, fill } = groupColors(colors, appearance.color);
   const shape = groupIconTile(size);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (typeof photo === 'string' && photo !== '' && failed !== photo) {
+    return (
+      <img
+        alt=""
+        aria-hidden="true"
+        data-testid="group-photo"
+        draggable={false}
+        height={size}
+        onError={() => setFailed(photo)}
+        referrerPolicy="no-referrer"
+        src={photo}
+        style={{
+          borderRadius: tile ? shape.radius : size / 4,
+          display: 'block',
+          flexShrink: 0,
+          height: size,
+          objectFit: 'cover',
+          width: size,
+        }}
+        width={size}
+      />
+    );
+  }
   return (
     <div
       aria-hidden="true"

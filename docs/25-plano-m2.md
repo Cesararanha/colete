@@ -489,7 +489,11 @@ Nenhum upload de foto, rota de leitura nem UI de edição entra por existir a
 coluna. Quando uma fatia futura publicar o produtor do objeto, ela reutiliza o
 `resource_type`, publica a rota de leitura depois de registrá-la em `13` e prova
 o caminho HTTP real; não pode criar uma segunda lista nem outro fence paralelo.
-No M2 o fence é exercitado com objeto de fixture no bucket local.
+No M2 o fence é exercitado com objeto de fixture no bucket local. A `0030`
+(decisão humana de 19/10/2026, §8.1) é essa fatia: publica o produtor das duas
+fotos e a leitura por URL assinada curta em `13` §5.0.9, reutiliza
+`profile_avatar` e `group_photo` e acrescenta `photo_upload` à mesma lista de
+`deletion_has_pending_storage` para o objeto que deixou de ser a foto.
 
 ### 3.4 Extensão do `colete-export-v1`
 
@@ -1206,7 +1210,7 @@ código produtivo.
 - upload/edição de foto de grupo e a rota de leitura da foto: a fundação cobre
   path existente e o fence de exclusão, mas não inventa produtor nem rota sem
   contrato em `13`; a futura fatia de upload publica os dois e estende export,
-  backup e testes HTTP no mesmo commit;
+  backup e testes HTTP no mesmo commit (feito pela `0030`, `13` §5.0.9);
 - controles das telas 11, 24 e 25 sem contrato em `13` (§6);
 - mensalista na interface: o selo das telas 10 e 11, `set_monthly` na tela 17, o
   setter de `monthly_enabled` e o toggle da tela 25 entram no M3, junto com os
@@ -1293,7 +1297,7 @@ código produtivo.
   escolhem. Lista de grupos, detalhe, Agenda, Criar racha com grupo fixo e a
   página do convite mostram a escolha; a prévia da `0026` passa a devolver
   também `group_icon` e `group_color`. Todo grupo começa como bola azul. Foto de
-  grupo continua fora.
+  grupo entrou depois, na `0030` (abaixo).
 
 - **Editar e cancelar racha — decisão humana de César, 18/10/2026, AGENTS §8.**
   Item 10 do feedback do teste. Corte de `13` §§3.2 e 3.3 na `0028`, com o
@@ -1323,6 +1327,20 @@ código produtivo.
   um grupo que deixou de ser lido volta para Grupos com "Grupo não
   encontrado.", para o grupo apagado e, do mesmo modo, para quem saiu ou foi
   expulso.
+
+- **Fotos de perfil e do grupo — decisão humana de César, 19/10/2026, AGENTS §8.**
+  Item 6 do feedback do teste. A `0030` publica o contrato de `13` §5.0.9, no
+  padrão idempotente atual e no gateway `groups`: a própria pessoa troca e remove
+  a foto de perfil, e só o dono ativo a do grupo. A foto de perfil é vista pela
+  própria pessoa e por quem divide com ela ao menos um grupo ativo; a do grupo,
+  pelos membros ativos; a prévia do convite continua só com ícone e cor. O app
+  reduz a imagem a 512 px e a recodifica em JPEG, sem metadados; o servidor
+  decide o caminho, gera a URL de upload assinada, limita tipo (`image/jpeg`) e
+  tamanho (1 MB) e confere o objeto antes da troca. A leitura é por URL assinada
+  de 5 min, emitida depois da regra de quem vê. Trocar, remover e a sessão nunca
+  confirmada apagam o objeto pelo worker; a exclusão de conta espera por eles e a
+  exportação leva a própria foto. As dependências `expo-image-picker` e
+  `expo-image-manipulator` foram autorizadas nesta decisão.
 
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear

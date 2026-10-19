@@ -341,17 +341,28 @@ async function main() {
     );
     createdAvatarBucket = bucket.rowCount === 1;
     const avatarPath = 'profiles/invariant-avatar.webp';
+    // Since 0030 the database refuses a photo object without an open upload
+    // session; the fixture opens one, as the Edge would, and closes it below.
+    await admin.query(
+      `insert into private.photo_uploads
+         (kind, profile_id, object_path, state, commit_before, reclaim_after)
+       values ('profile_avatar', $1, $2, 'pending',
+               now() + interval '15 minutes', now() + interval '2 hours')`,
+      [profileIds[4], avatarPath],
+    );
     const avatarUpload = await fetch(`${status.apiUrl}/storage/v1/object/avatars/${avatarPath}`, {
       method: 'POST',
       headers: {
         apikey: status.serviceRoleKey,
         Authorization: `Bearer ${status.serviceRoleKey}`,
-        'content-type': 'image/webp',
+        // The bucket (0030) takes only JPEG; the bytes are a fixture.
+        'content-type': 'image/jpeg',
         'x-upsert': 'false',
       },
       body: new TextEncoder().encode('local-avatar-fixture'),
     });
     assert.equal(avatarUpload.status, 200, `avatar upload returned ${avatarUpload.status}`);
+    await admin.query('delete from private.photo_uploads where object_path = $1', [avatarPath]);
     await admin.query('update public.profiles set photo_url=$2 where id=$1', [
       profileIds[4],
       avatarPath,

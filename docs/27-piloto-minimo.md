@@ -441,6 +441,17 @@ página do convite mostram a escolha: a prévia da `0026` ganha `group_icon` e
 `group_color`, e a Edge projeta os oito campos. Todo grupo começa como bola
 azul. Foto de grupo continua fora.
 
+## Fotos de perfil e do grupo — decisão humana de 19/10/2026
+
+Item 6 do feedback do teste (`0030`, contrato em `13` §5.0.9). No Perfil,
+tocar no avatar grande abre "Trocar foto" e "Remover foto"; no nativo, a
+escolha é pela galeria ou pela câmera, e no PWA pelo seletor de arquivo. Na
+tela "Ícone do grupo", só o dono tem o bloco "Foto do grupo", com "Escolher
+foto" e "Remover foto". A foto aparece no lugar das iniciais ou do ícone na
+lista de grupos, no detalhe, nos membros, nos cartões da Agenda e no racha; a
+página do convite continua com o ícone e a cor. O app reduz a 512 px e
+recodifica em JPEG antes de enviar, e o servidor recusa o que vier com Exif.
+
 ## Editar e cancelar racha — decisão humana de 18/10/2026
 
 Item 10 do feedback do teste. No detalhe do racha, quem pode criar racha no

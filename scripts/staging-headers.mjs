@@ -56,7 +56,9 @@ export function securityHeaders(
     "default-src 'self'",
     `script-src 'self' ${hashes.join(' ')}`.trim(),
     `style-src 'self'${strictStyles ? '' : " 'unsafe-inline'"}`,
-    "img-src 'self' data: blob:",
+    // The photos (0030) load from short-lived signed URLs of the project's
+    // Storage: the API origin, and nothing else, joins the images.
+    `img-src 'self' data: blob: ${api}`,
     "font-src 'self'",
     `connect-src 'self' ${api} ${socket}${directOrigins.length ? ' ' + directOrigins.join(' ') : ''}`,
     "manifest-src 'self'",

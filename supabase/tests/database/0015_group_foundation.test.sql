@@ -349,12 +349,12 @@ select ok(
      and defaclnamespace = 'public'::regnamespace and defaclobjtype = 'r'),
   'os defaults da 0004 continuam negando tabelas futuras a service_role'
 );
-select results_eq(
-  $$select public::text, coalesce(file_size_limit::text, 'null'),
-           coalesce(allowed_mime_types::text, 'null')
-    from storage.buckets where id = 'group-photos'$$,
-  $$values ('false'::text, 'null'::text, 'null'::text)$$,
-  'o bucket group-photos nasce privado, sem limites inventados antes do produtor'
+-- Os limites de tipo e tamanho chegaram com o produtor da foto (0030) e são
+-- provados no teste dela; aqui fica o que a 0015 garante.
+select is(
+  (select public from storage.buckets where id = 'group-photos'),
+  false,
+  'o bucket group-photos nasce privado'
 );
 select is(
   (select count(*) from pg_policies

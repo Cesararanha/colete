@@ -216,7 +216,11 @@ anteriores divergem, vale esta seção, que é a decisão mais recente.
   tema escuro, o menor par de texto novo é 6,5:1.
 - **Avatar.** Iniciais sobre um de 5 tons, escolhido de forma fixa pelo id do perfil
   (FNV-1a, `avatar-tone.ts`). O avatar é sempre decorativo: o nome está ao lado dele, ou
-  no controle que o contém. Conta excluída usa a camada neutra.
+  no controle que o contém. Conta excluída usa a camada neutra. Com foto (`0030`), a foto
+  ocupa o mesmo círculo (`PhotoAvatar`) e, se não carregar, volta às iniciais. No Perfil, o
+  avatar de 96 é o botão "Foto de perfil", com o selo de câmera em `primary` e anel na cor
+  do fundo como único sinal de que abre as opções; elas aparecem abaixo do e-mail, em
+  pílulas `outline` compactas, sem texto de ajuda.
 - **Ícone do grupo.** O dono escolhe o ícone (bola, gol, campo, apito, camisa, troféu,
   raio ou chama) e a cor (azul, verde, laranja, rosa, lilás ou areia) na tela "Ícone do
   grupo", aberta por Configurações (PR H, `0027`). Azul, verde, laranja e rosa usam
@@ -224,7 +228,8 @@ anteriores divergem, vale esta seção, que é a decisão mais recente.
   `lilac`/`lilacSoft` e `sand`/`sandSoft`. O glifo sobre o fundo suave passa de 4,5:1 nos
   dois temas (no escuro, o menor é 7,5:1, azul). `GroupIcon` desenha os SVGs da prévia no
   web e glifos da fonte de ícones já instalada no nativo. Todo grupo começa como bola
-  azul.
+  azul. Com foto (`0030`), `GroupPhotoIcon` põe a foto no mesmo ladrilho, com o mesmo
+  raio; a página do convite usa só `GroupIcon`.
 - **Placares.** A Agenda e o Grupo perderam o placar. O Racha mantém um: confirmados
   sobre vagas, com o chip de estado e a barra.
 - **Dados que a prévia mostra e o contrato não tem:** posição na fila no cartão da Agenda

@@ -245,15 +245,33 @@ async function storageRequest(status, method, objectPath, body, headers = {}) {
   });
 }
 
-async function uploadPhoto(status, objectPath) {
-  const response = await storageRequest(
-    status,
-    'POST',
-    `${PHOTO_BUCKET}/${objectPath}`,
-    new TextEncoder().encode('local-group-photo-fixture'),
-    { 'content-type': 'image/webp', 'x-upsert': 'false' },
+// Since 0030 the database refuses a photo object whose path has no open upload
+// session, so the fixture opens one for the group's own photo_url, as the Edge
+// would, and closes it once the object is stored.
+async function uploadPhoto(admin, status, objectPath) {
+  const session = await admin.query(
+    `insert into private.photo_uploads
+       (kind, profile_id, group_id, object_path, state, commit_before, reclaim_after)
+     select 'group_photo', owner_id, id, $1, 'pending',
+            now() + interval '15 minutes', now() + interval '2 hours'
+       from public.groups where photo_url = $1
+     returning id`,
+    [objectPath],
   );
-  assert.equal(response.status, 200, `group photo upload returned ${response.status}`);
+  assert.equal(session.rowCount, 1, `no group carries the fixture photo ${objectPath}`);
+  try {
+    const response = await storageRequest(
+      status,
+      'POST',
+      `${PHOTO_BUCKET}/${objectPath}`,
+      new TextEncoder().encode('local-group-photo-fixture'),
+      // The bucket takes only JPEG since 0030; the bytes are a fixture.
+      { 'content-type': 'image/jpeg', 'x-upsert': 'false' },
+    );
+    assert.equal(response.status, 200, `group photo upload returned ${response.status}`);
+  } finally {
+    await admin.query('delete from private.photo_uploads where id = $1', [session.rows[0].id]);
+  }
 }
 
 async function photoExists(status, objectPath) {
@@ -767,29 +785,45 @@ async function proveCanonicalText(admin) {
     ],
     'the extractor did not find exactly the functions defined by 0015',
   );
-  const cleanup = migrationFunctions('0020_m2_cleanup_b.sql');
-  assert.ok(cleanup.has('public.request_data_export'), '0020 must redefine the export replay');
+  // The explicit replacements of a 0015 definition, each by the migration that
+  // owns it now: the M2-D21 export replay (0020) and the photo slice (0030),
+  // which adds photo_upload to the Storage fence and the photo to the export
+  // in the same functions instead of a parallel list (docs/25 §3.3).
+  const APPROVED = {
+    'public.request_data_export': '0020_m2_cleanup_b.sql',
+    'private.deletion_has_pending_storage': '0030_photos.sql',
+    'private.sync_deletion_failure_from_effect': '0030_photos.sql',
+    'public.worker_get_deletion_effect_target': '0030_photos.sql',
+    'public.worker_confirm_deletion_effect': '0030_photos.sql',
+    'public.worker_get_data_export_build_target': '0030_photos.sql',
+  };
+  const replacements = new Map();
+  for (const [qualifiedName, file] of Object.entries(APPROVED)) {
+    const replacement = migrationFunctions(file).get(qualifiedName);
+    assert.ok(replacement, `${file} must redefine ${qualifiedName}`);
+    replacements.set(qualifiedName, { file, definition: replacement });
+  }
   for (const [qualifiedName, original] of defined) {
-    const replaced = qualifiedName === 'public.request_data_export';
-    const expected = replaced ? cleanup.get(qualifiedName) : original;
-    const source = replaced ? '0020' : '0015';
+    const replaced = replacements.get(qualifiedName);
+    const expected = replaced?.definition ?? original;
+    const source = replaced?.file.slice(0, 4) ?? '0015';
     const differences = compareDefinition(expected, await liveFunction(admin, qualifiedName));
     assert.deepEqual(differences, [], `${qualifiedName} diverges from ${source}: ${differences}`);
   }
-  // Only the explicit M2-D21 replacement is permitted; all other 0015
-  // definitions remain immutable and no future override is accepted silently.
+  // Only the explicit replacements above are permitted; every other 0015
+  // definition remains immutable and no future override is accepted silently.
   const later = fs
     .readdirSync(migrationsDirectory)
     .filter((file) => file > '0015_group_foundation.sql' && file.endsWith('.sql'));
   for (const file of later) {
     for (const qualifiedName of migrationFunctions(file).keys()) {
-      const approved =
-        file === '0020_m2_cleanup_b.sql' && qualifiedName === 'public.request_data_export';
+      const approved = APPROVED[qualifiedName] === file;
       assert.ok(!defined.has(qualifiedName) || approved, `${file} redefines ${qualifiedName}`);
     }
   }
   console.log(
-    `ok - ${defined.size} functions: canonical byte-for-byte 0015, export replay from 0020`,
+    `ok - ${defined.size} functions: canonical byte-for-byte 0015, export replay from 0020, ` +
+      'Storage fence and export photo from 0030',
   );
 
   // Contraprovas do comparador: um byte a mais e o texto da 0012 são acusados.
@@ -959,7 +993,7 @@ async function proveDeletionOutcomes(admin, client, status) {
 
   // O grupo suspenso também tem foto: a transferência não pode tratá-la como
   // objeto do titular.
-  await uploadPhoto(status, photoPath.susp);
+  await uploadPhoto(admin, status, photoPath.susp);
   assert.equal(await photoExists(status, photoPath.susp), true);
   const suspendedBefore = (await groupState(admin, group.susp)).suspended_at;
   await deleteAccountTx(client, 'susp_owner');
@@ -1562,7 +1596,7 @@ async function assertAuthFenced(admin, name, label) {
 }
 
 async function provePhotoFence(admin, client, status) {
-  await uploadPhoto(status, photoPath.photo);
+  await uploadPhoto(admin, status, photoPath.photo);
   assert.equal(await photoExists(status, photoPath.photo), true);
   const pendingAuth = await admin.query(
     `select count(*)::integer as count from private.external_effects
@@ -1675,7 +1709,7 @@ async function provePhotoFence(admin, client, status) {
   );
 
   // Caminho inteiro pelo worker Edge real: handler genérico, bucket privado.
-  await uploadPhoto(status, photoPath.photo_worker);
+  await uploadPhoto(admin, status, photoPath.photo_worker);
   await deleteAccountTx(client, 'photo_owner_worker');
   await assertAuthFenced(admin, 'photo_owner_worker', 'worker saga before processing');
   await invokeWorker(admin, status);

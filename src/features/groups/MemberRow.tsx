@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Avatar } from '@/components/ui/Avatar';
 import { Chip } from '@/components/ui/Chip';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
+import { PhotoAvatar } from '../photos/PhotoAvatar';
 import { roleName, roleTone } from './group-roles';
 
 type MemberRowProps = {
@@ -34,7 +34,7 @@ export function MemberRow({ actions, children, divider, id, name, role, testID }
     <View role="listitem" testID={testID}>
       {divider ? <View style={[styles.divider, { backgroundColor: colors.divider }]} /> : null}
       <View style={styles.row}>
-        <Avatar id={id} name={name} size={40} />
+        <PhotoAvatar id={id} name={name} size={40} />
         <Text style={[styles.name, { color: colors.text }]}>{name}</Text>
         <Chip label={roleName(role, pt.groups.detail.player)} tone={roleTone(role)} />
         {actions ?? <View style={styles.spacer} />}

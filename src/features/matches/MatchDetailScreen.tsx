@@ -8,9 +8,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon, type IconName } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { Avatar } from '@/components/ui/Avatar';
 import { Chip, type ChipTone } from '@/components/ui/Chip';
-import { GroupIcon } from '@/components/ui/GroupIcon';
 import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import {
@@ -31,6 +29,7 @@ import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
+import { GroupPhotoIcon, PhotoAvatar } from '../photos/PhotoAvatar';
 import { matchErrorMessage } from './match-errors';
 import { distanceInMeters, distanceText } from './match-distance';
 import { endsNextDay } from './match-card-state';
@@ -371,7 +370,7 @@ function ConfirmedRow({
   return (
     <View style={[styles.entry, { backgroundColor: colors.surface }]} testID={testID}>
       <View style={styles.line}>
-        <Avatar id={entry.account_removed ? null : entry.profile_id} name={name} size={36} />
+        <PhotoAvatar id={entry.account_removed ? null : entry.profile_id} name={name} size={36} />
         <Text style={[styles.rowName, { color: colors.text }]}>
           {name}
           {detail ? (
@@ -527,7 +526,11 @@ function Rosters({
                 <Text style={[styles.order, { color: colors.warning }]}>
                   {pt.matches.detail.ordinal(index + 1)}
                 </Text>
-                <Avatar id={item.account_removed ? null : item.profile_id} name={name} size={36} />
+                <PhotoAvatar
+                  id={item.account_removed ? null : item.profile_id}
+                  name={name}
+                  size={36}
+                />
                 <Text style={[styles.rowName, { color: colors.text }]}>
                   {name}
                   {detail ? (
@@ -685,7 +688,11 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
         ) : null}
       </Text>
       <View style={styles.group} testID="match-fact-group">
-        <GroupIcon appearance={groupAppearance(match.group_icon, match.group_color)} size={16} />
+        <GroupPhotoIcon
+          appearance={groupAppearance(match.group_icon, match.group_color)}
+          groupId={match.group_id}
+          size={16}
+        />
         <Text style={[styles.small, { color: colors.textMuted }]}>{match.group_name}</Text>
       </View>
     </View>

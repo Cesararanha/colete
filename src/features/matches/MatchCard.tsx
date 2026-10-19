@@ -2,7 +2,6 @@ import { Link } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { Chip } from '@/components/ui/Chip';
-import { GroupIcon } from '@/components/ui/GroupIcon';
 import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import type { MatchOccupancy, MatchSummary } from '@/lib/api';
@@ -13,6 +12,7 @@ import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
 
 import { endsNextDay, matchCardState, type MatchCardTone } from './match-card-state';
+import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 import { matchSpokenDay, matchTicket, matchTime, matchTimeRange } from './match-format';
 
 /** The whole name a screen reader hears for the row, in reading order. */
@@ -118,8 +118,9 @@ export function MatchCard({
             <View aria-hidden style={styles.body}>
               {showGroup ? (
                 <View style={styles.meta}>
-                  <GroupIcon
+                  <GroupPhotoIcon
                     appearance={groupAppearance(match.group_icon, match.group_color)}
+                    groupId={match.group_id}
                     size={16}
                   />
                   <Text

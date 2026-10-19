@@ -150,6 +150,8 @@ jobs:
         run: npm run db:test:match-players
       - name: Run the group deletion HTTP, replay, lock barrier and lock mutant harness
         run: npm run db:test:group-deletion
+      - name: Run the photo HTTP, Storage, visibility, reclaim, export and deletion harness
+        run: npm run db:test:photos
       - name: Run the address search gate harness (real gate, simulated upstream, 1 s spacing)
         run: npm run db:test:geocode
       - name: Run the real authentication browser flow

@@ -10,7 +10,6 @@ import { AppIcon } from '@/components/ui/AppIcon';
 import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { GroupIcon } from '@/components/ui/GroupIcon';
 import { groupAppearance } from '@/components/ui/group-icon';
 import {
   AppError,
@@ -32,6 +31,7 @@ import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from '../groups/group-errors';
+import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 import { DESCRIPTION_MAX, descriptionLength } from './match-description';
 import { matchErrorMessage } from './match-errors';
 import {
@@ -586,8 +586,9 @@ export function CreateMatchScreen({
                 {pt.matches.create.groupFixed}
               </Text>
               <View style={styles.fixed}>
-                <GroupIcon
+                <GroupPhotoIcon
                   appearance={groupAppearance(match.group_icon, match.group_color)}
+                  groupId={match.group_id}
                   size={20}
                 />
                 <Text style={[styles.optionText, { color: colors.text }]}>{match.group_name}</Text>
@@ -599,7 +600,11 @@ export function CreateMatchScreen({
                 {pt.matches.create.groupFixed}
               </Text>
               <View style={styles.fixed}>
-                <GroupIcon appearance={fixedGroup.appearance} size={20} />
+                <GroupPhotoIcon
+                  appearance={fixedGroup.appearance}
+                  groupId={fixedGroup.id}
+                  size={20}
+                />
                 <Text style={[styles.optionText, { color: colors.text }]}>{fixedGroup.name}</Text>
               </View>
             </View>

@@ -1,6 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import type { ComponentProps } from 'react';
-import { View } from 'react-native';
+import { useState, type ComponentProps } from 'react';
+import { Image, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -36,20 +36,39 @@ export function GroupGlyph({
 
 /**
  * The group's icon in the colour the owner chose (PR H). Always decorative:
- * the group's name is written beside it.
+ * the group's name is written beside it. With `photo` (a signed URL, 0030)
+ * the group's photo fills the tile instead; one that does not load falls
+ * back to the icon.
  */
 export function GroupIcon({
   appearance,
+  photo,
   size,
   tile = false,
 }: {
   appearance: GroupAppearance;
+  photo?: string | null | undefined;
   size: number;
   tile?: boolean;
 }) {
   const { colors } = useTheme();
   const { glyph, fill } = groupColors(colors, appearance.color);
   const shape = groupIconTile(size);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (typeof photo === 'string' && photo !== '' && failed !== photo) {
+    return (
+      <Image
+        accessibilityElementsHidden
+        accessibilityIgnoresInvertColors
+        aria-hidden
+        importantForAccessibility="no-hide-descendants"
+        onError={() => setFailed(photo)}
+        source={{ uri: photo }}
+        style={{ borderRadius: tile ? shape.radius : size / 4, height: size, width: size }}
+        testID="group-photo"
+      />
+    );
+  }
   return (
     <View
       accessibilityElementsHidden

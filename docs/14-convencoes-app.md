@@ -301,8 +301,9 @@ unsafe-inline ou unsafe-eval em script-src. Unsafe-inline fica exclusivamente
 em style-src, pela medição dos atributos/estilos RN Web acima.
 
 O gerador preparado inclui default-src self; script-src self + hashes
-do export; style-src self unsafe-inline; img-src self data: blob:; font-src
-self; connect-src self + HTTPS/WSS da origem de build; manifest-src
+do export; style-src self unsafe-inline; img-src self data: blob: + HTTPS da
+origem de build (as fotos da `0030` chegam por URL assinada do Storage, `13`
+§5.0.9); font-src self; connect-src self + HTTPS/WSS da origem de build; manifest-src
 self; worker-src self; object-src none; base-uri self; form-action self;
 frame-ancestors none; upgrade-insecure-requests. A prova local completa em 11/10/2026 registrou 84 casos aprovados (Auth 8,
 privacy 4, grupos 62, CORS 4, smoke 6), zero violações CSP no console/eventos

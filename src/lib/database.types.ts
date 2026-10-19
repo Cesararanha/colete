@@ -333,6 +333,19 @@ export type Database = {
         };
         Returns: Json;
       };
+      begin_photo_upload: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+          p_target: string;
+        };
+        Returns: Json;
+      };
       cancel_match: {
         Args: {
           p_actor_auth_user_id: string;
@@ -496,6 +509,24 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      get_photo_upload_target: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_upload_id: string };
+        Returns: Json;
+      };
+      get_visible_photos: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_group_ids: string[];
+          p_profile_ids: string[];
+        };
+        Returns: {
+          bucket: string;
+          kind: string;
+          object_path: string;
+          subject_id: string;
+        }[];
+      };
       issue_group_invite: {
         Args: {
           p_actor_auth_user_id: string;
@@ -629,6 +660,18 @@ export type Database = {
         };
         Returns: Json;
       };
+      remove_group_photo: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       remove_member: {
         Args: {
           p_actor_auth_user_id: string;
@@ -639,6 +682,17 @@ export type Database = {
           p_input_hmac: string;
           p_profile_id: string;
           p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      remove_profile_photo: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
           p_request_id: string;
         };
         Returns: Json;
@@ -704,6 +758,19 @@ export type Database = {
         };
         Returns: Json;
       };
+      set_group_photo: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+          p_upload_id: string;
+        };
+        Returns: Json;
+      };
       set_match_payment: {
         Args: {
           p_actor_auth_user_id: string;
@@ -729,6 +796,18 @@ export type Database = {
           p_input_hmac: string;
           p_profile_id: string;
           p_request_id: string;
+        };
+        Returns: Json;
+      };
+      set_profile_photo: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_request_id: string;
+          p_upload_id: string;
         };
         Returns: Json;
       };
