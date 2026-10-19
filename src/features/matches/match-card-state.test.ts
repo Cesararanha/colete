@@ -18,6 +18,7 @@ const occupancy = (
   match_id: 'm',
   viewer_status: viewer,
   waitlist_count: waitlist,
+  canceled: false,
 });
 
 describe('matchCardState', () => {
@@ -60,7 +61,7 @@ describe('matchCardState', () => {
 });
 
 describe('matchPassesFilter', () => {
-  const match = { field_slots: 10 };
+  const match = { field_slots: 10, canceled: false };
   it('keeps every match under Todos, read or not', () => {
     expect(matchPassesFilter('all', match, undefined)).toBe(true);
   });
@@ -115,5 +116,26 @@ describe('matchesInNextWeek', () => {
         now,
       ),
     ).toBe(2);
+  });
+});
+
+describe('a canceled match (0028)', () => {
+  it('says "Cancelado" in red whatever the viewer\'s place, with no state bar', () => {
+    for (const viewer of ['starter', 'waitlist', 'out'] as const) {
+      expect(matchCardState(occupancy(14, viewer), 14, true)).toEqual({
+        bar: null,
+        chip: { label: 'Cancelado', tone: 'critical' },
+        full: false,
+        ratio: 1,
+      });
+    }
+    expect(matchCardState(undefined, 14, true).chip?.label).toBe('Cancelado');
+  });
+
+  it('is in neither "Vou jogar" nor "Com vaga", only in "Todos"', () => {
+    const match = { field_slots: 14, canceled: true };
+    expect(matchPassesFilter('playing', match, occupancy(3, 'starter'))).toBe(false);
+    expect(matchPassesFilter('open', match, occupancy(3, 'out'))).toBe(false);
+    expect(matchPassesFilter('all', match, occupancy(3, 'out'))).toBe(true);
   });
 });

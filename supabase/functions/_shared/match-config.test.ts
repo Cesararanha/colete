@@ -139,6 +139,23 @@ describe('create_match config (docs/13 section 3.1, Rachas v1 cut)', () => {
     }
   });
 
+  it('lets the edit leave the future start to the database, keeping the other rules', () => {
+    const past = { starts_at: '2030-01-01T11:00:00Z', ends_at: '2030-01-01T13:00:00Z' };
+    expect(normaliseMatchConfig({ ...base, ...past }, NOW, { futureStart: false }).starts_at).toBe(
+      '2030-01-01T11:00:00.000Z',
+    );
+    for (const times of [
+      { starts_at: '2030-01-02T22:00:00Z', ends_at: '2030-01-02T22:00:00Z' },
+      { starts_at: '2030-01-02T08:00:00Z', ends_at: '2030-01-02T20:01:00Z' },
+      { starts_at: '2031-01-02T22:00:00Z', ends_at: '2031-01-02T23:00:00Z' },
+    ]) {
+      expect(
+        refusal(() => normaliseMatchConfig({ ...base, ...times }, NOW, { futureStart: false }))
+          .code,
+      ).toBe('TIME_ORDER');
+    }
+  });
+
   it('requires config and a canonical group_id in the request', () => {
     expect(
       refusal(() => normaliseRequest('create_match', { request_id: REQUEST_ID, group_id: GROUP }))

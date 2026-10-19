@@ -27,13 +27,18 @@ export function matchCardLabel(
     matchTimeRange(match.starts_at, match.ends_at, match.timezone),
   ];
   if (showGroup) parts.push(`${pt.matches.detail.group} ${match.group_name}`);
+  if (match.canceled) parts.push(pt.matches.card.canceled);
   if (occupancy) {
     parts.push(pt.matches.card.occupancy(occupancy.confirmed_count, match.field_slots));
     if (occupancy.waitlist_count > 0) {
       parts.push(pt.matches.card.waiting(occupancy.waitlist_count));
     }
-    if (occupancy.viewer_status === 'starter') parts.push(pt.matches.card.viewerStarter);
-    if (occupancy.viewer_status === 'waitlist') parts.push(pt.matches.card.viewerWaitlist);
+    if (!match.canceled && occupancy.viewer_status === 'starter') {
+      parts.push(pt.matches.card.viewerStarter);
+    }
+    if (!match.canceled && occupancy.viewer_status === 'waitlist') {
+      parts.push(pt.matches.card.viewerWaitlist);
+    }
   }
   return parts.join(', ');
 }
@@ -57,8 +62,9 @@ export function MatchCard({
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const ticket = matchTicket(match.starts_at, match.timezone);
-  const state = matchCardState(occupancy, match.field_slots);
-  const highlight = occupancy?.viewer_status === 'starter';
+  const state = matchCardState(occupancy, match.field_slots, match.canceled);
+  // A canceled match never lights the ticket: nobody plays it.
+  const highlight = !match.canceled && occupancy?.viewer_status === 'starter';
   const confirmed = occupancy?.confirmed_count;
   const tone = (name: MatchCardTone | null) => (name === null ? colors.track : colors[name]);
   const ticketText = highlight ? colors.onPrimary : colors.textMuted;
@@ -149,7 +155,7 @@ export function MatchCard({
                   <View />
                 )}
                 <Text style={[styles.count, { color: colors.text }]}>
-                  {state.full ? `${pt.matches.card.full} ` : ''}
+                  {state.full && !match.canceled ? `${pt.matches.card.full} ` : ''}
                   <Text testID="match-list-occupancy">
                     {confirmed === undefined
                       ? `–/${match.field_slots}`

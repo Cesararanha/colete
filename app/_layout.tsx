@@ -37,6 +37,7 @@ function ThemedRoutes() {
         screenOptions={{ contentStyle: { backgroundColor: colors.background }, headerShown: false }}
       >
         <Stack.Screen name="criar-racha" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="editar-racha" options={{ presentation: 'modal' }} />
       </Stack>
     </>
   );

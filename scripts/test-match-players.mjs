@@ -1,7 +1,9 @@
 // Fatia 0022 (Racha completo): presença, espera, promoção, pagamento e
 // permissões por HTTP real com JWT GoTrue; saída do grupo e exclusão de conta
 // liberando a vaga; concorrência na última vaga com barreira de lock, rajada
-// pela Edge e contraprova executável sem as travas.
+// pela Edge e contraprova executável sem as travas. Fatia 0028: editar e
+// cancelar pela Edge, com chamada forçada recusada, e editar × confirmar na
+// mesma trava do racha, com contraprova sem as travas.
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +23,7 @@ const APP_PREFIX = 'colete_match_players_';
 const PASSWORD = 'colete-local-match-players-harness-password';
 const JOIN = 'public.join_match(uuid,uuid,uuid,text,integer,integer,uuid)';
 const LOCKS = 'private.lock_match_context(uuid,uuid,uuid,uuid)';
+const UPDATE = 'public.update_match(uuid,uuid,uuid,text,integer,integer,uuid,jsonb)';
 const guard = installHarnessGuard('db:test:match-players', {
   applicationPrefix: APP_PREFIX,
   authEmailPrefix: AUTH_PREFIX,
@@ -379,7 +382,13 @@ async function proveHttp(status, db) {
   const occupancy = ok(await read(status, d, 'get_matches_occupancy'), 'occupancy');
   assert.deepEqual(
     occupancy.find((row) => row.match_id === matchId),
-    { match_id: matchId, confirmed_count: 2, waitlist_count: 2, viewer_status: 'waitlist' },
+    {
+      match_id: matchId,
+      confirmed_count: 2,
+      waitlist_count: 2,
+      viewer_status: 'waitlist',
+      canceled: false,
+    },
   );
   const direct = await fetch(`${status.apiUrl}/rest/v1/match_players?select=id`, {
     headers: { apikey: status.publishableKey, Authorization: `Bearer ${owner.token}` },
@@ -955,6 +964,400 @@ async function proveLockMutant(status, connections, db, context) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Editar e cancelar (0028): permissões, vagas, promoção, preço e bloqueio
+// ---------------------------------------------------------------------------
+// O config inteiro do racha como o app o envia, lido pela Edge com a
+// autoridade de quem edita, mais o patch do formulário.
+async function editConfig(status, actor, matchId, patch = {}) {
+  const [match] = ok(await read(status, actor, 'get_match', { match_id: matchId }), 'read');
+  return {
+    description: match.description,
+    starts_at: match.starts_at,
+    ends_at: match.ends_at,
+    timezone: match.timezone,
+    location_name: match.location_name,
+    location_address: match.location_address,
+    latitude: match.latitude,
+    longitude: match.longitude,
+    field_slots: match.field_slots,
+    field_price: Number(match.field_price).toFixed(2),
+    ...patch,
+  };
+}
+const EDIT_RPCS = ['update_match', 'cancel_match'];
+async function editCall(status, name, actor, matchId, config) {
+  return name === 'update_match'
+    ? mutate(status, actor, name, { match_id: matchId, config })
+    : mutate(status, actor, name, { match_id: matchId });
+}
+
+async function proveEditCancel(status, db, context) {
+  const { owner, organizer, groupId } = context;
+  const [x, y, z, former, stranger] = await Promise.all(
+    ['ex', 'ey', 'ez', 'eformer', 'estranger'].map((label) => createActor(status, label)),
+  );
+  await addMembers(db, groupId, [
+    [x, 'player', 'active'],
+    [y, 'player', 'active'],
+    [z, 'player', 'active'],
+    [former, 'organizer', 'removed'],
+  ]);
+  const matchId = await createMatch(status, owner, groupId, 1, '20.00', 4);
+  for (const actor of [x, y, z]) {
+    ok(await mutate(status, actor, 'join_match', { match_id: matchId }), 'join for edit');
+  }
+  const before = await statuses(db, matchId);
+  const config = await editConfig(status, owner, matchId, { field_slots: 5 });
+
+  // Chamada forçada pela Edge: jogador recebe NOT_ORGANIZER; ex-membro e
+  // estranho, o NOT_FOUND de um ID inexistente, com corpo igual.
+  for (const name of EDIT_RPCS) {
+    denied(
+      await editCall(status, name, x, matchId, config),
+      403,
+      'NOT_ORGANIZER',
+      `player ${name}`,
+    );
+    for (const [actor, label] of [
+      [former, 'former organizer'],
+      [stranger, 'stranger'],
+    ]) {
+      const existing = await editCall(status, name, actor, matchId, config);
+      const unknown = await editCall(status, name, actor, crypto.randomUUID(), config);
+      denied(existing, 404, 'NOT_FOUND', `${label} ${name} existing`);
+      denied(unknown, 404, 'NOT_FOUND', `${label} ${name} unknown`);
+      assert.deepEqual(withoutRequestId(existing.body), withoutRequestId(unknown.body), label);
+    }
+  }
+  denied(
+    await mutate(status, owner, 'update_match', {
+      match_id: matchId,
+      config: { ...config, group_id: groupId },
+    }),
+    422,
+    'VALIDATION',
+    'the group never travels in the edit',
+  );
+  assert.deepEqual(await statuses(db, matchId), before, 'no refusal changed the lists');
+  const untouched = (
+    await db.query('select field_slots, canceled_at from private.matches where id=$1', [matchId])
+  ).rows[0];
+  assert.deepEqual(untouched, { field_slots: 1, canceled_at: null });
+  console.log(
+    'ok - forced update/cancel through the Edge: player 403 NOT_ORGANIZER; former organizer and stranger 404 alike for existing and unknown',
+  );
+
+  // Vagas: subir promove a espera em ordem; descer abaixo dos confirmados não.
+  const raised = ok(
+    await mutate(status, organizer, 'update_match', {
+      match_id: matchId,
+      config: { ...config, field_slots: 2 },
+    }),
+    'raise to 2',
+  );
+  assert.deepEqual(Object.keys(raised), ['outcome']);
+  assert.deepEqual(raised.outcome, {
+    group_id: groupId,
+    logical_result: 'match_updated',
+    match_id: matchId,
+  });
+  let rows = await statuses(db, matchId);
+  assert.deepEqual(
+    [statusOf(rows, x), statusOf(rows, y), statusOf(rows, z)],
+    ['starter', 'starter', 'waitlist'],
+    'the head of the waitlist is promoted, the next one waits',
+  );
+  denied(
+    await mutate(status, owner, 'update_match', {
+      match_id: matchId,
+      config: { ...config, field_slots: 1 },
+    }),
+    409,
+    'SLOTS_BELOW_CONFIRMED',
+    'slots below the confirmed',
+  );
+
+  // Preço: muda, e a marcação de pago fica.
+  ok(
+    await mutate(status, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: x.profileId,
+      paid: true,
+    }),
+    'mark x',
+  );
+  const markedAt = (await statuses(db, matchId)).find((row) => row.profile_id === x.profileId);
+  ok(
+    await mutate(status, organizer, 'update_match', {
+      match_id: matchId,
+      config: { ...config, field_slots: 2, field_price: '30', location_name: 'Arena Nova' },
+    }),
+    'new price',
+  );
+  const marked = (await statuses(db, matchId)).find((row) => row.profile_id === x.profileId);
+  assert.deepEqual(
+    [marked.paid, marked.payment_marked_by, marked.payment_marked_at.getTime()],
+    [true, owner.profileId, markedAt.payment_marked_at.getTime()],
+    'the paid mark keeps value, author and time',
+  );
+  const roster = ok(await read(status, owner, 'get_match_roster', { match_id: matchId }), 'roster');
+  assert.deepEqual(roster.payment_summary, { paid_count: 1, confirmed_count: 2, total: '30.00' });
+  // O membro vê a mudança na leitura dele.
+  const [seen] = ok(await read(status, z, 'get_match', { match_id: matchId }), 'member reads');
+  assert.deepEqual(
+    [seen.location_name, Number(seen.field_price), seen.field_slots, seen.canceled],
+    ['Arena Nova', 30, 2, false],
+  );
+  console.log(
+    'ok - raising the slots promotes the waitlist head; below the confirmed is 409; a new price keeps the paid mark; the member reads the change',
+  );
+
+  // Cancelar: definitivo; presença, espera e pagamento recusam pela Edge.
+  const canceled = ok(
+    await mutate(status, organizer, 'cancel_match', { match_id: matchId }),
+    'cancel',
+  );
+  assert.equal(canceled.outcome.logical_result, 'match_canceled');
+  const frozen = await statuses(db, matchId);
+  denied(
+    await mutate(status, z, 'leave_match', { match_id: matchId }),
+    409,
+    'MATCH_CANCELED',
+    'leave waitlist',
+  );
+  denied(
+    await mutate(status, y, 'leave_match', { match_id: matchId }),
+    409,
+    'MATCH_CANCELED',
+    'leave starter',
+  );
+  const late = (await freshMembers(status, db, groupId, 1, 'elate'))[0];
+  denied(
+    await mutate(status, late, 'join_match', { match_id: matchId }),
+    409,
+    'MATCH_CANCELED',
+    'join',
+  );
+  denied(
+    await mutate(status, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: y.profileId,
+      paid: true,
+    }),
+    409,
+    'MATCH_CANCELED',
+    'payment',
+  );
+  denied(
+    await mutate(status, owner, 'update_match', { match_id: matchId, config }),
+    409,
+    'MATCH_CANCELED',
+    'edit after cancel',
+  );
+  assert.equal(
+    ok(await mutate(status, owner, 'cancel_match', { match_id: matchId }), 'cancel again').outcome
+      .logical_result,
+    'match_cancel_unchanged',
+  );
+  assert.deepEqual(await statuses(db, matchId), frozen, 'nothing moved after the cancellation');
+  const listed = ok(await read(status, z, 'list_my_matches'), 'agenda').find(
+    (match) => match.id === matchId,
+  );
+  assert.equal(listed?.canceled, true, 'the Agenda keeps the canceled match, marked');
+  const occupancy = ok(await read(status, z, 'get_matches_occupancy'), 'occupancy').find(
+    (row) => row.match_id === matchId,
+  );
+  assert.equal(occupancy?.canceled, true);
+  assert.equal(
+    ok(await read(status, z, 'get_match_roster', { match_id: matchId }), 'roster').canceled,
+    true,
+  );
+  console.log(
+    'ok - cancel is final: leave, join, payment and edit answer 409 MATCH_CANCELED; cancel again is unchanged; detail, Agenda and occupancy say canceled',
+  );
+}
+
+// update_match direto, como a Edge chama, com o config canônico lido do banco.
+async function canonicalConfig(db, matchId, patch) {
+  const { rows } = await db.query(
+    `select jsonb_build_object(
+       'starts_at', to_char(starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS".000Z"'),
+       'ends_at', to_char(ends_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS".000Z"'),
+       'timezone', timezone, 'location_name', location_name,
+       'location_address', location_address, 'description', description,
+       'latitude', latitude::text, 'longitude', longitude::text,
+       'field_slots', field_slots, 'field_price', field_price::text) as config
+       from private.matches where id=$1`,
+    [matchId],
+  );
+  return { ...rows[0].config, ...patch };
+}
+async function rpcUpdate(connection, actor, matchId, config, requestId = crypto.randomUUID()) {
+  const hmac = crypto
+    .createHash('sha256')
+    .update(`${requestId}:${matchId}:${JSON.stringify(config)}`)
+    .digest('hex');
+  await connection.query('begin');
+  try {
+    await connection.query('set local role service_role');
+    const result = await connection.query(
+      `select public.update_match($1::uuid,$2::uuid,$3::uuid,$4::text,1,1,$5::uuid,$6::jsonb) as result`,
+      [actor.authId, actor.sessionId, requestId, hmac, matchId, JSON.stringify(config)],
+    );
+    await connection.query('commit');
+    return result.rows[0].result;
+  } catch (error) {
+    try {
+      await connection.query('rollback');
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], 'update_match and rollback failed');
+    }
+    throw error;
+  }
+}
+
+// Editar × confirmar: os dois parados atrás de quem segura o grupo, nas duas
+// ordens. Quem pega a trava do racha primeiro decide; o outro vê o resultado.
+async function proveEditJoinBarrier(status, connections, db, context) {
+  const { observer, holder, first, second } = connections;
+  const pids = await assertDistinctConnections({ observer, holder, first, second }, 'edit join');
+  const race = async (order, label) => {
+    const matchId = await createMatch(status, context.owner, context.groupId, 2, '15.00', 11);
+    const [x, y] = await freshMembers(status, db, context.groupId, 2, label);
+    ok(await mutate(status, x, 'join_match', { match_id: matchId }), 'x joins');
+    const config = await canonicalConfig(db, matchId, { field_slots: 1 });
+    const start = {
+      join: (connection) => rpcJoin(connection, y, matchId),
+      edit: (connection) => rpcUpdate(connection, context.owner, matchId, config),
+    };
+    await holder.query('begin');
+    await holder.query('select 1 from public.groups where id=$1 for no key update', [
+      context.groupId,
+    ]);
+    let one;
+    let two;
+    try {
+      one = track(start[order[0]](first));
+      await awaitLockWait(
+        observer,
+        one,
+        pids.first,
+        pids.holder,
+        `${label} ${order[0]}`,
+        APP_PREFIX,
+      );
+      two = track(start[order[1]](second));
+      await awaitLockWait(
+        observer,
+        two,
+        pids.second,
+        [pids.holder, pids.first],
+        `${label} ${order[1]}`,
+        APP_PREFIX,
+      );
+    } finally {
+      await holder.query('commit');
+    }
+    const [a, b] = await Promise.all([one.settled, two.settled]);
+    const byName = { [order[0]]: a, [order[1]]: b };
+    const { rows } = await db.query(
+      `select field_slots, (select count(*)::integer from private.match_players
+          where match_id=$1 and status='starter') as starters
+         from private.matches where id=$1`,
+      [matchId],
+    );
+    assert.ok(rows[0].starters <= rows[0].field_slots, `${label}: never above the slots`);
+    return { ...byName, ...rows[0] };
+  };
+  // Confirmar primeiro: dois confirmados; a edição para 1 vaga é recusada.
+  const joinFirst = await race(['join', 'edit'], 'ejoinfirst');
+  assert.equal(joinFirst.join.status, 'fulfilled', String(joinFirst.join.reason));
+  assert.equal(joinFirst.join.value.outcome.logical_result, 'match_joined');
+  assert.equal(joinFirst.edit.status, 'rejected');
+  assert.equal(joinFirst.edit.reason.message, 'SLOTS_BELOW_CONFIRMED');
+  assert.deepEqual([joinFirst.field_slots, joinFirst.starters], [2, 2]);
+  // Editar primeiro: 1 vaga; quem confirma depois vai para a espera.
+  const editFirst = await race(['edit', 'join'], 'eeditfirst');
+  assert.equal(editFirst.edit.status, 'fulfilled', String(editFirst.edit.reason));
+  assert.equal(editFirst.join.status, 'fulfilled', String(editFirst.join.reason));
+  assert.equal(editFirst.join.value.outcome.logical_result, 'match_waitlisted');
+  assert.deepEqual([editFirst.field_slots, editFirst.starters], [1, 1]);
+  console.log(
+    'ok - edit × join on the same match lock, both orders: join first refuses slots below 2 confirmed; edit first sends the join to the waitlist',
+  );
+}
+
+// Contraprova executável: sem as travas de grupo e racha e sem a defesa final,
+// com uma pausa entre contar os confirmados e gravar as vagas, um "Vou jogar"
+// no meio deixa 2 confirmados em 1 vaga. Com as travas e a mesma pausa, não.
+async function proveEditLockMutant(status, connections, db, context) {
+  const { first, second } = connections;
+  const locks = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [LOCKS]))
+    .rows[0].d;
+  const update = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [UPDATE]))
+    .rows[0].d;
+  const groupLock = 'perform 1 from public.groups where id = v_group_id for no key update;';
+  const matchLock = 'perform 1 from private.matches where id = p_match_id for no key update;';
+  const count = `  select count(*) into v_starters from private.match_players
+  where match_id = p_match_id and status = 'starter';
+`;
+  const finalCheck = `  if (select count(*) from private.match_players
+      where match_id = p_match_id and status = 'starter') > v_config.field_slots then
+    raise exception using errcode = 'P0001', message = 'CONCURRENT_CHANGE';
+  end if;
+`;
+  assert.ok(locks.includes(groupLock) && locks.includes(matchLock));
+  assert.ok(update.includes(count) && update.includes(finalCheck));
+  const paused = update
+    .replace(count, `${count}  perform pg_sleep(0.8);\n`)
+    .replace(finalCheck, '');
+  const unlocked = locks.replace(groupLock, '').replace(matchLock, '');
+  const race = async (label) => {
+    const matchId = await createMatch(status, context.owner, context.groupId, 2, '15.00', 12);
+    const [x, y] = await freshMembers(status, db, context.groupId, 2, label);
+    ok(await mutate(status, x, 'join_match', { match_id: matchId }), 'x joins');
+    const config = await canonicalConfig(db, matchId, { field_slots: 1 });
+    const edit = track(rpcUpdate(first, context.owner, matchId, config));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const join = track(rpcJoin(second, y, matchId));
+    const [edited, joined] = await Promise.all([edit.settled, join.settled]);
+    const { rows } = await db.query(
+      `select field_slots, (select count(*)::integer from private.match_players
+          where match_id=$1 and status='starter') as starters
+         from private.matches where id=$1`,
+      [matchId],
+    );
+    return { edited, joined, ...rows[0] };
+  };
+  try {
+    await db.query(paused);
+    await db.query(unlocked);
+    const broken = await race('emutant');
+    assert.equal(broken.edited.status, 'fulfilled', 'mutant edit goes through');
+    assert.equal(broken.joined.value?.outcome.logical_result, 'match_joined');
+    assert.deepEqual(
+      [broken.field_slots, broken.starters],
+      [1, 2],
+      'mutant: 2 confirmed in 1 slot',
+    );
+    await db.query(locks);
+    const guarded = await race('eguarded');
+    assert.equal(guarded.edited.status, 'fulfilled');
+    assert.equal(guarded.joined.value?.outcome.logical_result, 'match_waitlisted');
+    assert.deepEqual([guarded.field_slots, guarded.starters], [1, 1]);
+  } finally {
+    await db.query(locks);
+    await db.query(update);
+  }
+  const live = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [UPDATE]))
+    .rows[0].d;
+  assert.equal(live, update, 'update_match restored byte for byte');
+  console.log(
+    'ok - mutant without group/match locks and final check: an edit to 1 slot and a join leave 2 confirmed in 1; with the locks and the same pause: 1 and the join waits',
+  );
+}
+
 async function main() {
   const status = localStatus();
   const db = client(status.dbUrl, 'admin');
@@ -1001,6 +1404,9 @@ async function main() {
     await proveLastSlotBarrier(status, { observer, holder, first, second }, db, context);
     await proveBurst(status, db, context);
     await proveLockMutant(status, { first, second }, db, context);
+    await proveEditCancel(status, db, context);
+    await proveEditJoinBarrier(status, { observer, holder, first, second }, db, context);
+    await proveEditLockMutant(status, { first, second }, db, context);
   } catch (error) {
     failure = error;
   }

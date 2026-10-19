@@ -3,10 +3,11 @@
 // and the RPC validate the same contract again; this copy gives field errors
 // in Portuguese before any request is made.
 
-import type { MatchConfig } from '../../lib/api';
+import type { MatchConfig, MatchSummary } from '../../lib/api';
 import { pt } from '../../lib/i18n/pt';
 
 import { normaliseDescription } from './match-description';
+import { maskMoney } from './match-masks';
 
 export type MatchFormValues = {
   date: string;
@@ -103,16 +104,27 @@ export function priceFromField(value: string): string | undefined {
   return `${Number(typed[1])}.${(typed[2] ?? '').padEnd(2, '0')}`;
 }
 
+/** The stored start and end of a match being edited: kept as they are, they are not re-judged. */
+export type KeptTimes = { startsAt: string; endsAt: string };
+
 /**
  * Wall-clock date and times in the device's time zone, field by field: a
  * date before today is an error on the date; today with a start already gone
- * is an error on the start; the end follows endRule.
+ * is an error on the start; the end follows endRule. In the edit, the start
+ * and end the match already has are accepted as they are, so a match in
+ * progress can still have its place or price corrected.
  */
-function instants(values: MatchFormValues, errors: MatchFormErrors, now: Date) {
+function instants(
+  values: MatchFormValues,
+  errors: MatchFormErrors,
+  now: Date,
+  kept: KeptTimes | undefined,
+) {
   const date = DATE.exec(values.date.trim());
   const start = TIME.exec(values.startTime.trim());
   const end = TIME.exec(values.endTime.trim());
   let day: Date | undefined;
+  let pastDay = false;
   if (date === null) {
     errors.date = pt.matches.create.errors.date;
   } else {
@@ -124,35 +136,97 @@ function instants(values: MatchFormValues, errors: MatchFormErrors, now: Date) {
     } else if (
       day.getTime() < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
     ) {
-      errors.date = pt.matches.create.errors.pastDate;
-      day = undefined;
+      pastDay = true;
     }
   }
   if (start === null) errors.startTime = pt.matches.create.errors.time;
   if (end === null) errors.endTime = pt.matches.create.errors.time;
   const rule = endRule(values.startTime, values.endTime);
   if (rule !== undefined && 'error' in rule) errors.endTime = rule.error;
-  if (day === undefined || start === null || end === null) return undefined;
+  if (day === undefined || start === null || end === null) {
+    if (pastDay) errors.date = pt.matches.create.errors.pastDate;
+    return undefined;
+  }
   const startsAt = new Date(day);
   startsAt.setHours(Number(start[1]), Number(start[2]), 0, 0);
+  const endsAt = new Date(day);
+  endsAt.setHours(Number(end[1]), Number(end[2]), 0, 0);
+  if (endsAt.getTime() <= startsAt.getTime()) endsAt.setDate(endsAt.getDate() + 1);
+  const unchanged =
+    kept !== undefined &&
+    startsAt.getTime() === new Date(kept.startsAt).getTime() &&
+    endsAt.getTime() === new Date(kept.endsAt).getTime();
+  if (unchanged) return { startsAt, endsAt };
+  if (pastDay) {
+    errors.date = pt.matches.create.errors.pastDate;
+    return undefined;
+  }
   if (startsAt.getTime() <= now.getTime()) errors.startTime = pt.matches.create.errors.startPassed;
   else if (startsAt.getTime() - now.getTime() > MAX_LEAD_MS) {
     errors.date = pt.matches.create.errors.tooFar;
   }
-  const endsAt = new Date(day);
-  endsAt.setHours(Number(end[1]), Number(end[2]), 0, 0);
-  if (endsAt.getTime() <= startsAt.getTime()) endsAt.setDate(endsAt.getDate() + 1);
   return { startsAt, endsAt };
 }
+
+function twoDigits(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/**
+ * The form filled with a stored match, in the device's time zone like the
+ * form itself: the date and times the person would type, the price as the
+ * mask shows it, and the confirmed place when the match has coordinates.
+ */
+export function formValuesFromMatch(
+  match: Pick<
+    MatchSummary,
+    | 'starts_at'
+    | 'ends_at'
+    | 'location_name'
+    | 'location_address'
+    | 'description'
+    | 'field_slots'
+    | 'field_price'
+    | 'latitude'
+    | 'longitude'
+  >,
+): { values: MatchFormValues; place: ConfirmedPlace } {
+  const start = new Date(match.starts_at);
+  const end = new Date(match.ends_at);
+  return {
+    values: {
+      date: `${twoDigits(start.getDate())}/${twoDigits(start.getMonth() + 1)}/${start.getFullYear()}`,
+      startTime: `${twoDigits(start.getHours())}:${twoDigits(start.getMinutes())}`,
+      endTime: `${twoDigits(end.getHours())}:${twoDigits(end.getMinutes())}`,
+      locationName: match.location_name,
+      locationAddress: match.location_address ?? '',
+      description: match.description ?? '',
+      slots: String(match.field_slots),
+      price: maskMoney(String(Math.round(Number(match.field_price) * 100))),
+    },
+    place:
+      match.latitude === null || match.longitude === null
+        ? null
+        : { latitude: match.latitude, longitude: match.longitude },
+  };
+}
+
+export type MatchEditRules = {
+  /** The start and end the match already has. */
+  kept?: KeptTimes | undefined;
+  /** The confirmed players: the slots cannot go below them ("Já há N confirmados"). */
+  confirmed?: number | undefined;
+};
 
 export function matchConfigFromForm(
   values: MatchFormValues,
   place: ConfirmedPlace,
   now = new Date(),
   timezone = deviceTimeZone(),
+  edit: MatchEditRules = {},
 ): { config: MatchConfig } | { errors: MatchFormErrors } {
   const errors: MatchFormErrors = {};
-  const times = instants(values, errors, now);
+  const times = instants(values, errors, now, edit.kept);
   const nameLength = visibleLength(values.locationName);
   if (nameLength < 2 || nameLength > 80) errors.locationName = pt.matches.create.errors.place;
   const addressLength = visibleLength(values.locationAddress);
@@ -170,6 +244,9 @@ export function matchConfigFromForm(
   }
   const slots = /^\d{1,2}$/.test(values.slots.trim()) ? Number(values.slots.trim()) : NaN;
   if (!(slots >= 1 && slots <= 99)) errors.slots = pt.matches.create.errors.slots;
+  else if (edit.confirmed !== undefined && slots < edit.confirmed) {
+    errors.slots = pt.matches.create.errors.slotsBelow(edit.confirmed);
+  }
   const fieldPrice = priceFromField(values.price);
   if (fieldPrice === undefined || Number(fieldPrice) <= 0) {
     errors.price = pt.matches.create.errors.price;

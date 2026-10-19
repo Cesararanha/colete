@@ -134,7 +134,16 @@ function coordinate(value: unknown, field: string, limit: number): string {
   return rounded.toFixed(4);
 }
 
-export function normaliseMatchConfig(value: unknown, now = new Date()): MatchConfig {
+/**
+ * `futureStart: false` is the edit of update_match: a start already gone may
+ * be the unchanged start of a match in progress, which only the database can
+ * tell, so the Edge checks the order, the duration and the lead alone.
+ */
+export function normaliseMatchConfig(
+  value: unknown,
+  now = new Date(),
+  { futureStart = true }: { futureStart?: boolean } = {},
+): MatchConfig {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw validation('config', 'must be an object');
   }
@@ -196,7 +205,7 @@ export function normaliseMatchConfig(value: unknown, now = new Date()): MatchCon
   const start = startsAt.getTime();
   const end = endsAt.getTime();
   if (
-    start <= now.getTime() ||
+    (futureStart && start <= now.getTime()) ||
     end <= start ||
     end - start > MAX_DURATION_MS ||
     start > now.getTime() + MAX_LEAD_MS

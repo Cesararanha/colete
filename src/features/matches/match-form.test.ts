@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { coordinatesText, mapUrl, matchPrice, matchTime } from './match-format';
-import { matchConfigFromForm, roundCoordinate, type MatchFormValues } from './match-form';
+import { pt } from '../../lib/i18n/pt';
+
+import {
+  formValuesFromMatch,
+  matchConfigFromForm,
+  roundCoordinate,
+  type MatchFormValues,
+} from './match-form';
 
 const ZONE = 'America/Sao_Paulo';
 // The form reads the device's wall clock, so the expected instants are built
@@ -135,5 +142,67 @@ describe('match display in the match time zone', () => {
         location_address: 'Rua Um, 10',
       }),
     ).toBe('https://www.google.com/maps/search/?api=1&query=Arena%2C%20Rua%20Um%2C%2010');
+  });
+});
+
+describe('match form in the edit (0028)', () => {
+  const stored = {
+    starts_at: new Date(2030, 9, 14, 11, 30).toISOString(),
+    ends_at: new Date(2030, 9, 14, 13, 0).toISOString(),
+    location_name: 'Quadra',
+    location_address: 'Rua Um, 10',
+    description: 'Traga colete',
+    field_slots: 12,
+    field_price: 22.5,
+    latitude: -9.6658,
+    longitude: -35.7353,
+  };
+
+  it('fills the form with the stored match, as the person would type it', () => {
+    const { values: filled, place } = formValuesFromMatch(stored);
+    expect(filled).toEqual({
+      date: '14/10/2030',
+      startTime: '11:30',
+      endTime: '13:00',
+      locationName: 'Quadra',
+      locationAddress: 'Rua Um, 10',
+      description: 'Traga colete',
+      slots: '12',
+      price: 'R$ 22,50',
+    });
+    expect(place).toEqual({ latitude: -9.6658, longitude: -35.7353 });
+    expect(formValuesFromMatch({ ...stored, latitude: null, longitude: null }).place).toBeNull();
+  });
+
+  it('keeps a match in progress editable while its times stay, and judges new times', () => {
+    const { values: filled, place } = formValuesFromMatch(stored);
+    const kept = { startsAt: stored.starts_at, endsAt: stored.ends_at };
+    // NOW (12:00) is between the stored start and end.
+    const result = matchConfigFromForm({ ...filled, price: 'R$ 30,00' }, place, NOW, ZONE, {
+      kept,
+    });
+    expect('config' in result && result.config.field_price).toBe('30.00');
+    expect(matchConfigFromForm(filled, place, NOW, ZONE)).toEqual({
+      errors: { startTime: pt.matches.create.errors.startPassed },
+    });
+    expect(
+      matchConfigFromForm({ ...filled, startTime: '11:45' }, place, NOW, ZONE, { kept }),
+    ).toEqual({ errors: { startTime: pt.matches.create.errors.startPassed } });
+    expect(
+      matchConfigFromForm({ ...filled, date: '13/10/2030' }, place, NOW, ZONE, { kept }),
+    ).toEqual({ errors: { date: pt.matches.create.errors.pastDate } });
+  });
+
+  it('refuses slots below the confirmed with "Já há N confirmados"', () => {
+    expect(
+      matchConfigFromForm({ ...values, slots: '3' }, null, NOW, ZONE, { confirmed: 4 }),
+    ).toEqual({ errors: { slots: 'Já há 4 confirmados' } });
+    expect(
+      matchConfigFromForm({ ...values, slots: '0' }, null, NOW, ZONE, { confirmed: 1 }),
+    ).toEqual({ errors: { slots: pt.matches.create.errors.slots } });
+    expect(pt.matches.create.errors.slotsBelow(1)).toBe('Já há 1 confirmado');
+    expect(
+      'config' in matchConfigFromForm({ ...values, slots: '4' }, null, NOW, ZONE, { confirmed: 4 }),
+    ).toBe(true);
   });
 });

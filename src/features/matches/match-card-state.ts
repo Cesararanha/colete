@@ -2,7 +2,7 @@ import type { MatchOccupancy, MatchSummary } from '../../lib/api';
 import { pt } from '../../lib/i18n/pt';
 
 /** The tone of a card's chip and bar (prévia aprovada); the chip always says it in words. */
-export type MatchCardTone = 'positive' | 'warning' | 'info';
+export type MatchCardTone = 'positive' | 'warning' | 'info' | 'critical';
 
 export type MatchCardState = {
   /** null: no chip (occupancy not read yet, or a full match the viewer is out of). */
@@ -13,16 +13,26 @@ export type MatchCardState = {
 };
 
 /**
- * Green "Você vai" for a confirmed viewer, orange "Na espera" for the
+ * Red "Cancelado" for a canceled match (0028), whatever the viewer's place;
+ * then green "Você vai" for a confirmed viewer, orange "Na espera" for the
  * waitlist, blue "N vagas abertas" while there is room, and no chip on a full
- * match the viewer is out of: the count then reads "Lotado". The contract has
- * no cancelled match and no waitlist position on the list read, so neither
- * appears here.
+ * match the viewer is out of: the count then reads "Lotado". The list read
+ * has no waitlist position, so it does not appear here.
  */
 export function matchCardState(
   occupancy: MatchOccupancy | undefined,
   slots: number,
+  canceled = false,
 ): MatchCardState {
+  if (canceled) {
+    const confirmed = occupancy?.confirmed_count ?? 0;
+    return {
+      bar: null,
+      chip: { label: pt.matches.card.canceled, tone: 'critical' },
+      full: false,
+      ratio: Math.min(1, confirmed / Math.max(1, slots)),
+    };
+  }
   if (!occupancy) return { bar: null, chip: null, full: false, ratio: 0 };
   const confirmed = occupancy.confirmed_count;
   const full = confirmed >= slots;
@@ -54,14 +64,17 @@ export function matchCardState(
 
 export type MatchFilter = 'all' | 'playing' | 'open';
 
-/** "Vou jogar": on the list, confirmed or waiting. "Com vaga": a slot is still open. */
+/**
+ * "Vou jogar": on the list, confirmed or waiting. "Com vaga": a slot is still
+ * open. A canceled match is in neither: nobody plays it and it takes nobody.
+ */
 export function matchPassesFilter(
   filter: MatchFilter,
-  match: Pick<MatchSummary, 'field_slots'>,
+  match: Pick<MatchSummary, 'field_slots' | 'canceled'>,
   occupancy: MatchOccupancy | undefined,
 ): boolean {
   if (filter === 'all') return true;
-  if (!occupancy) return false;
+  if (!occupancy || match.canceled) return false;
   if (filter === 'playing') return occupancy.viewer_status !== 'out';
   return occupancy.confirmed_count < match.field_slots;
 }

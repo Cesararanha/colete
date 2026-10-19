@@ -26,6 +26,8 @@ export const IDENTITY_OPERATIONS = [
 // docs/13 section 3.1 (docs/25 section 8.1); join_match, leave_match and
 // set_match_payment are the Racha completo cut of sections 1.1, 1.2 and 2.6.
 // set_group_appearance is section 5.0.7, the owner's icon and colour (0027).
+// update_match and cancel_match are the presentation cut of sections 3.2 and
+// 3.3 (0028, human decision of 18/10/2026).
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -40,6 +42,8 @@ export const GROUP_OPERATIONS = [
   'join_match',
   'leave_match',
   'set_match_payment',
+  'update_match',
+  'cancel_match',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -313,6 +317,8 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     join_match: ['request_id', 'match_id'],
     leave_match: ['request_id', 'match_id'],
     set_match_payment: ['request_id', 'match_id', 'profile_id', 'paid'],
+    update_match: ['request_id', 'match_id', 'config'],
+    cancel_match: ['request_id', 'match_id'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -460,8 +466,23 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         },
       };
     }
+    // The whole form, with the ten keys of create_match. Whether the start may
+    // be in the past depends on the stored match (an unchanged start keeps a
+    // match in progress editable), so only the database applies that rule.
+    case 'update_match': {
+      if (!Object.hasOwn(record, 'config')) throw validation('config', 'is required');
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          match_id: requiredUuid(record['match_id'], 'match_id'),
+          config: { ...normaliseMatchConfig(record['config'], new Date(), { futureStart: false }) },
+        },
+      };
+    }
     case 'join_match':
     case 'leave_match':
+    case 'cancel_match':
       return {
         operation,
         requestId,

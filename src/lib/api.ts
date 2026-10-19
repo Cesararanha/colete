@@ -68,7 +68,9 @@ export type GroupOperation =
   | 'create_match'
   | 'join_match'
   | 'leave_match'
-  | 'set_match_payment';
+  | 'set_match_payment'
+  | 'update_match'
+  | 'cancel_match';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -90,6 +92,14 @@ export type MatchConfig = {
 export type MatchOutcome = {
   outcome: { group_id: string; match_id: string; logical_result: 'match_created' };
 };
+/** update_match and cancel_match (0028): IDs and the logical result only; the match is read again. */
+export type MatchEditOutcome = {
+  outcome: {
+    group_id: string;
+    match_id: string;
+    logical_result: 'match_updated' | 'match_canceled' | 'match_cancel_unchanged';
+  };
+};
 export type MatchSummary = {
   id: string;
   /** Only get_match projects it; list_my_matches leaves it out. */
@@ -108,6 +118,8 @@ export type MatchSummary = {
   longitude: number | null;
   field_slots: number;
   field_price: number;
+  /** Canceled for good (0028): still listed until it ends, with the "Cancelado" chip. */
+  canceled: boolean;
 };
 /** One address found by search_address: LocationIQ through the Edge, never from the app. */
 export type AddressResult = { label: string; latitude: number; longitude: number };
@@ -164,6 +176,7 @@ export type MatchRoster = {
   match_id: string;
   field_slots: number;
   started: boolean;
+  canceled: boolean;
   confirmed_count: number;
   waitlist_count: number;
   viewer: {
@@ -181,6 +194,7 @@ export type MatchOccupancy = {
   confirmed_count: number;
   waitlist_count: number;
   viewer_status: MatchPresenceStatus;
+  canceled: boolean;
 };
 export type GroupSummary = {
   id: string;
@@ -354,6 +368,8 @@ const groupOperations = new Set<string>([
   'join_match',
   'leave_match',
   'set_match_payment',
+  'update_match',
+  'cancel_match',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -632,6 +648,11 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),
     createMatch: (groupId: string, config: MatchConfig) =>
       mutation<MatchOutcome>('create_match', { group_id: groupId, config }),
+    /** The whole form again, as create_match takes it; the group never changes. */
+    updateMatch: (matchId: string, config: MatchConfig) =>
+      mutation<MatchEditOutcome>('update_match', { match_id: matchId, config }),
+    cancelMatch: (matchId: string) =>
+      mutation<MatchEditOutcome>('cancel_match', { match_id: matchId }),
     joinMatch: (matchId: string) =>
       mutation<MatchPresenceResult>('join_match', { match_id: matchId }),
     leaveMatch: (matchId: string) =>

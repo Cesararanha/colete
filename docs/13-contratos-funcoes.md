@@ -576,6 +576,28 @@ só. Mudança de horário recalcula ambas; entrega já enviada permanece e a out
 - A série continua. A criação da próxima ocorrência é idempotente por
   `(recurrence_id, occurrence_key)`.
 
+#### 3.3.1 Editar e cancelar no modo apresentação — `0028`
+
+Corte de §§3.2 e 3.3 sobre os Rachas v1 (decisão humana de César, 18/10/2026, `25` §8.1),
+no gateway `groups`, com o padrão idempotente atual e autenticação e replay de §5.0.1.
+`update_match(match_id, config, request_id)` recebe o config inteiro de `create_match`
+(as dez chaves, mesma forma e normalização; o grupo nunca muda) e
+`cancel_match(match_id, request_id)` não tem motivo nem nota. Somente dono ou organizador
+ativo; jogador recebe `NOT_ORGANIZER` (403); ex-membro, pendente e estranho recebem o mesmo
+`NOT_FOUND` (404) de um ID inexistente. Racha terminado recusa as duas com `MATCH_DONE` (409);
+racha cancelado recusa a edição com `MATCH_CANCELED` (409), e cancelar de novo é sucesso sem
+efeito (`match_cancel_unchanged`). Mudar início ou fim segue a regra de §3.1 (`TIME_ORDER`,
+até 12 h); manter os dois deixa editar o resto de um racha em andamento. A data pode mudar,
+divergindo de `DATE_LOCKED` só neste corte. Vagas abaixo dos confirmados recusam com
+`SLOTS_BELOW_CONFIRMED` (409); vagas a mais promovem a espera em ordem, como a desistência.
+O preço muda sem tocar nas marcações de pago. O cancelamento grava `canceled_at` e
+`canceled_by` (`10` §4, sem `phase` nem motivo), não remove ninguém e não notifica;
+`join_match`, `leave_match` e `set_match_payment` passam a recusar `MATCH_CANCELED` (409), e
+a saída do grupo não promove a espera de racha cancelado. Trava perfil → grupo → membership
+→ racha, a mesma de `join_match`. O outcome é `{group_id, logical_result, match_id}`;
+`get_match`, `list_my_matches`, `get_matches_occupancy` e `get_match_roster` devolvem
+`canceled`, nunca quem cancelou nem quando.
+
 ### 3.4 `advance_recurrence(recurrence_id, terminal_match_id)` — sistema
 
 Trava grupo→recorrência→racha terminal, revalida série `active`, versão e segredo Pix ativo.
@@ -1453,7 +1475,7 @@ RATINGS_MISSING · RATING_DISPUTE_ALREADY_OPEN · RATING_DISPUTE_AUTHORITY_REQUI
 RATING_DISPUTE_NOT_OPEN · RATING_DISPUTE_TARGET_INVALID · RECENT_REAUTH_REQUIRED ·
 RECURRENCE_CANCEL_CONFIRMATION_REQUIRED · RECURRENCE_INACTIVE · RECURRENCE_INVALID · REFUNDS_PENDING ·
 REFUND_CORRECTION_FORBIDDEN · REFUND_NOT_FOUND · SESSION_ALREADY_FINALIZED ·
-STARS_RANGE · STORAGE_OBJECT_MISSING · TEAMS_ALREADY_PUBLISHED · TEAM_COUNT_INVALID ·
+SLOTS_BELOW_CONFIRMED · STARS_RANGE · STORAGE_OBJECT_MISSING · TEAMS_ALREADY_PUBLISHED · TEAM_COUNT_INVALID ·
 TEAM_SIZE_INVALID · TIME_ORDER · UNAUTHENTICATED · UNEQUAL_TEAMS_CONFIRMATION_REQUIRED ·
 UPLOAD_INVALID · UPLOAD_SESSION_EXPIRED · UPLOAD_SESSION_NOT_USABLE · VALIDATION ·
 VISIBILITY_CONFIRMATION_REQUIRED · WAITLIST_HAS_PRIORITY`.

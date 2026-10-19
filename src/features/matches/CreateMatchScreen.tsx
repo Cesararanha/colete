@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -11,6 +11,7 @@ import { AppTextField } from '@/components/ui/AppTextField';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { GroupIcon } from '@/components/ui/GroupIcon';
+import { groupAppearance } from '@/components/ui/group-icon';
 import {
   AppError,
   TransportError,
@@ -18,6 +19,8 @@ import {
   type AddressResult,
   type AddressSearch,
   type GroupSummary,
+  type MatchConfig,
+  type MatchEditOutcome,
   type MatchOutcome,
   type MutationIntent,
   type OwnProfile,
@@ -30,7 +33,9 @@ import { typography } from '@/theme/typography';
 
 import { groupErrorMessage } from '../groups/group-errors';
 import { DESCRIPTION_MAX, descriptionLength } from './match-description';
+import { matchErrorMessage } from './match-errors';
 import {
+  formValuesFromMatch,
   matchConfigFromForm,
   nextDayNotice,
   type ConfirmedPlace,
@@ -213,16 +218,27 @@ function AddressResults({
   );
 }
 
+/**
+ * Criar racha, and the same form for "Editar" (0028): opened with
+ * `editMatchId`, it reads the match and its roster from the detail's cache,
+ * fills every field once, keeps the group fixed and saves the whole form with
+ * update_match. The start and end the match already has stay valid as they
+ * are; the slots cannot go below the confirmed.
+ */
 export function CreateMatchScreen({
+  editMatchId,
   initialGroupId,
   profile,
 }: {
+  editMatchId?: string | undefined;
   initialGroupId?: string | undefined;
   profile: OwnProfile;
 }) {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
+  const editing = editMatchId !== undefined;
   const intent = useRef<MutationIntent<MatchOutcome> | null>(null);
+  const editIntent = useRef<MutationIntent<MatchEditOutcome> | null>(null);
   const inputs = useRef<Partial<Record<keyof MatchFormValues, TextInput | null>>>({});
   const [values, setValues] = useState<MatchFormValues>(EMPTY);
   const [errors, setErrors] = useState<MatchFormErrors>({});
@@ -233,7 +249,30 @@ export function CreateMatchScreen({
   const [search, setSearch] = useState<AddressSearch | undefined>();
   const [searchError, setSearchError] = useState('');
 
+  // The detail's own reads, under the same keys: opening "Editar" from the
+  // detail costs no new request, and saving refreshes both.
+  const edited = useQuery({
+    enabled: editing,
+    queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, editMatchId],
+    queryFn: ({ signal }) => api.getMatch(editMatchId ?? '', signal),
+  });
+  const editedRoster = useQuery({
+    enabled: editing && edited.data != null,
+    queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, editMatchId, 'roster'],
+    queryFn: ({ signal }) => api.getMatchRoster(editMatchId ?? '', signal),
+  });
+  const match = edited.data ?? undefined;
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!editing || match === undefined || prefilled.current) return;
+    prefilled.current = true;
+    const filled = formValuesFromMatch(match);
+    setValues(filled.values);
+    setPlace(filled.place);
+  }, [editing, match]);
+
   const eligible = useQuery({
+    enabled: !editing,
     queryKey: [PRIVATE_QUERY_ROOT, 'groups', 'organizing', profile.id],
     queryFn: () =>
       withCurrentAccessToken(async (token) =>
@@ -257,6 +296,25 @@ export function CreateMatchScreen({
         ? groups[0]?.id
         : undefined;
   const fixedUnavailable = fromGroup && eligible.isSuccess && groups.length > 0 && !fixedGroup;
+  // "Now" is read once per read of the match, as on the detail.
+  const ended = useMemo(
+    () => match !== undefined && new Date(match.ends_at).getTime() <= new Date().getTime(),
+    [match],
+  );
+  // Why the edit cannot open, read from the same projections the server checks again.
+  const editRefusal = !editing
+    ? undefined
+    : edited.isSuccess && match === undefined
+      ? pt.matches.detail.missing
+      : match?.canceled
+        ? pt.matches.detail.errors.canceled
+        : ended
+          ? pt.matches.detail.errors.done
+          : editedRoster.data && !editedRoster.data.viewer.can_manage
+            ? pt.matches.detail.errors.notOrganizerManage
+            : undefined;
+  const editReady =
+    editing && match !== undefined && editedRoster.data !== undefined && editRefusal === undefined;
 
   const searching = useMutation({
     mutationFn: (query: string) => api.searchAddress(query),
@@ -292,21 +350,54 @@ export function CreateMatchScreen({
       }
       // The refusal lands on the field it is about, or in the notice at the
       // top; either way the focus goes there.
-      const target = serverErrorTarget(error, (cause) => groupErrorMessage(cause, true));
-      if (target.field !== undefined) {
-        const field = target.field;
-        setErrors((current) => ({ ...current, [field]: target.message }));
-        requestAnimationFrame(() => focusControl(inputs.current[field], `match-${field}`));
-      } else {
-        setFormError(target.message);
-        requestAnimationFrame(() => focusControl(null, 'match-create-error-box'));
+      showServerError(serverErrorTarget(error, (cause) => groupErrorMessage(cause, true)));
+    },
+  });
+
+  const showServerError = (target: { field?: keyof MatchFormValues; message: string }) => {
+    if (target.field !== undefined) {
+      const field = target.field;
+      setErrors((current) => ({ ...current, [field]: target.message }));
+      requestAnimationFrame(() => focusControl(inputs.current[field], `match-${field}`));
+    } else {
+      setFormError(target.message);
+      requestAnimationFrame(() => focusControl(null, 'match-create-error-box'));
+    }
+  };
+
+  const saving = useMutation({
+    mutationFn: async (config: MatchConfig) => {
+      editIntent.current ??= api.updateMatch(editMatchId ?? '', config);
+      return editIntent.current.execute();
+    },
+    onSuccess: async () => {
+      editIntent.current = null;
+      await queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'matches'] });
+      // Back to the detail under the modal, which reads the saved match again.
+      if (router.canDismiss()) router.dismiss();
+      else router.replace(`/rachas/${editMatchId ?? ''}`);
+    },
+    onError: async (error) => {
+      if (!(error instanceof TransportError || (error instanceof AppError && error.retryable))) {
+        editIntent.current = null;
       }
+      if (error instanceof AppError && error.code === 'SLOTS_BELOW_CONFIRMED') {
+        // Someone confirmed meanwhile: the count under "Vagas" is today's.
+        const fresh = await editedRoster.refetch();
+        showServerError({
+          field: 'slots',
+          message: pt.matches.create.errors.slotsBelow(fresh.data?.confirmed_count ?? 0),
+        });
+        return;
+      }
+      showServerError(serverErrorTarget(error, (cause) => matchErrorMessage(cause, 'manage')));
     },
   });
 
   // Any edit is a new intent: the next submission gets a new request_id.
   const update = (field: keyof MatchFormValues) => (typed: string) => {
     intent.current = null;
+    editIntent.current = null;
     const value = MASKS[field]?.(typed) ?? typed;
     setValues((current) => ({ ...current, [field]: value }));
     if (errors[field]) setErrors((current) => ({ ...current, [field]: undefined }));
@@ -331,6 +422,7 @@ export function CreateMatchScreen({
 
   const choose = (result: AddressResult) => {
     intent.current = null;
+    editIntent.current = null;
     setValues((current) => ({
       ...current,
       locationAddress: [...result.label].slice(0, 160).join(''),
@@ -343,7 +435,30 @@ export function CreateMatchScreen({
   const focusGroup = () =>
     requestAnimationFrame(() => focusControl(null, `match-group-${groups[0]?.id ?? ''}`));
 
+  const saveEdit = () => {
+    if (saving.isPending || match === undefined || editedRoster.data === undefined) return;
+    setFormError('');
+    const result = matchConfigFromForm(values, place, new Date(), undefined, {
+      kept: { startsAt: match.starts_at, endsAt: match.ends_at },
+      confirmed: editedRoster.data.confirmed_count,
+    });
+    if ('errors' in result) {
+      setErrors(result.errors);
+      const first = FIELD_ORDER.find((name) => result.errors[name] !== undefined);
+      if (first !== undefined) {
+        requestAnimationFrame(() => focusControl(inputs.current[first], `match-${first}`));
+      }
+      return;
+    }
+    setErrors({});
+    saving.mutate(result.config);
+  };
+
   const submit = () => {
+    if (editing) {
+      saveEdit();
+      return;
+    }
     if (creation.isPending) return;
     setFormError('');
     const result = matchConfigFromForm(values, place);
@@ -366,7 +481,15 @@ export function CreateMatchScreen({
     creation.mutate([groupId, result.config]);
   };
 
-  const close = () => (router.canDismiss() ? router.dismiss() : router.replace('/rachas'));
+  const close = () =>
+    router.canDismiss()
+      ? router.dismiss()
+      : router.replace(editing ? `/rachas/${editMatchId}` : '/rachas');
+  const pending = editing ? saving.isPending : creation.isPending;
+  const page = editing
+    ? { title: pt.matches.create.editTitle, description: '' }
+    : pt.matches.create;
+  const showForm = editing ? editReady : groups.length > 0 && !fixedUnavailable;
   const field = (
     name: keyof MatchFormValues,
     label: string,
@@ -399,9 +522,32 @@ export function CreateMatchScreen({
   return (
     <AuthenticatedShell
       closeModal={{ label: pt.matches.create.close, onPress: close, testID: 'match-create-close' }}
-      {...pt.matches.create}
+      {...page}
     >
-      {eligible.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
+      {(editing ? edited.isPending || (match && editedRoster.isPending) : eligible.isPending) ? (
+        <AsyncNotice kind="loading" message={pt.common.loading} />
+      ) : null}
+      {editing && (edited.isError || editedRoster.isError) ? (
+        <AsyncNotice
+          kind="network"
+          title={pt.common.networkTitle}
+          message={pt.common.networkBody}
+          actionLabel={pt.common.retry}
+          action={() => {
+            void edited.refetch();
+            void editedRoster.refetch();
+          }}
+        />
+      ) : null}
+      {editRefusal !== undefined ? (
+        <AsyncNotice
+          action={close}
+          actionLabel={pt.matches.detail.back}
+          kind="empty"
+          message={editRefusal}
+          title={pt.matches.create.editUnavailableTitle}
+        />
+      ) : null}
       {eligible.isError ? (
         <AsyncNotice
           kind="network"
@@ -429,12 +575,25 @@ export function CreateMatchScreen({
           title={pt.matches.create.groupUnavailableTitle}
         />
       ) : null}
-      {groups.length > 0 && !fixedUnavailable ? (
+      {showForm ? (
         <AppCard testID="create-match-card">
           <View tabIndex={-1} testID="match-create-error-box">
             <AppAlert message={formError} testID="match-create-error" />
           </View>
-          {fixedGroup ? (
+          {editing && match ? (
+            <View style={styles.choice} testID="match-fixed-group">
+              <Text style={[styles.label, { color: colors.text }]}>
+                {pt.matches.create.groupFixed}
+              </Text>
+              <View style={styles.fixed}>
+                <GroupIcon
+                  appearance={groupAppearance(match.group_icon, match.group_color)}
+                  size={20}
+                />
+                <Text style={[styles.optionText, { color: colors.text }]}>{match.group_name}</Text>
+              </View>
+            </View>
+          ) : fixedGroup ? (
             <View style={styles.choice} testID="match-fixed-group">
               <Text style={[styles.label, { color: colors.text }]}>
                 {pt.matches.create.groupFixed}
@@ -444,7 +603,7 @@ export function CreateMatchScreen({
                 <Text style={[styles.optionText, { color: colors.text }]}>{fixedGroup.name}</Text>
               </View>
             </View>
-          ) : fromGroup ? null : (
+          ) : fromGroup || editing ? null : (
             <GroupChoice
               error={groupError}
               groups={groups}
@@ -499,6 +658,7 @@ export function CreateMatchScreen({
                   label={pt.matches.create.clearChosen}
                   onPress={() => {
                     intent.current = null;
+                    editIntent.current = null;
                     setPlace(null);
                   }}
                   testID="match-address-clear"
@@ -545,8 +705,16 @@ export function CreateMatchScreen({
             </View>
           </View>
           <AppButton
-            ariaDisabled={creation.isPending}
-            label={creation.isPending ? pt.matches.create.submitting : pt.matches.create.submit}
+            ariaDisabled={pending}
+            label={
+              editing
+                ? pending
+                  ? pt.matches.create.saving
+                  : pt.matches.create.save
+                : pending
+                  ? pt.matches.create.submitting
+                  : pt.matches.create.submit
+            }
             onPress={submit}
             testID="match-create-submit"
           />

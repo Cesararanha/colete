@@ -47,6 +47,11 @@ export const ERROR_CODES = [
   'MATCH_STARTED',
   'NOT_STARTER',
   'PAYMENT_ALREADY_REAL',
+  // Editar e cancelar racha (docs/13 sections 3.2 and 3.3, cut by docs/25
+  // section 8.1). SLOTS_BELOW_CONFIRMED belongs to the presentation cut only.
+  'MATCH_CANCELED',
+  'MATCH_DONE',
+  'SLOTS_BELOW_CONFIRMED',
   'INTERNAL',
 ] as const;
 
@@ -125,6 +130,9 @@ const MESSAGES: Record<ErrorCode, string> = {
   MATCH_STARTED: 'The match has already started.',
   NOT_STARTER: 'The player is not confirmed in this match.',
   PAYMENT_ALREADY_REAL: 'A player marked as paid cannot leave the match.',
+  MATCH_CANCELED: 'The match was canceled.',
+  MATCH_DONE: 'The match has already ended.',
+  SLOTS_BELOW_CONFIRMED: 'The slots cannot go below the number of confirmed players.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -172,6 +180,9 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'MATCH_STARTED':
     case 'NOT_STARTER':
     case 'PAYMENT_ALREADY_REAL':
+    case 'MATCH_CANCELED':
+    case 'MATCH_DONE':
+    case 'SLOTS_BELOW_CONFIRMED':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
     case 'EXPORT_EXPIRED':

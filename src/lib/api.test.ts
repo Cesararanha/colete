@@ -463,6 +463,46 @@ describe('UI-B group targets and transport', () => {
       { request_id: REQUEST_ID, group_id: 'group', icon: 'flame', color: 'lilac' },
     ]);
   });
+  it('sends the edit and the cancellation of a match to the groups gateway, without the group', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: { outcome: { group_id: 'group', match_id: 'match', logical_result: 'done' } },
+          request_id: body.request_id,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    const config = {
+      description: null,
+      starts_at: '2026-10-21T22:00:00.000Z',
+      ends_at: '2026-10-21T23:30:00.000Z',
+      timezone: 'America/Sao_Paulo',
+      location_name: 'Arena',
+      location_address: null,
+      latitude: null,
+      longitude: null,
+      field_slots: 14,
+      field_price: '25.00',
+    };
+    await client.updateMatch('match', config).execute();
+    await client.cancelMatch('match').execute();
+    expect(calls).toEqual([
+      {
+        url: 'http://local.test/functions/v1/groups/update_match',
+        body: { request_id: REQUEST_ID, match_id: 'match', config },
+      },
+      {
+        url: 'http://local.test/functions/v1/groups/cancel_match',
+        body: { request_id: REQUEST_ID, match_id: 'match' },
+      },
+    ]);
+  });
   it('does not relax rejection of nested actor fields inside a business target', () => {
     const client = createApiClient({ fetch: vi.fn() });
     expect(() =>
