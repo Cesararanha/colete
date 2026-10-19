@@ -2891,3 +2891,19 @@ horários mantidos e `acquire_group_idempotency` sem `set_group_appearance`,
 o arquivo aborta. No harness, sem as travas de grupo e racha e sem a defesa
 final, uma edição para 1 vaga e um "Vou jogar" no meio deixam 2 confirmados
 em 1 vaga; com as travas e a mesma pausa, 1 confirmado e o outro na espera.
+
+**Correção do P1 da revisão.** Depois do cancelamento, o replay com a mesma
+chave de `join_match` (confirmado e espera), `leave_match` e
+`set_match_payment` feitos antes ainda devolvia HTTP 200 com o desfecho e a
+projeção. A `0028` (ainda não aplicada em ambiente nenhum) passou a conferir
+o cancelamento depois da autoridade e antes do replay: a mesma chave recebe a
+recusa de uma chamada nova, 409 `MATCH_CANCELED`, sem desfecho, `current` ou
+resumo, e o registro idempotente concluído fica como está. Quem perdeu a
+autoridade continua na M2-D20 (o desfecho, sem projeção), como no #71.
+
+| Prova | Resultado |
+|---|---|
+| pgTAP da `0028`, chamar → cancelar → repetir as quatro chaves | com o código de `ae3556f`: 4 asserções reprovam (os quatro replays); corrigido: 115 asserções, PASS |
+| sonda do revisor (`rev79/probe.mjs`) | antes: 4 replays com 200; depois: 409 `MATCH_CANCELED` nos quatro, `DEFECTS []`, os oito pares de concorrência passam |
+| db:test | 26 arquivos, 1714 asserções, PASS |
+| demais itens de §5 | exit 0; matches:web 24, groups:web 77 + 5 skip, qr 30, smoke 6, vitest 644, privacy 5 + 5 skip; test:auth:web 9 + 1 / 10 / 9 + 1, só o `:450` da base |

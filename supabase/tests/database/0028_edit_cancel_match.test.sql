@@ -482,5 +482,100 @@ select throws_ok($$select * from public.get_match('28000000-0000-4000-8000-00000
     gen_random_uuid(), '28300000-0000-4000-8000-000000000004')$$,
   'P0002', 'NOT_FOUND', 'a stranger reads nothing of a canceled match');
 
+-- ---------------------------------------------------------------------------
+-- Replay depois do cancelamento (P1 da revisão do #79): a mesma chave de uma
+-- chamada feita antes recebe a recusa de uma chamada nova, sem resposta
+-- guardada, current ou resumo, e nada muda.
+-- ---------------------------------------------------------------------------
+-- 305: 1 vaga. Jogador confirma (J1), Oito vai à espera (J2), Nove entra e
+-- desiste (L1), a dona marca o Jogador como pago (P1); depois, cancela.
+insert into private.matches (id, group_id, starts_at, ends_at, timezone, location_name,
+  field_slots, field_price, created_by) values
+  ('28300000-0000-4000-8000-000000000005', '28200000-0000-4000-8000-000000000001',
+   date_trunc('minute', now()) + interval '5 days',
+   date_trunc('minute', now()) + interval '5 days 90 minutes', 'America/Sao_Paulo',
+   'Replay', 1, 10, '28100000-0000-4000-8000-000000000001');
+create temporary table replay_calls (label text, call text);
+insert into replay_calls values
+  ('join_match, confirmed', $$select public.join_match('28000000-0000-4000-8000-000000000003',
+    gen_random_uuid(), '28700000-0000-4000-8000-000000000001', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005')$$),
+  ('join_match, waitlist', $$select public.join_match('28000000-0000-4000-8000-000000000008',
+    gen_random_uuid(), '28700000-0000-4000-8000-000000000002', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005')$$),
+  ('leave_match', $$select public.leave_match('28000000-0000-4000-8000-000000000009',
+    gen_random_uuid(), '28700000-0000-4000-8000-000000000003', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005')$$),
+  ('set_match_payment', $$select public.set_match_payment('28000000-0000-4000-8000-000000000001',
+    gen_random_uuid(), '28700000-0000-4000-8000-000000000004', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005', '28100000-0000-4000-8000-000000000003', true)$$);
+create temporary table replay_first (label text, answer jsonb);
+insert into replay_first select 'join_match, confirmed', public.join_match(
+  '28000000-0000-4000-8000-000000000003', gen_random_uuid(),
+  '28700000-0000-4000-8000-000000000001', repeat('d', 64), 1, 1,
+  '28300000-0000-4000-8000-000000000005');
+insert into replay_first select 'join_match, waitlist', public.join_match(
+  '28000000-0000-4000-8000-000000000008', gen_random_uuid(),
+  '28700000-0000-4000-8000-000000000002', repeat('d', 64), 1, 1,
+  '28300000-0000-4000-8000-000000000005');
+select lives_ok($$select public.join_match('28000000-0000-4000-8000-000000000009',
+    gen_random_uuid(), gen_random_uuid(), repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005')$$, 'Nove joins before leaving');
+insert into replay_first select 'leave_match', public.leave_match(
+  '28000000-0000-4000-8000-000000000009', gen_random_uuid(),
+  '28700000-0000-4000-8000-000000000003', repeat('d', 64), 1, 1,
+  '28300000-0000-4000-8000-000000000005');
+insert into replay_first select 'set_match_payment', public.set_match_payment(
+  '28000000-0000-4000-8000-000000000001', gen_random_uuid(),
+  '28700000-0000-4000-8000-000000000004', repeat('d', 64), 1, 1,
+  '28300000-0000-4000-8000-000000000005', '28100000-0000-4000-8000-000000000003', true);
+select is((select array_agg(label || ':' || (answer -> 'outcome' ->> 'logical_result') order by label)
+  from replay_first),
+  array['join_match, confirmed:match_joined', 'join_match, waitlist:match_waitlisted',
+    'leave_match:match_left', 'set_match_payment:payment_marked_paid'],
+  'the four calls succeed before the cancellation');
+-- Antes do cancelamento, a mesma chave reproduz o desfecho: o replay funciona.
+select is((select public.join_match('28000000-0000-4000-8000-000000000003', gen_random_uuid(),
+    '28700000-0000-4000-8000-000000000001', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005') -> 'outcome'),
+  (select answer -> 'outcome' from replay_first where label = 'join_match, confirmed'),
+  'before the cancellation the same key replays the stored outcome');
+select is((select pg_temp.cancel('28000000-0000-4000-8000-000000000001',
+    '28300000-0000-4000-8000-000000000005') -> 'outcome' ->> 'logical_result'),
+  'match_canceled', 'the owner cancels after the four calls');
+create temporary table replay_before as
+  select profile_id, status, paid, payment_marked_by, payment_marked_at, queue_seq
+  from private.match_players where match_id = '28300000-0000-4000-8000-000000000005';
+create temporary table replay_ledger as
+  select request_id, state, outcome, updated_at from private.idempotency_records
+  where request_id in ('28700000-0000-4000-8000-000000000001', '28700000-0000-4000-8000-000000000002',
+    '28700000-0000-4000-8000-000000000003', '28700000-0000-4000-8000-000000000004');
+select throws_ok(call, 'P0001', 'MATCH_CANCELED', 'replay after the cancellation: ' || label)
+from replay_calls;
+select is((select count(*)::integer from (
+    select profile_id, status, paid, payment_marked_by, payment_marked_at, queue_seq
+    from private.match_players where match_id = '28300000-0000-4000-8000-000000000005'
+    except select * from replay_before) as changed), 0,
+  'the refused replays change no line');
+select is((select count(*)::integer from (
+    select request_id, state, outcome, updated_at from private.idempotency_records
+    where request_id in ('28700000-0000-4000-8000-000000000001',
+      '28700000-0000-4000-8000-000000000002', '28700000-0000-4000-8000-000000000003',
+      '28700000-0000-4000-8000-000000000004')
+    except select * from replay_ledger) as changed), 0,
+  'and keep the completed ledger records as they were');
+select is((select count(*)::integer from replay_ledger where state = 'completed'), 4,
+  'the four records stay completed');
+-- Quem perdeu a autoridade continua no padrão da M2-D20: o desfecho, sem current.
+update public.group_members set status = 'removed', removed_at = now()
+where group_id = '28200000-0000-4000-8000-000000000001'
+  and profile_id = '28100000-0000-4000-8000-000000000008';
+select is((select public.join_match('28000000-0000-4000-8000-000000000008', gen_random_uuid(),
+    '28700000-0000-4000-8000-000000000002', repeat('d', 64), 1, 1,
+    '28300000-0000-4000-8000-000000000005')),
+  jsonb_build_object('outcome', (select answer -> 'outcome' from replay_first
+    where label = 'join_match, waitlist')),
+  'a former member keeps the M2-D20 replay: the outcome only, nothing about the match');
+
 select * from finish();
 rollback;

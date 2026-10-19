@@ -666,10 +666,14 @@ grant execute on function public.cancel_match(uuid, uuid, uuid, text, integer, i
 -- Racha cancelado: presença, espera e pagamento recusam
 -- ---------------------------------------------------------------------------
 -- join_match, leave_match e set_match_payment ganham MATCH_CANCELED depois da
--- autoridade e do replay, sob o mesmo lock do racha que cancel_match segura:
--- quem confirma e quem cancela nunca correm juntos. O resto dos corpos é o da
--- 0022, e o replace preserva o ACL. O replay de um pedido feito antes do
--- cancelamento devolve o desfecho gravado, sem repetir o efeito.
+-- autoridade e antes do replay, sob o mesmo lock do racha que cancel_match
+-- segura: quem confirma e quem cancela nunca correm juntos. O replay de um
+-- pedido feito antes do cancelamento recebe a mesma recusa de uma chamada nova
+-- (P1 da revisão do #79), sem desfecho, current ou resumo, e o registro
+-- idempotente concluído fica como está. Quem perdeu a autoridade continua na
+-- M2-D20 (o desfecho, sem projeção), como no #71: a recusa do cancelamento só
+-- vale para quem ainda lê o racha. O resto dos corpos é o da 0022, e o replace
+-- preserva o ACL.
 create or replace function public.join_match(
   p_actor_auth_user_id uuid, p_actor_session_id uuid, p_request_id uuid,
   p_input_hmac text, p_canonical_version integer, p_hash_key_version integer,
@@ -729,16 +733,18 @@ begin
       raise;
   end;
 
+  -- Cancelado recusa a chamada nova e o replay, antes de qualquer projeção.
+  select * into strict v_match from private.matches where id = p_match_id;
+  if v_match.canceled_at is not null then
+    raise exception using errcode = 'P0001', message = 'MATCH_CANCELED';
+  end if;
+
   -- current só depois da autoridade atual autorizada.
   if not v_acquired.acquired then
     return jsonb_build_object('outcome', v_acquired.outcome,
       'current', private.match_player_current(p_match_id, v_actor_id));
   end if;
 
-  select * into strict v_match from private.matches where id = p_match_id;
-  if v_match.canceled_at is not null then
-    raise exception using errcode = 'P0001', message = 'MATCH_CANCELED';
-  end if;
   if v_match.starts_at <= now() then
     raise exception using errcode = 'P0001', message = 'MATCH_STARTED';
   end if;
@@ -837,16 +843,18 @@ begin
       raise;
   end;
 
-  if not v_acquired.acquired then
-    return jsonb_build_object('outcome', v_acquired.outcome,
-      'current', private.match_player_current(p_match_id, v_actor_id));
-  end if;
-
+  -- Cancelado recusa a chamada nova e o replay, antes de qualquer projeção.
   select starts_at, canceled_at is not null into strict v_starts_at, v_canceled
   from private.matches where id = p_match_id;
   if v_canceled then
     raise exception using errcode = 'P0001', message = 'MATCH_CANCELED';
   end if;
+
+  if not v_acquired.acquired then
+    return jsonb_build_object('outcome', v_acquired.outcome,
+      'current', private.match_player_current(p_match_id, v_actor_id));
+  end if;
+
   if v_starts_at <= now() then
     raise exception using errcode = 'P0001', message = 'MATCH_STARTED';
   end if;
@@ -938,13 +946,14 @@ begin
       raise;
   end;
 
+  -- Cancelado recusa a chamada nova e o replay, antes do resumo financeiro.
+  if exists (select 1 from private.matches where id = p_match_id and canceled_at is not null) then
+    raise exception using errcode = 'P0001', message = 'MATCH_CANCELED';
+  end if;
+
   if not v_acquired.acquired then
     return jsonb_build_object('outcome', v_acquired.outcome,
       'current', private.match_payment_summary(p_match_id));
-  end if;
-
-  if exists (select 1 from private.matches where id = p_match_id and canceled_at is not null) then
-    raise exception using errcode = 'P0001', message = 'MATCH_CANCELED';
   end if;
 
   select * into v_player from private.match_players

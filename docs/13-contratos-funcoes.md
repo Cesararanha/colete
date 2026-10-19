@@ -592,8 +592,9 @@ divergindo de `DATE_LOCKED` só neste corte. Vagas abaixo dos confirmados recusa
 `SLOTS_BELOW_CONFIRMED` (409); vagas a mais promovem a espera em ordem, como a desistência.
 O preço muda sem tocar nas marcações de pago. O cancelamento grava `canceled_at` e
 `canceled_by` (`10` §4, sem `phase` nem motivo), não remove ninguém e não notifica;
-`join_match`, `leave_match` e `set_match_payment` passam a recusar `MATCH_CANCELED` (409), e
-a saída do grupo não promove a espera de racha cancelado. Trava perfil → grupo → membership
+`join_match`, `leave_match` e `set_match_payment` passam a recusar `MATCH_CANCELED` (409),
+inclusive no replay de um pedido feito antes do cancelamento (sem desfecho nem `current`; quem
+perdeu a autoridade segue §5.0.1), e a saída do grupo não promove a espera de racha cancelado. Trava perfil → grupo → membership
 → racha, a mesma de `join_match`. O outcome é `{group_id, logical_result, match_id}`;
 `get_match`, `list_my_matches`, `get_matches_occupancy` e `get_match_roster` devolvem
 `canceled`, nunca quem cancelou nem quando.
