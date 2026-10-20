@@ -30,6 +30,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
+import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { groupErrorMessage } from '../groups/group-errors';
 import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 import { DESCRIPTION_MAX, descriptionLength } from './match-description';
@@ -263,12 +264,16 @@ export function CreateMatchScreen({
   });
   const match = edited.data ?? undefined;
   const prefilled = useRef(false);
+  // What the edit started from: closing with anything else asks first (rev79, BB-006).
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState(false);
   useEffect(() => {
     if (!editing || match === undefined || prefilled.current) return;
     prefilled.current = true;
     const filled = formValuesFromMatch(match);
     setValues(filled.values);
     setPlace(filled.place);
+    setBaseline(JSON.stringify([filled.values, filled.place]));
   }, [editing, match]);
 
   const eligible = useQuery({
@@ -485,6 +490,15 @@ export function CreateMatchScreen({
     router.canDismiss()
       ? router.dismiss()
       : router.replace(editing ? `/rachas/${editMatchId}` : '/rachas');
+  const changed = baseline !== null && JSON.stringify([values, place]) !== baseline;
+  const closeAsked = () => {
+    if (changed && !saving.isPending) setDiscarding(true);
+    else close();
+  };
+  const keepEditing = () => {
+    setDiscarding(false);
+    requestAnimationFrame(() => focusGroupControl('match-create-close'));
+  };
   const pending = editing ? saving.isPending : creation.isPending;
   const page = editing
     ? { title: pt.matches.create.editTitle, description: '' }
@@ -521,7 +535,11 @@ export function CreateMatchScreen({
 
   return (
     <AuthenticatedShell
-      closeModal={{ label: pt.matches.create.close, onPress: close, testID: 'match-create-close' }}
+      closeModal={{
+        label: pt.matches.create.close,
+        onPress: closeAsked,
+        testID: 'match-create-close',
+      }}
       {...page}
     >
       {(editing ? edited.isPending || (match && editedRoster.isPending) : eligible.isPending) ? (
@@ -574,6 +592,31 @@ export function CreateMatchScreen({
           message={pt.matches.create.groupUnavailable}
           title={pt.matches.create.groupUnavailableTitle}
         />
+      ) : null}
+      {showForm && discarding ? (
+        <GroupConfirmation
+          level={2}
+          testID="match-discard-confirmation"
+          title={pt.matches.create.discardTitle}
+        >
+          <Text style={[styles.label, { color: colors.text }]}>
+            {pt.matches.create.discardBody}
+          </Text>
+          <View style={styles.discardActions}>
+            <AppButton
+              label={pt.matches.create.discard}
+              onPress={close}
+              testID="match-discard-confirm"
+              variant="outline-destructive"
+            />
+            <AppButton
+              label={pt.matches.create.keepEditing}
+              onPress={keepEditing}
+              testID="match-discard-keep"
+              variant="secondary"
+            />
+          </View>
+        </GroupConfirmation>
       ) : null}
       {showForm ? (
         <AppCard testID="create-match-card">
@@ -735,6 +778,7 @@ const styles = StyleSheet.create({
   choice: { gap: spacing.sm },
   chosen: { gap: spacing.xs },
   counter: { ...typography.support, alignSelf: 'flex-end' },
+  discardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   credit: {
     alignItems: 'center',
     borderRadius: radius.field,

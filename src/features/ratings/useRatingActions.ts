@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
 import { AppError, TransportError, type MutationIntent } from '@/lib/api';
+import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 
 import { ratingsKey } from './rating-queries';
 
@@ -25,6 +26,16 @@ export function useRatingActions(profileId: string, groupId: string) {
     };
   }, []);
   const refresh = () => client.invalidateQueries({ queryKey: ratingsKey(profileId, groupId) });
+  // A changed rating makes the drawn teams of the group's matches stale for the
+  // organisers (0032): their cached teams are read again (rev82, BB-014).
+  const refreshTeams = () =>
+    client.invalidateQueries({
+      predicate: ({ queryKey }) =>
+        queryKey[0] === PRIVATE_QUERY_ROOT &&
+        queryKey[1] === 'matches' &&
+        queryKey[2] === profileId &&
+        queryKey[4] === 'teams',
+    });
   async function run<T>(key: string, command: () => MutationIntent<T>): Promise<T | undefined> {
     if (busy.current) return undefined;
     busy.current = true;
@@ -36,6 +47,7 @@ export function useRatingActions(profileId: string, groupId: string) {
       }
       const result = (await intent.current.command.execute()) as T;
       intent.current = null;
+      await refreshTeams();
       if (alive.current) await refresh();
       return alive.current ? result : undefined;
     } catch (caught) {

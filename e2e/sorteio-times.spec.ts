@@ -294,17 +294,50 @@ test('Sorteio: the organizer draws the snake by rating, the player sees the same
     await expect(page.getByTestId('match-unrated')).toHaveAccessibleName('1 sem nota');
     await shot(page, testInfo.project.name, '01-sorteio-antes.png');
 
-    // Five confirmed cannot make three teams: the server says so, nothing is drawn.
+    // rev82 / BB-013: when the server is the one asking about unequal sizes
+    // (the list changed after the screen read it), closing that confirmation
+    // also gives the focus back. The answer is simulated: four accounts cannot
+    // reach the concurrent case here; the real one is proved in db:test:teams.
     await page.getByTestId('match-teams-count-3').click();
+    await page.route('**/groups/draw_teams', (route) =>
+      route.fulfill({
+        status: 422,
+        json: {
+          error: {
+            code: 'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED',
+            message: 'Confirme os tamanhos diferentes.',
+            retryable: false,
+          },
+          request_id: crypto.randomUUID(),
+        },
+      }),
+    );
+    await page.getByTestId('match-teams-draw').click();
+    await expect(page.getByTestId('match-teams-confirmation-heading')).toBeFocused();
+    // The refusal re-reads the match first; the confirmation waits for it.
+    await expect(page.getByTestId('match-teams-confirm')).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await page.getByTestId('match-teams-keep').click();
+    await expect(page.getByTestId('match-teams-confirmation')).toHaveCount(0);
+    await expect(page.getByTestId('match-teams-draw')).toBeFocused();
+    await page.unroute('**/groups/draw_teams');
+
+    // Five confirmed cannot make three teams: the server says so, nothing is drawn.
     await expect(page.getByTestId('match-teams-count-3')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('match-teams-count-2')).toHaveAttribute('aria-pressed', 'false');
     await page.getByTestId('match-teams-draw').click();
     await expect(page.getByTestId('match-teams-draw-error')).toHaveText(
       'Para 3 times, é preciso ter pelo menos 6 confirmados.',
     );
+    // The refusal re-reads the match before the action ends; until then the
+    // number of teams ignores a press (a press there once kept 3 teams).
+    await expect(page.getByTestId('match-teams-draw')).not.toHaveAttribute('aria-disabled', 'true');
 
     // Two teams of five ask for the unequal sizes first; one confirmed has no rating.
     await page.getByTestId('match-teams-count-2').click();
+    await expect(page.getByTestId('match-teams-count-2')).toHaveAttribute('aria-pressed', 'true');
     await page.getByTestId('match-teams-draw').click();
     await expect(page.getByTestId('match-teams-confirmation-heading')).toBeFocused();
     await expect(page.getByTestId('match-teams-unequal')).toHaveText(
@@ -379,7 +412,30 @@ test('Sorteio: the organizer draws the snake by rating, the player sees the same
     expect(await teamNames(page)).toEqual(drawn);
 
     // A rating changed after the draw: stale for the organization, not for the player.
-    await rate(request, owner, groupId, zag, 1);
+    // rev82 / BB-014: changed in the app itself and back to the match with no
+    // reload, the cached teams are read again and say so.
+    const nav = page.getByRole('navigation', { name: 'Navegação principal' });
+    await nav.getByRole('link', { name: 'Grupos' }).click();
+    await page.getByTestId('group-list-card').click();
+    await page.getByTestId('group-ratings-link').click();
+    const zagCard = page
+      .getByTestId(/^rating-member-\d+$/)
+      .filter({ has: page.getByRole('radiogroup', { name: `Nota de ${zag.name}`, exact: true }) });
+    await zagCard.getByRole('radio', { name: '1 estrela' }).click();
+    await zagCard.getByRole('button', { name: 'Salvar nota' }).click();
+    await expect(zagCard.getByTestId(/-result$/)).toHaveText(`${zag.name}: nota 1.`);
+    // Back through the history, as the browser's back button: no document load.
+    const loads: string[] = [];
+    page.on('load', () => loads.push(page.url()));
+    await page.goBack();
+    await page.goBack();
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`, 'u'));
+    await expect(page.getByTestId('match-teams-stale').filter({ visible: true })).toHaveText(
+      'Times desatualizados',
+    );
+    expect(loads).toEqual([]);
+    expect(page.url()).toContain(`/rachas/${matchId}`);
     await page.reload();
     await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
     await anaView.page.reload();

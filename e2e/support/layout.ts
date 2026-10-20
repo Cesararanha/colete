@@ -114,3 +114,56 @@ export async function assertNoPhantomScroll(page: Page) {
   await waitForStableLayout(page);
   expect((await state()).scrolled).toBe(0);
 }
+
+/**
+ * Every visible piece of text stays inside the screen and inside each ancestor
+ * that clips it. Polimento final: a long name without spaces ran off the card
+ * or was cut by the header, which neither the page width nor axe detects.
+ * Returns the offending texts (shortened) so that a failure names them.
+ */
+export async function textOutsideItsBox(page: Page): Promise<string[]> {
+  await waitForStableLayout(page);
+  return page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const clips = (element: Element) => {
+      const style = getComputedStyle(element);
+      return style.overflowX !== 'visible' || style.overflow !== 'visible';
+    };
+    const bad = new Set<string>();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const text = node.textContent?.trim() ?? '';
+      const parent = node.parentElement;
+      if (text === '' || parent === null) continue;
+      // aria-hidden text (a card's body under its link label) is still drawn.
+      if (parent.closest('script, style, [hidden]')) continue;
+      const style = getComputedStyle(parent);
+      if (style.visibility === 'hidden' || style.display === 'none') continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+      if (rects.length === 0) continue;
+      // Hidden screens of the tab stacks stay mounted with no size.
+      if (parent.getClientRects().length === 0) continue;
+      const boxes: { left: number; right: number }[] = [{ left: 0, right: width }];
+      for (let element = parent.parentElement; element; element = element.parentElement) {
+        if (element === document.body || element === document.documentElement) break;
+        if (!clips(element)) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0) continue;
+        boxes.push({ left: rect.left, right: rect.right });
+      }
+      // A text cut on purpose by its own box (one line with an ellipsis) counts
+      // only for the part its box shows.
+      const own = clips(parent) ? parent.getBoundingClientRect() : null;
+      for (const rect of rects) {
+        const left = own ? Math.max(rect.left, own.left) : rect.left;
+        const right = own ? Math.min(rect.right, own.right) : rect.right;
+        if (right <= left) continue;
+        if (boxes.some((box) => left < box.left - 1 || right > box.right + 1))
+          bad.add(text.slice(0, 24));
+      }
+    }
+    return [...bad];
+  });
+}

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -53,6 +53,7 @@ export function GroupAppearanceScreen({
   const isOwner = group?.role === 'owner';
   useLeaveMissingGroup(data?.missing === true);
   const [draft, setDraft] = useState<GroupAppearance | null>(null);
+  const latestPick = useRef<GroupAppearance | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const choice = draft ?? group?.appearance;
   // Item 6: the photo takes the icon's place wherever the group shows, so the
@@ -61,6 +62,7 @@ export function GroupAppearanceScreen({
   const photoChange = usePhotoChange({ kind: 'group', groupId });
   const activeMembers = data?.members.filter((member) => member.status === 'active').length ?? 0;
   const pick = (next: GroupAppearance) => {
+    latestPick.current = next;
     setDraft(next);
     setMessage(null);
     administration.discardIntent();
@@ -68,14 +70,22 @@ export function GroupAppearanceScreen({
   const save = async () => {
     if (!choice) return;
     setMessage(null);
-    const success = await run(`appearance:${choice.icon}:${choice.color}`, () =>
-      api.setGroupAppearance(groupId, choice.icon, choice.color),
+    const sent = choice;
+    const success = await run(`appearance:${sent.icon}:${sent.color}`, () =>
+      api.setGroupAppearance(groupId, sent.icon, sent.color),
     );
     if (!success) return;
-    setDraft(null);
+    // A choice made while this one was being saved stays as the new draft
+    // (rev77, BB-017): only the saved choice leaves the draft.
+    const current = latestPick.current;
+    const newer = current !== null && (current.icon !== sent.icon || current.color !== sent.color);
+    if (!newer) {
+      latestPick.current = null;
+      setDraft(null);
+    }
     // The Agenda's cards carry the group's icon too.
     await queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'matches'] });
-    setMessage(pt.groups.appearance.saved);
+    if (!newer) setMessage(pt.groups.appearance.saved);
   };
   const selected = choice ? groupColors(colors, choice.color) : undefined;
   return (
@@ -127,14 +137,18 @@ export function GroupAppearanceScreen({
                   aria-pressed={on}
                   key={icon}
                   onPress={() => pick({ ...choice, icon })}
-                  style={[
+                  style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
                     styles.iconTile,
                     on
                       ? {
                           backgroundColor: selected.fill,
                           borderColor: selected.glyph,
                         }
-                      : { backgroundColor: colors.surface, borderColor: colors.surface },
+                      : {
+                          backgroundColor: hovered ? colors.surfaceRaised : colors.surface,
+                          // Hover (BB-028): a neutral outline, never the selection's colour.
+                          borderColor: hovered ? colors.fieldBorder : colors.surface,
+                        },
                   ]}
                   testID={`appearance-icon-${icon}`}
                 >
@@ -162,7 +176,11 @@ export function GroupAppearanceScreen({
                   aria-pressed={on}
                   key={color}
                   onPress={() => pick({ ...choice, color })}
-                  style={[styles.swatch, { backgroundColor: groupColors(colors, color).glyph }]}
+                  style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
+                    styles.swatch,
+                    { backgroundColor: groupColors(colors, color).glyph },
+                    hovered && !on ? { opacity: 0.8 } : null,
+                  ]}
                   testID={`appearance-color-${color}`}
                 >
                   {on ? <AppIcon color={colors.background} name="check" size={20} /> : null}

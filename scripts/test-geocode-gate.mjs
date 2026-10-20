@@ -302,8 +302,12 @@ async function proveManyInstances(db, workers, actors) {
 
 // Contraprova: com os horários de fato a 1250 ms (a regra da 0023) mas a
 // resposta ainda dizendo 2000, a Edge usa tolerância de 1000 ms e uma
-// resposta do portão 900 ms atrasada deixa duas saídas a menos de 1 s. É a
-// conta S − T = 1000 que segura o espaçamento.
+// resposta do portão 600 ms atrasada deixa duas saídas a menos de 1 s. É a
+// conta S − T = 1000 que segura o espaçamento. O atraso fica longe dos dois
+// limites (polimento final): acima de 250 ms o mutante quebra o espaçamento,
+// e a ida e volta real da RPC, somada a ele, precisa caber nos 1000 ms da
+// janela; com 900 ms, uma RPC acima de 100 ms numa pilha carregada fazia A
+// abandonar o horário, e a contraprova falhava sem defeito nenhum.
 async function proveMarginMutant(db, workers, actors) {
   const original = (await db.query('select pg_get_functiondef($1::regprocedure) as d', [GATE]))
     .rows[0].d;
@@ -321,7 +325,7 @@ async function proveMarginMutant(db, workers, actors) {
         outgoing,
         'A',
         () => {
-          const delay = first ? 900 : 0;
+          const delay = first ? 600 : 0;
           first = false;
           return delay;
         },
@@ -354,7 +358,7 @@ async function proveMarginMutant(db, workers, actors) {
     .d;
   assert.equal(live, original, 'geocode_reserve restored byte for byte');
   console.log(
-    `ok - spacing mutant (slots really 1250 ms apart, gate reply 900 ms late): gap ${mutantGap.toFixed(1)} ms < 1000; restored: ${restoredGap.toFixed(1)} ms`,
+    `ok - spacing mutant (slots really 1250 ms apart, gate reply 600 ms late): gap ${mutantGap.toFixed(1)} ms < 1000; restored: ${restoredGap.toFixed(1)} ms`,
   );
 }
 

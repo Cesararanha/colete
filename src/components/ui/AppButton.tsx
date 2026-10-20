@@ -1,5 +1,14 @@
+import { Link, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -18,6 +27,13 @@ type AppButtonProps = {
    * by adjacent text associated here, and the press explains itself.
    */
   describedBy?: string | undefined;
+  /**
+   * A destination: the same button, but a real link on the web (href, new
+   * tab, copy address). `onPress` still runs; the link navigates.
+   */
+  href?: Href;
+  /** With `href`, the destination replaces the current entry. */
+  replace?: boolean;
   /** Decorative Feather icon; the label carries the meaning. */
   icon?: IconName;
   /** `trailing` (e.g. a chevron) puts the icon at the end and starts the label. */
@@ -25,6 +41,8 @@ type AppButtonProps = {
   label: string;
   onPress: () => void;
   pressed?: boolean;
+  /** One line, cut with an ellipsis (the way back); the accessible label stays whole. */
+  singleLine?: boolean;
   /** Prévia aprovada: a 44 px pill (Criar racha, Editar) instead of the 56 px block. */
   compact?: boolean;
   testID?: string;
@@ -43,11 +61,14 @@ export function AppButton({
   children,
   compact = false,
   describedBy,
+  href,
   icon,
   iconPosition = 'leading',
   label,
   onPress,
   pressed,
+  replace = false,
+  singleLine = false,
   testID,
   variant = 'primary',
 }: AppButtonProps) {
@@ -127,10 +148,37 @@ export function AppButton({
     );
   }
 
-  return (
+  // Web hover (rev77, BB-028): a perceptible dimming, distinct from the
+  // selected state, which changes the fill and adds a check.
+  const surface = (isPressed: boolean, isHovered = false): StyleProp<ViewStyle> => [
+    styles.base,
+    textOnly ? styles.textOnly : styles.filled,
+    outline
+      ? [
+          styles.outline,
+          {
+            borderColor: variant === 'outline-destructive' ? colors.critical : colors.fieldBorder,
+          },
+        ]
+      : null,
+    compact ? styles.compact : null,
+    {
+      backgroundColor: background,
+      opacity: isPressed && textOnly ? 0.72 : isHovered && !isPressed ? 0.84 : 1,
+      transform: [{ scale: isPressed && !reducedMotion ? 0.98 : 1 }],
+    } satisfies ViewStyle,
+    Platform.OS === 'web'
+      ? ({
+          transitionDuration: isPressed ? '100ms' : '160ms',
+          transitionProperty: 'transform, opacity',
+        } as ViewStyle)
+      : null,
+  ];
+
+  const button = (
     <Pressable
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
+      accessibilityRole={href === undefined ? 'button' : 'link'}
       accessibilityState={{
         disabled: ariaDisabled,
         ...(pressed === undefined ? {} : { selected: pressed }),
@@ -139,31 +187,13 @@ export function AppButton({
       aria-describedby={describedBy}
       aria-pressed={pressed}
       onPress={onPress}
-      style={({ pressed: isPressed }) => [
-        styles.base,
-        textOnly ? styles.textOnly : styles.filled,
-        outline
-          ? [
-              styles.outline,
-              {
-                borderColor:
-                  variant === 'outline-destructive' ? colors.critical : colors.fieldBorder,
-              },
-            ]
-          : null,
-        compact ? styles.compact : null,
-        {
-          backgroundColor: background,
-          opacity: isPressed && textOnly ? 0.72 : 1,
-          transform: [{ scale: isPressed && !reducedMotion ? 0.98 : 1 }],
-        } satisfies ViewStyle,
-        Platform.OS === 'web'
-          ? ({
-              transitionDuration: isPressed ? '100ms' : '160ms',
-              transitionProperty: 'transform, opacity',
-            } as ViewStyle)
-          : null,
-      ]}
+      // Link asChild takes only one flat, static style: the link is drawn unpressed.
+      style={
+        href === undefined
+          ? ({ pressed: isPressed, hovered }: { pressed: boolean; hovered?: boolean }) =>
+              surface(isPressed, hovered === true)
+          : StyleSheet.flatten(surface(false))
+      }
       testID={testID}
     >
       {children}
@@ -173,6 +203,7 @@ export function AppButton({
         </View>
       ) : null}
       <Text
+        numberOfLines={singleLine ? 1 : undefined}
         style={[
           styles.label,
           compact ? styles.compactLabel : undefined,
@@ -188,6 +219,13 @@ export function AppButton({
         </View>
       ) : null}
     </Pressable>
+  );
+  return href === undefined ? (
+    button
+  ) : (
+    <Link asChild href={href} replace={replace}>
+      {button}
+    </Link>
   );
 }
 
@@ -219,9 +257,11 @@ const styles = StyleSheet.create({
     minHeight: size.target,
   },
   icon: { flexShrink: 0 },
+  // minWidth 0: a long label (a member's name) wraps instead of leaving the button.
   label: {
     ...typography.button,
     flexShrink: 1,
+    minWidth: 0,
     textAlign: 'center',
   },
   labelStart: { flex: 1, textAlign: 'left' },

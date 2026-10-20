@@ -285,8 +285,21 @@ const styles = StyleSheet.create({
   intro: { alignItems: 'center', gap: 10, minWidth: 0, paddingTop: spacing.ms },
   links: { borderRadius: radius.row, overflow: 'hidden' },
   logout: { gap: spacing.sm, paddingTop: spacing.md },
-  name: { ...typography.heading, fontSize: 26, lineHeight: 30, textAlign: 'center' },
-  nickname: { ...typography.body, fontSize: 16, lineHeight: 22, textAlign: 'center' },
+  // Stretched, so that a long word wraps inside the card instead of running off it.
+  name: {
+    ...typography.heading,
+    alignSelf: 'stretch',
+    fontSize: 26,
+    lineHeight: 30,
+    textAlign: 'center',
+  },
+  nickname: {
+    ...typography.body,
+    alignSelf: 'stretch',
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
   shirt: { ...face('condensed'), fontSize: 26, fontVariant: ['tabular-nums'], lineHeight: 28 },
   stat: {
     alignItems: 'center',

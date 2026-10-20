@@ -6,7 +6,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
 import { Chip } from '@/components/ui/Chip';
-import { api, type MemberRating, type OwnProfile, type RatingOutcome } from '@/lib/api';
+import { AppError, api, type MemberRating, type OwnProfile, type RatingOutcome } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
@@ -33,9 +33,12 @@ function MemberCard({
   self: boolean;
 }) {
   const { colors } = useTheme();
-  const [draft, setDraft] = useState<number | null>(member.stars);
+  // Only a choice the person made is a draft (rev83, BB-003): an untouched
+  // card follows the current rating, also after another session changed it.
+  const [draft, setDraft] = useState<number | null>(null);
+  const value = draft ?? member.stars;
   const [message, setMessage] = useState('');
-  const key = `rate:${member.profile_id}:${draft ?? ''}`;
+  const key = `rate:${member.profile_id}:${value ?? ''}`;
   const changed = draft !== null && draft !== member.stars;
   const pending = actions.pending === key;
   const error = actions.error?.key.startsWith(`rate:${member.profile_id}:`)
@@ -44,15 +47,17 @@ function MemberCard({
   const testID = `rating-member-${index}`;
   const save = () => {
     if (draft === null || actions.pending !== null) return;
+    const stars = draft;
     setMessage('');
     void actions
-      .run<RatingOutcome>(key, () => api.setRating(groupId, member.profile_id, draft))
+      .run<RatingOutcome>(key, () => api.setRating(groupId, member.profile_id, stars))
       .then((result) => {
         if (!result) return;
+        setDraft((current) => (current === stars ? null : current));
         setMessage(
           result.outcome.logical_result === 'rating_unchanged'
             ? pt.ratings.unchanged(member.display_name)
-            : pt.ratings.saved(member.display_name, draft),
+            : pt.ratings.saved(member.display_name, stars),
         );
       });
   };
@@ -100,7 +105,7 @@ function MemberCard({
           actions.clearError();
         }}
         testID={`${testID}-picker`}
-        value={draft}
+        value={value}
       />
       {/* The live regions stay mounted, empty, so a result is announced; together they take one gap. */}
       <View>
@@ -132,7 +137,12 @@ export function GroupRatingsScreen({ groupId, profile }: { groupId: string; prof
   const { colors } = useTheme();
   const ratings = useGroupRatings(profile.id, groupId);
   const actions = useRatingActions(profile.id, groupId);
-  const data = ratings.data;
+  // A refusal that ends the authority (removed, or the group is gone) drops the
+  // projection read while it lasted (rev83, BB-004), not only its controls.
+  const lost =
+    ratings.error instanceof AppError &&
+    (ratings.error.code === 'NOT_MEMBER' || ratings.error.code === 'NOT_FOUND');
+  const data = lost ? undefined : ratings.data;
   const members = data?.can_rate ? (data.members ?? []) : [];
   const missing = unratedCount(members);
   return (

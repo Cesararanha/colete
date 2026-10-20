@@ -31,6 +31,10 @@ export function VerifyCodeScreen() {
   const resendAvailableAt = useAuthFlowStore((state) => state.resendAvailableAt);
   const setResendAvailableAt = useAuthFlowStore((state) => state.setResendAvailableAt);
   const clearPendingSignup = useAuthFlowStore((state) => state.clearPendingSignup);
+  const restored = useAuthFlowStore((state) => state.restored);
+  const restorePendingSignup = useAuthFlowStore((state) => state.restorePendingSignup);
+  // After the first render, so that it matches the static page.
+  useEffect(() => restorePendingSignup(), [restorePendingSignup]);
   const [now, setNow] = useState(() => Date.now());
   const {
     control,
@@ -71,6 +75,13 @@ export function VerifyCodeScreen() {
     (values) => verification.mutate(values),
     (invalid) => focusFirstInvalid(invalid, setFocus),
   );
+  if (!restored) {
+    return (
+      <AuthShell description={pt.auth.otp.description} title={pt.auth.otp.title}>
+        <AsyncNotice kind="loading" message={pt.common.loading} />
+      </AuthShell>
+    );
+  }
   if (pendingEmail === null) {
     return (
       <AuthShell description={pt.auth.otp.description} title={pt.auth.otp.title}>

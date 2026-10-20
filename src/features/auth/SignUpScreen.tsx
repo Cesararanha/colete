@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { StyleSheet, View } from 'react-native';
 
@@ -22,6 +23,9 @@ import { passwordStrength, signUpSchema, type SignUpValues } from './schemas';
 
 export function SignUpScreen() {
   const setPendingSignup = useAuthFlowStore((state) => state.setPendingSignup);
+  const clearPendingSignup = useAuthFlowStore((state) => state.clearPendingSignup);
+  // Back on the form, a code asked for earlier is no longer the one waited for.
+  useFocusEffect(useCallback(() => clearPendingSignup(), [clearPendingSignup]));
   const {
     control,
     handleSubmit,

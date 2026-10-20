@@ -324,18 +324,24 @@ test('Convite: the link before login comes back to the page after signing in', a
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'convite-link.png');
     await checkPreviews();
-    expect(
-      await page.evaluate(
-        (token) =>
-          !location.href.includes(token) &&
-          !JSON.stringify(history.state ?? null).includes(token) &&
-          Object.keys(localStorage).every((key) => !localStorage.getItem(key)?.includes(token)) &&
-          Object.keys(sessionStorage).every((key) => !sessionStorage.getItem(key)?.includes(token)),
-        group.token,
-      ),
-    ).toBe(true);
+    // Until used, the token is only in this tab's sessionStorage (colete:invite,
+    // polimento final); never the URL, history or localStorage.
+    const places = (token: string) =>
+      page.evaluate(
+        (token) => [
+          location.href.includes(token),
+          JSON.stringify(history.state ?? null).includes(token),
+          Object.keys(localStorage).some((key) => localStorage.getItem(key)?.includes(token)),
+          Object.keys(sessionStorage)
+            .filter((key) => sessionStorage.getItem(key)?.includes(token))
+            .join(','),
+        ],
+        token,
+      );
+    expect(await places(group.token)).toEqual([false, false, false, 'colete:invite']);
     await page.getByTestId('join-submit').click();
     await expect(page.getByTestId('group-request-sent')).toHaveText(/^Pedido enviado\./u);
+    expect(await places(group.token)).toEqual([false, false, false, '']);
     // A signed-in person following the link lands on the page directly.
     await page.goto('/grupos');
     await page.goto(`/join#token=${group.token}`);

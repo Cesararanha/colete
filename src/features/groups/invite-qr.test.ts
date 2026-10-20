@@ -112,3 +112,49 @@ describe('invitation QR', () => {
     expect(parseInviteLink(link, origin + '/')).toBeNull();
   });
 });
+
+describe('the /join link across a sign in', () => {
+  function tab(pathname: string, hash: string) {
+    const items = new Map<string, string>();
+    const location = { pathname, hash, search: '' };
+    return {
+      items,
+      window: {
+        location,
+        history: {
+          state: null,
+          replaceState: (_state: unknown, _title: string, url: string) => {
+            location.hash = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+          },
+        },
+        sessionStorage: {
+          getItem: (key: string) => items.get(key) ?? null,
+          setItem: (key: string, value: string) => void items.set(key, value),
+          removeItem: (key: string) => void items.delete(key),
+        },
+      },
+    };
+  }
+  it('a reload after the fragment was read still finds the same invitation', () => {
+    const first = tab('/join', `#token=${token}`);
+    vi.stubGlobal('window', first.window);
+    expect(consumeInviteFragment()).toBe(token);
+    expect(first.window.location.hash).toBe('');
+    // The reload on Entrar (or on any step) has no fragment and no page memory.
+    const reloaded = { ...first.window, location: { pathname: '/entrar', hash: '', search: '' } };
+    vi.stubGlobal('window', reloaded);
+    expect(hasPendingInvite()).toBe(true);
+    expect(consumeInviteFragment()).toBe(token);
+    // Kept until used: the join screen forgets it after the request.
+    first.items.clear();
+    expect(hasPendingInvite()).toBe(false);
+    expect(consumeInviteFragment()).toBeNull();
+  });
+  it('a malformed fragment is not kept for a reload', () => {
+    const page = tab('/join', '#token=synthetic');
+    vi.stubGlobal('window', page.window);
+    expect(consumeInviteFragment()).toBe('synthetic');
+    expect(page.items.size).toBe(0);
+    expect(hasPendingInvite()).toBe(false);
+  });
+});

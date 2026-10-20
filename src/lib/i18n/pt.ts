@@ -131,7 +131,10 @@ export const pt = {
       delete: 'Apagar grupo',
       deleteTitle: (name: string) => `Apagar ${name}?`,
       deleteBody: 'Ninguém mais vai acessar o grupo e os rachas futuros serão cancelados.',
-      deleteName: 'Nome do grupo',
+      deleteName: 'Repita o nome do grupo',
+      deleteHint: (name: string) => `Para confirmar, digite ${name}.`,
+      deleteMismatch: (name: string) =>
+        `O nome não confere. Digite ${name} como aparece no grupo para apagar.`,
       deleting: 'Apagando…',
     },
     appearance: {
@@ -141,7 +144,7 @@ export const pt = {
       back: 'Configurações',
       icon: 'Ícone',
       color: 'Cor',
-      save: 'Salvar',
+      save: 'Salvar ícone do grupo',
       saved: 'Ícone e cor salvos. Todos os membros já veem a nova escolha.',
       ownerOnly: 'Só o dono escolhe o ícone e a cor do grupo.',
       members: (count: number) => `${count} ${count === 1 ? 'membro' : 'membros'}`,
@@ -499,6 +502,10 @@ export const pt = {
       title: 'Criar racha',
       description: 'Defina quando, onde, quantas vagas e quanto cada jogador paga.',
       close: 'Fechar',
+      discardTitle: 'Descartar as alterações?',
+      discardBody: 'O que você mudou neste racha ainda não foi salvo.',
+      discard: 'Descartar alterações',
+      keepEditing: 'Continuar editando',
       group: 'Grupo',
       groupHint: 'Somente grupos em que você é dono ou organizador.',
       noGroupsTitle: 'Nenhum grupo para organizar',
@@ -756,7 +763,8 @@ export const pt = {
     profile: {
       eyebrow: 'Última etapa',
       title: 'Complete seu perfil',
-      description: 'Confirme como seu nome aparecerá no Colete.',
+      description:
+        'Confirme como seu nome aparecerá no Colete. Só o nome é obrigatório; o resto é opcional.',
       action: 'Concluir perfil',
     },
     ready: {
@@ -854,6 +862,9 @@ export const pt = {
     openProfile: 'Foto de perfil',
     change: 'Trocar foto',
     remove: 'Remover foto',
+    removeQuestion: 'Remover a foto? Ela sai para todos.',
+    removeConfirm: 'Confirmar remoção',
+    removeCancel: 'Manter foto',
     choose: 'Escolher foto',
     library: 'Galeria',
     camera: 'Câmera',

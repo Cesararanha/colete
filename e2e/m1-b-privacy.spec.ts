@@ -393,7 +393,11 @@ async function cleanupAccount(
     ]);
     await db.query('delete from public.profiles where id = any($1::uuid[])', [profileIds]);
   }
-  if (authUserId !== undefined) await deleteAuthUser(request, env, authUserId);
+  if (authUserId !== undefined) {
+    // Sign-up and recovery flows stay in auth.flow_state when the user goes (BB-035).
+    await db.query('delete from auth.flow_state where user_id = $1', [authUserId]);
+    await deleteAuthUser(request, env, authUserId);
+  }
   await db.query(
     `delete from auth.audit_log_entries
       where payload->>'actor_id' = $1 or lower(payload->>'actor_username') = lower($2)`,

@@ -1,5 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Colete">
-  <rect width="512" height="512" rx="112" fill="#0A6335"/>
-  <path fill="#F4F8F5" d="M166 102h64l26 64 26-64h64l54 86-57 50v172H169V238l-57-50 54-86Zm44 46-26 42 35 31v135h74V221l35-31-26-42-46 112-46-112Z"/>
-  <circle cx="256" cy="309" r="25" fill="#79E5A9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Colete">
+  <defs>
+    <path id="back" d="M300 198L394 178Q512 200 630 178L726 200C756 290 786 400 778 488L768 770C768 792 754 800 734 805C660 825 590 842 512 842S364 825 290 805C270 800 256 792 256 770L246 488C238 400 270 290 300 198Z"/>
+    <path id="front" d="M394 180C398 300 450 338 512 338S626 300 630 180L712 200C694 290 684 380 694 436C702 470 738 488 778 488L768 770C768 792 754 800 734 805C660 825 590 842 512 842S364 825 290 805C270 800 256 792 256 770L246 488C286 488 322 470 330 436C340 380 330 290 312 200Z"/>
+    <clipPath id="body"><use href="#front"/></clipPath>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC75A"/>
+      <stop offset="1" stop-color="#F5A62C"/>
+    </linearGradient>
+    <linearGradient id="navy" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1A2B5C"/>
+      <stop offset="1" stop-color="#14224A"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16"/>
+      <feComponentTransfer><feFuncA type="linear" slope="1.5"/></feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0A1120"/>
+  <g fill="none" stroke="#FF9F2E" stroke-width="44" stroke-linejoin="round" filter="url(#glow)">
+    <use href="#back"/>
+    <use href="#front"/>
+  </g>
+  <use href="#back" fill="#0F1A3A"/>
+  <g clip-path="url(#body)">
+    <rect width="1024" height="1024" fill="url(#amber)"/>
+    <path fill="url(#navy)" d="M200 140H720C700 260 600 340 480 380C420 400 370 425 335 460L200 500Z"/>
+    <path fill="url(#navy)" d="M800 480C760 540 700 580 620 620C520 670 440 740 392 860H820Z"/>
+  </g>
+  <g fill="none" stroke="#FFB940" stroke-width="26" stroke-linejoin="round">
+    <use href="#back"/>
+    <use href="#front"/>
+  </g>
+  <g fill="none" stroke="#FFF4DE" stroke-width="18" stroke-linejoin="round">
+    <use href="#back"/>
+    <use href="#front"/>
+  </g>
 </svg>

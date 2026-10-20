@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from './support/csp';
+import { expect, test, type APIRequestContext, type Locator, type Page } from './support/csp';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
@@ -340,11 +340,51 @@ test('Prévia aprovada: avatar, two tabs, Agenda, group, members, match and prof
       'false',
     );
     await expect(cards).toHaveCount(2);
+    // rev-previa / BB-028: with a mouse, a filter and a card answer the hover.
+    if (testInfo.project.name === 'wide-chromium') {
+      const look = (target: Locator) =>
+        target.evaluate((element) =>
+          [element, ...element.querySelectorAll('*')]
+            .slice(0, 8)
+            .map((part) => {
+              const style = getComputedStyle(part);
+              return [
+                style.backgroundColor,
+                style.borderColor,
+                style.opacity,
+                style.color,
+                style.textDecorationLine,
+              ].join('|');
+            })
+            .join(';'),
+        );
+      const rail = page.getByRole('navigation', { name: 'Navegação principal' });
+      for (const target of [
+        filters.getByRole('button', { name: 'Com vaga' }),
+        cards.first(),
+        rail.getByRole('link', { name: 'Grupos' }),
+      ]) {
+        await page.mouse.move(0, 0);
+        const before = await look(target);
+        await target.hover();
+        await expect.poll(() => look(target)).not.toBe(before);
+      }
+      await page.mouse.move(0, 0);
+    }
     await filters.getByRole('button', { name: 'Com vaga' }).click();
     await expect(cards).toHaveCount(1);
     await expect(cards.first().getByTestId('match-card-state')).toHaveText('14 vagas abertas');
+    // rev74 / BB-027: the filter is in the address and survives a reload.
+    await expect(page).toHaveURL(/\/rachas\?filtro=com-vaga$/u);
+    await page.reload();
+    await expect(filters.getByRole('button', { name: 'Com vaga' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(cards).toHaveCount(1);
     await filters.getByRole('button', { name: 'Todos' }).click();
     await expect(cards).toHaveCount(3);
+    await expect(page).toHaveURL(/\/rachas$/u);
 
     // Perfil from the Agenda: Voltar returns to the Agenda.
     await avatar.click();

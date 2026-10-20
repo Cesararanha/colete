@@ -617,3 +617,81 @@ describe('UI-B group targets and transport', () => {
     ).toThrowError(AppError);
   });
 });
+
+describe('lib/api Edge reads', () => {
+  const MATCH_ID = '0190d1c2-0000-7000-8000-000000000001';
+  // What the Edge runtime itself answers when a function never responds.
+  const runtimeFailure = (status: number, code: string) =>
+    new Response(JSON.stringify({ code, message: 'Function exited due to an error' }), {
+      headers: { 'content-type': 'application/json' },
+      status,
+    });
+  const teams = { match_id: MATCH_ID, teams: [], stale: false, can_draw: false };
+  const reader = (fetcher: ReturnType<typeof vi.fn>, sleep = vi.fn(async () => undefined)) =>
+    createApiClient({
+      fetch: fetcher as unknown as typeof fetch,
+      sleep,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { publishableKey: 'sb_publishable_test', url: 'http://local.test' },
+    });
+
+  it('reads again when the runtime retired the worker mid-request (polimento final)', async () => {
+    const sleep = vi.fn(async () => undefined);
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(runtimeFailure(500, 'WORKER_ERROR'))
+      .mockResolvedValueOnce(runtimeFailure(546, 'WORKER_LIMIT'))
+      .mockResolvedValueOnce(success({ data: teams, request_id: REQUEST_ID }));
+    await expect(reader(fetcher, sleep).getMatchTeams(MATCH_ID)).resolves.toEqual(teams);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[150], [300]]);
+  });
+
+  it('gives up after the same bounded retries as a mutation', async () => {
+    const fetcher = vi.fn(async () => runtimeFailure(503, 'BOOT_ERROR'));
+    await expect(reader(fetcher).getMatchTeams(MATCH_ID)).rejects.toBeInstanceOf(TransportError);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('answers at once for the gateway envelope, a refusal or a network failure', async () => {
+    const internal = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ error: { code: 'INTERNAL', message: 'x' }, request_id: REQUEST_ID }),
+          { status: 500 },
+        ),
+    );
+    await expect(reader(internal).getMatchTeams(MATCH_ID)).rejects.toBeInstanceOf(TransportError);
+    expect(internal).toHaveBeenCalledTimes(1);
+    const refused = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 'NOT_FOUND', message: 'not found' },
+            request_id: REQUEST_ID,
+          }),
+          { status: 404 },
+        ),
+    );
+    await expect(reader(refused).getMatchTeams(MATCH_ID)).rejects.toBeInstanceOf(AppError);
+    expect(refused).toHaveBeenCalledTimes(1);
+    const offline = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    await expect(reader(offline).getMatchTeams(MATCH_ID)).rejects.toBeInstanceOf(TransportError);
+    expect(offline).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not read again once the screen gave the read up', async () => {
+    const controller = new AbortController();
+    const fetcher = vi.fn(async () => {
+      controller.abort();
+      return runtimeFailure(500, 'WORKER_ERROR');
+    });
+    const client = reader(fetcher);
+    await expect(client.getMatchTeams(MATCH_ID, controller.signal)).rejects.toBeInstanceOf(
+      TransportError,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

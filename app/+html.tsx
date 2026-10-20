@@ -2,6 +2,7 @@ import { ScrollViewStyleReset } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
 
 import { pt } from '@/lib/i18n/pt';
+import { INVITE_STORAGE_KEY, INVITE_TOKEN_SOURCE, INVITE_TTL_MS } from '@/lib/pending-invite';
 import { colors } from '@/theme/colors';
 
 const serviceWorkerRegistration = `
@@ -42,9 +43,11 @@ const serviceWorkerRegistration = `
 })();
 `;
 
-// Runs before the app and any observability code. The invitation is held only
-// in page memory until the join screen consumes it; it never enters a URL
-// after this script or any persistent browser store.
+// Runs before the app and any observability code. The invitation is held in
+// page memory until the join screen consumes it, and a well-formed one is also
+// kept in this tab's sessionStorage for at most INVITE_TTL_MS, so that a reload
+// while signing in still ends on the group's page (lib/pending-invite, same key
+// and shape). It never enters a URL after this script, localStorage or a cache.
 const consumeInviteFragment = `
 (() => {
   const capture = () => {
@@ -54,6 +57,13 @@ const consumeInviteFragment = `
     if (!fragment.startsWith('#token=')) return;
     try { window.__COLETE_INVITE_TOKEN__ = decodeURIComponent(fragment.slice(7)); }
     catch { window.__COLETE_INVITE_TOKEN__ = ''; }
+    try {
+      const token = window.__COLETE_INVITE_TOKEN__;
+      if (/${INVITE_TOKEN_SOURCE}/u.test(token)) {
+        const expiresAt = Date.now() + ${INVITE_TTL_MS};
+        sessionStorage.setItem('${INVITE_STORAGE_KEY}', JSON.stringify({ token, expiresAt }));
+      } else sessionStorage.removeItem('${INVITE_STORAGE_KEY}');
+    } catch {}
     window.dispatchEvent(new Event('colete:invite-fragment'));
   };
   capture();

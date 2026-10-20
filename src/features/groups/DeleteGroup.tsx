@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -39,6 +39,10 @@ export function DeleteGroup({
   const restoreFocus = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState('');
+  // Polimento final (BB-005): the field says what to type, and a press with a
+  // wrong name says why nothing happened, instead of a silent locked button.
+  const [mismatch, setMismatch] = useState(false);
+  const field = useRef<TextInput>(null);
   const confirmed = deleteConfirmed(typed, name);
   const removal = useMutation({
     mutationFn: () => {
@@ -68,7 +72,13 @@ export function DeleteGroup({
     }
   }, [confirming]);
   const submit = () => {
-    if (confirmed && !removal.isPending) removal.mutate();
+    if (removal.isPending) return;
+    if (!confirmed) {
+      setMismatch(true);
+      field.current?.focus();
+      return;
+    }
+    removal.mutate();
   };
   return (
     <View style={styles.section} testID="group-delete-section">
@@ -87,18 +97,22 @@ export function DeleteGroup({
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
+            error={mismatch ? pt.groups.settings.deleteMismatch(name) : undefined}
+            hint={pt.groups.settings.deleteHint(name)}
             label={pt.groups.settings.deleteName}
             onChangeText={(value) => {
               setTyped(value);
+              setMismatch(false);
               intent.current = null;
             }}
             onSubmitEditing={submit}
+            ref={field}
             testID="group-delete-name"
             value={typed}
           />
           <View style={styles.actions}>
             <AppButton
-              ariaDisabled={!confirmed || removal.isPending}
+              ariaDisabled={removal.isPending}
               icon="trash-2"
               label={removal.isPending ? pt.groups.settings.deleting : pt.groups.settings.delete}
               onPress={submit}
@@ -113,6 +127,7 @@ export function DeleteGroup({
                 intent.current = null;
                 removal.reset();
                 setTyped('');
+                setMismatch(false);
                 setConfirming(false);
               }}
               testID="group-delete-keep"

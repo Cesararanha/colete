@@ -654,29 +654,39 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     refuseInternalFields(businessInput);
     const accessToken = await accessTokenOrThrow();
     const { url, publishableKey } = config();
-    let response: Response;
-    try {
-      response = await fetcher(`${url}/functions/v1/groups/${operation}`, {
-        method: 'POST',
-        ...(signal === undefined ? {} : { signal }),
-        cache: 'no-store',
-        referrerPolicy: 'no-referrer',
-        headers: {
-          apikey: publishableKey,
-          Authorization: `Bearer ${accessToken}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(businessInput),
-      });
-    } catch {
-      throw new TransportError();
+    for (let attempt = 0; ; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetcher(`${url}/functions/v1/groups/${operation}`, {
+          method: 'POST',
+          ...(signal === undefined ? {} : { signal }),
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
+          headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${accessToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(businessInput),
+        });
+      } catch {
+        throw new TransportError();
+      }
+      const body: unknown = await response.json().catch(() => undefined);
+      const error = appErrorFromEnvelope(body, '');
+      if (error?.code === 'INTERNAL') throw new TransportError();
+      if (error !== undefined) throw error;
+      const hasData = Object.hasOwn(asRecord(body) ?? {}, 'data');
+      if (response.ok && hasData) return (body as { data: T }).data;
+      // A 5xx without the gateway's envelope is the Edge runtime's own failure:
+      // the function never answered (its worker was retired at a resource limit,
+      // failed to boot or crashed). A read has no effect, so it is sent again,
+      // like a mutation's transport retry (polimento final: the local runtime
+      // retired workers mid-request about once per suite).
+      if (response.status < 500 || attempt >= maxAutomaticRetries || signal?.aborted)
+        throw new TransportError();
+      await sleep(150 * 2 ** attempt);
     }
-    const body: unknown = await response.json().catch(() => undefined);
-    const error = appErrorFromEnvelope(body, '');
-    if (error?.code === 'INTERNAL') throw new TransportError();
-    if (error !== undefined) throw error;
-    if (!response.ok || !Object.hasOwn(asRecord(body) ?? {}, 'data')) throw new TransportError();
-    return (body as { data: T }).data;
   }
 
   function profileValidationError(error: {

@@ -217,14 +217,19 @@ arquivado/suspenso, cheio e cota pessoal aparecem no preview e no resgate
 conforme `13` §5.0.2/§5.0.3. O fluxo avulso continua
 com seus erros de racha sem vaga/cancelado.
 O token não entra em analytics, Sentry, título da página nem storage persistente do app.
+Para o link e o QR lido pela câmera do celular levarem à página do grupo mesmo depois de
+entrar, criar a conta, confirmar o código do e-mail e completar o perfil, com recarga em
+qualquer passo, um token bem formado fica só no `sessionStorage` da aba, por até 30 minutos,
+e é apagado ao ser usado (decisão humana de 20/10/2026, polimento final; `25` §5.1).
 
 ### 13 · Perfil — meus dados
-Decisão humana de 14/10/2026. **Sair da conta** fica visível no topo da tela e revoga a
-sessão atual antes de encerrar o acesso local. A tela abre em **modo leitura**: nome,
+Decisão humana de 14/10/2026, ajustada em 17/10/2026 (`27`, ajustes do teste do César):
+**Sair da conta** fica no fim da tela, com confirmação, e revoga a sessão atual antes de
+encerrar o acesso local. A tela abre em **modo leitura**: nome,
 apelido, foto, posição preferida, perna e número da camisa aparecem como texto, com o valor
 ausente dito por extenso, e um botão **Editar**. Os campos só ficam abertos no **modo
 edição**, com **Salvar** e **Cancelar**; cancelar descarta o que não foi salvo. Posição
-preferida (com texto: "aparece no cartão do time") e perna são escolha única em pílulas,
+preferida e perna são escolha única em pílulas, sem texto de ajuda,
 com "Não informar" como opção, e a escolhida é marcada por ícone + texto. Apelido e número
 da camisa se apagam esvaziando o campo, sem botão de limpar. As validações são as mesmas e
 somente os campos alterados são enviados ao salvar.

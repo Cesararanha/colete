@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'colete-shell-v1';
+const CACHE_VERSION = 'colete-shell-v2';
 const STATIC_DESTINATIONS = new Set(['font', 'image', 'script', 'style']);
 const SENSITIVE_PATH_PARTS = [
   '/auth/',

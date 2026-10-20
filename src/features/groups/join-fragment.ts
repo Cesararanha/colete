@@ -1,3 +1,5 @@
+import { isInviteToken, rememberInvite, storedInvite } from '../../lib/pending-invite';
+
 type InviteWindow = Window & { __COLETE_INVITE_TOKEN__?: string };
 
 export function hasPendingInvite(): boolean {
@@ -5,18 +7,23 @@ export function hasPendingInvite(): boolean {
   const page = window as InviteWindow;
   return (
     typeof page.__COLETE_INVITE_TOKEN__ === 'string' ||
-    (window.location.pathname === '/join' && window.location.hash.startsWith('#token='))
+    (window.location.pathname === '/join' && window.location.hash.startsWith('#token=')) ||
+    storedInvite() !== null
   );
 }
 
-/** Consume the fragment synchronously, before the join screen makes a request. */
+/**
+ * Consume the fragment synchronously, before the join screen makes a request.
+ * Without a fresh fragment, the invitation kept for this tab during the sign
+ * in (lib/pending-invite) brings the person back to the same group page.
+ */
 export function consumeInviteFragment(): string | null {
   if (typeof window === 'undefined' || !window.location) return null;
   const page = window as InviteWindow;
   const captured = page.__COLETE_INVITE_TOKEN__;
   delete page.__COLETE_INVITE_TOKEN__;
   if (typeof captured === 'string') return captured === '' ? null : captured;
-  if (!window.location.hash) return null;
+  if (!window.location.hash) return storedInvite();
   const fragment = window.location.hash;
   window.history.replaceState(
     window.history.state,
@@ -25,7 +32,9 @@ export function consumeInviteFragment(): string | null {
   );
   if (!fragment.startsWith('#token=')) return null;
   try {
-    return decodeURIComponent(fragment.slice(7));
+    const token = decodeURIComponent(fragment.slice(7));
+    rememberInvite(token);
+    return token;
   } catch {
     return null;
   }
@@ -49,8 +58,7 @@ export function parseInviteLink(value: string, expectedOrigin: string | null): s
     )
       return null;
     const token = decodeURIComponent(link.hash.slice(7));
-    // The current link is exactly 66 bytes, base64url without padding (88 symbols).
-    return /^[A-Za-z0-9_-]{88}$/u.test(token) ? token : null;
+    return isInviteToken(token) ? token : null;
   } catch {
     return null;
   }

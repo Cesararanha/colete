@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
@@ -29,6 +29,18 @@ type Row =
 
 const FILTERS: readonly MatchFilter[] = ['all', 'playing', 'open'];
 
+// The filter lives in the address (rev74, BB-027): a reload, the history and a
+// shared link keep it. "Todos" is the address without the parameter.
+const FILTER_PARAM: Record<Exclude<MatchFilter, 'all'>, string> = {
+  playing: 'vou-jogar',
+  open: 'com-vaga',
+};
+
+function filterFromParam(value: string | string[] | undefined): MatchFilter {
+  const param = Array.isArray(value) ? value[0] : value;
+  return param === FILTER_PARAM.playing ? 'playing' : param === FILTER_PARAM.open ? 'open' : 'all';
+}
+
 /** A filter of the Agenda: a real button whose selection is aria-pressed. */
 function FilterButton({
   filter,
@@ -49,13 +61,22 @@ function FilterButton({
       style={styles.filterTarget}
       testID={`matches-filter-${filter}`}
     >
-      <View
-        style={[styles.filter, { backgroundColor: selected ? colors.text : colors.surfaceRaised }]}
-      >
-        <Text style={[styles.filterText, { color: selected ? colors.background : colors.text }]}>
-          {pt.matches.list.filters[filter]}
-        </Text>
-      </View>
+      {({ hovered }: { pressed: boolean; hovered?: boolean }) => (
+        <View
+          style={[
+            styles.filter,
+            {
+              backgroundColor: selected ? colors.text : colors.surfaceRaised,
+              // Hover (BB-028): a neutral outline, distinct from the selected fill.
+              borderColor: hovered && !selected ? colors.fieldBorder : 'transparent',
+            },
+          ]}
+        >
+          <Text style={[styles.filterText, { color: selected ? colors.background : colors.text }]}>
+            {pt.matches.list.filters[filter]}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -63,7 +84,10 @@ function FilterButton({
 export function MatchesListScreen({ profile }: { profile: OwnProfile }) {
   const { colors } = useTheme();
   const listing = useUpcomingMatches(profile);
-  const [filter, setFilter] = useState<MatchFilter>('all');
+  const { filtro } = useLocalSearchParams<{ filtro?: string }>();
+  const filter = filterFromParam(filtro);
+  const setFilter = (next: MatchFilter) =>
+    router.setParams({ filtro: next === 'all' ? undefined : FILTER_PARAM[next] });
   const matches = useMemo(() => listing.data?.matches ?? [], [listing.data]);
   const occupancy = listing.data?.occupancy;
   // The weeks are read once per listing: "now" moves only when the list does.
@@ -169,6 +193,7 @@ const styles = StyleSheet.create({
   filter: {
     alignItems: 'center',
     borderRadius: radius.pill,
+    borderWidth: 1,
     justifyContent: 'center',
     minHeight: 36,
     paddingHorizontal: 14,

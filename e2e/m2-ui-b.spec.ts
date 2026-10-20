@@ -463,6 +463,23 @@ test('UI-B approves refuses promotes demotes removes renames and transfers with 
     await expect(page.getByTestId('remove-reason')).toHaveAttribute('aria-invalid', 'false');
     await accessible(page);
     await capture(page, '17-expulsao.png');
+    // rev74 / BB-030: one menu at a time. Opening another member's "…" closes
+    // this confirmation; nothing is left expanded but the new menu.
+    await page.getByTestId(`member-menu-${s.organizer.profileId}`).press('Enter');
+    await expect(page.getByTestId(`member-menu-${s.organizer.profileId}`)).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await expect(page.getByTestId(`member-menu-${s.player.profileId}`)).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await expect(page.getByTestId('remove-reason')).toHaveCount(0);
+    await expect(page.locator('[aria-expanded="true"]')).toHaveCount(1);
+    await openActions(page, s.player.profileId);
+    await expect(page.locator('[aria-expanded="true"]')).toHaveCount(1);
+    await page.getByTestId(`remove-${s.player.profileId}`).press('Enter');
+    await page.getByTestId('remove-reason').fill('Motivo sintético');
     await page.getByRole('button', { name: 'Confirmar expulsão' }).press('Enter');
     await expect(page.getByTestId(`member-${s.player.profileId}`)).toHaveCount(0);
     expect(

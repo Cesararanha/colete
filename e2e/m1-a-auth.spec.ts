@@ -817,6 +817,8 @@ test.describe('M1-A authentication', () => {
           [userId],
         );
         await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        // Sign-up and recovery flows stay in auth.flow_state when the user goes (BB-035).
+        await db.query('delete from auth.flow_state where user_id = $1', [userId]);
         await db.query('delete from auth.users where id = $1', [userId]);
       }
       await db.query(
@@ -959,6 +961,8 @@ test.describe('M1-A authentication', () => {
           [userId],
         );
         await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        // Sign-up and recovery flows stay in auth.flow_state when the user goes (BB-035).
+        await db.query('delete from auth.flow_state where user_id = $1', [userId]);
         await db.query('delete from auth.users where id = $1', [userId]);
       }
       await db.query(
@@ -997,6 +1001,23 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByRole('button', { name: /tema/u })).toHaveCount(0);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await assertAccessible(page);
+    }
+
+    // rev-previa / BB-028: with a mouse, a text link underlines under the pointer.
+    if (testInfo.project.name === 'wide-chromium') {
+      await page.goto('/entrar');
+      const forgot = page.getByRole('link', { name: 'Esqueci minha senha' });
+      const decoration = () =>
+        forgot.evaluate((element) =>
+          [element, ...element.querySelectorAll('*')]
+            .map((part) => getComputedStyle(part).textDecorationLine)
+            .join('|'),
+        );
+      await page.mouse.move(0, 0);
+      const before = await decoration();
+      expect(before).not.toContain('underline');
+      await forgot.hover();
+      await expect.poll(decoration).toContain('underline');
     }
 
     // Phantom scroll: at 390×844 the sign-in and recovery screens fit, so
@@ -1136,5 +1157,123 @@ test.describe('M1-A authentication', () => {
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Confira sua conexão');
     await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible();
+  });
+  test('a reload of "Verificar código" keeps the code field, the resend and finishes the sign up', async ({
+    browser,
+    page,
+    request,
+  }, testInfo) => {
+    // rev84 P1: back from the e-mail app, the tab reloads on "Verificar código".
+    // The resend wait of a minute is real: the Auth refuses an earlier one.
+    test.setTimeout(150_000);
+    const env = localEnvironment();
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const email = `auth-recarga-${runSuffix}-${testInfo.project.name}@colete.test`;
+    const kept = () =>
+      page.evaluate(() => {
+        const places = Object.keys(localStorage).filter((key) => key.includes('signup'));
+        const value = sessionStorage.getItem('colete:pending-signup');
+        return { local: places, session: value === null ? null : JSON.parse(value) };
+      });
+    try {
+      await page.goto('/criar-conta');
+      await page.getByTestId('signup-name').fill(account.name);
+      await page.getByTestId('signup-email').fill(email);
+      await page.getByTestId('signup-password').fill(account.password);
+      await page.getByTestId('signup-confirm-password').fill(account.password);
+      await page.getByRole('button', { name: 'Enviar código' }).click();
+      await expect(page).toHaveURL(/\/verificar-codigo$/u);
+      const first = await readLatestOtp(request, env.mailUrl, email);
+      await page.reload();
+      await expect(page.getByText(`Código enviado para ${email}.`)).toBeVisible();
+      await expect(page.getByLabel('Código de 6 dígitos')).toBeVisible();
+      // The resend wait survives too; only the e-mail and that time are kept.
+      await expect(page.getByTestId('resend-countdown')).toContainText(/Reenvio disponível em/u);
+      const stored = await kept();
+      expect(stored.local).toEqual([]);
+      expect(Object.keys(stored.session ?? {}).sort()).toEqual([
+        'email',
+        'expiresAt',
+        'resendAvailableAt',
+      ]);
+      expect(stored.session.email).toBe(email);
+      expect(stored.session.expiresAt).toBeLessThanOrEqual(Date.now() + 60 * 60 * 1000);
+      expect(JSON.stringify(stored.session)).not.toContain(account.password);
+      expect(JSON.stringify(stored.session)).not.toContain(first);
+      // Once the restored wait is over (the Auth also refuses a resend for about
+      // a minute), "Reenviar código" works on the reloaded page.
+      await expect(page.getByRole('button', { name: 'Reenviar código' })).toBeVisible({
+        timeout: 75_000,
+      });
+      await page.getByRole('button', { name: 'Reenviar código' }).click();
+      await expect(
+        page.getByText('Um novo código foi enviado. Use apenas o mais recente.'),
+      ).toBeVisible();
+      const second = await readLatestOtp(request, env.mailUrl, email);
+      await page.reload();
+      await page.getByLabel('Código de 6 dígitos').fill(second);
+      await page.getByRole('button', { name: 'Verificar e continuar' }).click();
+      await expect(page).toHaveURL(/\/grupos$/u);
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
+      ).toBeVisible();
+      // Accepted: the e-mail left the tab.
+      expect((await kept()).session).toBeNull();
+      await page.getByTestId('complete-profile-name').fill(account.name);
+      await page.getByTestId('complete-profile-submit').click();
+      await expect(page.getByRole('heading', { level: 1, name: 'Grupos' })).toBeVisible();
+
+      // Back on the form, the code asked for earlier is no longer waited for.
+      const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:4173', locale: 'pt-BR' });
+      try {
+        const form = await fresh.newPage();
+        await form.goto('/criar-conta');
+        await form.evaluate(
+          (value) => sessionStorage.setItem('colete:pending-signup', value),
+          JSON.stringify({ email, resendAvailableAt: null, expiresAt: Date.now() + 60_000 }),
+        );
+        await form.reload();
+        await expect(form.getByTestId('signup-email')).toBeVisible();
+        await expect
+          .poll(() => form.evaluate(() => sessionStorage.getItem('colete:pending-signup')))
+          .toBeNull();
+      } finally {
+        await fresh.close();
+      }
+    } finally {
+      await deleteMessagesForRecipient(request, env.mailUrl, email);
+      const user = await db.query<{ id: string }>(
+        'select id from auth.users where lower(email) = lower($1)',
+        [email],
+      );
+      const userId = user.rows[0]?.id;
+      if (userId !== undefined) {
+        await db.query(
+          `delete from private.idempotency_records
+            where actor_id in (select id from public.profiles where auth_user_id = $1)`,
+          [userId],
+        );
+        await db.query(
+          'delete from public.policy_acceptances where profile_id in (select id from public.profiles where auth_user_id = $1)',
+          [userId],
+        );
+        await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        await db.query('delete from auth.flow_state where user_id = $1', [userId]);
+        await db.query('delete from auth.users where id = $1', [userId]);
+      }
+      await db.query(
+        `delete from auth.audit_log_entries
+          where payload->>'actor_id' = $1
+             or lower(payload->>'actor_username') = lower($2)`,
+        [userId ?? '', email],
+      );
+      const residual = await db.query<{ users: number }>(
+        'select count(*)::int as users from auth.users where lower(email) = lower($1)',
+        [email],
+      );
+      expect(residual.rows).toEqual([{ users: 0 }]);
+      await db.end();
+    }
   });
 });
