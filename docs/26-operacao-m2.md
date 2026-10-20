@@ -3333,3 +3333,38 @@ Censo depois de cada rodada: zero em todas as tabelas de domínio, de Auth (usu�
 sessões, identidades, `flow_state`) e de Storage; ficam as sementes (4 MIME, 20 limites, 1
 `geocode_throttle`, 3 buckets), 2814 entradas sintéticas de auditoria do Auth e uma execução
 do cron `process_external_effects` da própria pilha.
+
+### Correção da revisão do #84 — recarga em "Verificar código"
+
+P1 da revisão de `2f2cb43`: o e-mail do cadastro esperando o código vivia só na memória da
+página (Zustand); recarregar "Verificar código" (a volta do app de e-mail) tirava o campo do
+código e dizia "Nenhum código está pendente", e o novo cadastro do mesmo e-mail recebia 429. Com
+o convite, a pessoa não chegava à página do grupo. Correção: o e-mail e o horário do próximo
+reenvio ficam só no `sessionStorage` da aba (`colete:pending-signup`), pelo prazo do código
+(`otp_expiry`, 3600 s, renovado a cada reenvio); nunca o código, a senha ou o nome. Saem
+quando o código é aceito, ao voltar ao formulário de cadastro, ao entrar com senha e na saída
+manual da conta (também de outra aba). A tela restaura o e-mail depois da primeira
+renderização, para coincidir com a página estática. Os P2/P3 da revisão ficam para depois.
+
+Provas: no `convite-link`, a conta nova recarrega em "Verificar código" e termina na página
+do grupo, com o censo do armazenamento (só o e-mail em `colete:pending-signup` antes; nada
+depois); no `m1-a-auth`, o cadastro comum recarrega, espera de verdade a contagem restaurada
+acabar (o Auth recusa reenvio com menos de um minuto: 429 imediato, 200 aos 62 s), reenvia,
+recarrega de novo, verifica o segundo código e completa o perfil; um formulário de cadastro
+aberto apaga o que estava guardado. Os dois nos dois tamanhos. Contraprova com o app de
+`2f2cb43` e os specs novos: 4 de 4 falham na recarga, sem o campo do código. `convite-link` e
+`m1-a-auth` seguidos, três vezes: 20 passed + 2 skipped em cada. Unitários de
+`lib/pending-signup` (prazo, formato, armazenamento bloqueado, saída da conta).
+
+Rodada de §5 sobre esta correção, sob `caffeinate`: banco recriado só pelas migrations; pgTAP
+30 arquivos e 2295 asserções; os 19 harnesses exit 0; `test:auth:web` 12 + 2 skipped (com o
+teste novo), `test:groups:web` 101 + 5, `test:matches:web` 28, `test:qr:web` 30, `cors` 4,
+`smoke` 6, `privacy` 5 + 5; `build:web:staging`, `verify:pwa`, `scan:docs`, `scan:secrets`,
+`test:audit` 94 e `test:staging` 102 exit 0; `verify:app` repetido depois de formatar o
+`auth-flow-store.ts` (a rodada parou nele): exit 0, vitest 60 arquivos e 731 testes; `git diff
+--check` limpo depois de tirar uma linha em branco no fim deste arquivo. **`audit:high`
+reprovou** por um alerta publicado neste dia, `GHSA-587h-7wmj-h5pm` (high), no `vite@8.2.2`
+que só entra pelo `vitest`, sobre o `launch-editor` no Windows; o lockfile é o mesmo de
+`origin/main`, que reprova igual. Por decisão de César, fica fora deste PR (atualização do
+`vite` ou exceção datada em PR próprio). Censo depois da rodada: só as sementes, os logs de
+auditoria do Auth e uma execução do cron da pilha.

@@ -14,6 +14,7 @@ import { api, TransportError } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { spacing } from '@/theme/spacing';
 import { hasPendingInvite } from '@/features/groups/join-fragment';
+import { forgetPendingSignup } from '@/lib/pending-signup';
 
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
@@ -40,6 +41,7 @@ export function LoginScreen() {
       // Whoever signs in here owns this device now; a protocol kept by an
       // earlier account must not shadow their own gate.
       deletionProtocolStore.clear();
+      forgetPendingSignup();
       router.replace(hasPendingInvite() ? '/join' : '/grupos');
     },
   });

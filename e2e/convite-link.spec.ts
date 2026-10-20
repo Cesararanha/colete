@@ -202,6 +202,44 @@ async function tokenPlaces(page: Page, token: string) {
   );
 }
 
+/**
+ * Where a sign up waiting for its code is: only this tab's sessionStorage
+ * under colete:pending-signup (the e-mail, with a deadline within the code's
+ * hour); never localStorage, and never the password, the code or the name.
+ */
+async function signupPlaces(page: Page, email: string, secrets: string[]) {
+  return page.evaluate(
+    ({ email, secrets }) => {
+      const places: string[] = [];
+      // The Supabase session (sb-…) holds the account by design; this census is
+      // about what the app keeps for the sign up.
+      const stores = [
+        ...Object.keys(localStorage)
+          .filter((key) => !key.startsWith('sb-'))
+          .map((key) => [`local:${key}`, localStorage.getItem(key)]),
+        ...Object.keys(sessionStorage).map((key) => [
+          `session:${key}`,
+          sessionStorage.getItem(key),
+        ]),
+      ] as [string, string | null][];
+      for (const [name, value] of stores) {
+        if (secrets.some((secret) => value?.includes(secret))) places.push(`secret:${name}`);
+        if (!value?.includes(email)) continue;
+        const kept = JSON.parse(value) as { expiresAt?: number };
+        places.push(
+          name === 'session:colete:pending-signup' &&
+            typeof kept.expiresAt === 'number' &&
+            kept.expiresAt <= Date.now() + 60 * 60 * 1000
+            ? 'kept'
+            : name,
+        );
+      }
+      return places;
+    },
+    { email, secrets },
+  );
+}
+
 async function readOtp(request: APIRequestContext, email: string) {
   let code: string | null = null;
   await expect
@@ -334,7 +372,13 @@ test('Convite pelo link: without an account, the sign up, its e-mail code and th
     await page.getByTestId('signup-confirm-password').fill(password);
     await page.getByRole('button', { name: 'Enviar código' }).click();
     await expect(page).toHaveURL(/\/verificar-codigo$/u);
-    await page.getByLabel('Código de 6 dígitos').fill(await readOtp(request, email));
+    const code = await readOtp(request, email);
+    // rev84 P1: back from the e-mail app, the tab reloads on "Verificar código";
+    // the code field is still there for the code already received.
+    await page.reload();
+    await expect(page.getByText(`Código enviado para ${email}.`)).toBeVisible();
+    expect(await signupPlaces(page, email, [password, code, 'Nina Prado'])).toEqual(['kept']);
+    await page.getByLabel('Código de 6 dígitos').fill(code);
     await page.getByRole('button', { name: 'Verificar e continuar' }).click();
     // First access: "Complete seu perfil" comes first, on the invitation's route.
     await expect(
@@ -349,6 +393,8 @@ test('Convite pelo link: without an account, the sign up, its e-mail code and th
       page.getByRole('heading', { level: 1, name: 'Complete seu perfil' }),
     ).toBeVisible();
     expect(await tokenPlaces(page, group.token)).toEqual(['kept']);
+    // Accepted: the e-mail left the tab.
+    expect(await signupPlaces(page, email, [password, code, 'Nina Prado'])).toEqual([]);
     await page.getByTestId('complete-profile-name').fill('Nina Prado');
     await page.getByTestId('complete-profile-submit').click();
     await expectGroupPage(page, 'Racha da Conta Nova');
