@@ -3368,3 +3368,16 @@ que só entra pelo `vitest`, sobre o `launch-editor` no Windows; o lockfile é o
 `origin/main`, que reprova igual. Por decisão de César, fica fora deste PR (atualização do
 `vite` ou exceção datada em PR próprio). Censo depois da rodada: só as sementes, os logs de
 auditoria do Auth e uma execução do cron da pilha.
+
+### Ícone do app na paleta Placar premium
+
+O ícone do PWA ainda era o verde do scaffold (`#0A6335`), fora da paleta de `docs/29`. Pedido
+do César (20/10): trocar pelo colete neon escolhido entre as variações geradas fora do
+repositório. Uma vetorização automática do PNG manchava o tecido e transformava o brilho num
+anel serrilhado; o `public/icons/icon.svg` foi então redesenhado à mão, com o mesmo desenho:
+fundo `#0A1120`, faixas navy (`#14224A` → `#1A2B5C`) e âmbar (`#F5A62C` → `#FFC75A`),
+contorno creme com borda âmbar e brilho por `feGaussianBlur`. O fundo agora ocupa o quadro
+inteiro, sem cantos arredondados, porque o ícone é `maskable` e quem recorta é o sistema; o
+colete cabe no círculo seguro de 80%. Os PNGs de 192 e 512 saem do SVG pelo
+`generate:icons`, como antes, e o `CACHE_VERSION` do `public/sw.js` passou a
+`colete-shell-v2`, para que quem já instalou o app não continue com o ícone antigo no cache.
