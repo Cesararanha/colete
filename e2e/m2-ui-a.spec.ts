@@ -45,25 +45,49 @@ function captureLocalScreenshots(project: string): boolean {
   return project === 'mobile-chromium' && !!screenshotRoot && existsSync(screenshotRoot);
 }
 
-async function browserLeakCensus(page: Page, marker: string): Promise<boolean> {
-  return page.evaluate(async (needle) => {
-    const stores = [
-      window.location.href,
-      document.referrer,
-      JSON.stringify(history.state),
-      ...Object.keys(localStorage).map((key) => `${key}:${localStorage.getItem(key)}`),
-      ...Object.keys(sessionStorage).map((key) => `${key}:${sessionStorage.getItem(key)}`),
-    ];
-    for (const name of await caches.keys()) {
-      const cache = await caches.open(name);
-      for (const request of await cache.keys()) {
-        stores.push(request.url);
-        const response = await cache.match(request);
-        if (response) stores.push(await response.text());
+/**
+ * `keptInvite`: before the invitation is used, the one place it may be is this
+ * tab's sessionStorage under `colete:invite`, expiring within thirty minutes
+ * (polimento final, docs/25 §5.1). Everywhere else it is still a leak.
+ */
+async function browserLeakCensus(
+  page: Page,
+  marker: string,
+  { keptInvite = false }: { keptInvite?: boolean } = {},
+): Promise<boolean> {
+  return page.evaluate(
+    async ({ needle, keptInvite }) => {
+      const kept = sessionStorage.getItem('colete:invite');
+      if (keptInvite) {
+        const value = JSON.parse(kept ?? 'null') as { token?: string; expiresAt?: number } | null;
+        if (
+          value?.token !== needle ||
+          typeof value.expiresAt !== 'number' ||
+          value.expiresAt > Date.now() + 30 * 60 * 1000
+        )
+          return false;
       }
-    }
-    return stores.every((value) => !value.includes(needle));
-  }, marker);
+      const stores = [
+        window.location.href,
+        document.referrer,
+        JSON.stringify(history.state),
+        ...Object.keys(localStorage).map((key) => `${key}:${localStorage.getItem(key)}`),
+        ...Object.keys(sessionStorage)
+          .filter((key) => !keptInvite || key !== 'colete:invite')
+          .map((key) => `${key}:${sessionStorage.getItem(key)}`),
+      ];
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+          stores.push(request.url);
+          const response = await cache.match(request);
+          if (response) stores.push(await response.text());
+        }
+      }
+      return stores.every((value) => !value.includes(needle));
+    },
+    { needle: marker, keptInvite },
+  );
 }
 
 async function browserLeakCounterproof(page: Page) {
@@ -931,7 +955,23 @@ test('UI-A preserves an invitation in page memory through login and clears the f
     await page.goto(`/join#token=${inviteToken}`);
     await expect.poll(() => page.evaluate(() => location.hash.length)).toBe(0);
     await expect(page.getByRole('heading', { name: 'Entrar', level: 1 })).toBeVisible();
-    expect(await browserLeakCensus(page, inviteToken)).toBe(true);
+    expect(await browserLeakCensus(page, inviteToken, { keptInvite: true })).toBe(true);
+    // Counterproof: kept anywhere else, or past thirty minutes, it is a leak.
+    expect(await browserLeakCensus(page, inviteToken)).toBe(false);
+    const kept = await page.evaluate(() => sessionStorage.getItem('colete:invite')!);
+    await page.evaluate((token) => localStorage.setItem('ui-a-census', token), inviteToken);
+    expect(await browserLeakCensus(page, inviteToken, { keptInvite: true })).toBe(false);
+    await page.evaluate(() => localStorage.removeItem('ui-a-census'));
+    await page.evaluate(
+      (token) =>
+        sessionStorage.setItem(
+          'colete:invite',
+          JSON.stringify({ token, expiresAt: Date.now() + 31 * 60 * 1000 }),
+        ),
+      inviteToken,
+    );
+    expect(await browserLeakCensus(page, inviteToken, { keptInvite: true })).toBe(false);
+    await page.evaluate((value) => sessionStorage.setItem('colete:invite', value), kept);
     await page.getByTestId('login-email').fill(joiner.email);
     await page.getByTestId('login-password').fill(password);
     const response = handledObserver(
@@ -954,16 +994,18 @@ test('UI-A preserves an invitation in page memory through login and clears the f
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: 'Grupo do Link' })).toBeVisible();
     await assertUiAccessible(page);
-    expect(await browserLeakCensus(page, inviteToken)).toBe(true);
+    expect(await browserLeakCensus(page, inviteToken, { keptInvite: true })).toBe(true);
     // Repeat with an authenticated account on a fresh navigation. The hash
     // must disappear before the app can retain it in browser history.
     await page.goto('/grupos');
     await page.goto(`/join#token=${inviteToken}`);
     await expect.poll(() => page.evaluate(() => location.hash.length)).toBe(0);
     await expect(page.getByTestId('join-confirmation')).toBeVisible();
-    expect(await browserLeakCensus(page, inviteToken)).toBe(true);
+    expect(await browserLeakCensus(page, inviteToken, { keptInvite: true })).toBe(true);
     await page.getByTestId('join-submit').click();
     await expect(page.getByTestId('group-request-sent')).toBeVisible();
+    // Used: the request is sent and the invitation left this tab's storage.
+    expect(await browserLeakCensus(page, inviteToken)).toBe(true);
   } finally {
     await cleanActors(authIds, db);
     const count = await db.query('select count(*)::integer as count from auth.users');

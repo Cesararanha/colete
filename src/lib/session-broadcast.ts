@@ -1,7 +1,13 @@
+import { forgetInvite } from './pending-invite';
+
 const CHANNEL_NAME = 'colete-session-lifecycle';
 
-/** The message has no account identifier or credential. */
+/**
+ * The message has no account identifier or credential. Whoever signs out on
+ * this device also drops an invitation kept for a sign in (lib/pending-invite).
+ */
 export function announceLocalSignOut() {
+  forgetInvite();
   if (typeof BroadcastChannel === 'undefined') return;
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.postMessage('signed-out');
@@ -12,7 +18,9 @@ export function listenForLocalSignOut(onSignOut: () => void): () => void {
   if (typeof BroadcastChannel === 'undefined') return () => undefined;
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.onmessage = (event: MessageEvent<unknown>) => {
-    if (event.data === 'signed-out') onSignOut();
+    if (event.data !== 'signed-out') return;
+    forgetInvite();
+    onSignOut();
   };
   return () => channel.close();
 }

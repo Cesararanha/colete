@@ -741,7 +741,12 @@ Versão, regeneração e colunas, declarados antes da migration:
 O link usa fragmento, nunca query. A página troca o fragmento por POST, remove-o
 com `history.replaceState` antes de analytics/observabilidade e envia
 `Referrer-Policy: no-referrer`. Token não entra em Sentry, título, cache,
-localStorage, histórico de requests ou erro. A rota recusa redirect e resposta
+localStorage, histórico de requests ou erro. Para não se perder durante o login, o
+cadastro, o código do e-mail e o primeiro perfil, inclusive numa recarga, um token bem
+formado fica somente no `sessionStorage` da aba, sob `colete:invite`, com prazo de no
+máximo 30 minutos, e sai ao ser usado (pedido enviado, página de quem já é membro ou já
+pediu, volta ao formulário, outro código ou QR, recusa definitiva) e na saída manual da conta (decisão humana de
+César, 20/10/2026, polimento final). A rota recusa redirect e resposta
 cacheável.
 
 ### 5.2 Criação, compartilhamento e rotação

@@ -278,18 +278,27 @@ test('the owner deletes the group; members lose it; the organizer has no way to 
     await expect(confirmation).toContainText(
       'Ninguém mais vai acessar o grupo e os rachas futuros serão cancelados.',
     );
-    const typed = confirmation.getByLabel('Nome do grupo');
+    // Polimento final (BB-005): the field says it wants the group's name repeated.
+    const typed = confirmation.getByLabel('Repita o nome do grupo');
+    await expect(typed).toHaveAccessibleDescription('Para confirmar, digite Pelada de Terça.');
     const confirm = page.getByTestId('group-delete-confirm');
-    await expect(confirm).toHaveAttribute('aria-disabled', 'true');
-    // A wrong name keeps the button locked: pressing it sends nothing.
+    // docs/15 (checklist) and docs/25 §6.3: the button stays enabled; a press with a wrong name sends
+    // nothing and says what to do, with the focus back on the name.
+    await expect(confirm).not.toHaveAttribute('aria-disabled', 'true');
     let sent = 0;
     page.on('request', (item) => {
       if (item.url().endsWith('/groups/delete_group')) sent += 1;
     });
+    await confirm.click();
+    await expect(typed).toBeFocused();
+    await expect(typed).toHaveAccessibleDescription(
+      'O nome não confere. Digite Pelada de Terça como aparece no grupo para apagar.',
+    );
     await typed.fill('Pelada de Quarta');
-    await expect(confirm).toHaveAttribute('aria-disabled', 'true');
-    // Forced past the actionability check: the press itself must send nothing.
-    await confirm.click({ force: true });
+    // Typing again takes the message back to the instruction.
+    await expect(typed).toHaveAccessibleDescription('Para confirmar, digite Pelada de Terça.');
+    await confirm.click();
+    await expect(typed).toBeFocused();
     await typed.press('Enter');
     await page.waitForTimeout(300);
     expect(sent).toBe(0);
@@ -299,7 +308,6 @@ test('the owner deletes the group; members lose it; the organizer has no way to 
     await open.click();
     await expect(page.getByTestId('group-delete-name')).toHaveValue('');
     await page.getByTestId('group-delete-name').fill('pelada de terça');
-    await expect(confirm).not.toHaveAttribute('aria-disabled', 'true');
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'apagar-confirmacao.png');
     const deleted = handledObserver(

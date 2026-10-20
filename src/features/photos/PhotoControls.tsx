@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
@@ -87,9 +87,23 @@ export function PhotoActions({
   hasPhoto: boolean;
   testID: string;
 }) {
+  const { colors } = useTheme();
   const alignItems = align === 'center' ? 'center' : 'flex-start';
   const justifyContent = align === 'center' ? 'center' : 'flex-start';
   const [asking, setAsking] = useState(false);
+  // Removing is destructive (rev81, BB-012): the first press asks, the
+  // second removes, and keeping the photo returns the focus where it was.
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+  const focusAfter = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusAfter.current === null || typeof document === 'undefined') return;
+    document.querySelector<HTMLElement>(`[data-testid="${focusAfter.current}"]`)?.focus();
+    focusAfter.current = null;
+  }, [confirmingRemoval]);
+  const askRemoval = (open: boolean) => {
+    focusAfter.current = open ? `${testID}-remove-confirm` : `${testID}-remove`;
+    setConfirmingRemoval(open);
+  };
   const choose = (source: PhotoSource) => {
     setAsking(false);
     void change.choose(source);
@@ -137,20 +151,46 @@ export function PhotoActions({
             variant="outline"
           />
         )}
-        {hasPhoto && !asking ? (
+        {hasPhoto && !asking && !confirmingRemoval ? (
           <AppButton
             ariaDisabled={change.busy}
             compact
             icon="trash-2"
             label={pt.photos.remove}
             onPress={() => {
-              if (!change.busy) void change.remove();
+              if (!change.busy) askRemoval(true);
             }}
             testID={`${testID}-remove`}
             variant="outline-destructive"
           />
         ) : null}
       </View>
+      {hasPhoto && confirmingRemoval ? (
+        <View style={[styles.actions, { alignItems }]} testID={`${testID}-remove-question`}>
+          <Text style={[styles.question, { color: colors.text }]}>{pt.photos.removeQuestion}</Text>
+          <View style={[styles.row, { justifyContent }]}>
+            <AppButton
+              compact
+              icon="trash-2"
+              label={pt.photos.removeConfirm}
+              onPress={() => {
+                if (change.busy) return;
+                setConfirmingRemoval(false);
+                void change.remove();
+              }}
+              testID={`${testID}-remove-confirm`}
+              variant="outline-destructive"
+            />
+            <AppButton
+              compact
+              label={pt.photos.removeCancel}
+              onPress={() => askRemoval(false)}
+              testID={`${testID}-remove-cancel`}
+              variant="outline"
+            />
+          </View>
+        </View>
+      ) : null}
       <PhotoStatus busy={change.busy} message={status} testID={`${testID}-status`} />
       {change.error ? <AppAlert message={change.error} testID={`${testID}-error`} /> : null}
     </View>
@@ -210,6 +250,7 @@ const styles = StyleSheet.create({
   },
   badgeSpinner: { transform: [{ scale: 0.8 }] },
   big: { borderRadius: BIG / 2, height: BIG, width: BIG },
+  question: { ...typography.supportStrong },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   status: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, minWidth: 0 },
   statusIcon: { alignItems: 'center', height: 20, justifyContent: 'center', width: 20 },

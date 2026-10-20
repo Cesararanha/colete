@@ -71,12 +71,13 @@ function GroupRow({
         style={styles.rowTarget}
         testID="group-list-card"
       >
-        {({ pressed }) => (
+        {({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => (
           <View
             style={[
               styles.row,
               {
-                backgroundColor: colors.surfaceRaised,
+                // Hover (BB-028): the card steps back a shade under the mouse.
+                backgroundColor: hovered && !pressed ? colors.surface : colors.surfaceRaised,
                 opacity: pressed ? 0.86 : 1,
                 transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }],
               },

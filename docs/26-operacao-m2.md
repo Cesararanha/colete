@@ -3237,3 +3237,99 @@ Capturas a 390 px em `~/colete-noite/sorteio-prints`.
 
 **Depois:** o v3 de `04` (evolução), proposta e ajuste manual (`13` §4.3), trilha pública, a
 lista de goleiros (`list_kind`), N12 e os times na exportação LGPD.
+
+## Polimento final — sem migration (20/10/2026)
+
+Pedido de César antes da entrega: corrigir o que estiver quebrado, com defeito ou mal acabado,
+sem funcionalidade nova, com prioridade para o convite pelo link e pelo QR lido pela câmera do
+celular. Sobre `origin/main` em `e2e0425` (migrations até a `0032`); nenhuma migration nova.
+Fontes: a varredura `bugbash.md` (0 P1, 17 P2, 10 P3) e os P2/P3 ainda abertos dos pareceres
+do #73 ao #83 e das prévias, todos já contidos na varredura.
+
+- **Convite pelo link e pelo QR (P1).** O token do fragmento vivia só na memória da página e se
+  perdia em toda recarga: na página do grupo de quem já entrou (voltava o formulário pedindo o
+  código), em Entrar (o login ia para Grupos), em Verificar código (o cadastro recomeçava sem o
+  convite) e em Complete seu perfil (terminava no formulário do código). No celular, ir ao app
+  de e-mail e voltar costuma recarregar a aba. Correção (decisão humana de 20/10/2026, `25`
+  §5.1 e `11`): o script inicial continua tirando o fragmento do endereço antes de tudo e
+  passa a guardar um token bem formado só no `sessionStorage` da aba (`colete:invite`, prazo
+  de 30 minutos); o app o apaga ao enviar o pedido, na página de quem já é membro ou já pediu,
+  ao voltar ao formulário, com outro código ou QR, na recusa definitiva e na saída manual da
+  conta (também de outra aba). Formato do link, prévia genérica, limitador e o que vai ao
+  servidor não mudaram. "Abrir grupo" virou link de verdade (`href`).
+- **Textos longos.** Nome do grupo na Agenda e no racha, o "Voltar" com o nome do grupo (agora
+  numa linha, com reticências), nome e apelido no Perfil e "Escolher <nome>" da transferência
+  ficam dentro da tela; prova nova que mede cada trecho de texto contra a tela e contra todo
+  ancestral que corta.
+- **Telas.** Notas: cartão não editado segue a leitura nova, e a perda definitiva de acesso
+  descarta a projeção. Sorteio: o foco volta a "Sortear times" também quando a confirmação veio
+  do servidor, e mudar uma nota no app invalida os times em cache. Apagar grupo: o campo pede o
+  nome e o botão fica habilitado e explica o nome que não confere. Editar racha: fechar com
+  alteração pede confirmação. Remover foto: confirmação na própria tela. Ícone do grupo: a
+  escolha feita durante o salvamento é preservada, e o botão diz "Salvar ícone do grupo".
+  Membros: um menu por vez. Agenda: o filtro fica no endereço (`?filtro=vou-jogar|com-vaga`).
+  Hover em botões, filtros, opções de ícone e cor, cartões, abas e links. "Complete seu
+  perfil" diz que só o nome é obrigatório.
+- **Edge.** A foto só passa como JPEG completo: tabelas de quantização, cabeçalho de quadro
+  coerente com os componentes, tabelas Huffman no quadro Huffman e varredura com dados.
+- **Leituras da Edge.** Na primeira rodada da validação, o runtime local aposentou o worker de
+  `groups` no limite de CPU acumulada (`per_worker`, 1 s) com duas leituras em voo, que
+  voltaram 500 sem o envelope do Colete; a tela do grupo ficou sem a lista de rachas. As
+  leituras passam a ser reenviadas como as mutações já eram (até duas vezes, 150 e 300 ms),
+  mas só quando o 5xx não traz o envelope, isto é, quando a função nem respondeu; recusa,
+  `INTERNAL` e falha de rede continuam respondendo na hora.
+- **Instável do Perfil (`m1-a-auth.spec.ts:450`).** O React Hook Form refocava o campo inválido
+  num `setTimeout(0)` depois do envio, além do foco do próprio formulário; quando o teste ia ao
+  rádio, o timer devolvia o foco ao Apelido. `shouldFocusError: false` nos dois formulários de
+  perfil.
+- **Outras intermitências achadas nas rodadas.** A contraprova do mutante de `db:test:geocode`
+  simulava a resposta do portão 900 ms atrasada contra uma janela de 1000 ms: com a pilha
+  carregada, a ida e volta da RPC passou de 100 ms, a chamada abandonou o horário e o mutante
+  não quebrou o espaçamento (1235 ms medidos); o atraso passa a 600 ms, longe dos dois limites.
+  No `sorteio-times`, o toque em "2 times" caía durante a releitura do racha depois da recusa
+  de 3 times, quando o app ignora a troca; o teste passa a esperar o fim da ação.
+- **Testes e documentos.** Resíduos de `auth.flow_state` e do expurgo de notas limpos pelos
+  testes que os criam; skills copiadas para o worktree fora do Prettier; `LOCATIONIQ_API_KEY`
+  no inventário de `28`; Perfil de `11` alinhado à decisão de 17/10.
+
+**Não corrigido:** BB-001 (estranho recebe `NOT_MEMBER` no grupo ativo e `NOT_FOUND` no ID
+inexistente): é o contrato de `13` para todas as operações de grupo; por decisão de César
+(20/10) fica para uma fatia própria de contrato. BB-031 (React #418 nas rotas autenticadas no
+layout largo): o layout largo ou estreito vem da largura da janela, que o HTML estático não
+conhece; corrigir exige outra forma de escolher o layout e fica para depois.
+
+Deploy: app web e Edge `groups` (a regra do JPEG). Nenhuma migration, segredo ou configuração
+nova.
+
+Contraprovas executáveis, com o build de `origin/main` num worktree separado e os specs desta
+fatia: `convite-link` 8 de 8 falham, e 4 de 4 no comportamento sem as asserções de
+armazenamento; os demais specs alterados falham cada um na asserção nova (18 de 28 no lote, e
+isolados para notas sem acesso, times desatualizados, escolha durante o salvamento, filtro no
+endereço, hover de filtro, cartão, trilho e link, um menu por vez, texto do perfil, `href` do
+"Abrir grupo" e rótulo do ícone). Unitárias: o teste do JPEG falha com o `photo-image.ts`
+anterior; o censo de `db:test:ratings` reprova sem as duas exclusões novas; `format:check`
+reprova com as skills copiadas e sem o `.prettierignore` novo. Instável do Perfil: 1 de 4
+verdes em repetição antes, 8 de 8 depois.
+
+Validação de §5, local (sem CI: os minutos do Actions acabaram), cada rodada começando por
+`db:reset`. A primeira tentativa achou as leituras perdidas no runtime; a segunda, a margem do
+geocode e o toque do sorteio; R2 e R3 passaram inteiras; R4 parou num teste porque o Mac
+entrou em suspensão por inatividade às 16:09:28 por 323 s (`pmset -g log`), com o
+`axe.runPartial` congelado 321 s. R5, R6 e R7, seguidas, sob `caffeinate -i -s`:
+
+| Comando | R5 / R6 / R7 |
+|---|---|
+| db:reset | exit 0 nas três; banco recriado só pelas migrations até a `0032` |
+| db:test | 30 arquivos, 2295 asserções, PASS nas três |
+| harnesses de §5 e do CI | exit 0 nas três: idempotency 7, gateway 9, cors 6, worker 8, deletion 10, export 32, invites 68, groups 29, membership 75, rename 11, group-deletion 13, photos 21, members 6, matches 15, match-players 21, ratings 8, teams 9, geocode 7 (mutante 650,5 / 650,7 / 650,6 ms < 1000; restaurado 1399,7 / 1399,8 / 1399,5 ms) |
+| test:groups:web | 101 passed + 5 skipped nas três (inclui `convite-link` e `textos-longos`, novos) |
+| test:matches:web / qr / cors / smoke | 28 / 30 / 4 / 6 nas três |
+| test:auth:web / privacy | 10 + 2 skipped (com o foco do Perfil) / 5 + 5 skipped nas três |
+| verify:app | exit 0 nas três; vitest 59 arquivos, 728 testes; lint sem avisos |
+| build:web:staging + verify:pwa | exit 0 nas três |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 nas três (test:audit 94, test:staging 102, audit:high com as 2 exceções ativas) |
+
+Censo depois de cada rodada: zero em todas as tabelas de domínio, de Auth (usuários,
+sessões, identidades, `flow_state`) e de Storage; ficam as sementes (4 MIME, 20 limites, 1
+`geocode_throttle`, 3 buckets), 2814 entradas sintéticas de auditoria do Auth e uma execução
+do cron `process_external_effects` da própria pilha.

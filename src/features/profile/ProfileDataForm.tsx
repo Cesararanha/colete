@@ -81,6 +81,10 @@ export function ProfileDataForm({
     mode: 'onBlur',
     reValidateMode: 'onChange',
     resolver: zodResolver(profilePatchSchema),
+    // The form moves the focus itself (focusInvalidInput). React Hook Form would
+    // also focus the error again in a later timer, taking the focus back from a
+    // control the person has already moved to, such as the position radios.
+    shouldFocusError: false,
   });
 
   const update = useMutation({

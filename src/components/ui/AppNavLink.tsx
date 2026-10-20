@@ -39,28 +39,43 @@ export function AppNavLink({
       ? { 'aria-current': active ? ('page' as const) : undefined }
       : { accessibilityState: { selected: active } };
 
+  // Web hover (rev-previa, BB-028): a text link underlines, a tab or rail item
+  // that is not the current one lights its label and icon.
   if (variant === 'link') {
     return (
-      <Link
-        accessibilityLabel={label}
-        accessibilityRole="link"
-        {...current}
-        href={href}
-        style={styles.link}
-      >
-        <Text style={[styles.linkText, { color: colors.link }]}>{label}</Text>
+      <Link asChild href={href}>
+        <Pressable
+          accessibilityLabel={label}
+          accessibilityRole="link"
+          {...current}
+          style={styles.link}
+        >
+          {({ hovered }: { pressed: boolean; hovered?: boolean }) => (
+            <Text
+              style={[
+                styles.linkText,
+                { color: colors.link, textDecorationLine: hovered ? 'underline' : 'none' },
+              ]}
+            >
+              {label}
+            </Text>
+          )}
+        </Pressable>
       </Link>
     );
   }
 
   const tab = variant === 'tab';
-  const tint = onBand
-    ? active
-      ? colors.onBand
-      : colors.onBandMuted
-    : active
-      ? colors.indicator
-      : colors.textMuted;
+  const tintFor = (hovered: boolean) =>
+    onBand
+      ? active || hovered
+        ? colors.onBand
+        : colors.onBandMuted
+      : active
+        ? colors.indicator
+        : hovered
+          ? colors.text
+          : colors.textMuted;
   const indicator = onBand ? colors.onBand : colors.indicator;
   return (
     <Link asChild href={href}>
@@ -71,22 +86,26 @@ export function AppNavLink({
         // Link asChild merges styles as an array, so a style function would be dropped.
         style={tab ? styles.tab : styles.rail}
       >
-        <View
-          style={[
-            tab ? styles.tabIndicator : styles.railIndicator,
-            { backgroundColor: active ? indicator : 'transparent' },
-          ]}
-        />
-        {icon ? <AppIcon color={tint} name={icon} size={22} /> : null}
-        <Text
-          style={[
-            tab ? styles.tabText : styles.railText,
-            active ? styles.activeText : undefined,
-            { color: tint },
-          ]}
-        >
-          {label}
-        </Text>
+        {({ hovered }: { pressed: boolean; hovered?: boolean }) => (
+          <>
+            <View
+              style={[
+                tab ? styles.tabIndicator : styles.railIndicator,
+                { backgroundColor: active ? indicator : 'transparent' },
+              ]}
+            />
+            {icon ? <AppIcon color={tintFor(hovered === true)} name={icon} size={22} /> : null}
+            <Text
+              style={[
+                tab ? styles.tabText : styles.railText,
+                active ? styles.activeText : undefined,
+                { color: tintFor(hovered === true) },
+              ]}
+            >
+              {label}
+            </Text>
+          </>
+        )}
       </Pressable>
     </Link>
   );

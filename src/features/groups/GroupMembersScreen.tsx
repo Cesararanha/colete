@@ -154,8 +154,10 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
                             expanded={open}
                             label={pt.groups.members.actions(member.display_name)}
                             onPress={() => {
-                              // Closing the "…" also closes its confirmation; focus stays here.
-                              if (target?.id === member.profile_id) {
+                              // One menu at a time (rev74, BB-030): closing the "…" or
+                              // opening another member's also closes the open
+                              // confirmation; focus stays here.
+                              if (target !== null) {
                                 setTarget(null);
                                 setReason('');
                                 setInvalid(false);

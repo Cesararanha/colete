@@ -702,7 +702,9 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
           groupId={match.group_id}
           size={16}
         />
-        <Text style={[styles.small, { color: colors.textMuted }]}>{match.group_name}</Text>
+        <Text style={[styles.small, styles.groupName, { color: colors.textMuted }]}>
+          {match.group_name}
+        </Text>
       </View>
     </View>
   ) : undefined;
@@ -810,6 +812,8 @@ const styles = StyleSheet.create({
   },
   description: { ...typography.support },
   group: { alignItems: 'center', flexDirection: 'row', gap: 6, paddingTop: 2 },
+  // A row item shrinks below its longest word only with minWidth 0, so it wraps.
+  groupName: { flexShrink: 1, minWidth: 0 },
   heading: { ...typography.section },
   intro: { gap: spacing.xs, minWidth: 0, paddingTop: spacing.xs },
   more: { alignItems: 'flex-start', marginLeft: -spacing.md },

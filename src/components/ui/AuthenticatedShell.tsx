@@ -130,6 +130,7 @@ function TopBar({ back, closeModal, trailing }: ShellBandProps) {
               icon={control.icon}
               label={control.label}
               onPress={control.onPress}
+              singleLine
               {...(control.testID === undefined ? {} : { testID: control.testID })}
               variant="tertiary"
             />

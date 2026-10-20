@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { View } from 'react-native';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
+import { forgetInvite } from '@/lib/pending-invite';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 
 import { groupErrorMessage } from './group-errors';
@@ -27,6 +28,15 @@ import { InvitePageBody, InvitePageIntro } from './InvitePage';
 import { InviteQrScanner } from './InviteQrScanner';
 import { inviteAppOrigin, parseInviteLink } from './join-fragment';
 import { joinDestination } from './join-result';
+
+/** A refusal the same invitation can still overcome later: network, retryable, rate limit. */
+function canRetryLater(error: unknown) {
+  return (
+    error instanceof TransportError ||
+    (error instanceof AppError &&
+      (error.retryable || error.code === 'RATE_LIMITED' || error.code === 'RATE_LIMIT_UNAVAILABLE'))
+  );
+}
 
 export function JoinGroupScreen({ initialToken }: { initialToken: string | null }) {
   const queryClient = useQueryClient();
@@ -68,11 +78,16 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
         kind === 'token'
           ? await api.previewGroupByInvite(value)
           : await api.previewGroupByCode(value);
+      // A member or a pending request has nothing left to do with the link:
+      // the invitation leaves this tab's storage as soon as the page says so.
+      if (data.viewer_status === 'active' || data.viewer_status === 'pending') forgetInvite();
       if (sequence === previewSequence.current) {
         setPreview(data);
         setPreviewError(null);
       }
     } catch (error) {
+      // An invitation the server refuses for good is not kept for a reload.
+      if (kind === 'token' && !canRetryLater(error)) forgetInvite();
       if (sequence === previewSequence.current) {
         setPreview(null);
         setPreviewError(error);
@@ -107,6 +122,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
         setCameraError(pt.groups.join.invalidQr);
         return;
       }
+      forgetInvite();
       previewSequence.current += 1;
       setValue('code', '');
       setFieldError(undefined);
@@ -136,6 +152,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
     setPreviewError(null);
     setJoiningError(null);
     setToken(null);
+    forgetInvite();
     void previewGroup('code', code);
   };
   const join = async () => {
@@ -149,6 +166,8 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
       const data = await intent.current.execute();
       intent.current = null;
       setToken(null);
+      // Used: the request is sent, so the invitation leaves this tab's storage.
+      forgetInvite();
       await queryClient.invalidateQueries({ queryKey: [PRIVATE_QUERY_ROOT, 'groups'] });
       // A request sent goes to Grupos, replacing this form: the request shows
       // there as "Aguardando aprovação" and there is no way back to the form.
@@ -166,13 +185,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
           : null,
       );
     } catch (error) {
-      const sameIntentCanRetry =
-        error instanceof TransportError ||
-        (error instanceof AppError &&
-          (error.retryable ||
-            error.code === 'RATE_LIMITED' ||
-            error.code === 'RATE_LIMIT_UNAVAILABLE'));
-      if (!sameIntentCanRetry) intent.current = null;
+      if (!canRetryLater(error)) intent.current = null;
       setJoiningError(error);
     } finally {
       joiningBusy.current = false;
@@ -182,6 +195,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
 
   // Back to the form: the invitation leaves memory with the page.
   const leavePage = () => {
+    forgetInvite();
     previewSequence.current += 1;
     intent.current = null;
     setPreview(null);
@@ -207,7 +221,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
           joining={joiningPending}
           joiningError={joiningError ? groupErrorMessage(joiningError) : null}
           onJoin={() => void join()}
-          onOpen={(groupId) => router.replace(`/grupos/${groupId}`)}
+          onOpen={forgetInvite}
           page={preview}
         />
       </AuthenticatedShell>
@@ -239,6 +253,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
                 setCameraError(pt.groups.join.cameraNotConfigured);
                 return;
               }
+              forgetInvite();
               previewSequence.current += 1;
               setPreviewPending(false);
               setPreview(null);
@@ -281,6 +296,7 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
                 setJoiningError(null);
                 intent.current = null;
                 setToken(null);
+                forgetInvite();
               }}
               ref={field.ref}
               testID="group-code"

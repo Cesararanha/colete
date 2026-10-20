@@ -76,12 +76,13 @@ export function MatchCard({
         style={styles.target}
         testID="match-list-card"
       >
-        {({ pressed }) => (
+        {({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => (
           <View
             style={[
               styles.card,
               {
-                backgroundColor: colors.surface,
+                // Hover (BB-028): the card lifts a shade under the mouse.
+                backgroundColor: hovered && !pressed ? colors.surfaceRaised : colors.surface,
                 opacity: pressed ? 0.86 : 1,
                 transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }],
               },
@@ -197,7 +198,8 @@ const styles = StyleSheet.create({
   },
   count: { ...typography.supportStrong, fontVariant: ['tabular-nums'], fontSize: 14 },
   meta: { alignItems: 'center', flexDirection: 'row', gap: 6 },
-  metaText: { ...typography.caption, flexShrink: 1 },
+  // minWidth 0: a long group name wraps inside the card instead of running off it.
+  metaText: { ...typography.caption, flexShrink: 1, minWidth: 0 },
   place: { ...typography.cardTitle },
   status: {
     alignItems: 'center',

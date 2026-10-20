@@ -403,8 +403,24 @@ test('the person changes and removes their photo; it reaches the server without 
     const publicRead = await fetch(`${env.apiUrl}/storage/v1/object/public/avatars/${stored}`);
     expect(publicRead.status).not.toBe(200);
 
-    // Remove: the initials come back, and the worker deletes the object.
+    // Remove: it asks first (BB-012); keeping it changes nothing and returns
+    // the focus. Then the initials come back, and the worker deletes the object.
+    let removals = 0;
+    page.on('request', (item) => {
+      if (item.url().endsWith('/remove_profile_photo')) removals += 1;
+    });
     await page.getByTestId('profile-photo-remove').click();
+    await expect(page.getByTestId('profile-photo-remove-question')).toContainText(
+      'Remover a foto? Ela sai para todos.',
+    );
+    await expect(page.getByTestId('profile-photo-remove-confirm')).toBeFocused();
+    await assertAccessible(page);
+    await page.getByTestId('profile-photo-remove-cancel').click();
+    await expect(page.getByTestId('profile-photo-remove')).toBeFocused();
+    await expect(button.getByTestId('avatar-photo')).toHaveCount(1);
+    expect(removals).toBe(0);
+    await page.getByTestId('profile-photo-remove').click();
+    await page.getByTestId('profile-photo-remove-confirm').click();
     await expect(page.getByTestId('profile-photo-status')).toHaveText('Foto removida.');
     await expect(button.getByTestId('avatar-photo')).toHaveCount(0);
     await expect(button).toContainText('AD');
@@ -516,8 +532,10 @@ test('the owner changes the group photo; members see it in the list, the detail 
     await assertAccessible(memberPage);
     await shot(memberPage, testInfo.project.name, 'agenda-foto.png');
 
-    // Removed: the icon is back for everyone.
+    // Removed after the confirmation: the icon is back for everyone.
     await page.getByTestId('group-photo-remove').click();
+    await expect(page.getByTestId('group-photo-remove-confirm')).toBeFocused();
+    await page.getByTestId('group-photo-remove-confirm').click();
     await expect(page.getByTestId('group-photo-status')).toHaveText('Foto removida.');
     await expect(preview.getByTestId('group-photo')).toHaveCount(0);
     await expect(preview.locator('[data-group-icon="ball"]')).toHaveCount(1);

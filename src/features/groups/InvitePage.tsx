@@ -47,7 +47,8 @@ type InvitePageBodyProps = {
   joining: boolean;
   joiningError: string | null;
   onJoin: () => void;
-  onOpen: (groupId: string) => void;
+  /** Runs as "Abrir grupo" follows its link to the group. */
+  onOpen: () => void;
 };
 
 /**
@@ -83,8 +84,10 @@ export function InvitePageBody({
       ) : null}
       {page.viewer_status === 'active' && page.group_id ? (
         <AppButton
+          href={`/grupos/${page.group_id}`}
           label={pt.groups.list.open}
-          onPress={() => onOpen(page.group_id!)}
+          onPress={onOpen}
+          replace
           testID="join-open-group"
         />
       ) : page.viewer_status === 'pending' ? (

@@ -817,6 +817,8 @@ test.describe('M1-A authentication', () => {
           [userId],
         );
         await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        // Sign-up and recovery flows stay in auth.flow_state when the user goes (BB-035).
+        await db.query('delete from auth.flow_state where user_id = $1', [userId]);
         await db.query('delete from auth.users where id = $1', [userId]);
       }
       await db.query(
@@ -959,6 +961,8 @@ test.describe('M1-A authentication', () => {
           [userId],
         );
         await db.query('delete from public.profiles where auth_user_id = $1', [userId]);
+        // Sign-up and recovery flows stay in auth.flow_state when the user goes (BB-035).
+        await db.query('delete from auth.flow_state where user_id = $1', [userId]);
         await db.query('delete from auth.users where id = $1', [userId]);
       }
       await db.query(
@@ -997,6 +1001,23 @@ test.describe('M1-A authentication', () => {
       await expect(page.getByRole('button', { name: /tema/u })).toHaveCount(0);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await assertAccessible(page);
+    }
+
+    // rev-previa / BB-028: with a mouse, a text link underlines under the pointer.
+    if (testInfo.project.name === 'wide-chromium') {
+      await page.goto('/entrar');
+      const forgot = page.getByRole('link', { name: 'Esqueci minha senha' });
+      const decoration = () =>
+        forgot.evaluate((element) =>
+          [element, ...element.querySelectorAll('*')]
+            .map((part) => getComputedStyle(part).textDecorationLine)
+            .join('|'),
+        );
+      await page.mouse.move(0, 0);
+      const before = await decoration();
+      expect(before).not.toContain('underline');
+      await forgot.hover();
+      await expect.poll(decoration).toContain('underline');
     }
 
     // Phantom scroll: at 390×844 the sign-in and recovery screens fit, so

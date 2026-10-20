@@ -51,6 +51,9 @@ export function ProfileCompletionForm({
     mode: 'onBlur',
     reValidateMode: 'onChange',
     resolver: zodResolver(completionSchema),
+    // focusFirstInvalid moves the focus; React Hook Form's own later refocus
+    // would take it back from a radio the person already moved to.
+    shouldFocusError: false,
   });
 
   const completion = useMutation({

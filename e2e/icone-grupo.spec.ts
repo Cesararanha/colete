@@ -314,6 +314,22 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'icone-antes.png');
 
+    // rev77 / BB-028: with a mouse, hovering an option or the button changes how
+    // it looks, unlike the selection (fill and border of the chosen option).
+    if (testInfo.project.name === 'wide-chromium') {
+      const look = (name: string) =>
+        page.getByRole('button', { name, exact: true }).evaluate((element) => {
+          const style = getComputedStyle(element);
+          return `${style.backgroundColor}|${style.borderColor}|${style.opacity}`;
+        });
+      for (const name of ['Chama', 'Rosa', 'Salvar ícone do grupo']) {
+        await page.mouse.move(0, 0);
+        const before = await look(name);
+        await page.getByRole('button', { name, exact: true }).hover();
+        await expect.poll(() => look(name)).not.toBe(before);
+      }
+      await page.mouse.move(0, 0);
+    }
     await page.getByRole('button', { name: 'Chama' }).click();
     await page.getByRole('button', { name: 'Lilás' }).click();
     await expect(page.getByRole('button', { name: 'Chama' })).toHaveAttribute(
@@ -344,7 +360,7 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
     const saved = handledObserver(
       page.waitForResponse((item) => item.url().endsWith('/groups/set_group_appearance')),
     );
-    await page.getByRole('button', { name: 'Salvar' }).click();
+    await page.getByRole('button', { name: 'Salvar ícone do grupo', exact: true }).click();
     expect((await saved).status()).toBe(200);
     await expect(page.getByTestId('appearance-result')).toHaveText(
       'Ícone e cor salvos. Todos os membros já veem a nova escolha.',
@@ -410,6 +426,60 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
     await expect(fixed).toContainText('Racha de Quinta');
     await expect(icon(fixed, 'flame', 'lilac')).toHaveCount(1);
     await shot(organizerPage, testInfo.project.name, 'criar-racha-fixo.png');
+
+    // rev77 / BB-017: a choice made while a save is on its way is kept as the
+    // new draft, not wiped by the end of the earlier save.
+    await page.goto(`/grupos/${groupId}/icone`);
+    await page.getByRole('button', { name: 'Troféu' }).click();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/groups/set_group_appearance', async (route) => {
+      await held;
+      await route.continue();
+    });
+    const slow = handledObserver(
+      page.waitForResponse((item) => item.url().endsWith('/groups/set_group_appearance')),
+    );
+    await page.getByRole('button', { name: 'Salvar ícone do grupo', exact: true }).click();
+    await page.getByRole('button', { name: 'Raio' }).click();
+    await expect(page.getByRole('button', { name: 'Raio' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // The first save ends with a fresh read of the group's members; only after
+    // it, and a rendered frame, is the screen's answer to that save settled.
+    const reread = handledObserver(
+      page.waitForResponse((item) => item.url().endsWith('/groups/get_group_members')),
+    );
+    release();
+    expect((await slow).status()).toBe(200);
+    expect((await reread).status()).toBe(200);
+    await page.unroute('**/groups/set_group_appearance');
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    await expect(page.getByText('Carregando com segurança…', { exact: true })).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          (await db.query('select icon from public.groups where id = $1', [groupId])).rows[0].icon,
+      )
+      .toBe('trophy');
+    await expect(page.getByRole('button', { name: 'Raio' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page.getByRole('button', { name: 'Troféu' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    await expect(page.getByTestId('appearance-result')).toHaveText('');
+    await page.getByRole('button', { name: 'Salvar ícone do grupo', exact: true }).click();
+    await expect(page.getByTestId('appearance-result')).toHaveText(
+      'Ícone e cor salvos. Todos os membros já veem a nova escolha.',
+    );
+    const last = await db.query('select icon, color from public.groups where id = $1', [groupId]);
+    expect(last.rows[0]).toEqual({ icon: 'bolt', color: 'lilac' });
 
     expect(pageErrors).toEqual([]);
     await organizerPage.context().close();

@@ -419,3 +419,72 @@ test('Notas: the match shows who still has no rating to the organization only', 
     await db.end();
   }
 });
+
+test('Notas: an untouched card follows another session, and a removed organizer loses the projection', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, organizer, ana, bia, groupId } = await setup(request, db, authIds);
+    await gateway(request, owner, 'set_rating', {
+      group_id: groupId,
+      profile_id: ana.profileId,
+      stars: 4,
+    });
+    await login(page, organizer);
+    await page.goto(`/grupos/${groupId}/notas`);
+    const anaGroup = () =>
+      memberCard(page, ana.name).getByRole('radiogroup', { name: `Nota de ${ana.name}` });
+    await expect(anaGroup().getByRole('radio', { name: '4 estrelas' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    // rev83 / BB-003: another session changes Ana to 2; a later read moves her
+    // untouched card along, with nothing to save.
+    await gateway(request, owner, 'set_rating', {
+      group_id: groupId,
+      profile_id: ana.profileId,
+      stars: 2,
+    });
+    const biaCard = memberCard(page, bia.name);
+    await biaCard.getByRole('radio', { name: '3 estrelas' }).click();
+    await biaCard.getByRole('button', { name: 'Salvar nota' }).click();
+    await expect(biaCard.getByTestId(/-result$/)).toHaveText(`${bia.name}: nota 3.`);
+    await expect(memberCard(page, ana.name).getByTestId(/-stars$/)).toHaveText('Nota 2');
+    await expect(anaGroup().getByRole('radio', { name: '2 estrelas' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(
+      memberCard(page, ana.name).getByRole('button', { name: 'Salvar nota' }),
+    ).toHaveCount(0);
+    // A saved card follows the server too: nothing left to save for Bia.
+    await expect(biaCard.getByRole('button', { name: 'Salvar nota' })).toHaveCount(0);
+
+    // rev83 / BB-004: the owner removes the organizer; the refused save drops
+    // the private ratings, their authors and the controls from the open screen.
+    await gateway(request, owner, 'remove_member', {
+      group_id: groupId,
+      profile_id: organizer.profileId,
+      reason: 'Ajuste sintético',
+    });
+    await anaGroup().getByRole('radio', { name: '5 estrelas' }).click();
+    await memberCard(page, ana.name).getByRole('button', { name: 'Salvar nota' }).click();
+    await expect(page.getByTestId('ratings-error')).toBeVisible();
+    await expect(page.getByTestId(/^rating-member-\d+$/)).toHaveCount(0);
+    await expect(page.getByText('Nota 2')).toHaveCount(0);
+    await expect(page.getByText(`Alterada por ${owner.name}`, { exact: false })).toHaveCount(0);
+    const stored = await db.query(
+      'select stars from private.ratings where group_id = $1 and profile_id = $2',
+      [groupId, ana.profileId],
+    );
+    expect(stored.rows).toEqual([{ stars: 2 }]);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

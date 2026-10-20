@@ -148,12 +148,20 @@ export function MatchTeamsSection({
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState('');
   const restoreFocus = useRef<string | null>(null);
+  // docs/01 section 5.7: unequal sizes need a confirmation that travels in the call.
+  // The server asks for it when the list changed meanwhile: the confirmation opens from that answer.
+  const askedUnequal =
+    actions.error instanceof AppError &&
+    actions.error.code === 'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED';
+  const open = confirming || askedUnequal;
+  // Closing gives the focus back whichever way it opened, the server's answer
+  // included (rev82, BB-013).
   useEffect(() => {
-    if (!confirming && restoreFocus.current) {
+    if (!open && restoreFocus.current) {
       focusGroupControl(restoreFocus.current);
       restoreFocus.current = null;
     }
-  }, [confirming]);
+  }, [open]);
 
   const teams = query.data;
   if (roster.canceled || teams === undefined) {
@@ -165,15 +173,9 @@ export function MatchTeamsSection({
   // A player sees the teams only once there are teams to see.
   if (!drawn && !teams.can_draw) return null;
 
-  // docs/01 section 5.7: unequal sizes need a confirmation that travels in the call.
   // Below two per team the server refuses first (TEAM_SIZE_INVALID); asking about sizes would mislead.
-  // The server asks for it when the list changed meanwhile: the confirmation opens from that answer.
-  const askedUnequal =
-    actions.error instanceof AppError &&
-    actions.error.code === 'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED';
   const unequal =
     (roster.confirmed_count >= 2 * count && roster.confirmed_count % count !== 0) || askedUnequal;
-  const open = confirming || askedUnequal;
   const draw = (confirmUnequal: boolean) => {
     setMessage('');
     void actions

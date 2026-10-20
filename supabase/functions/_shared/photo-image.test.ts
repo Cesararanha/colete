@@ -121,4 +121,58 @@ describe('inspectJpeg', () => {
       reason: 'too_large',
     });
   });
+  it('refuses a JPEG with no image in it, as the decoder does (bugbash BB-007)', async () => {
+    const decodes = async (bytes: Uint8Array) =>
+      sharp(bytes)
+        .raw()
+        .toBuffer()
+        .then(() => true)
+        .catch(() => false);
+    // rev81: the 13-byte header that the Edge used to accept as a 1x1 photo.
+    const header = Uint8Array.of(0xff, 0xd8, 0xff, 0xc0, 0, 7, 8, 0, 1, 0, 1, 0xff, 0xd9);
+    expect(inspectJpeg(header).ok).toBe(false);
+    expect(await decodes(header)).toBe(false);
+    const base = await jpeg(64, 64);
+    // Each segment of a real file, one at a time, cut out.
+    const segments: { marker: number; start: number; end: number }[] = [];
+    for (let index = 2; index < base.length;) {
+      const marker = base[index + 1] as number;
+      const length = ((base[index + 2] as number) << 8) | (base[index + 3] as number);
+      segments.push({ marker, start: index, end: index + 2 + length });
+      if (marker === 0xda) break;
+      index += 2 + length;
+    }
+    const scanEnd = (segments.at(-1) as { end: number }).end;
+    for (const marker of [0xdb, 0xc4, 0xc0]) {
+      const kept = segments.filter((segment) => segment.marker !== marker);
+      const cut = Uint8Array.of(
+        ...base.subarray(0, 2),
+        ...kept.flatMap((segment) => [...base.subarray(segment.start, segment.end)]),
+        ...base.subarray(scanEnd),
+      );
+      expect(inspectJpeg(cut).ok, marker.toString(16)).toBe(false);
+      expect(await decodes(cut), marker.toString(16)).toBe(false);
+    }
+    // The scan header with no coded data after it.
+    const scan = segments.find((segment) => segment.marker === 0xda)!;
+    const empty = Uint8Array.of(...base.subarray(0, scan.end), 0xff, 0xd9);
+    expect(inspectJpeg(empty)).toEqual({ ok: false, reason: 'truncated' });
+    expect(await decodes(empty)).toBe(false);
+    // What the decoder reads, the Edge accepts: baseline, grey and progressive.
+    const grey = new Uint8Array(
+      await sharp({ create: { width: 32, height: 16, channels: 3, background: '#888' } })
+        .greyscale()
+        .jpeg()
+        .toBuffer(),
+    );
+    const progressive = new Uint8Array(
+      await sharp({ create: { width: 48, height: 48, channels: 3, background: '#a33' } })
+        .jpeg({ progressive: true })
+        .toBuffer(),
+    );
+    for (const bytes of [base, grey, progressive]) {
+      expect(await decodes(bytes)).toBe(true);
+      expect(inspectJpeg(bytes).ok).toBe(true);
+    }
+  });
 });

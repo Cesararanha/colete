@@ -825,7 +825,21 @@ async function main() {
   const second = client(status.dbUrl, 'second');
   const all = [db, observer, holder, first, second];
   guard.useDatabase(status.dbUrl);
-  guard.onCleanup(cleanup);
+  // The worker proof leaves its own job and retention rows; they go with the
+  // fixtures, above the baselines read before any proof (bugbash BB-035).
+  let baselineRuns = Number.MAX_SAFE_INTEGER;
+  let baselineRetention = Number.MAX_SAFE_INTEGER;
+  guard.onCleanup(async (cleanupClient) => {
+    await cleanup(cleanupClient);
+    await cleanupClient.query(
+      "delete from private.job_runs where id > $1 and job_name = 'purge_ratings'",
+      [baselineRuns],
+    );
+    await cleanupClient.query(
+      "delete from private.retention_runs where id > $1 and policy = 'purge_ratings'",
+      [baselineRetention],
+    );
+  });
   guard.onCensus(async (census) => {
     const count = async (relation) =>
       (await census.query(`select count(*)::integer as n from ${relation}`)).rows[0].n;
@@ -837,6 +851,18 @@ async function main() {
       'public.groups': await count('public.groups'),
       'public.profiles': await count('public.profiles'),
       'private.idempotency_records': await count('private.idempotency_records'),
+      'private.job_runs (purge_ratings, this run)': (
+        await census.query(
+          "select count(*)::integer as n from private.job_runs where id > $1 and job_name = 'purge_ratings'",
+          [baselineRuns],
+        )
+      ).rows[0].n,
+      'private.retention_runs (purge_ratings, this run)': (
+        await census.query(
+          "select count(*)::integer as n from private.retention_runs where id > $1 and policy = 'purge_ratings'",
+          [baselineRetention],
+        )
+      ).rows[0].n,
     };
     for (const [relation, n] of Object.entries(residue)) assert.equal(n, 0, `${relation} residue`);
     console.log(
@@ -853,6 +879,13 @@ async function main() {
       .map((result) => result.reason);
     if (errors.length) throw new AggregateError(errors, 'harness connections');
     await cleanup(db);
+    baselineRuns = Number(
+      (await db.query('select coalesce(max(id), 0)::text as id from private.job_runs')).rows[0].id,
+    );
+    baselineRetention = Number(
+      (await db.query('select coalesce(max(id), 0)::text as id from private.retention_runs'))
+        .rows[0].id,
+    );
     const initial = (await db.query('select count(*)::integer as n from auth.users')).rows[0].n;
     assert.equal(initial, 0, 'auth.users before proofs');
     console.log('ok - auth.users=0 before proofs');

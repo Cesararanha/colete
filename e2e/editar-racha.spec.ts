@@ -222,6 +222,29 @@ test('Editar e cancelar: the owner edits, the member sees it; the cancel shows o
     await assertAccessible(page);
     await shot(page, testInfo.project.name, '02-editar-preenchido.png');
 
+    // rev79 / BB-006: closing with a change asks first; keeping returns the
+    // focus and the text, discarding leaves the match as it was.
+    await page.getByTestId('match-locationName').fill('Arena Rascunho');
+    await page.getByTestId('match-create-close').click();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Descartar as alterações?' }),
+    ).toBeFocused();
+    await assertAccessible(page);
+    await page.getByTestId('match-discard-keep').click();
+    await expect(page.getByTestId('match-create-close')).toBeFocused();
+    await expect(page.getByTestId('match-locationName')).toHaveValue('Arena Rascunho');
+    await page.getByTestId('match-create-close').click();
+    await page.getByTestId('match-discard-confirm').click();
+    await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+    await expect(page.getByTestId('match-fact-where')).toContainText('Arena da Lista');
+    // Unchanged, "Fechar" closes at once.
+    await page.getByTestId('match-edit').click();
+    await expect(page.getByTestId('match-locationName')).toHaveValue('Arena da Lista');
+    await page.getByTestId('match-create-close').click();
+    await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+    await page.getByTestId('match-edit').click();
+    await expect(page.getByTestId('match-locationName')).toHaveValue('Arena da Lista');
+
     // Below the confirmed: refused on the field, with the count.
     await page.getByTestId('match-slots').fill('1');
     await page.getByTestId('match-create-submit').click();
