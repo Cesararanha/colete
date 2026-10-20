@@ -54,6 +54,10 @@ export const ERROR_CODES = [
   'SLOTS_BELOW_CONFIRMED',
   // Notas (docs/13 section 4.1, the pilot cut of section 4.1.2).
   'STARS_RANGE',
+  // Sorteio de times (docs/13 sections 4.2 and 4.3, cut by docs/25 section 8.1).
+  'TEAM_SIZE_INVALID',
+  'RATINGS_MISSING',
+  'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED',
   'INTERNAL',
 ] as const;
 
@@ -136,6 +140,10 @@ const MESSAGES: Record<ErrorCode, string> = {
   MATCH_DONE: 'The match has already ended.',
   SLOTS_BELOW_CONFIRMED: 'The slots cannot go below the number of confirmed players.',
   STARS_RANGE: 'The rating must be from 1 to 5 stars.',
+  TEAM_SIZE_INVALID: 'Each team needs at least two confirmed players.',
+  RATINGS_MISSING: 'Every confirmed player needs a rating before the draw.',
+  UNEQUAL_TEAMS_CONFIRMATION_REQUIRED:
+    'The teams would have different sizes; the draw needs that confirmation.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -186,6 +194,8 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'MATCH_CANCELED':
     case 'MATCH_DONE':
     case 'SLOTS_BELOW_CONFIRMED':
+    case 'TEAM_SIZE_INVALID':
+    case 'RATINGS_MISSING':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
     case 'EXPORT_EXPIRED':
@@ -205,6 +215,7 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'TIME_ORDER':
     case 'PRICE_INVALID':
     case 'STARS_RANGE':
+    case 'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED':
       return 422;
   }
 }

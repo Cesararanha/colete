@@ -3,8 +3,9 @@
 // matches table has no client privilege at all (review of #70, P1-1), so these
 // RPCs are the only way to read a match, and each one refuses a revoked
 // session. Racha completo adds the roster and the occupancy: match_players
-// has no client privilege either. None spends an idempotency key: they change
-// nothing.
+// has no client privilege either. The teams of the last draw (0032) are read
+// the same way, by every active member. None spends an idempotency key: they
+// change nothing.
 import {
   GatewayError,
   defaultMessage,
@@ -20,6 +21,7 @@ export const MATCH_READ_OPERATIONS = [
   'list_my_matches',
   'get_match_roster',
   'get_matches_occupancy',
+  'get_match_teams',
 ] as const;
 export type MatchReadOperation = (typeof MATCH_READ_OPERATIONS)[number];
 export function isMatchReadOperation(value: string): value is MatchReadOperation {
@@ -43,6 +45,7 @@ const ALLOWED: Record<MatchReadOperation, readonly string[]> = {
   list_my_matches: [],
   get_match_roster: ['match_id'],
   get_matches_occupancy: [],
+  get_match_teams: ['match_id'],
 };
 
 function failure(code: ErrorCode, requestId: string, fields?: Record<string, string>) {
@@ -73,7 +76,11 @@ export async function dispatchMatchRead(
       p_actor_auth_user_id: deps.actor.authUserId,
       p_actor_session_id: deps.actor.sessionId,
     };
-    if (operation === 'get_match' || operation === 'get_match_roster') {
+    if (
+      operation === 'get_match' ||
+      operation === 'get_match_roster' ||
+      operation === 'get_match_teams'
+    ) {
       const matchId = input['match_id'];
       if (typeof matchId !== 'string' || !UUID.test(matchId)) {
         throw validation('match_id', 'must be a canonical lowercase UUID');

@@ -462,6 +462,38 @@ export const pt = {
         notOrganizerManage: 'Só o dono ou um organizador ativo do grupo edita ou cancela o racha.',
       },
     },
+    teams: {
+      title: 'Times',
+      countGroup: 'Número de times',
+      count: (count: number) => `${count} times`,
+      draw: 'Sortear times',
+      drawing: 'Sorteando…',
+      drawn: 'Times sorteados.',
+      redraw: 'Sortear de novo',
+      redrawTitle: 'Sortear de novo?',
+      redrawBody: 'Os times atuais serão substituídos.',
+      keep: 'Voltar',
+      stale: 'Times desatualizados',
+      team: (letter: string) => `Time ${letter}`,
+      coletes: {
+        amber: 'Colete âmbar',
+        blue: 'Colete azul',
+        green: 'Colete verde',
+        pink: 'Colete rosa',
+      },
+      players: (count: number) => (count === 1 ? '1 jogador' : `${count} jogadores`),
+      unassigned: 'Sem time',
+      unequalTitle: 'Times de tamanhos diferentes?',
+      unequalBody:
+        'Com esse número de confirmados, um time fica com um jogador a mais. A média por jogador não compensa jogar com uma pessoa a menos.',
+      drawAnyway: 'Sortear assim',
+      errors: {
+        ratingsMissing: 'Há confirmados sem nota. Dê a nota a todos antes de sortear.',
+        teamSize: (count: number) =>
+          `Para ${count} times, é preciso ter pelo menos ${count * 2} confirmados.`,
+        notOrganizer: 'Só o dono ou um organizador ativo do grupo sorteia os times.',
+      },
+    },
     create: {
       eyebrow: 'Novo racha',
       title: 'Criar racha',

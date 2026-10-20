@@ -37,25 +37,10 @@ import { distanceInMeters, distanceText } from './match-distance';
 import { endsNextDay } from './match-card-state';
 import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
+import { MatchTeamsSection } from './MatchTeams';
+import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
-
-function entryName(entry: MatchRosterEntry): string {
-  return entry.account_removed || entry.name === null
-    ? pt.matches.detail.removedAccount
-    : entry.name;
-}
-
-function entryDetail(entry: MatchRosterEntry): string {
-  if (entry.account_removed) return '';
-  const position =
-    entry.position === null
-      ? pt.matches.detail.noPosition
-      : pt.matches.detail.positions[entry.position];
-  return [entry.nickname, position, entry.is_viewer ? pt.matches.detail.you : null]
-    .filter(Boolean)
-    .join(' · ');
-}
 
 /** The state of the viewer on the board (prévia aprovada); the detail knows the waitlist position. */
 function viewerChip(
@@ -525,6 +510,7 @@ function Rosters({
           </View>
         ) : null}
       </View>
+      <MatchTeamsSection matchId={matchId} profileId={profileId} roster={roster} />
       <View style={styles.section} testID="match-waitlist">
         <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
           {pt.matches.detail.waitlistTitle}

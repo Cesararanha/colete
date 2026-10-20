@@ -57,6 +57,12 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   cancel_match: { request_id: REQUEST_ID, match_id: MATCH },
   delete_group: { request_id: REQUEST_ID, group_id: GROUP },
   set_rating: { request_id: REQUEST_ID, group_id: GROUP, profile_id: TARGET, stars: 4 },
+  draw_teams: {
+    request_id: REQUEST_ID,
+    match_id: MATCH,
+    team_count: 3,
+    confirm_unequal_sizes: false,
+  },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -101,6 +107,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   cancel_match: { p_match_id: MATCH },
   delete_group: { p_group_id: GROUP },
   set_rating: { p_group_id: GROUP, p_profile_id: TARGET, p_stars: 4 },
+  draw_teams: { p_match_id: MATCH, p_team_count: 3, p_confirm_unequal_sizes: false },
 };
 
 describe('gateway internal call', () => {
@@ -158,7 +165,7 @@ describe('gateway internal call', () => {
 
   // 0029: the database names a deleted group GROUP_DELETED; outside it is the
   // NOT_FOUND of a group that never existed, with nothing that tells them apart.
-  it.each(['delete_group', 'rename_group', 'join_match', 'set_rating'] as const)(
+  it.each(['delete_group', 'rename_group', 'join_match', 'set_rating', 'draw_teams'] as const)(
     '%s answers a deleted group exactly like an unknown one',
     async (op) => {
       const deleted = await runOperation(
@@ -178,4 +185,24 @@ describe('gateway internal call', () => {
       expect(JSON.stringify(deleted.body)).not.toMatch(/DELETED|delet/i);
     },
   );
+
+  // 0031: fewer than two confirmed per team is a stable 409, not a validation.
+  it('draw_teams maps TEAM_SIZE_INVALID to 409 with its catalogue message', async () => {
+    const result = await runOperation(
+      { resolveKey, callRpc: async () => ({ error: { message: 'TEAM_SIZE_INVALID' } }) },
+      'draw_teams',
+      BODIES.draw_teams,
+      ACTOR,
+    );
+    expect(result).toEqual({
+      status: 409,
+      body: {
+        error: {
+          code: 'TEAM_SIZE_INVALID',
+          message: 'Each team needs at least two confirmed players.',
+        },
+        request_id: REQUEST_ID,
+      },
+    });
+  });
 });

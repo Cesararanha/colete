@@ -185,6 +185,13 @@ function rpcParameters(
         p_profile_id: canonicalInput['profile_id'],
         p_stars: canonicalInput['stars'],
       };
+    case 'draw_teams':
+      return {
+        ...common,
+        p_match_id: canonicalInput['match_id'],
+        p_team_count: canonicalInput['team_count'],
+        p_confirm_unequal_sizes: canonicalInput['confirm_unequal_sizes'],
+      };
   }
 }
 

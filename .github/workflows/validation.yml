@@ -150,6 +150,8 @@ jobs:
         run: npm run db:test:match-players
       - name: Run the ratings HTTP, visibility, lock barrier, no-wait, worker purge and lock mutant harness
         run: npm run db:test:ratings
+      - name: Run the team draw HTTP, lock barrier, no-wait and lock mutant harness
+        run: npm run db:test:teams
       - name: Run the group deletion HTTP, replay, lock barrier and lock mutant harness
         run: npm run db:test:group-deletion
       - name: Run the photo HTTP, Storage, visibility, reclaim, export and deletion harness
