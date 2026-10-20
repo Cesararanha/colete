@@ -35,6 +35,7 @@ import { dispatchMatchRead, isMatchReadOperation } from './match-reads.ts';
 import { DEFAULT_USER_AGENT, dispatchGeocode, isGeocodeOperation } from './geocode.ts';
 import { dispatchPhoto, isPhotoOperation } from './photo-gateway.ts';
 import { createPhotoStorage } from './photo-storage.ts';
+import { dispatchRatingRead, isRatingReadOperation } from './rating-reads.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -222,6 +223,11 @@ export function serveGateway(served: readonly string[]): void {
             body,
           );
           return jsonResponse(photo.status, photo.body);
+        }
+
+        if (isRatingReadOperation(operation)) {
+          const read = await dispatchRatingRead({ actor, callRpc }, operation, body);
+          return jsonResponse(read.status, read.body);
         }
 
         if (isMatchReadOperation(operation)) {

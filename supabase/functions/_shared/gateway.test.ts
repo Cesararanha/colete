@@ -56,6 +56,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   update_match: { request_id: REQUEST_ID, match_id: MATCH, config: MATCH_CONFIG },
   cancel_match: { request_id: REQUEST_ID, match_id: MATCH },
   delete_group: { request_id: REQUEST_ID, group_id: GROUP },
+  set_rating: { request_id: REQUEST_ID, group_id: GROUP, profile_id: TARGET, stars: 4 },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -99,6 +100,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   },
   cancel_match: { p_match_id: MATCH },
   delete_group: { p_group_id: GROUP },
+  set_rating: { p_group_id: GROUP, p_profile_id: TARGET, p_stars: 4 },
 };
 
 describe('gateway internal call', () => {
@@ -156,7 +158,7 @@ describe('gateway internal call', () => {
 
   // 0029: the database names a deleted group GROUP_DELETED; outside it is the
   // NOT_FOUND of a group that never existed, with nothing that tells them apart.
-  it.each(['delete_group', 'rename_group', 'join_match'] as const)(
+  it.each(['delete_group', 'rename_group', 'join_match', 'set_rating'] as const)(
     '%s answers a deleted group exactly like an unknown one',
     async (op) => {
       const deleted = await runOperation(

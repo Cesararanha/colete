@@ -178,6 +178,13 @@ function rpcParameters(
         p_profile_id: canonicalInput['profile_id'],
         p_paid: canonicalInput['paid'],
       };
+    case 'set_rating':
+      return {
+        ...common,
+        p_group_id: canonicalInput['group_id'],
+        p_profile_id: canonicalInput['profile_id'],
+        p_stars: canonicalInput['stars'],
+      };
   }
 }
 

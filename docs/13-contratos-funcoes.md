@@ -655,6 +655,49 @@ prazo de retenção. A política do grupo controla somente a visão da nota de t
 - `escalate_rating_dispute` após SLA cria o evento uma vez. A trilha de disputa é append-only;
   o purge suspende exclusivamente `rating_history_id` alvo até resolução e revisão do prazo.
 
+### 4.1.2 Nota simples do piloto — `0031`
+
+Corte de §§4.1 e 4.1.1 para o piloto (D63-A; decisão humana de César, 19/10/2026, `25`
+§8.1), no gateway `groups`, com o padrão idempotente atual e autenticação e replay de
+§5.0.1. A nota é do grupo e vale para todos os rachas dele até ser alterada.
+
+- **`set_rating(group_id, profile_id, stars, request_id)`:** o dono ou um organizador ativo
+  dá ao membro ativo `profile_id` uma nota inteira de 1 a 5; pode dar a si mesmo. Sem a lista
+  de goleiros do racha (D8), todo membro conta como jogador de linha. Jogador recebe
+  `NOT_ORGANIZER` (403); ex-membro, pendente e estranho, `NOT_MEMBER` (403), como as demais
+  operações de grupo; grupo inexistente e grupo apagado (§5.0.8), `NOT_FOUND` (404); grupo
+  arquivado, `GROUP_ARCHIVED`; suspenso, `GROUP_SUSPENDED`. Alvo que não é membro ativo com
+  conta ativa recebe `NOT_ACTIVE_MEMBER` (409); estrelas inteiras fora de 1–5, `STARS_RANGE`
+  (422), e o que não for inteiro, `VALIDATION`. Repetir a nota atual devolve
+  `rating_unchanged` sem nova versão; não há apagar nota, só alterar. Cada alteração grava
+  uma versão de `rating_history` (de quanto para quanto, quem e quando), append-only, e a nota
+  atual aponta para ela. O outcome é `{ group_id, logical_result: 'rating_set' |
+  'rating_unchanged', profile_id }`, sem estrelas; `current` é `{ stars }`, relido sob as
+  travas, e quem perdeu a autoridade recebe o desfecho sem `current` (M2-D20). Não há
+  `matchday_logged`, trilha pública nem revisão de racha: ficam com a contestação.
+- **Travas:** os perfis do ator e do alvo, o grupo, as duas memberships (lotes em UUID
+  crescente) e a nota atual, nessa ordem (D37). O grupo apagado é decidido antes de travar
+  qualquer linha dele, como em §5.0.8, e a autoridade, o grupo e a membership do alvo são
+  relidos depois das travas, inclusive no replay.
+- **`get_group_ratings(group_id)`:** para membro ativo; os demais, inclusive no grupo
+  apagado, recebem `NOT_MEMBER` antes da trava do grupo, como `get_group_members`. Devolve
+  `{ group_id, visibility, can_rate, own_stars, members }`. A organização recebe cada membro
+  ativo com a nota atual (ou `null`), o nome de quem mudou por último e quando; o jogador, com
+  `ratings_visibility = 'members'`, as notas atuais dos demais sem autor nem instante, e com
+  `private`, `members: null`. O histórico completo não sai: fica para a contestação. Conta em
+  exclusão não aparece.
+- **`get_my_rating(group_id)`:** a própria nota atual e o `rating_history_id` dela, em
+  qualquer visibilidade, inclusive depois de sair do grupo, durante a retenção (§4.1.1, D58).
+  Lê só a linha do próprio ator, sem trava; grupo inexistente, apagado ou alheio respondem
+  igual, sem nota.
+- **Visibilidade:** `set_ratings_visibility` (§5, `0016`), só do dono, com a confirmação
+  explícita para `members`; padrão `private`. N24 fica fora do piloto (D63-B).
+- **Retenção:** o job diário `purge_ratings` apaga a nota e todas as versões dela 12 meses
+  depois de a pessoa sair do grupo (inclusive pela exclusão de conta) ou de o grupo ser
+  encerrado, e quando a membership já foi expurgada (`17` §§2 e 4).
+- **Depois:** contestação (§4.1.1, pós-piloto e obrigatória antes do público, D63-D), trilha
+  `rating_changed_matchday`, N20 e N24, e a nota na exportação do titular (§5.3).
+
 ### 4.2 `POST /draw { match_id, team_count, confirm_unequal_sizes, request_id }` — Edge
 
 - **Pré:** organizador; lista reconciliada em fase `open` ou `closed`; titulares de linha

@@ -261,6 +261,52 @@ export const pt = {
       expiredRequest: 'O prazo desta tentativa terminou. Inicie uma nova ação.',
     },
   },
+  ratings: {
+    eyebrow: 'Organização',
+    title: 'Notas dos jogadores',
+    description: '',
+    back: 'Voltar ao grupo',
+    open: 'Avaliar jogadores',
+    mine: 'Minha nota',
+    myStars: (stars: number) => `Sua nota neste grupo: ${stars} de 5`,
+    myNone: 'Você ainda não tem nota neste grupo.',
+    unrated: (count: number) => `${count} sem nota`,
+    allRated: 'Todos têm nota',
+    // docs/11 screen 21: the visibility notice and who is missing, on top.
+    privateNotice: 'As notas são privadas neste grupo.',
+    membersNotice: 'As notas estão visíveis para os membros ativos do grupo.',
+    missing: (count: number) => `${count} sem nota — o sorteio não roda sem isso.`,
+    none: 'Sem nota',
+    current: (stars: number) => `Nota ${stars}`,
+    starsLabel: (stars: number) => (stars === 1 ? '1 estrela' : `${stars} estrelas`),
+    groupLabel: (name: string) => `Nota de ${name}`,
+    save: 'Salvar nota',
+    saving: 'Salvando…',
+    saved: (name: string, stars: number) => `${name}: nota ${stars}.`,
+    unchanged: (name: string) => `${name} já tinha essa nota.`,
+    changedBy: (name: string, date: string) => `Alterada por ${name} em ${date}`,
+    removedAuthor: 'Conta excluída',
+    you: 'você',
+    member: (name: string, stars: number | null) =>
+      stars === null ? `${name}, sem nota` : `${name}, nota ${stars}`,
+    visibility: 'Visibilidade das notas',
+    private: 'Privadas',
+    members: 'Visíveis aos membros',
+    showTitle: 'Mostrar as notas aos membros?',
+    showBody:
+      'Todos os membros ativos vão ver a nota atual de cada um. Quem mudou e quando continuam só com a organização.',
+    showConfirm: 'Mostrar aos membros',
+    keep: 'Voltar',
+    visibilitySaved: (visibility: 'private' | 'members') =>
+      visibility === 'members'
+        ? 'As notas agora estão visíveis para os membros.'
+        : 'As notas agora são privadas.',
+    errors: {
+      range: 'A nota vai de 1 a 5 estrelas.',
+      notActive: 'Essa pessoa não é mais membro ativo do grupo. A lista foi atualizada.',
+      notOrganizer: 'Só o dono ou um organizador ativo do grupo dá notas.',
+    },
+  },
   matches: {
     list: {
       title: 'Agenda',

@@ -20,6 +20,8 @@ type MemberRowProps = {
   /** What the actions open below the row (menu, confirmation). */
   children?: ReactNode;
   divider?: boolean;
+  /** The member's current rating, when the viewer may see it (0031); null is "Sem nota". */
+  rating?: number | null;
   testID?: string;
 };
 
@@ -28,14 +30,31 @@ type MemberRowProps = {
  * person's tone, the name, the role chip, and the row's actions. The role is
  * said in words; the chip's colour only repeats it (docs/15).
  */
-export function MemberRow({ actions, children, divider, id, name, role, testID }: MemberRowProps) {
+export function MemberRow({
+  actions,
+  children,
+  divider,
+  id,
+  name,
+  rating,
+  role,
+  testID,
+}: MemberRowProps) {
   const { colors } = useTheme();
   return (
     <View role="listitem" testID={testID}>
       {divider ? <View style={[styles.divider, { backgroundColor: colors.divider }]} /> : null}
       <View style={styles.row}>
         <PhotoAvatar id={id} name={name} size={40} />
-        <Text style={[styles.name, { color: colors.text }]}>{name}</Text>
+        <Text style={[styles.name, { color: colors.text }]}>
+          {name}
+          {rating === undefined ? null : (
+            <Text style={{ color: colors.textMuted }}>
+              {' · '}
+              {rating === null ? pt.ratings.none : pt.ratings.current(rating)}
+            </Text>
+          )}
+        </Text>
         <Chip label={roleName(role, pt.groups.detail.player)} tone={roleTone(role)} />
         {actions ?? <View style={styles.spacer} />}
       </View>

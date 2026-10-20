@@ -21,6 +21,7 @@ import { focusGroupControl, GroupConfirmation } from './GroupConfirmation';
 import { useLeaveMissingGroup } from './leave-missing-group';
 import { useGroupAdministration } from './useGroupAdministration';
 import { ProfileLinkRow } from '../profile/ProfileLinkRow';
+import { RatingsVisibilityControl } from '../ratings/RatingsVisibilityControl';
 
 export function GroupSettingsScreen({
   groupId,
@@ -225,6 +226,10 @@ export function GroupSettingsScreen({
             </>
           ) : null}
         </AppCard>
+      ) : null}
+      {group?.role === 'owner' ? (
+        // Only the owner chooses who sees the ratings (OWNER_ONLY for the rest).
+        <RatingsVisibilityControl groupId={groupId} profileId={profile.id} />
       ) : null}
       {group?.role === 'owner' ? (
         // The screen's one final action stands apart from the card, last.

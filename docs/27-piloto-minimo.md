@@ -96,8 +96,8 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `advance_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:531`; D63-E: recorrência é evolução. | Evolução |
 | `update_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:542`; D63-E: edição de série é evolução. | Evolução |
 | `set_recurrence_active` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:543`; D63-E: ativação/desligamento de série é evolução. | Evolução |
-| `set_rating` | PILOTO | `docs/13-contratos-funcoes.md:559`; D63-A: nota do organizador para jogador de linha; contrato exato da nota simples antes de M6. | — |
-| `get_my_rating` | PILOTO | `docs/13-contratos-funcoes.md:568`; D63-A: leitura da nota do piloto; visibilidade e contrato exatos antes de M6. | — |
+| `set_rating` | PILOTO | `docs/13-contratos-funcoes.md:559`; D63-A: nota do organizador para jogador de linha; contrato exato da nota simples fechado em `13` §4.1.2 e entregue pela `0031` (19/10/2026). | — |
+| `get_my_rating` | PILOTO | `docs/13-contratos-funcoes.md:568`; D63-A: leitura da nota do piloto; visibilidade e contrato fechados em `13` §4.1.2 e entregues pela `0031` (19/10/2026), com `get_group_ratings`. | — |
 | `open_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:574`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
 | `respond_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:577`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
 | `resolve_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:579`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
@@ -243,6 +243,8 @@ continuam nas tabelas acima.
 - **Antes do M6 (D63-A):** especificar empate de notas, número de times,
   seed, persistência, versão e testes do algoritmo simples reproduzível. A
   serpentina e a exclusão dos goleiros já foram decididas; `04` v3 fica íntegro.
+  O contrato exato da nota simples foi fechado em 19/10/2026 (seção "Notas dos
+  jogadores" abaixo e `13` §4.1.2); falta o do sorteio.
 
 ## Contratos do #41 em `main` e pendências públicas
 
@@ -493,3 +495,35 @@ retenção.
 
 **Depois:** `archive_group` com leitura histórica (`25` §8.2), notificação aos
 membros e estorno de quem já pagou um racha cancelado.
+
+## Notas dos jogadores — decisão humana de 19/10/2026
+
+M6 do piloto, antes do sorteio (D63-A; `0031`, contrato da nota simples em
+`13` §4.1.2). Os sete pontos que os documentos deixavam em aberto foram
+decididos por César assim:
+
+1. Avalia o dono ou um organizador ativo.
+2. A autoavaliação é permitida e fica no histórico.
+3. Repetir o valor não muda nada nem grava versão; não existe remover nota,
+   só alterar.
+4. A tela mostra a nota atual com quem mudou por último e quando; o histórico
+   completo fica para a contestação.
+5. A trilha pública ("alterada no dia do racha") fica para depois, junto com
+   a contestação.
+6. O expurgo `purge_ratings` entra agora; a nota na exportação do titular fica
+   para depois.
+7. Telas: "Minha nota" no detalhe do grupo para todos; "Avaliar jogadores"
+   (tela 21) para dono e organizador, com quem está sem nota no topo; as notas
+   dos demais na lista de membros quando a visibilidade é "membros";
+   visibilidade em Configurações, só para o dono, com confirmação; "N sem
+   nota" no detalhe do racha, só para a organização.
+
+Escala de 1 a 5, sem valor padrão: quem não tem nota aparece como "Sem nota",
+e o sorteio, quando entrar, não roda sem ela (`01` §5.6). Sem a lista de
+goleiros do racha (D8), todo membro conta como jogador de linha. Privadas por
+padrão; o titular sempre vê a própria, também depois de sair do grupo,
+durante a retenção. Grupo apagado não aceita nem mostra nota.
+
+**Depois:** contestação de nota (D63-D), trilha `rating_changed_matchday`,
+N20 e N24, a nota na exportação do titular e a tela da própria nota para quem
+já saiu do grupo (o contrato já a devolve por `get_my_rating`).

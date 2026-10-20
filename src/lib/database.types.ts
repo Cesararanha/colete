@@ -446,6 +446,10 @@ export type Database = {
           status: string;
         }[];
       };
+      get_group_ratings: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_group_id: string };
+        Returns: Json;
+      };
       get_invite_share_link: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_invite_id: string };
         Returns: Json;
@@ -489,6 +493,10 @@ export type Database = {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string };
         Returns: Json;
       };
+      get_my_rating: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_group_id: string };
+        Returns: Json;
+      };
       get_own_data_exports: {
         Args: Record<PropertyKey, never>;
         Returns: Database['public']['CompositeTypes']['data_export_projection'][];
@@ -519,6 +527,7 @@ export type Database = {
           p_actor_session_id: string;
           p_group_ids: string[];
           p_profile_ids: string[];
+          p_self: boolean;
         };
         Returns: {
           bucket: string;
@@ -808,6 +817,20 @@ export type Database = {
           p_input_hmac: string;
           p_request_id: string;
           p_upload_id: string;
+        };
+        Returns: Json;
+      };
+      set_rating: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_group_id: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_profile_id: string;
+          p_request_id: string;
+          p_stars: number;
         };
         Returns: Json;
       };

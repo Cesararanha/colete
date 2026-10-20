@@ -30,6 +30,8 @@ import { face, typography } from '@/theme/typography';
 
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { GroupPhotoIcon, PhotoAvatar } from '../photos/PhotoAvatar';
+import { unratedAmong } from '../ratings/rating-format';
+import { useGroupRatings } from '../ratings/rating-queries';
 import { matchErrorMessage } from './match-errors';
 import { distanceInMeters, distanceText } from './match-distance';
 import { endsNextDay } from './match-card-state';
@@ -413,16 +415,25 @@ function ConfirmedRow({
 const COLLAPSED = 5;
 
 function Rosters({
+  groupId,
   matchId,
   profileId,
   roster,
 }: {
+  groupId: string;
   matchId: string;
   profileId: string;
   roster: MatchRoster;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId);
+  // The organization sees how many confirmed still have no rating (0031): the
+  // draw will not run without them. Players never get this read.
+  const ratings = useGroupRatings(profileId, groupId, roster.viewer.can_manage && !roster.canceled);
+  const unrated = unratedAmong(
+    ratings.data?.members,
+    roster.confirmed.map((entry) => entry.profile_id),
+  );
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState(false);
   const manage = roster.viewer.can_manage;
@@ -463,6 +474,18 @@ function Rosters({
             </View>
           ) : null}
         </View>
+        {unrated > 0 ? (
+          <View style={styles.unrated}>
+            <AppButton
+              compact
+              icon="star"
+              label={pt.ratings.unrated(unrated)}
+              onPress={() => router.push(`/grupos/${groupId}/notas`)}
+              testID="match-unrated"
+              variant="outline"
+            />
+          </View>
+        ) : null}
         <AppStatus message={message} testID="match-payment-result" />
         <AppAlert
           message={actions.error ? matchErrorMessage(actions.error) : ''}
@@ -752,7 +775,12 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
           {roster ? (
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
-              <Rosters matchId={matchId} profileId={profile.id} roster={roster} />
+              <Rosters
+                groupId={match.group_id}
+                matchId={matchId}
+                profileId={profile.id}
+                roster={roster}
+              />
               {roster.viewer.can_manage ? (
                 <CancelMatch
                   date={matchDateTitle(match.starts_at, match.timezone)}
@@ -848,6 +876,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   small: { ...typography.support, fontSize: 14, lineHeight: 20 },
+  unrated: { alignItems: 'flex-start' },
   title: { ...typography.heading },
   when: { ...typography.bodyStrong },
 });

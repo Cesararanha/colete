@@ -287,8 +287,9 @@ select set_eq(
       ('colete_v1_purge_removed_memberships:53 3 * * *'),
       ('colete_v1_purge_invite_rate_limits:* * * * *'),
       ('colete_v1_purge_terminal_group_invites:53 3 * * *'),
-      ('colete_v1_reclaim_photo_uploads:*/5 * * * *')) as expected(value)$$,
-  'the ten schedules are exact and versioned'
+      ('colete_v1_reclaim_photo_uploads:*/5 * * * *'),
+      ('colete_v1_purge_ratings:53 3 * * *')) as expected(value)$$,
+  'the eleven schedules are exact and versioned'
 );
 select is(
   (select count(*) from cron.job

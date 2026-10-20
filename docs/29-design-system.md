@@ -230,6 +230,12 @@ anteriores divergem, vale esta seção, que é a decisão mais recente.
   web e glifos da fonte de ícones já instalada no nativo. Todo grupo começa como bola
   azul. Com foto (`0030`), `GroupPhotoIcon` põe a foto no mesmo ladrilho, com o mesmo
   raio; a página do convite usa só `GroupIcon`.
+- **Notas (PR M6, `0031`).** A escolha de 1 a 5 é um grupo de rádio de pílulas de 48 px
+  com estrela e número na condensada; a escolhida ganha `indicator` e o check, nunca só a
+  cor. A escolha é rascunho: "Salvar nota" grava, para as setas não enviarem uma nota por
+  passo. "Sem nota" é chip `warning`; a nota atual, chip neutro com estrela. A visibilidade
+  usa as pílulas `outline` com `aria-pressed`, e "Minha nota" uma linha `surface` com a
+  estrela em `digit`.
 - **Placares.** A Agenda e o Grupo perderam o placar. O Racha mantém um: confirmados
   sobre vagas, com o chip de estado e a barra.
 - **Dados que a prévia mostra e o contrato não tem:** posição na fila no cartão da Agenda

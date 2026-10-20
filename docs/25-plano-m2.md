@@ -1342,6 +1342,20 @@ código produtivo.
   exportação leva a própria foto. As dependências `expo-image-picker` e
   `expo-image-manipulator` foram autorizadas nesta decisão.
 
+- **Notas dos jogadores — decisão humana de César, 19/10/2026, AGENTS §8.**
+  M6 do piloto, antes do sorteio (D63-A). A `0031` publica o contrato da nota
+  simples de `13` §4.1.2, no padrão idempotente atual e no gateway `groups`
+  (`set_rating`, `get_group_ratings` e `get_my_rating`): o dono ou um
+  organizador ativo dá a cada membro ativo uma nota de 1 a 5, inclusive a si
+  mesmo; repetir o valor não muda nada e não há apagar; cada alteração entra
+  no histórico (de quanto para quanto, quem e quando). A organização vê a nota
+  atual com quem mudou por último e quando; o titular sempre vê a própria,
+  também depois de sair; os demais membros, só com a visibilidade "membros",
+  que o dono escolhe em Configurações com confirmação. Sem a lista de goleiros
+  (D8), todo membro conta como jogador de linha. O job `purge_ratings` aplica
+  a retenção de `17`. Contestação, trilha pública, N20/N24 e a nota na
+  exportação ficam para depois. O registro está em `26` e `27`.
+
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
   somente o que chega ao app publicado: transformadores de build podem injetar

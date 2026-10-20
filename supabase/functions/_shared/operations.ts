@@ -29,6 +29,8 @@ export const IDENTITY_OPERATIONS = [
 // update_match and cancel_match are the presentation cut of sections 3.2 and
 // 3.3 (0028, human decision of 18/10/2026). delete_group is section 5.0.8, the
 // owner's final closing of the group (0029, human decision of 19/10/2026).
+// set_rating is the pilot's simple rating of section 4.1.2 (0031): the owner
+// or an organizer gives each active member 1 to 5 stars.
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -46,6 +48,7 @@ export const GROUP_OPERATIONS = [
   'update_match',
   'cancel_match',
   'delete_group',
+  'set_rating',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -174,6 +177,18 @@ function requiredUuid(value: unknown, field: string): string {
   const lower = value.toLowerCase();
   if (!CANONICAL_UUID.test(lower)) throw validation(field, 'must be a canonical UUID');
   return lower;
+}
+
+// docs/13 section 4.1: a whole number of stars, 1 to 5. Another integer is the
+// catalogue's STARS_RANGE; anything that is not an integer is a VALIDATION.
+function requiredStars(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw validation('stars', 'must be an integer from 1 to 5');
+  }
+  if (value < 1 || value > 5) {
+    throw new GatewayError('STARS_RANGE', 'The rating must be from 1 to 5 stars.');
+  }
+  return value;
 }
 
 function requiredBoolean(value: unknown, field: string): boolean {
@@ -322,6 +337,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     update_match: ['request_id', 'match_id', 'config'],
     cancel_match: ['request_id', 'match_id'],
     delete_group: ['request_id', 'group_id'],
+    set_rating: ['request_id', 'group_id', 'profile_id', 'stars'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -493,6 +509,18 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         operation,
         requestId,
         canonicalInput: { match_id: requiredUuid(record['match_id'], 'match_id') },
+      };
+    // The target is the rated member, a business field like set_role's; the
+    // stars feed the HMAC and the RPC and are never echoed or logged.
+    case 'set_rating':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          group_id: requiredUuid(record['group_id'], 'group_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+          stars: requiredStars(record['stars']),
+        },
       };
     // The target is the confirmed player whose payment the organiser marks;
     // the actor still comes only from the verified claims.

@@ -8,6 +8,7 @@ import { INVITE_OPERATIONS } from '../_shared/invite-gateway.ts';
 import { MATCH_READ_OPERATIONS } from '../_shared/match-reads.ts';
 import { GEOCODE_OPERATIONS } from '../_shared/geocode.ts';
 import { PHOTO_OPERATIONS } from '../_shared/photo-gateway.ts';
+import { RATING_READ_OPERATIONS } from '../_shared/rating-reads.ts';
 
 serveGateway([
   ...GROUP_OPERATIONS,
@@ -15,4 +16,5 @@ serveGateway([
   ...MATCH_READ_OPERATIONS,
   ...GEOCODE_OPERATIONS,
   ...PHOTO_OPERATIONS,
+  ...RATING_READ_OPERATIONS,
 ]);

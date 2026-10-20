@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de doze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:geocode`, `db:test:group-deletion` e `db:test:photos`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de treze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:ratings`, `db:test:geocode`, `db:test:group-deletion` e `db:test:photos`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -3120,3 +3120,61 @@ não depende da validade do token.
 | `db:test:photos`, exclusão de conta | depois da saga concluída, as URLs da primeira foto, da corrente e da sessão aberta não regravam; nenhum objeto sob o perfil; censo de todas as tabelas, Storage inclusive, no baseline |
 | contraprova com a `0030` de `13ecc09` | o mesmo harness reprova em "after the swap: the original URL recreated the object"; sem a prova da troca, reprova em "after the account deletion, first photo" |
 | pgTAP da `0030` | trigger presente e `security definer`; sem sessão, sessão de outro bucket e sessão vencida recusam; sessão aberta aceita; mover para bucket de foto recusa; outros buckets intactos |
+
+## Notas dos jogadores — `0031_ratings.sql` (19/10/2026)
+
+M6 do piloto, antes do sorteio (D63-A). Decisão humana de César (`25` §8.1), contrato da nota
+simples em `13` §4.1.2 e os sete pontos decididos em `27` ("Notas dos jogadores"). Sobre
+`origin/main` em `3d17aed`; o #82 (sorteio) passa a usar a `0032`.
+
+- **`0031`.** `private.ratings` (nota atual por grupo e membro) e `private.rating_history`
+  (de quanto para quanto, quem e quando), privadas, sem RLS nem privilégio; FK composta da nota
+  atual para a versão do mesmo membro e grupo, trigger que exige estrelas, autor e instante
+  iguais aos da versão, e o histórico append-only. `set_rating` no padrão idempotente atual,
+  com a lista de operações completa (as 33 anteriores, inclusive as da `0027` à `0030`, mais
+  `set_rating`) e o validador encadeado; outcome sem estrelas. Travas: perfis do ator e do
+  alvo, grupo e memberships em UUID crescente, nota atual; o grupo apagado é decidido antes
+  de travar qualquer linha dele, e autoridade, grupo e alvo são relidos depois, também no
+  replay. Leituras `get_group_ratings` (no caminho de `get_group_members`) e `get_my_rating`
+  (sem trava, só a linha do próprio ator). Job diário `purge_ratings` (slot e cron das 03:53
+  UTC dos expurgos de grupo), no worker.
+- **Edge `groups`.** Rota `set_rating` (`stars` inteiro; fora de 1–5, `STARS_RANGE` 422, que
+  já estava no catálogo de `13` §8) e o módulo de leituras `rating-reads.ts`. Worker:
+  `purge_ratings` na lista de jobs.
+- **App.** "Minha nota" no detalhe do grupo para todos; "Avaliar jogadores" (tela 21, rota
+  `/grupos/[groupId]/notas`) para dono e organizador, com quem está sem nota no topo, o aviso
+  de visibilidade, a nota atual com quem mudou por último e quando, e a escolha de 1 a 5 em
+  rádio (rascunho; "Salvar nota" grava); a nota dos demais na lista de membros com a
+  visibilidade "membros"; a visibilidade em Configurações, só para o dono, com confirmação na
+  tela; "N sem nota" no detalhe do racha, só para a organização. `database.types.ts`
+  regenerado (inclui o `p_self` da `0030`, que faltava).
+
+| Comando | Resultado |
+|---|---|
+| db:test | 29 arquivos, 2112 asserções, PASS (`0031`: 128); o censo de cron da `0011` passa a onze agendamentos, e os de rotinas de `service_role` da `0004` (62) e da `0020` nomeiam as três rotinas novas |
+| db:test:ratings (novo) | 8 linhas `ok`, exit 0: pela Edge, dono e organizador avaliam (autoavaliação inclusa), o mesmo valor é sem mudança e o histórico guarda de quanto para quanto; jogador 403 `NOT_ORGANIZER`, ex-organizador e estranho 403 `NOT_MEMBER`, grupo inexistente 404, `STARS_RANGE` e meia estrela 422, alvo fora do grupo 409 `NOT_ACTIVE_MEMBER`; a organização vê quem e quando, o jogador só a própria com notas privadas e as dos demais sem autor com "membros"; o expulso continua lendo a própria; grupo apagado igual ao inexistente, replay inclusive. 8 corridas com barreira nas duas ordens (avaliar × avaliar o mesmo alvo, × expulsar o alvo, × apagar o grupo, e o replay × apagar). Grupo apagado com grupo, memberships e notas presos `FOR UPDATE`: 5 chamadas respondem com a trava presa, iguais às de um grupo inexistente, a mais lenta em 19 ms. Expurgo pelo worker real. Censo final em zero |
+| db:test:membership | 75 `ok`; o censo de texto canônico passa a esperar a `0031` nas quatro funções de idempotência e nas duas do worker da `0016` |
+| demais harnesses de §5 | exit 0 (idempotency 7, gateway 9, cors 6, worker 8, deletion 10, export 32, invites 68, groups 29, rename 11, group-deletion 13, photos 21, members 6, matches 15, match-players 21, geocode 7) |
+| test:groups:web | 89 passed + 5 skipped (spec novo `notas`: 2 testes × 2 projetos — a organização avalia pelo teclado sem chamada por seta, a autoavaliação, o jogador só com a própria e sem a ferramenta, chamada forçada pela Edge recusada a jogador e estranho, o dono mostra as notas com "Voltar" sem chamada e o foco devolvido, os membros veem as notas sem autor; "N sem nota" no racha só para a organização) |
+| test:matches:web / qr / cors / smoke / privacy | 24 / 30 / 4 / 6 / 5 + 5 skip |
+| test:auth:web | sempre o foco do Perfil (`m1-a-auth.spec.ts:450`), que esta fatia não toca: na rodada da §5, 9 + 1 falha + 2 skip; contraprova com 7 rodadas de cada app na mesma pilha: com o app desta PR, 6 com a falha e 1 verde; com o app de `origin/main` (`3d17aed`), 5 com a falha e 2 verdes |
+| verify:app | exit 0; vitest 57 arquivos, 704 testes; 1 aviso de lint da base (`PrivacyAccountScreen`) |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 (test:audit 94, test:staging 102, audit:high com as 2 exceções ativas) |
+
+Contraprovas do pgTAP da `0031`, com mutantes aplicados nas funções vivas e restaurados byte
+a byte (128 asserções no arquivo): sem `NOT_ORGANIZER`, 11 reprovam; sem `NOT_ACTIVE_MEMBER`,
+8; sem `STARS_RANGE`, 3; repetir o valor gravando versão, o arquivo aborta (a CHECK da versão
+recusa); replay devolvido antes da autoridade, 3; jogador vendo as notas privadas, 1; membros
+vendo autor e instante, 1; leitura sem `NOT_MEMBER`, 6; a própria nota de grupo apagado, 1;
+expurgo em 10 meses, 5; expurgo ignorando a membership já expurgada, 5. No harness: sem as
+travas de perfil, grupo, membership e nota e com uma pausa depois de ler a nota atual, duas
+notas simultâneas partem do nada (histórico `->4,->2`); com as travas e a mesma pausa, a
+segunda espera e parte da primeira (`->4,4>2`); sem o predicado do grupo apagado na trava do
+grupo, a nota num grupo apagado espera a linha presa por mais de 3 s antes de responder
+`NOT_FOUND`. Capturas a 390 px em `~/colete-noite/notas-prints` (sem nota, organizador, minha
+nota, mostrar as notas, notas visíveis, racha com "1 sem nota").
+
+**Pendências:** a nota na exportação do titular (`13` §5.3), a tela da própria nota para quem
+já saiu do grupo (o contrato já a devolve por `get_my_rating`), contestação de nota
+(pós-piloto, obrigatória antes do público, D63-D), trilha `rating_changed_matchday`, N20 e
+N24.

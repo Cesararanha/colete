@@ -24,6 +24,8 @@ import { MemberStack } from './MemberStack';
 import { MatchCard } from '../matches/MatchCard';
 import { useUpcomingMatches } from '../matches/use-upcoming-matches';
 import { GroupPhotoIcon } from '../photos/PhotoAvatar';
+import { MyRating } from '../ratings/MyRating';
+import { useGroupRatings } from '../ratings/rating-queries';
 
 export function GroupDetailScreen({ groupId, profile }: { groupId: string; profile: OwnProfile }) {
   const queryClient = useQueryClient();
@@ -76,6 +78,15 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
   // already makes; no capacity is shown because the contract has none.
   const active = members.data?.filter((member) => member.status === 'active');
   const requests = members.data?.filter((member) => member.status === 'pending').length ?? 0;
+  // With "members" visibility, a player sees the others' current ratings in the list.
+  const ratings = useGroupRatings(
+    profile.id,
+    groupId,
+    group !== undefined && group !== null && !canOrganize,
+  );
+  const starsOf = new Map(
+    (ratings.data?.members ?? []).map((member) => [member.profile_id, member.stars]),
+  );
   const intro = group ? (
     <View style={styles.intro} testID="group-detail-card">
       <GroupPhotoIcon appearance={group.appearance} groupId={group.id} size={56} tile />
@@ -217,6 +228,9 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
                     id={member.profile_id}
                     key={member.profile_id}
                     name={member.display_name}
+                    {...(ratings.data?.members
+                      ? { rating: starsOf.get(member.profile_id) ?? null }
+                      : {})}
                     role={member.role}
                   />
                 ))}
@@ -246,6 +260,9 @@ export function GroupDetailScreen({ groupId, profile }: { groupId: string; profi
             </View>
           ) : null}
         </View>
+      ) : null}
+      {group ? (
+        <MyRating canOrganize={canOrganize} groupId={group.id} profileId={profile.id} />
       ) : null}
       {group ? (
         // The one destructive action stands apart from the group's tools.

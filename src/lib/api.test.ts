@@ -503,6 +503,53 @@ describe('UI-B group targets and transport', () => {
       },
     ]);
   });
+  it('sends a rating with the rated member as a business target, and reads the ratings', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({ data: { group_id: 'group' }, request_id: body.request_id ?? REQUEST_ID });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    await client.setRating('group', 'member', 4).execute();
+    await client.setRatingsVisibility('group', 'members').execute();
+    await client.setRatingsVisibility('group', 'private').execute();
+    await client.getGroupRatings('group');
+    await client.getMyRating('group');
+    expect(calls).toEqual([
+      {
+        url: 'http://local.test/functions/v1/groups/set_rating',
+        body: { request_id: REQUEST_ID, group_id: 'group', profile_id: 'member', stars: 4 },
+      },
+      {
+        url: 'http://local.test/functions/v1/groups/set_ratings_visibility',
+        body: {
+          request_id: REQUEST_ID,
+          group_id: 'group',
+          visibility: 'members',
+          confirm_members_visibility: true,
+        },
+      },
+      {
+        url: 'http://local.test/functions/v1/groups/set_ratings_visibility',
+        body: {
+          request_id: REQUEST_ID,
+          group_id: 'group',
+          visibility: 'private',
+          confirm_members_visibility: false,
+        },
+      },
+      {
+        url: 'http://local.test/functions/v1/groups/get_group_ratings',
+        body: { group_id: 'group' },
+      },
+      { url: 'http://local.test/functions/v1/groups/get_my_rating', body: { group_id: 'group' } },
+    ]);
+  });
   it('sends the deletion of a group to the groups gateway with the group alone', async () => {
     const calls: { url: string; body: Record<string, unknown> }[] = [];
     const client = createApiClient({
