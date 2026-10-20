@@ -188,8 +188,6 @@ discreto no fim dela.
   reduzido, troca instantânea).
 - Contagem de membros na lista de grupos, capacidade do grupo no detalhe e contagem de
   pedidos na tela de convites. Todas dependem de contrato novo.
-- Ícones do PWA (`public/icons`) na identidade nova. Hoje só as cores do manifesto
-  mudaram.
 - Contar só grupos não arquivados no placar quando o arquivamento existir. Hoje
   `getOwnGroups` não filtra arquivados, e o arquivamento é pós-piloto.
 

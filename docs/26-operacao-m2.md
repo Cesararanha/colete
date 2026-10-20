@@ -3380,4 +3380,6 @@ contorno creme com borda âmbar e brilho por `feGaussianBlur`. O fundo agora ocu
 inteiro, sem cantos arredondados, porque o ícone é `maskable` e quem recorta é o sistema; o
 colete cabe no círculo seguro de 80%. Os PNGs de 192 e 512 saem do SVG pelo
 `generate:icons`, como antes, e o `CACHE_VERSION` do `public/sw.js` passou a
-`colete-shell-v2`, para que quem já instalou o app não continue com o ícone antigo no cache.
+`colete-shell-v2`. A troca só descarta os ativos estáticos guardados pelo service worker. O
+manifesto e o favicon não passam por esse cache, então o ícone na tela inicial de quem já
+instalou o app só muda quando o navegador atualizar o app instalado.
