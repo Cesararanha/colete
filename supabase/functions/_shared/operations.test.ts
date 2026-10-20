@@ -542,3 +542,49 @@ describe('delete_group (docs/13 section 5.0.8, 0029)', () => {
     }
   });
 });
+
+describe('set_rating (docs/13 section 4.1.2, 0031)', () => {
+  const groupId = '15b00001-0000-4000-8000-000000000000';
+  const target = '15a00002-0000-4000-8000-000000000000';
+
+  it('signs the lowercased group, the rated member and the stars', () => {
+    for (const stars of [1, 3, 5]) {
+      expect(
+        normaliseRequest('set_rating', {
+          request_id: REQUEST_ID,
+          group_id: groupId.toUpperCase(),
+          profile_id: target.toUpperCase(),
+          stars,
+        }).canonicalInput,
+      ).toEqual({ group_id: groupId, profile_id: target, stars });
+    }
+  });
+
+  it('answers an integer outside 1-5 with STARS_RANGE and anything else with VALIDATION', () => {
+    for (const stars of [0, 6, -1]) {
+      expect(
+        refusal(() =>
+          normaliseRequest('set_rating', {
+            request_id: REQUEST_ID,
+            group_id: groupId,
+            profile_id: target,
+            stars,
+          }),
+        ).code,
+      ).toBe('STARS_RANGE');
+    }
+    for (const body of [
+      { group_id: groupId, profile_id: target, stars: 3.5 },
+      { group_id: groupId, profile_id: target, stars: '4' },
+      { group_id: groupId, profile_id: target, stars: null },
+      { group_id: groupId, profile_id: target },
+      { group_id: groupId, stars: 4 },
+      { group_id: groupId, profile_id: target, stars: 4, old_stars: 3 },
+      { group_id: groupId, profile_id: target, stars: 4, actor_auth_user_id: target },
+    ]) {
+      expect(
+        refusal(() => normaliseRequest('set_rating', { request_id: REQUEST_ID, ...body })).code,
+      ).toBe('VALIDATION');
+    }
+  });
+});

@@ -76,7 +76,9 @@ export type GroupOperation =
   | 'set_profile_photo'
   | 'remove_profile_photo'
   | 'set_group_photo'
-  | 'remove_group_photo';
+  | 'remove_group_photo'
+  | 'set_rating'
+  | 'set_ratings_visibility';
 
 export type GroupOutcome = {
   outcome: { group_id: string; invite_id?: string; logical_result: string; reentry?: boolean };
@@ -201,6 +203,44 @@ export type MatchOccupancy = {
   waitlist_count: number;
   viewer_status: MatchPresenceStatus;
   canceled: boolean;
+};
+/** set_rating (0031): IDs and the logical result only; the stars come back in current. */
+export type RatingOutcome = {
+  outcome: {
+    group_id: string;
+    profile_id: string;
+    logical_result: 'rating_set' | 'rating_unchanged';
+  };
+  current?: { stars: number | null };
+};
+export type RatingsVisibility = 'private' | 'members';
+/** One active member as get_group_ratings shows them; who and when only for the organization. */
+export type MemberRating = {
+  profile_id: string;
+  display_name: string;
+  stars: number | null;
+  changed_by_name?: string | null;
+  changed_by_removed?: boolean;
+  changed_at?: string | null;
+};
+/**
+ * The ratings an active member may read (0031): the own stars always; the
+ * others' current stars for the organization, or for everyone when the owner
+ * chose "members"; otherwise `members` is null.
+ */
+export type GroupRatings = {
+  group_id: string;
+  visibility: RatingsVisibility;
+  can_rate: boolean;
+  own_stars: number | null;
+  members: MemberRating[] | null;
+};
+/** get_my_rating: the own rating in any visibility, also after leaving, during retention. */
+export type MyRating = {
+  group_id: string;
+  stars: number | null;
+  rating_history_id: number | null;
+  updated_at: string | null;
 };
 export type GroupSummary = {
   id: string;
@@ -413,6 +453,8 @@ const groupOperations = new Set<string>([
   'remove_profile_photo',
   'set_group_photo',
   'remove_group_photo',
+  'set_rating',
+  'set_ratings_visibility',
 ]);
 
 function refuseInternalFields(value: unknown, path = ''): void {
@@ -566,7 +608,11 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
     businessInput: Readonly<Record<string, unknown>>,
   ): MutationIntent<T> {
     // Only these signatures enumerate profile_id as a business target.
-    if (['approve_member', 'remove_member', 'set_role', 'set_match_payment'].includes(operation)) {
+    if (
+      ['approve_member', 'remove_member', 'set_role', 'set_match_payment', 'set_rating'].includes(
+        operation,
+      )
+    ) {
       const { profile_id: target, ...rest } = businessInput;
       refuseInternalFields(rest);
       refuseInternalFields(target, 'profile_id');
@@ -688,6 +734,20 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       mutation<GroupOutcome>('set_group_appearance', { group_id: groupId, icon, color }),
     transferOwnership: (groupId: string, targetId: string) =>
       mutation<GroupOutcome>('transfer_ownership', { group_id: groupId, new_owner_id: targetId }),
+    /** The owner or an organizer gives an active member 1 to 5 stars (0031). */
+    setRating: (groupId: string, targetId: string, stars: number) =>
+      mutation<RatingOutcome>('set_rating', { group_id: groupId, profile_id: targetId, stars }),
+    /** Owner only; showing the ratings to members travels with its confirmation (0016). */
+    setRatingsVisibility: (groupId: string, visibility: RatingsVisibility) =>
+      mutation<GroupOutcome>('set_ratings_visibility', {
+        group_id: groupId,
+        visibility,
+        confirm_members_visibility: visibility === 'members',
+      }),
+    getGroupRatings: (groupId: string, signal?: AbortSignal) =>
+      groupRead<GroupRatings>('get_group_ratings', { group_id: groupId }, signal),
+    getMyRating: (groupId: string, signal?: AbortSignal) =>
+      groupRead<MyRating>('get_my_rating', { group_id: groupId }, signal),
     /** Owner only, and final (0029): the typed name stays on the screen, never in the call. */
     deleteGroup: (groupId: string) => mutation<GroupOutcome>('delete_group', { group_id: groupId }),
     createGroup: (name: string) => mutation<GroupOutcome>('create_group', { name }),

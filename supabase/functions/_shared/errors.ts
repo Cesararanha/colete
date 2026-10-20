@@ -52,6 +52,8 @@ export const ERROR_CODES = [
   'MATCH_CANCELED',
   'MATCH_DONE',
   'SLOTS_BELOW_CONFIRMED',
+  // Notas (docs/13 section 4.1, the pilot cut of section 4.1.2).
+  'STARS_RANGE',
   'INTERNAL',
 ] as const;
 
@@ -133,6 +135,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   MATCH_CANCELED: 'The match was canceled.',
   MATCH_DONE: 'The match has already ended.',
   SLOTS_BELOW_CONFIRMED: 'The slots cannot go below the number of confirmed players.',
+  STARS_RANGE: 'The rating must be from 1 to 5 stars.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -201,6 +204,7 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'VISIBILITY_CONFIRMATION_REQUIRED':
     case 'TIME_ORDER':
     case 'PRICE_INVALID':
+    case 'STARS_RANGE':
       return 422;
   }
 }
