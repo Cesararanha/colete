@@ -72,6 +72,7 @@ export type GroupOperation =
   | 'update_match'
   | 'cancel_match'
   | 'delete_group'
+  | 'draw_teams'
   | 'begin_photo_upload'
   | 'set_profile_photo'
   | 'remove_profile_photo'
@@ -196,6 +197,27 @@ export type MatchRoster = {
   confirmed: MatchRosterEntry[];
   waitlist: MatchRosterEntry[];
   payment_summary: MatchPaymentSummary | null;
+};
+/** draw_teams (0032): IDs and the logical result only; the teams are read again. */
+export type MatchTeamsOutcome = {
+  outcome: { group_id: string; match_id: string; logical_result: 'teams_drawn' };
+};
+export type MatchTeamCount = 2 | 3 | 4;
+/** One player of a team: the roster's fields, without the payment. */
+export type MatchTeamPlayer = Omit<MatchRosterEntry, 'paid'>;
+/**
+ * The last draw of the match (0032), as every active member reads it. Each
+ * team holds only who is still confirmed, in the order of the draw; whoever
+ * was confirmed afterwards is in `unassigned`, and `stale` says the list
+ * changed since the draw. A canceled match has no teams.
+ */
+export type MatchTeams = {
+  match_id: string;
+  can_draw: boolean;
+  team_count: MatchTeamCount | null;
+  stale: boolean;
+  teams: { team_number: number; players: MatchTeamPlayer[] }[];
+  unassigned: MatchTeamPlayer[];
 };
 export type MatchOccupancy = {
   match_id: string;
@@ -448,6 +470,7 @@ const groupOperations = new Set<string>([
   'update_match',
   'cancel_match',
   'delete_group',
+  'draw_teams',
   'begin_photo_upload',
   'set_profile_photo',
   'remove_profile_photo',
@@ -823,6 +846,15 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
       }),
     getMatchRoster: (matchId: string, signal?: AbortSignal) =>
       groupRead<MatchRoster>('get_match_roster', { match_id: matchId }, signal),
+    /** The server draws from the confirmed list and ratings it holds; only the count and the unequal-sizes confirmation travel. */
+    drawTeams: (matchId: string, teamCount: MatchTeamCount, confirmUnequalSizes: boolean) =>
+      mutation<MatchTeamsOutcome>('draw_teams', {
+        match_id: matchId,
+        team_count: teamCount,
+        confirm_unequal_sizes: confirmUnequalSizes,
+      }),
+    getMatchTeams: (matchId: string, signal?: AbortSignal) =>
+      groupRead<MatchTeams>('get_match_teams', { match_id: matchId }, signal),
     /** One search per press; the Edge asks LocationIQ and keeps the text and the key out of every log. */
     searchAddress: (query: string, signal?: AbortSignal) =>
       groupRead<AddressSearch>('search_address', { query }, signal),

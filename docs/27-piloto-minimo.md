@@ -244,7 +244,9 @@ continuam nas tabelas acima.
   seed, persistência, versão e testes do algoritmo simples reproduzível. A
   serpentina e a exclusão dos goleiros já foram decididas; `04` v3 fica íntegro.
   O contrato exato da nota simples foi fechado em 19/10/2026 (seção "Notas dos
-  jogadores" abaixo e `13` §4.1.2); falta o do sorteio.
+  jogadores" abaixo e `13` §4.1.2), e o do sorteio no mesmo dia (seção "Sorteio
+  de times" e `13` §4.4): empate por UUID, 2 a 4 times com tamanhos de `04`
+  §1, sem semente, `snake-v1` guardada com a versão da nota.
 
 ## Contratos do #41 em `main` e pendências públicas
 
@@ -527,3 +529,37 @@ durante a retenção. Grupo apagado não aceita nem mostra nota.
 **Depois:** contestação de nota (D63-D), trilha `rating_changed_matchday`,
 N20 e N24, a nota na exportação do titular e a tela da própria nota para quem
 já saiu do grupo (o contrato já a devolve por `get_my_rating`).
+## Sorteio de times — decisões humanas de 19/10/2026
+
+No detalhe do racha, depois de "Confirmados", a seção "Times" (`0032`,
+`draw_teams` e `get_match_teams`, contrato em `13` §4.4). O dono ou o
+organizador ativo escolhe 2, 3 ou 4 times e toca "Sortear times"; o sorteio
+roda no servidor, num racha que não terminou nem foi cancelado, com pelo menos
+2 confirmados por time e todos com nota (a organização vê "N sem nota" no
+racha, PR das notas).
+
+O algoritmo é o da D63-A: a serpentina por nota (`snake-v1`). Os confirmados
+são ordenados por nota, do maior para o menor, e no empate pelo UUID; o 1º vai
+para o Time A, o 2º e o 3º para o B, o 4º e o 5º para o A, e assim por diante,
+repetindo os extremos e pulando o time que já está cheio. Os tamanhos são os de
+`04` §1: quem sobra fica nos primeiros times, e a tela pede antes a
+confirmação de que a média por jogador não compensa jogar com uma pessoa a
+menos (`01` §5.7). Não há semente: as mesmas notas dão os mesmos times, e o
+sorteio guarda a versão do algoritmo e a versão da nota de cada um, para ser
+reproduzível enquanto a retenção as conserva. Goleiro segue o D8: sem a lista
+de goleiros do racha, todo confirmado é jogador de linha, e a posição do
+perfil é só informativa.
+
+Só o último sorteio vale: "Sortear de novo" pede confirmação na tela ("Os
+times atuais serão substituídos"). Todo membro ativo vê os times, cada um com
+nome e cor de colete (Time A âmbar, B azul, C verde, D rosa) e os jogadores,
+por nome, com foto ou iniciais e posição; nunca as notas. Se a lista de
+confirmados muda depois do sorteio, aparece "Times desatualizados": quem saiu
+some, quem entrou fica em "Sem time"; uma nota alterada também os desatualiza,
+só para a organização. Racha cancelado e grupo apagado não mostram times e
+recusam o sorteio. Jogador, ex-membro e quem não é membro recebem a recusa
+padrão, inclusive chamando a Edge direto.
+
+**Depois:** o algoritmo v3 de `04` (evolução), proposta e ajuste manual
+(`13` §4.3), trilha pública do sorteio, a lista de goleiros (`list_kind`),
+notificação N12 e os times na exportação LGPD.

@@ -431,6 +431,20 @@ export type Database = {
         };
         Returns: Json;
       };
+      draw_teams: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_confirm_unequal_sizes: boolean;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_request_id: string;
+          p_team_count: number;
+        };
+        Returns: Json;
+      };
       enqueue_data_export_purge: { Args: { p_export_id: string }; Returns: Json };
       finalize_deletion: { Args: { p_request_id: string }; Returns: Json };
       geocode_reserve: {
@@ -476,6 +490,10 @@ export type Database = {
         }[];
       };
       get_match_roster: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
+        Returns: Json;
+      };
+      get_match_teams: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
         Returns: Json;
       };

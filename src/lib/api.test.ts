@@ -550,6 +550,38 @@ describe('UI-B group targets and transport', () => {
       { url: 'http://local.test/functions/v1/groups/get_my_rating', body: { group_id: 'group' } },
     ]);
   });
+  it('sends the draw with the match and the number of teams only, and reads the teams', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: String(url).endsWith('/draw_teams')
+            ? { outcome: { group_id: 'group', match_id: 'match', logical_result: 'teams_drawn' } }
+            : { match_id: 'match', can_draw: false, team_count: null, stale: false, teams: [] },
+          request_id: body.request_id ?? REQUEST_ID,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    await client.drawTeams('match', 3, true).execute();
+    await client.getMatchTeams('match');
+    expect(calls).toEqual([
+      {
+        url: 'http://local.test/functions/v1/groups/draw_teams',
+        body: {
+          request_id: REQUEST_ID,
+          match_id: 'match',
+          team_count: 3,
+          confirm_unequal_sizes: true,
+        },
+      },
+      { url: 'http://local.test/functions/v1/groups/get_match_teams', body: { match_id: 'match' } },
+    ]);
+  });
   it('sends the deletion of a group to the groups gateway with the group alone', async () => {
     const calls: { url: string; body: Record<string, unknown> }[] = [];
     const client = createApiClient({

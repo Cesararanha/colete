@@ -30,7 +30,9 @@ export const IDENTITY_OPERATIONS = [
 // 3.3 (0028, human decision of 18/10/2026). delete_group is section 5.0.8, the
 // owner's final closing of the group (0029, human decision of 19/10/2026).
 // set_rating is the pilot's simple rating of section 4.1.2 (0031): the owner
-// or an organizer gives each active member 1 to 5 stars.
+// or an organizer gives each active member 1 to 5 stars. draw_teams is the
+// presentation cut of sections 4.2 and 4.3: the server draws 2, 3 or 4 teams
+// from the confirmed players (0032, human decision of 19/10/2026).
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -49,6 +51,7 @@ export const GROUP_OPERATIONS = [
   'cancel_match',
   'delete_group',
   'set_rating',
+  'draw_teams',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -187,6 +190,13 @@ function requiredStars(value: unknown): number {
   }
   if (value < 1 || value > 5) {
     throw new GatewayError('STARS_RANGE', 'The rating must be from 1 to 5 stars.');
+  }
+  return value;
+}
+
+function requiredTeamCount(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 2 || value > 4) {
+    throw validation(field, 'must be 2, 3 or 4');
   }
   return value;
 }
@@ -338,6 +348,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     cancel_match: ['request_id', 'match_id'],
     delete_group: ['request_id', 'group_id'],
     set_rating: ['request_id', 'group_id', 'profile_id', 'stars'],
+    draw_teams: ['request_id', 'match_id', 'team_count', 'confirm_unequal_sizes'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -509,6 +520,22 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         operation,
         requestId,
         canonicalInput: { match_id: requiredUuid(record['match_id'], 'match_id') },
+      };
+    // Only the number of teams and the confirmation of unequal sizes travel
+    // (docs/01 section 5.7): who plays, and in which team, is decided by the
+    // database from the confirmed list and the ratings it holds under the lock.
+    case 'draw_teams':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          match_id: requiredUuid(record['match_id'], 'match_id'),
+          team_count: requiredTeamCount(record['team_count'], 'team_count'),
+          confirm_unequal_sizes: requiredBoolean(
+            record['confirm_unequal_sizes'],
+            'confirm_unequal_sizes',
+          ),
+        },
       };
     // The target is the rated member, a business field like set_role's; the
     // stars feed the HMAC and the RPC and are never echoed or logged.

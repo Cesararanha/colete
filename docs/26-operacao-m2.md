@@ -32,7 +32,7 @@ membership, convites e renomeação do grupo.
 | `worker_get_data_export_build_target` e `supabase/functions/_shared/data-export.ts` | `groups.json` no `colete-export-v1`: uma entrada por membership própria com `group_id`, `group_name`, `role`, `status`, `is_monthly`, `joined_at`, `removed_at` e `removal_count`, em ordem de `group_id` |
 | `scripts/test-group-foundation.mjs` (`db:test:groups`) | harness de commit real, barreira de concorrência e Storage local, também no job `database-security` |
 | `scripts/lock-barrier.mjs` | barreira de `25` §2 compartilhada: tratador na mesma instrução que cria a promessa, espera amarrada ao detentor, conexões distintas afirmadas, registro das promessas em voo |
-| `scripts/harness-guard.mjs` | guarda de treze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:ratings`, `db:test:geocode`, `db:test:group-deletion` e `db:test:photos`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
+| `scripts/harness-guard.mjs` | guarda de catorze harnesses: `db:test:groups`, `db:test:export`, `db:test:idempotency`, `db:test:invites`, `db:test:members`, `db:test:membership`, `db:test:rename`, `db:test:matches`, `db:test:match-players`, `db:test:ratings`, `db:test:teams`, `db:test:geocode`, `db:test:group-deletion` e `db:test:photos`: na falha, inclusive por `unhandledRejection`, relata a causa primeiro, recusa trabalho novo por um sinal de abort, espera o trabalho em voo com prazo e, estourado o prazo, encerra as conexões do harness pelo `application_name`; só então limpa, numa conexão própria, roda o censo à parte e sai com código 1; marca e varredura dos usuários Auth de harness, que nunca apaga usuário com perfil |
 
 ### Decisões de implementação
 
@@ -3178,3 +3178,62 @@ nota, mostrar as notas, notas visíveis, racha com "1 sem nota").
 já saiu do grupo (o contrato já a devolve por `get_my_rating`), contestação de nota
 (pós-piloto, obrigatória antes do público, D63-D), trilha `rating_changed_matchday`, N20 e
 N24.
+## Sorteio de times — `0032_draw_teams.sql` (19/10/2026)
+
+Decisões humanas de César (`25` §8.1, contrato em `13` §4.4): o sorteio segue a D63-A, sobre
+as notas do #83 (`0031`), e o goleiro segue o D8. Sobre o head do #83 (`b6e4add`); depende
+dele.
+
+- **`0032`.** `private.match_draws` (um sorteio por racha, `team_count` 2–4,
+  `algorithm_version = 'snake-v1'`) e `private.match_draw_members` (time, posição na
+  sequência e a versão da nota usada, `rating_history_id`, que vira `null` quando o expurgo da
+  `0031` apaga a versão), privadas, sem RLS nem privilégio; nenhuma estrela e nenhuma semente
+  guardadas. `draw_teams` no padrão idempotente atual, com a lista de operações completa (as 34
+  anteriores, inclusive `set_rating`, mais `draw_teams`) e o validador encadeado. O sorteio
+  (`private.draw_match_teams`) é a serpentina por nota de `04` §6, início 0: nota desc e UUID
+  asc, `balanced_sizes`, índices `0..K-1` e `K-1..0` repetindo os extremos e pulando time
+  cheio; determinístico. Recusas novas: `RATINGS_MISSING` (confirmado sem nota) e
+  `UNEQUAL_TEAMS_CONFIRMATION_REQUIRED` (tamanhos diferentes sem a confirmação de `01` §5.7),
+  já no catálogo de `13` §8. Racha inexistente, cancelado ou de grupo apagado é decidido antes
+  de travar qualquer linha do grupo; o racha vivo passa por `lock_match_context` e o estado é
+  relido depois da trava, também no replay. `get_match_teams` ordena os jogadores de cada
+  time por nome e marca como desatualizado, só para a organização, o sorteio cuja nota usada
+  mudou.
+- **Edge `groups`.** `draw_teams` recebe `confirm_unequal_sizes` (booleano obrigatório);
+  `RATINGS_MISSING` 409 e `UNEQUAL_TEAMS_CONFIRMATION_REQUIRED` 422.
+- **App.** A seção "Times" pede, na própria tela, a confirmação de tamanhos diferentes antes
+  do primeiro sorteio e junto com "Sortear de novo"; "Há confirmados sem nota" quando falta
+  nota (o "N sem nota" do #83 leva à tela de notas). Jogadores por nome dentro de cada time.
+- **Limpeza dos e2e.** Uma leitura ainda em voo da página fechada (`get_group_ratings`, do
+  #83, que trava perfil e depois grupo, como o app) deu deadlock com a limpeza do
+  `rachas-v1.spec.ts`, que apaga grupos antes de perfis: 1 em 4 rodadas de
+  `test:matches:web`, e o resíduo derrubou a rodada seguinte. A limpeza do `rachas-v1` e a do
+  `sorteio-times` passam a refazer a transação quando o Postgres a escolhe como vítima
+  (`40P01`).
+
+| Comando | Resultado |
+|---|---|
+| db:test | 30 arquivos, 2295 asserções, PASS (`0032`: 183); os censos de rotinas de `service_role` da `0004` (64) e da `0020` nomeiam `draw_teams` (com a confirmação) e `get_match_teams` |
+| db:test:teams | 9 linhas `ok`, exit 0: pela Edge, confirmado sem nota 409 `RATINGS_MISSING` e cinco em dois times sem confirmação 422; o organizador sorteia a serpentina por nota (conferida contra um oráculo independente em JS, os dois "goleiros" do perfil juntos, versões das notas guardadas) e dono, organizador e jogador leem os mesmos times; jogador 403, ex-membro e estranho 404 iguais ao ID inexistente; 14 corridas com barreira nas duas ordens (sortear × desistir, × confirmar, × avaliar, × cancelar, × apagar o grupo, e o replay × cancelar e × apagar); racha cancelado e grupo apagado presos `FOR UPDATE` respondendo sem esperar (10 chamadas, a mais lenta em 21 ms); quatro contraprovas executáveis: sem as travas, sem a releitura depois da trava, sem a decisão antes da trava e com o goleiro no sorteio. Censo final em zero |
+| db:test:ratings / membership | 8 / 75 `ok`; o censo de texto canônico passa a esperar a `0032` nas quatro funções de idempotência da `0016` |
+| demais harnesses de §5 | exit 0 (idempotency 7, gateway 9, cors 6, worker 8, deletion 10, export 32, invites 68, groups 29, rename 11, group-deletion 13, photos 21, members 6, matches 15, match-players 21, geocode 7) |
+| test:matches:web | 28 passed (spec `sorteio-times`: 2 testes × 2 projetos — sem nota recusa, tamanhos diferentes confirmados na tela, a serpentina 5-4-3-2-1 em A, B, B, A, A com os dois "goleiros" no Time A, o jogador com os mesmos times por nome e sem notas, sortear de novo igual, nota alterada desatualizando só para a organização, lista alterada, chamada forçada recusada); antes do ajuste da limpeza, o deadlock apareceu em 1 de 4 execuções; com ele, a rodada final passou |
+| test:groups:web / qr / cors / smoke / privacy | 89 + 5 skip / 30 / 4 / 6 / 5 + 5 skip |
+| test:auth:web | sempre o foco do Perfil (`m1-a-auth.spec.ts:450`), que esta fatia não toca: 9 + 1 falha + 2 skip na rodada e em 3 execuções seguidas; a contraprova com o app de `origin/main` está no registro das notas, logo acima (5 de 7 com a mesma falha) |
+| verify:app | exit 0; vitest 58 arquivos, 717 testes; 1 aviso de lint da base (`PrivacyAccountScreen`) |
+| scan:docs / scan:secrets / test:audit / test:staging / audit:high / diff --check | exit 0 (test:audit 94, test:staging 102, audit:high com as 2 exceções ativas) |
+
+Contraprovas do pgTAP da `0032`, com mutantes aplicados nas funções vivas e restaurados byte
+a byte (183 asserções no arquivo): goleiro no sorteio (posição antes da nota), 15 reprovam;
+desempate por UUID decrescente, 12; nota crescente, 16; rodízio sem ida e volta, 19; extremos
+sem repetir, 19; quem sobra no último time, 9; sem `RATINGS_MISSING`, 2; sem a confirmação de
+tamanhos, 2; sem `TEAM_SIZE_INVALID`, 4; sem a releitura de `MATCH_CANCELED` depois da trava,
+2; replay antes do estado do racha, 2; sem `NOT_ORGANIZER`, 6; leitura na ordem da
+serpentina, 1; nota mudada aparecendo ao jogador, 1; nota mudada sem desatualizar, 1; leitura
+mostrando times de racha cancelado, 2. Vetores dourados no pgTAP: notas 5, 4, 3, 2 em A, B, B,
+A (o exemplo da D63-A); cinco em dois times com quem sobra no Time A; empate de notas pelo
+UUID; treze em quatro times com a última escolha pulando os times cheios (`1234432112341`).
+Capturas a 390 px em `~/colete-noite/sorteio-prints`.
+
+**Depois:** o v3 de `04` (evolução), proposta e ajuste manual (`13` §4.3), trilha pública, a
+lista de goleiros (`list_kind`), N12 e os times na exportação LGPD.

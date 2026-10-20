@@ -236,6 +236,17 @@ anteriores divergem, vale esta seção, que é a decisão mais recente.
   passo. "Sem nota" é chip `warning`; a nota atual, chip neutro com estrela. A visibilidade
   usa as pílulas `outline` com `aria-pressed`, e "Minha nota" uma linha `surface` com a
   estrela em `digit`.
+- **Times do sorteio (PR L, `0032`).** No Racha, a seção "Times" vem depois de
+  Confirmados, com o título de seção e sem rótulo acima. Cada time é um cartão na camada
+  `surface` com uma faixa de 6 px à esquerda na cor do colete: Time A âmbar (`digit`, o
+  dígito do placar), B azul (`info`), C verde (`positive`) e D rosa (`accent`). O nome
+  ("Time A") usa a condensada de 24 px; abaixo, a cor dita em palavras ("Colete âmbar")
+  na mesma cor, porque é qual colete vestir, e a contagem. "Sem time" usa a faixa
+  `fieldBorder`. A escolha de 2, 3 ou 4 times são pílulas `outline` compactas com
+  `aria-pressed` e o check do `AppButton`; "Times desatualizados" é um chip `warning`. Os
+  jogadores de cada time vêm por nome, nunca na ordem das notas, e tamanhos diferentes
+  pedem confirmação na própria tela. No tema escuro, a menor cor de colete sobre `surface`
+  passa de 4,5:1 (`team-coletes.test.ts`).
 - **Placares.** A Agenda e o Grupo perderam o placar. O Racha mantém um: confirmados
   sobre vagas, com o chip de estado e a barra.
 - **Dados que a prévia mostra e o contrato não tem:** posição na fila no cartão da Agenda

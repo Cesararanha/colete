@@ -738,6 +738,61 @@ ajuste; retry de `/draw` não embute essa projeção. Após purge: `DRAW_PRIVATE
   `team_rating_snapshots`, aponta `matches.current_publication_id`, muda a fase para
   `teams_published` e grava **N12** na mesma transação.
 
+### 4.4 Sorteio do piloto — `0032`
+
+Corte de §§4.2 e 4.3 com o algoritmo simples da D63-A (decisões humanas de César,
+19/10/2026, `25` §8.1), sobre as notas de §4.1.2, no gateway `groups`, com o padrão
+idempotente atual e autenticação e replay de §5.0.1. `draw_teams(match_id, team_count,
+confirm_unequal_sizes, request_id)` recebe só o racha, o número de times (2, 3 ou 4; outro
+valor é `VALIDATION`) e a confirmação de tamanhos diferentes; quem joga e em que time o banco
+decide sob as travas. Não há proposta, ajuste manual, trilha pública, publicação separada nem
+notificação: o sorteio já vale como publicado.
+
+- **Quem:** dono ou organizador ativo; jogador recebe `NOT_ORGANIZER` (403); ex-membro,
+  pendente e estranho recebem o mesmo `NOT_FOUND` (404) de um ID inexistente, inclusive
+  chamando a Edge direto. Grupo apagado é o `NOT_FOUND` de §5.0.8; grupo suspenso,
+  `GROUP_SUSPENDED`.
+- **Pré:** racha que não terminou (`MATCH_DONE`, 409) nem foi cancelado (`MATCH_CANCELED`,
+  409), em andamento inclusive, com pelo menos 2 confirmados por time (`TEAM_SIZE_INVALID`,
+  409) e todos com nota atual no grupo (`RATINGS_MISSING`, 409; sem valor padrão, `01`
+  §5.6). Se o número de confirmados não divide pelo de times, exige `confirm_unequal_sizes`
+  (`UNEQUAL_TEAMS_CONFIRMATION_REQUIRED`, 422; `01` §5.7). Os estados do racha valem também
+  para o replay de um sorteio feito antes; quem perdeu a autoridade segue a M2-D20.
+- **Goleiro (D8):** goleiro é quem está na lista de goleiros do racha, que ainda não existe;
+  até lá, todo confirmado é jogador de linha e entra no sorteio. A posição do perfil é só
+  informativa (D9).
+- **Algoritmo `snake-v1` (D63-A; `04` §§1, 2, 6 e 8):** os confirmados em ordem de nota
+  decrescente e, no empate, de UUID crescente (os 16 bytes); capacidades `balanced_sizes(N,
+  K)`, primeiro os `N % K` times com `ceil(N/K)`; distribuição nos índices `0..K-1` e depois
+  `K-1..0`, repetindo os extremos e pulando time cheio: 1º no Time A, 2º e 3º no B, 4º e 5º no
+  A. Quem sobra fica nos primeiros times. Determinístico: o mesmo conjunto de notas dá os
+  mesmos times, sem semente nem PRNG.
+- **Persistência:** o sorteio guarda `algorithm_version = 'snake-v1'`; cada membro, o time,
+  a posição na sequência e a versão da nota usada (`rating_history_id`), nunca as estrelas. A
+  versão some com o expurgo de §4.1.2; a composição fica, sem nota (`01` §5.6).
+- **Só o último vale:** sortear de novo substitui o sorteio anterior na mesma transação. Os
+  times são uma foto dos confirmados e das notas no commit.
+- **Travas:** o racha inexistente, o cancelado e o de grupo apagado são decididos antes de
+  travar qualquer linha do grupo, pelo caminho de um ID inexistente (só o próprio perfil é
+  travado, para a sessão); os dois estados são definitivos. O racha vivo é travado por perfil
+  → grupo → membership → racha, a trava de `join_match` e `leave_match`, e o estado é relido
+  depois dela, antes de gravar ou de devolver o replay. As notas são lidas sob a trava do
+  grupo, que `set_rating` também segura.
+- **Saída:** `{ outcome: { group_id, logical_result: 'teams_drawn', match_id } }`; os times e
+  as notas não entram no outcome.
+- **Leitura:** `get_match_teams(match_id)`, sem chave idempotente, para todo membro ativo;
+  fora do grupo e no grupo apagado, o `NOT_FOUND` de um ID inexistente. Devolve `{ match_id,
+  can_draw, team_count, stale, teams: [{ team_number, players }], unassigned }`, com as linhas
+  no formato de `get_match_roster` sem pagamento. Dentro de cada time, por nome: a ordem da
+  sequência revelaria a ordem das notas. Cada time traz só quem continua confirmado; quem
+  confirmou depois (inclusive quem subiu da espera) fica em `unassigned`; `stale` diz que os
+  confirmados mudaram desde o sorteio e, só para quem pode sortear, também que uma nota usada
+  mudou (mudança posterior exige refazer o sorteio, `01` §5.6), sem revelar ao jogador que
+  uma nota mudou. Racha cancelado não tem times (`teams` vazio, `can_draw` falso); racha
+  terminado mostra os times como histórico. Nenhuma nota, autor ou instante sai da projeção.
+- **Depois:** o algoritmo v3 de `04` (evolução, D63-A/D63-D), proposta e ajuste manual (§4.3),
+  trilha pública, a lista de goleiros (`list_kind`), N12 e os times na exportação.
+
 ## 5. Grupo, convites, identidade e privacidade
 
 Todas as mutações abaixo também recebem `request_id`.

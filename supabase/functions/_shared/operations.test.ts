@@ -588,3 +588,60 @@ describe('set_rating (docs/13 section 4.1.2, 0031)', () => {
     }
   });
 });
+
+describe('draw_teams (docs/13 section 4.4, 0032)', () => {
+  const matchId = '15c00003-0000-4000-8000-000000000000';
+
+  it('signs only the lowercased match, the number of teams and the confirmation', () => {
+    for (const teamCount of [2, 3, 4]) {
+      for (const confirm of [true, false]) {
+        expect(
+          normaliseRequest('draw_teams', {
+            request_id: REQUEST_ID,
+            match_id: matchId.toUpperCase(),
+            team_count: teamCount,
+            confirm_unequal_sizes: confirm,
+          }).canonicalInput,
+        ).toEqual({ match_id: matchId, team_count: teamCount, confirm_unequal_sizes: confirm });
+      }
+    }
+  });
+
+  it('refuses any other number of teams, a missing confirmation or a list of players', () => {
+    const base = { match_id: matchId, team_count: 2, confirm_unequal_sizes: false };
+    for (const body of [
+      { match_id: matchId, confirm_unequal_sizes: false },
+      { ...base, team_count: 1 },
+      { ...base, team_count: 5 },
+      { ...base, team_count: 2.5 },
+      { ...base, team_count: '2' },
+      { match_id: matchId, team_count: 2 },
+      { ...base, confirm_unequal_sizes: 'yes' },
+      { ...base, match_id: 'nope' },
+      { ...base, teams: [] },
+      { ...base, ratings: {} },
+      { ...base, seed: 'x' },
+    ]) {
+      expect(
+        refusal(() => normaliseRequest('draw_teams', { request_id: REQUEST_ID, ...body })).code,
+      ).toBe('VALIDATION');
+    }
+  });
+
+  it('refuses an actor supplied by the client, by name', () => {
+    for (const internal of ['profile_id', 'actor_auth_user_id', 'input_hmac']) {
+      const thrown = refusal(() =>
+        normaliseRequest('draw_teams', {
+          request_id: REQUEST_ID,
+          match_id: matchId,
+          team_count: 2,
+          confirm_unequal_sizes: false,
+          [internal]: 'x',
+        }),
+      );
+      expect(thrown.fields?.[internal]).toBe(
+        'belongs to the internal call and is never accepted from a client',
+      );
+    }
+  });
+});

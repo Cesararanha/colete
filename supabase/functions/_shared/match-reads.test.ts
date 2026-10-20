@@ -87,3 +87,37 @@ describe('match read projections', () => {
     expect(extra.status).toBe(422);
   });
 });
+
+describe('get_match_teams (0031)', () => {
+  it('passes the verified actor and the match, and refuses anything else first', async () => {
+    const callRpc = vi.fn(async () => ({ data: { match_id: MATCH, teams: [] } }));
+    const result = await dispatchMatchRead({ actor: ACTOR, callRpc }, 'get_match_teams', {
+      match_id: MATCH,
+    });
+    expect(result.status).toBe(200);
+    expect(callRpc).toHaveBeenCalledWith('get_match_teams', {
+      p_actor_auth_user_id: ACTOR.authUserId,
+      p_actor_session_id: ACTOR.sessionId,
+      p_match_id: MATCH,
+    });
+    callRpc.mockClear();
+    for (const body of [{}, { match_id: MATCH, team_count: 2 }, { match_id: 'x' }]) {
+      const refused = await dispatchMatchRead({ actor: ACTOR, callRpc }, 'get_match_teams', body);
+      expect(refused.status).toBe(422);
+    }
+    expect(callRpc).not.toHaveBeenCalled();
+  });
+
+  it('answers a deleted group like an unknown match', async () => {
+    const answer = (message: string) =>
+      dispatchMatchRead(
+        { actor: ACTOR, callRpc: async () => ({ error: { message } }) },
+        'get_match_teams',
+        { match_id: MATCH },
+      );
+    const deleted = await answer('GROUP_DELETED');
+    const unknown = await answer('NOT_FOUND');
+    expect(deleted.status).toBe(404);
+    expect(deleted.body['error']).toEqual(unknown.body['error']);
+  });
+});

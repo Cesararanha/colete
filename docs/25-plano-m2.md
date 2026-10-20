@@ -1355,6 +1355,25 @@ código produtivo.
   (D8), todo membro conta como jogador de linha. O job `purge_ratings` aplica
   a retenção de `17`. Contestação, trilha pública, N20/N24 e a nota na
   exportação ficam para depois. O registro está em `26` e `27`.
+- **Sorteio de times — decisões humanas de César, 19/10/2026, AGENTS §8.**
+  Corte de `13` §§4.2 e 4.3 na `0032`, sobre as notas da `0031`, no padrão
+  idempotente atual e no gateway `groups` (`draw_teams` e `get_match_teams`,
+  contrato em `13` §4.4): o dono ou organizador ativo sorteia 2, 3 ou 4 times
+  entre os confirmados de um racha que não terminou nem foi cancelado, com
+  pelo menos 2 por time e todos com nota, e o sorteio roda no servidor. O
+  algoritmo é a serpentina por nota da D63-A, como `04` §6 descreve o início
+  0 (nota desc, UUID asc, `balanced_sizes`, extremos repetidos, time cheio
+  pulado), sem semente; tamanhos diferentes pedem a confirmação de `01` §5.7.
+  Goleiro segue o D8: sem a lista de goleiros do racha, todo confirmado é de
+  linha, e a posição é só informativa (D9). Só o último sorteio vale;
+  sortear de novo pede confirmação na tela. Todo membro ativo vê os times no
+  detalhe do racha, com a cor do colete (A âmbar, B azul, C verde, D rosa) e
+  os jogadores por nome; quando a lista muda depois do sorteio, os times
+  aparecem como desatualizados, quem saiu some e quem entrou fica "Sem
+  time"; uma nota alterada também os desatualiza, só para a organização.
+  Racha cancelado e grupo apagado não mostram times e recusam o sorteio,
+  inclusive o replay. As travas seguem a correção do P1 do #80. O v3 de `04`
+  continua como evolução (D63-A, D63-D). O registro está em `26` e `27`.
 
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
