@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert, AppProgress, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
@@ -98,7 +98,9 @@ export function GroupAppearanceScreen({
         testID: 'appearance-back',
       }}
     >
-      {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
+      {administration.pending ? (
+        <AppProgress message={pt.common.loading} testID="administration-progress" />
+      ) : null}
       <AppStatus message={message ?? ''} testID="appearance-result" />
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="appearance-error" />

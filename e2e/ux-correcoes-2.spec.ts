@@ -272,3 +272,47 @@ test('UX-003: the recovery code step names the e-mail and offers resend, another
   await expect(page.getByTestId('recovery-email')).toBeVisible();
   await expect(page.getByLabel('Código de 6 dígitos')).toHaveCount(0);
 });
+
+/** An owner, a group and a stranger whose request to join is pending. */
+async function groupWithRequest(request: APIRequestContext, authIds: string[]) {
+  const owner = await createActor(request, 'org', 'Ana Exemplo', authIds);
+  const fabi = await createActor(request, 'pede', 'Fabi Modelo', authIds);
+  const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+  const outcome = created['outcome'] as { group_id: string; invite_id: string };
+  const share = await request.post(`${env.functionsUrl}/groups/get_invite_share_link`, {
+    data: { invite_id: outcome.invite_id },
+    headers: { Authorization: `Bearer ${owner.token}` },
+  });
+  expect(share.status()).toBe(200);
+  const { code } = ((await share.json()) as { data: { code: string } }).data;
+  await gateway(request, fabi, 'join_by_code', { code });
+  return { owner, fabi, groupId: outcome.group_id };
+}
+
+test('UX-011: an action in progress reads as progress, not as a green success', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, fabi, groupId } = await groupWithRequest(request, authIds);
+    await login(page, owner);
+    await page.goto(`/grupos/${groupId}/membros`);
+    const approve = page.getByRole('button', { name: `Aprovar ${fabi.name}` });
+    await expect(approve).toBeVisible();
+    const release = await holdRequests(page, /\/functions\/v1\/groups\/approve_member$/u);
+    await approve.click();
+    const progress = page.getByText('Carregando com segurança…');
+    await expect(progress).toBeVisible();
+    await print(page, testInfo.project.name, 'UX-011');
+    // Muted text (textMuted), not the positive green of a finished action.
+    await expect(progress).toHaveCSS('color', 'rgb(168, 178, 198)');
+    release();
+    await expect(page.getByTestId('member-result')).toHaveText(`${fabi.name} foi aprovado.`);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert, AppProgress, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppTextField } from '@/components/ui/AppTextField';
@@ -71,7 +71,9 @@ export function GroupSettingsScreen({
         testID: 'settings-back',
       }}
     >
-      {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
+      {administration.pending ? (
+        <AppProgress message={pt.common.loading} testID="administration-progress" />
+      ) : null}
       <AppStatus message={message ?? ''} testID="settings-result" />
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="administration-error" />

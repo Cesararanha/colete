@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
@@ -43,6 +43,29 @@ export function AppStatus({ message, testID }: { message: string; testID?: strin
         accessibilityLiveRegion="polite"
         role="status"
         style={[styles.message, { color: colors.positive }]}
+        testID={testID}
+      >
+        {message}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Work in progress, not a result (UX-011): a neutral spinner and muted text,
+ * never the green check of AppStatus, which would announce a success early.
+ */
+export function AppProgress({ message, testID }: { message: string; testID?: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.row}>
+      <View aria-hidden style={styles.icon}>
+        <ActivityIndicator color={colors.textMuted} size="small" />
+      </View>
+      <Text
+        accessibilityLiveRegion="polite"
+        role="status"
+        style={[styles.message, { color: colors.textMuted }]}
         testID={testID}
       >
         {message}
