@@ -87,20 +87,32 @@ export function ProfileDataForm({
     shouldFocusError: false,
   });
 
+  // HX-014: every change bumps the edit count. A save that comes back after the
+  // person typed again must not reset the form or close it, or the newer text
+  // is lost; the saved fields stop being dirty and the newer ones stay.
+  const edits = useRef(0);
   const update = useMutation({
-    mutationFn: async (
+    mutationFn: async ({
+      command,
+    }: {
       command: MutationIntent<{
         outcome: { logical_result: 'profile_updated' };
         current: OwnProfile;
-      }>,
-    ) => command.execute(),
-    onSuccess: async (result) => {
+      }>;
+      edit: number;
+    }) => command.execute(),
+    onSuccess: async (result, { edit }) => {
       setIntent(null);
       // update_profile answers the profile fields, not its id: keep the cached
       // id (the avatar's tone depends on it) until the refetch below lands.
       queryClient.setQueryData<OwnProfile | null>(privateQueryKeys.ownProfile, (previous) =>
         previous ? { ...previous, ...result.current } : result.current,
       );
+      if (edit !== edits.current) {
+        reset(formValues(result.current), { keepDirty: true, keepValues: true });
+        await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });
+        return;
+      }
       reset(formValues(result.current));
       onSaved(result.current);
       await queryClient.invalidateQueries({ queryKey: privateQueryKeys.ownProfile });
@@ -108,8 +120,11 @@ export function ProfileDataForm({
   });
 
   const changed = () => {
+    edits.current += 1;
     setIntent(null);
-    update.reset();
+    // Clearing an old error must not clear a save in flight: its pending state
+    // is what keeps "Salvar" from sending again.
+    if (!update.isPending) update.reset();
   };
   const registerInput =
     (name: 'name' | 'nickname' | 'shirt_number', formRef: (instance: TextInput | null) => void) =>
@@ -139,7 +154,7 @@ export function ProfileDataForm({
     const patch = changedProfilePatch(values, dirtyFields);
     const command = api.updateProfile(patch);
     setIntent(command);
-    update.mutate(command);
+    update.mutate({ command, edit: edits.current });
   }, focusInvalidInput);
   const canRetry =
     update.error instanceof TransportError ||
@@ -179,7 +194,7 @@ export function ProfileDataForm({
         {canRetry && intent !== null ? (
           <AppButton
             label={pt.common.retry}
-            onPress={() => update.mutate(intent)}
+            onPress={() => update.mutate({ command: intent, edit: edits.current })}
             variant="secondary"
           />
         ) : null}
