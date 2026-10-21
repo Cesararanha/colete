@@ -150,12 +150,14 @@ export function ProfileDataForm({
   useEffect(() => {
     inputRefs.current.name?.focus();
   }, []);
-  const submit = handleSubmit((values) => {
-    const patch = changedProfilePatch(values, dirtyFields);
-    const command = api.updateProfile(patch);
-    setIntent(command);
-    update.mutate({ command, edit: edits.current });
-  }, focusInvalidInput);
+  // `edit` is read on the press, outside render: the count the save answers to.
+  const submit = (edit: number) =>
+    handleSubmit((values) => {
+      const patch = changedProfilePatch(values, dirtyFields);
+      const command = api.updateProfile(patch);
+      setIntent(command);
+      update.mutate({ command, edit });
+    }, focusInvalidInput)();
   const canRetry =
     update.error instanceof TransportError ||
     (update.error instanceof AppError && update.error.retryable);
@@ -175,7 +177,7 @@ export function ProfileDataForm({
         <AppButton
           label={update.isPending ? pt.common.sending : pt.profile.data.save}
           onPress={() => {
-            if (!update.isPending) void submit();
+            if (!update.isPending) void submit(edits.current);
           }}
           testID="save-profile"
         />
