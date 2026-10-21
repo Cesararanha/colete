@@ -157,6 +157,17 @@ export function GroupAppearanceScreen({
                     icon={icon}
                     size={GROUP_ICON_GLYPH}
                   />
+                  {/* The choice is never told by colour alone (WCAG 1.4.1, UX-014):
+                      the chosen tile carries a check, as the chosen colour does. */}
+                  {on ? (
+                    <View
+                      aria-hidden
+                      style={[styles.check, { backgroundColor: selected.glyph }]}
+                      testID={`appearance-icon-${icon}-check`}
+                    >
+                      <AppIcon color={colors.background} name="check" size={14} />
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -216,6 +227,16 @@ export function GroupAppearanceScreen({
 const GROUP_ICON_GLYPH = 32;
 
 const styles = StyleSheet.create({
+  check: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    height: 22,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 22,
+  },
   iconTile: {
     alignItems: 'center',
     borderRadius: radius.row,

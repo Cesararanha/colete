@@ -3383,3 +3383,47 @@ colete cabe no círculo seguro de 80%. Os PNGs de 192 e 512 saem do SVG pelo
 `colete-shell-v2`. A troca só descarta os ativos estáticos guardados pelo service worker. O
 manifesto e o favicon não passam por esse cache, então o ícone na tela inicial de quem já
 instalou o app só muda quando o navegador atualizar o app instalado.
+
+### Correções rápidas de UX da auditoria (2ª Avaliação, 21/10/2026)
+
+A auditoria de UX/UI e acessibilidade (`~/colete-noite/ux-auditoria.md`, fora do repositório),
+consolidada com a avaliação independente do Codex, listou 48 problemas. Por decisão de César,
+este PR leva só os três da lista "corrigir agora" que cabem antes da apresentação. Os demais,
+inclusive os de severidade 3 (UX-003/HX-001, HX-002, HX-003, HX-005 e HX-014), ficam para
+depois.
+
+- **UX-001 / HX-004 (Nielsen 3).** "Fechar" em Criar racha descartava o formulário preenchido
+  sem perguntar: a confirmação de BB-006 só valia na edição, porque a linha de base só era
+  gravada ao pré-preencher. A criação agora parte do formulário vazio como linha de base, e o
+  grupo escolhido no seletor conta como campo. Formulário vazio fecha direto.
+- **UX-014 (WCAG 1.4.1).** Em Ícone do grupo, o ícone escolhido era indicado só pela cor da
+  borda e do fundo. Ele ganha um selo ✓ (`appearance-icon-<ícone>-check`, oculto do leitor,
+  que já tem `aria-pressed`), como a cor escolhida já tinha.
+- **UX-002 (WCAG 2.4.7).** As linhas de link de Configurações do grupo ("Ícone do grupo") e do
+  Perfil ("Trocar senha", "Privacidade e conta") ficavam dentro de um cartão com
+  `overflow: hidden`, que cortava o anel de foco desenhado 2 px fora da linha: invisível na
+  linha única de Configurações, um traço no Perfil. O cartão deixa de cortar e a linha ganha o
+  raio do cartão, para o anel acompanhar a forma.
+
+**Provas.** Um auxiliar novo (`e2e/support/layout.ts`, `tabTo` e `focusRingClipped`) leva o
+foco por Tab até o alvo e mede o anel contra todo ancestral que corta: o estilo calculado
+sozinho não detecta o corte. Ele entra em `icone-grupo` (Configurações) e em `m1-a-auth`
+(Perfil). `icone-grupo` também afirma um único selo, no ícone escolhido, antes e depois da
+troca. `editar-racha` ganha um teste de criação: vazio fecha; preenchido pergunta, "Continuar
+editando" devolve o foco e o texto, "Descartar alterações" fecha e nada é gravado. Roda nos
+dois projetos, com o celular fixado em 390 px.
+
+**Contraprovas contra `origin/main` (`e0f44c4`)**, com os testes novos e o `src` da base:
+
+- teste de criação: 2/2 reprovados (390 e 1280), o título "Descartar as alterações?" não
+  aparece;
+- `icone-grupo`: 2/2 reprovados, anel cortado em `bottom`, `left`, `right` e `top`;
+- só com a correção do foco aplicada, 2/2 reprovados no selo (`toHaveCount(1)` recebeu 0);
+- `m1-a-auth`: reprovado em "Trocar senha", anel cortado em `left`, `right` e `top`.
+
+**Validação** sob `caffeinate`, com a pilha local na trava `pilha.lock`: `db:reset` exit 0;
+`verify:app` exit 0 (vitest 60 arquivos e 731 testes); `build:web:auth-e2e` exit 0;
+`test:matches:web` 30 passed; `test:groups:web` 101 passed + 5 skipped; `test:auth:web` 12
+passed + 2 skipped; `test:privacy:web` 5 passed + 5 skipped. Censo depois da rodada: zero
+usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
+`~/colete-noite/ux-prints/`, fora do repositório.

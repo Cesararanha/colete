@@ -283,7 +283,8 @@ const styles = StyleSheet.create({
   cardTitle: { ...typography.section },
   divider: { height: 1, marginLeft: 46 },
   intro: { alignItems: 'center', gap: 10, minWidth: 0, paddingTop: spacing.ms },
-  links: { borderRadius: radius.row, overflow: 'hidden' },
+  // No overflow clip: the focus ring of a row is drawn outside it (WCAG 2.4.7, UX-002).
+  links: { borderRadius: radius.row },
   logout: { gap: spacing.sm, paddingTop: spacing.md },
   // Stretched, so that a long word wraps inside the card instead of running off it.
   name: {

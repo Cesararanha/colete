@@ -245,5 +245,6 @@ export function GroupSettingsScreen({
 const styles = StyleSheet.create({
   body: { ...typography.body },
   heading: { ...typography.title },
-  links: { borderRadius: radius.row, overflow: 'hidden' },
+  // No overflow clip: the focus ring of a row is drawn outside it (WCAG 2.4.7, UX-002).
+  links: { borderRadius: radius.row },
 });

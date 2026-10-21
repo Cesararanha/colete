@@ -331,6 +331,59 @@ test('Editar e cancelar: the owner edits, the member sees it; the cancel shows o
   }
 });
 
+// UX-001: the create form asks before discarding too, like the edit (BB-006);
+// an empty form closes at once. At the audit's widths: 390 and 1280.
+test('Criar racha: closing with a field filled in asks first; empty, it closes at once', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'cria', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha Novo' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    if (testInfo.project.name === 'mobile-chromium')
+      await page.setViewportSize({ width: 390, height: 844 });
+    await login(page, owner);
+    const groupPage = new RegExp(`/grupos/${groupId}$`);
+
+    // Empty: "Fechar" closes at once.
+    await page.goto(`/grupos/${groupId}`);
+    await page.getByTestId('group-create-match').click();
+    await expect(page.getByRole('heading', { name: 'Criar racha', level: 1 })).toBeVisible();
+    await page.getByTestId('match-create-close').click();
+    await expect(page).toHaveURL(groupPage);
+
+    // Filled in: it asks; keeping returns the focus and the text.
+    await page.getByTestId('group-create-match').click();
+    await page.getByTestId('match-locationName').fill('Arena Rascunho');
+    await page.getByTestId('match-create-close').click();
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Descartar as alterações?' }),
+    ).toBeFocused();
+    await assertAccessible(page);
+    await page.getByTestId('match-discard-keep').click();
+    await expect(page.getByTestId('match-create-close')).toBeFocused();
+    await expect(page.getByTestId('match-locationName')).toHaveValue('Arena Rascunho');
+
+    // Discarding closes, and nothing was written.
+    await page.getByTestId('match-create-close').click();
+    await page.getByTestId('match-discard-confirm').click();
+    await expect(page).toHaveURL(groupPage);
+    await expect(page.getByTestId('match-create-close')).toHaveCount(0);
+    const matches = await db.query(
+      'select count(*)::int as n from private.matches where group_id=$1',
+      [groupId],
+    );
+    expect(matches.rows).toEqual([{ n: 0 }]);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
 test('Editar e cancelar: a player sees neither, and a forced call through the Edge is refused', async ({
   page,
   request,

@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 export async function applyCpuThrottling(page: Page, rateValue: string | undefined) {
   if (rateValue === undefined) return;
@@ -165,5 +165,53 @@ export async function textOutsideItsBox(page: Page): Promise<string[]> {
       }
     }
     return [...bad];
+  });
+}
+
+/** Moves the keyboard focus forward with Tab until it lands on `target`. */
+export async function tabTo(page: Page, target: Locator, maxPresses = 60) {
+  for (let press = 0; press < maxPresses; press += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  throw new Error(`Tab did not reach the target in ${maxPresses} presses.`);
+}
+
+/**
+ * The sides of the focused element's ring that an ancestor cuts off, empty when
+ * the whole ring shows (WCAG 2.4.7, UX-002). The computed outline alone cannot
+ * tell this: a ring drawn outside the element is still "there" when a parent
+ * with overflow hidden hides it. The element is centred first, so a scroller's
+ * own edge is not mistaken for a clip.
+ */
+export async function focusRingClipped(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const element = document.activeElement;
+    if (!(element instanceof HTMLElement) || !element.matches(':focus-visible'))
+      return ['no visible focus'];
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+    const style = getComputedStyle(element);
+    const width = parseFloat(style.outlineWidth);
+    if (style.outlineStyle === 'none' || !(width > 0)) return ['no outline'];
+    const reach = width + parseFloat(style.outlineOffset || '0');
+    const rect = element.getBoundingClientRect();
+    const ring = {
+      bottom: rect.bottom + reach,
+      left: rect.left - reach,
+      right: rect.right + reach,
+      top: rect.top - reach,
+    };
+    const cut = new Set<string>();
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (parent === document.body || parent === document.documentElement) break;
+      const clip = getComputedStyle(parent);
+      if (clip.overflowX === 'visible' && clip.overflowY === 'visible') continue;
+      const box = parent.getBoundingClientRect();
+      if (ring.top < box.top - 0.5) cut.add('top');
+      if (ring.bottom > box.bottom + 0.5) cut.add('bottom');
+      if (ring.left < box.left - 0.5) cut.add('left');
+      if (ring.right > box.right + 0.5) cut.add('right');
+    }
+    return [...cut].sort();
   });
 }

@@ -17,6 +17,8 @@ import {
   assertMinimumInteractiveTargets,
   assertNoHorizontalOverflow,
   assertNoPhantomScroll,
+  focusRingClipped,
+  tabTo,
 } from './support/layout';
 import { handledObserver } from './support/observers';
 import { observeRestAuthorization } from './support/rest-authorization';
@@ -345,6 +347,12 @@ test.describe('M1-A authentication', () => {
         `Conectado como ${account.email}`,
       );
       await expect(page.getByRole('button', { name: 'Sair da conta' })).toBeVisible();
+      // UX-002 (WCAG 2.4.7): the keyboard ring of each settings row shows whole;
+      // the card around the rows used to cut it off.
+      for (const name of ['Trocar senha', 'Privacidade e conta']) {
+        await tabTo(page, page.getByRole('link', { name }));
+        expect(await focusRingClipped(page), name).toEqual([]);
+      }
       await page.getByRole('link', { name: 'Privacidade e conta' }).click();
       await expect(page).toHaveURL(/\/perfil\/privacidade$/u);
       await expect(page).toHaveTitle('Privacidade e conta · Colete');

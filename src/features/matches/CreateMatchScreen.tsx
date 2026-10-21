@@ -264,8 +264,11 @@ export function CreateMatchScreen({
   });
   const match = edited.data ?? undefined;
   const prefilled = useRef(false);
-  // What the edit started from: closing with anything else asks first (rev79, BB-006).
-  const [baseline, setBaseline] = useState<string | null>(null);
+  // What the form started from: closing with anything else asks first (rev79,
+  // BB-006). A new match starts empty, so any field filled in asks too (UX-001).
+  const [baseline, setBaseline] = useState<string | null>(() =>
+    editing ? null : JSON.stringify([EMPTY, null, undefined]),
+  );
   const [discarding, setDiscarding] = useState(false);
   useEffect(() => {
     if (!editing || match === undefined || prefilled.current) return;
@@ -273,7 +276,7 @@ export function CreateMatchScreen({
     const filled = formValuesFromMatch(match);
     setValues(filled.values);
     setPlace(filled.place);
-    setBaseline(JSON.stringify([filled.values, filled.place]));
+    setBaseline(JSON.stringify([filled.values, filled.place, undefined]));
   }, [editing, match]);
 
   const eligible = useQuery({
@@ -490,9 +493,10 @@ export function CreateMatchScreen({
     router.canDismiss()
       ? router.dismiss()
       : router.replace(editing ? `/rachas/${editMatchId}` : '/rachas');
-  const changed = baseline !== null && JSON.stringify([values, place]) !== baseline;
+  // The group chosen in the selector counts as a field (the edit has none to choose).
+  const changed = baseline !== null && JSON.stringify([values, place, chosenGroup]) !== baseline;
   const closeAsked = () => {
-    if (changed && !saving.isPending) setDiscarding(true);
+    if (changed && !saving.isPending && !creation.isPending) setDiscarding(true);
     else close();
   };
   const keepEditing = () => {
