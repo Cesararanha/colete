@@ -97,7 +97,7 @@ function GroupRow({
               <View style={styles.meta}>
                 <AppIcon color={colors.textMuted} name={roleIcon(role)} size={16} />
                 <Text style={[styles.metaText, { color: colors.textMuted }]}>
-                  {roleName(role, pt.groups.list.player)}
+                  {roleName(role, pt.groups.detail.player)}
                 </Text>
               </View>
             </View>

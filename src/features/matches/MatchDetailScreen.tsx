@@ -336,7 +336,9 @@ function ConfirmedRow({
   manage,
   onMark,
   ownPaid,
+  saving,
   testID,
+  waiting,
 }: {
   entry: MatchRosterEntry;
   /** A canceled match keeps its marks as they are: they show, but do not change. */
@@ -345,7 +347,11 @@ function ConfirmedRow({
   onMark: (entry: MatchRosterEntry, paid: boolean) => void;
   /** The viewer's own payment, which a player sees only on their own line. */
   ownPaid: boolean | null;
+  /** This row's mark is being saved. */
+  saving: boolean;
   testID: string;
+  /** Another row's mark is being saved: this one waits, and says why (HX-002). */
+  waiting: boolean;
 }) {
   const { colors } = useTheme();
   const name = entryName(entry);
@@ -384,8 +390,16 @@ function ConfirmedRow({
                 ? pt.matches.detail.markUnpaidLabel(name)
                 : pt.matches.detail.markPaidLabel(name)
             }
+            ariaDisabled={saving || waiting}
             compact
-            label={entry.paid ? pt.matches.detail.markUnpaid : pt.matches.detail.markPaid}
+            describedBy={saving || waiting ? PAYMENT_WAIT_ID : undefined}
+            label={
+              saving
+                ? pt.matches.detail.marking
+                : entry.paid
+                  ? pt.matches.detail.markUnpaid
+                  : pt.matches.detail.markPaid
+            }
             onPress={() => onMark(entry, !entry.paid)}
             testID={`${testID}-mark`}
             variant="outline"
@@ -395,6 +409,9 @@ function ConfirmedRow({
     </View>
   );
 }
+
+/** The text that says which mark is being saved; every mark button points to it meanwhile. */
+const PAYMENT_WAIT_ID = 'match-payment-wait';
 
 /** Beyond this many confirmed, the list opens with the first ones and "Ver os N confirmados". */
 const COLLAPSED = 5;
@@ -423,17 +440,22 @@ function Rosters({
   const [expanded, setExpanded] = useState(false);
   const manage = roster.viewer.can_manage;
   const summary = roster.payment_summary;
+  // One mark at a time (the hook runs one action): the row being saved says
+  // so, and the others wait with the reason instead of ignoring the press (HX-002).
+  const [saving, setSaving] = useState<{ id: string; name: string } | null>(null);
   const mark = (entry: MatchRosterEntry, paid: boolean) => {
-    if (entry.profile_id === null) return;
+    if (entry.profile_id === null || saving !== null || actions.pending) return;
     const target = entry.profile_id;
     setMessage('');
+    setSaving({ id: target, name: entryName(entry) });
     void actions
       .run<MatchPaymentResult>(`pay:${target}:${paid}`, () =>
         api.setMatchPayment(matchId, target, paid),
       )
       .then((result) => {
         if (result) setMessage(pt.matches.detail.marked(entryName(entry), paid));
-      });
+      })
+      .finally(() => setSaving(null));
   };
   const collapsible = roster.confirmed.length > COLLAPSED + 1;
   const shown = collapsible && !expanded ? roster.confirmed.slice(0, COLLAPSED) : roster.confirmed;
@@ -471,6 +493,16 @@ function Rosters({
             />
           </View>
         ) : null}
+        {saving ? (
+          <Text
+            accessibilityLiveRegion="polite"
+            nativeID={PAYMENT_WAIT_ID}
+            style={[styles.small, { color: colors.textMuted }]}
+            testID={PAYMENT_WAIT_ID}
+          >
+            {pt.matches.detail.markWait(saving.name)}
+          </Text>
+        ) : null}
         <AppStatus message={message} testID="match-payment-result" />
         <AppAlert
           message={actions.error ? matchErrorMessage(actions.error) : ''}
@@ -485,7 +517,7 @@ function Rosters({
         <FlatList
           contentContainerStyle={styles.rows}
           data={shown}
-          extraData={[manage, actions.pending, roster.viewer.paid, roster.canceled]}
+          extraData={[manage, actions.pending, roster.viewer.paid, roster.canceled, saving]}
           keyExtractor={(entry, index) => entry.profile_id ?? `removed-${index}`}
           renderItem={({ item, index }) => (
             <ConfirmedRow
@@ -494,7 +526,9 @@ function Rosters({
               manage={manage}
               onMark={mark}
               ownPaid={roster.viewer.paid}
+              saving={saving !== null && saving.id === item.profile_id}
               testID={`match-confirmed-${index}`}
+              waiting={saving !== null && saving.id !== item.profile_id}
             />
           )}
           scrollEnabled={false}
@@ -758,7 +792,18 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}
           {rosterQuery.isError ? (
-            <AppAlert message={matchErrorMessage(rosterQuery.error)} testID="match-roster-error" />
+            <>
+              <AppAlert
+                message={matchErrorMessage(rosterQuery.error)}
+                testID="match-roster-error"
+              />
+              <AppButton
+                label={pt.common.retry}
+                onPress={() => void rosterQuery.refetch()}
+                testID="match-roster-retry"
+                variant="secondary"
+              />
+            </>
           ) : null}
           {roster ? (
             <>

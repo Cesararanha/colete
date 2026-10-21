@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert, AppProgress, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AppTextField } from '@/components/ui/AppTextField';
@@ -70,12 +70,25 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
         testID: 'members-back',
       }}
     >
-      {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
+      {administration.pending ? (
+        <AppProgress message={pt.common.loading} testID="administration-progress" />
+      ) : null}
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="administration-error" />
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
-      {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
+      {listing.isError ? (
+        // UX-012: a failed read offers its retry, as on the other screens.
+        <>
+          <AppAlert message={groupErrorMessage(listing.error, true)} />
+          <AppButton
+            label={pt.common.retry}
+            onPress={() => void listing.refetch()}
+            testID="administration-retry"
+            variant="secondary"
+          />
+        </>
+      ) : null}
       {data && !allowed && !data.missing ? (
         <AppAlert message={pt.groups.errors.notOrganizer} />
       ) : null}

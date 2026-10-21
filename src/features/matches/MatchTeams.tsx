@@ -166,7 +166,15 @@ export function MatchTeamsSection({
   const teams = query.data;
   if (roster.canceled || teams === undefined) {
     return query.isError ? (
-      <AppAlert message={matchErrorMessage(query.error)} testID="match-teams-error" />
+      <View style={styles.section}>
+        <AppAlert message={matchErrorMessage(query.error)} testID="match-teams-error" />
+        <AppButton
+          label={pt.common.retry}
+          onPress={() => void query.refetch()}
+          testID="match-teams-retry"
+          variant="secondary"
+        />
+      </View>
     ) : null;
   }
   const drawn = teams.teams.length > 0;
@@ -217,6 +225,12 @@ export function MatchTeamsSection({
           />
         ) : null}
       </View>
+      {drawn && teams.stale ? (
+        // UX-021: the chip says what happened; this says what to do about it.
+        <Text style={[styles.body, { color: colors.textSoft }]} testID="match-teams-stale-hint">
+          {teams.can_draw ? pt.matches.teams.staleHint : pt.matches.teams.staleHintPlayer}
+        </Text>
+      ) : null}
       {drawn ? <Teams teams={teams} /> : null}
       {teams.can_draw ? (
         <View style={styles.controls}>

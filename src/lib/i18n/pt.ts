@@ -29,7 +29,7 @@ export const pt = {
       view: (name: string) => `Ver grupo: ${name}`,
       owner: 'Dono',
       organizer: 'Organizador',
-      player: 'Membro',
+      player: 'Jogador',
       activeOverline: 'Grupos ativos',
       activeCount: (count: number, limit: number) =>
         `${count} de ${limit} ${limit === 1 ? 'grupo ativo' : 'grupos ativos'}`,
@@ -449,6 +449,8 @@ export const pt = {
       markUnpaid: 'Marcar não pago',
       markPaidLabel: (name: string) => `Marcar ${name} como pago`,
       markUnpaidLabel: (name: string) => `Marcar ${name} como não pago`,
+      marking: 'Salvando…',
+      markWait: (name: string) => `Aguarde: salvando o pagamento de ${name}.`,
       marked: (name: string, paid: boolean) => `${name}: ${paid ? 'pago' : 'não pago'}.`,
       errors: {
         started: 'O racha já começou. Não é mais possível confirmar presença nem desistir.',
@@ -477,6 +479,9 @@ export const pt = {
       redrawBody: 'Os times atuais serão substituídos.',
       keep: 'Voltar',
       stale: 'Times desatualizados',
+      staleHint:
+        'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
+      staleHintPlayer: 'A lista mudou depois do sorteio. Quem organiza pode sortear de novo.',
       team: (letter: string) => `Time ${letter}`,
       coletes: {
         amber: 'Colete âmbar',
@@ -759,6 +764,7 @@ export const pt = {
       verified: 'Código confirmado. Agora escolha uma nova senha.',
       complete: 'Senha atualizada. Entre usando a nova senha.',
       backToLogin: 'Voltar para entrar',
+      otherEmail: 'Usar outro e-mail',
     },
     profile: {
       eyebrow: 'Última etapa',

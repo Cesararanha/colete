@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
+import { AppAlert, AppProgress, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
@@ -98,13 +98,26 @@ export function GroupAppearanceScreen({
         testID: 'appearance-back',
       }}
     >
-      {administration.pending ? <AppStatus message={pt.common.loading} /> : null}
+      {administration.pending ? (
+        <AppProgress message={pt.common.loading} testID="administration-progress" />
+      ) : null}
       <AppStatus message={message ?? ''} testID="appearance-result" />
       {error ? (
         <AppAlert message={groupErrorMessage(error, true)} testID="appearance-error" />
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
-      {listing.isError ? <AppAlert message={groupErrorMessage(listing.error, true)} /> : null}
+      {listing.isError ? (
+        // UX-012: a failed read offers its retry, as on the other screens.
+        <>
+          <AppAlert message={groupErrorMessage(listing.error, true)} />
+          <AppButton
+            label={pt.common.retry}
+            onPress={() => void listing.refetch()}
+            testID="administration-retry"
+            variant="secondary"
+          />
+        </>
+      ) : null}
       {data && !isOwner && !data.missing ? (
         <AppAlert message={pt.groups.appearance.ownerOnly} testID="appearance-owner-only" />
       ) : null}
