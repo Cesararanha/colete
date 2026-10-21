@@ -2,7 +2,7 @@ import type { IconName } from '@/components/ui/AppIcon';
 import type { ChipTone } from '@/components/ui/Chip';
 import { pt } from '@/lib/i18n/pt';
 
-/** The role in text. A player reads "Membro" on the group list and "Jogador" in a member list. */
+/** The role in text: "Jogador" everywhere, on the group list as in a member list (UX-007). */
 export function roleName(role: string, player: string) {
   if (role === 'owner') return pt.groups.list.owner;
   if (role === 'organizer') return pt.groups.list.organizer;

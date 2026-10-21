@@ -29,7 +29,7 @@ export const pt = {
       view: (name: string) => `Ver grupo: ${name}`,
       owner: 'Dono',
       organizer: 'Organizador',
-      player: 'Membro',
+      player: 'Jogador',
       activeOverline: 'Grupos ativos',
       activeCount: (count: number, limit: number) =>
         `${count} de ${limit} ${limit === 1 ? 'grupo ativo' : 'grupos ativos'}`,

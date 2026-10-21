@@ -316,3 +316,34 @@ test('UX-011: an action in progress reads as progress, not as a green success', 
     await db.end();
   }
 });
+
+test('UX-007: a player reads "Jogador" as the role on the group list, as in the member list', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'dono7', 'Ana Exemplo', authIds);
+    const bruno = await createActor(request, 'jogador7', 'Bruno Teste', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    await db.query(
+      `insert into public.group_members(group_id, profile_id, role, status)
+       values ($1, $2, 'player', 'active')`,
+      [groupId, bruno.profileId],
+    );
+    await login(page, bruno);
+    const card = page.getByTestId('group-list-card');
+    await expect(card).toContainText('Racha de Quinta');
+    await print(page, testInfo.project.name, 'UX-007');
+    await expect(card).toContainText('Jogador');
+    await expect(card).not.toContainText('Membro');
+    await card.click();
+    await expect(page.getByTestId('group-members-list')).toContainText('Jogador');
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
