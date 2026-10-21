@@ -242,3 +242,33 @@ test('HX-002: while one payment saves, the row says so and the others wait with 
     await db.end();
   }
 });
+
+test('UX-003: the recovery code step names the e-mail and offers resend, another e-mail and back', async ({
+  page,
+}, testInfo) => {
+  // The local Auth sends at most two e-mails an hour: the recovery call is
+  // answered here, and counted, so the test proves the screen uses it again.
+  let recoverCalls = 0;
+  await page.route(/\/auth\/v1\/recover/u, async (route) => {
+    recoverCalls += 1;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  await page.goto('/esqueci-senha');
+  await page.getByTestId('recovery-email').fill('pessoa@colete.test');
+  await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+  await expect(page.getByLabel('Código de 6 dígitos')).toBeVisible();
+  await page.waitForTimeout(300);
+  await print(page, testInfo.project.name, 'UX-003');
+  await expect(page.getByTestId('recovery-destination')).toHaveText(
+    'Código enviado para pessoa@colete.test.',
+  );
+  await expect(page.getByRole('link', { name: 'Voltar para entrar' })).toBeVisible();
+  await page.getByTestId('recovery-resend').click();
+  await expect(page.getByTestId('recovery-resent')).toHaveText(
+    'Um novo código foi enviado. Use apenas o mais recente.',
+  );
+  expect(recoverCalls).toBe(2);
+  await page.getByTestId('recovery-other-email').click();
+  await expect(page.getByTestId('recovery-email')).toBeVisible();
+  await expect(page.getByLabel('Código de 6 dígitos')).toHaveCount(0);
+});

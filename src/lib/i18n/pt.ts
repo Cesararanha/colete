@@ -761,6 +761,7 @@ export const pt = {
       verified: 'Código confirmado. Agora escolha uma nova senha.',
       complete: 'Senha atualizada. Entre usando a nova senha.',
       backToLogin: 'Voltar para entrar',
+      otherEmail: 'Usar outro e-mail',
     },
     profile: {
       eyebrow: 'Última etapa',

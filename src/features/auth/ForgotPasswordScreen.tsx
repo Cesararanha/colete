@@ -60,6 +60,16 @@ export function ForgotPasswordScreen() {
       setStage('code');
     },
   });
+  // UX-003/HX-001: the code step says where the code went and offers the way
+  // out: send it again (the same recovery call), use another e-mail, or go back.
+  const resend = useMutation({ mutationFn: () => api.requestPasswordOtp(email) });
+  const otherEmail = () => {
+    verify.reset();
+    resend.reset();
+    otpForm.reset();
+    setStage('email');
+    requestAnimationFrame(() => emailForm.setFocus('email'));
+  };
   const verify = useMutation({
     mutationFn: ({ code }: OtpValues) => api.verifyEmailOtp(email, code, 'recovery'),
     onSuccess: () => setStage('password'),
@@ -118,7 +128,24 @@ export function ForgotPasswordScreen() {
             <Text accessibilityLiveRegion="polite" style={[styles.status, { color: colors.text }]}>
               {pt.auth.forgot.sent}
             </Text>
+            <Text
+              style={[styles.destination, { color: colors.text }]}
+              testID="recovery-destination"
+            >
+              {pt.auth.otp.destination(email)}
+            </Text>
             {verify.error === null ? null : <FormAlert message={authErrorMessage(verify.error)} />}
+            {resend.error === null ? null : <FormAlert message={authErrorMessage(resend.error)} />}
+            {resend.isSuccess ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                role="status"
+                style={[styles.status, { color: colors.positive }]}
+                testID="recovery-resent"
+              >
+                {pt.auth.otp.resent}
+              </Text>
+            ) : null}
             <Controller
               control={otpForm.control}
               name="code"
@@ -155,6 +182,21 @@ export function ForgotPasswordScreen() {
                 variant="secondary"
               />
             ) : null}
+            <AppButton
+              ariaDisabled={resend.isPending}
+              label={resend.isPending ? pt.common.sending : pt.auth.otp.resend}
+              onPress={() => {
+                if (!resend.isPending) resend.mutate();
+              }}
+              testID="recovery-resend"
+              variant="secondary"
+            />
+            <AppButton
+              label={pt.auth.forgot.otherEmail}
+              onPress={otherEmail}
+              testID="recovery-other-email"
+              variant="tertiary"
+            />
           </View>
         ) : null}
 
@@ -239,12 +281,15 @@ export function ForgotPasswordScreen() {
           </View>
         ) : null}
       </AppCard>
-      {stage === 'email' ? <AppNavLink href="/entrar" label={pt.auth.forgot.backToLogin} /> : null}
+      {stage === 'email' || stage === 'code' ? (
+        <AppNavLink href="/entrar" label={pt.auth.forgot.backToLogin} />
+      ) : null}
     </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
+  destination: { ...typography.supportStrong },
   form: { gap: spacing.md },
   status: { ...typography.support },
 });
