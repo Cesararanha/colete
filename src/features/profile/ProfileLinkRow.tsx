@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { AppIcon, type IconName } from '@/components/ui/AppIcon';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/spacing';
+import { radius, spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 /**
@@ -40,8 +40,10 @@ export function ProfileLinkRow({
 }
 
 const styles = StyleSheet.create({
+  // The card's radius, so the focus ring follows the card's shape.
   row: {
     alignItems: 'center',
+    borderRadius: radius.row,
     flexDirection: 'row',
     gap: spacing.ms,
     minHeight: 56,

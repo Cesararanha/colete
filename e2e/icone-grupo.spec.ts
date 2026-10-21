@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 
+import { focusRingClipped, tabTo } from './support/layout';
 import { assertAccessible, createVerifiedUser, localEnvironment } from './support/local-stack';
 import { handledObserver } from './support/observers';
 
@@ -274,6 +275,10 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
     await page.getByRole('button', { name: 'Configurar' }).click();
     const link = page.getByRole('link', { name: 'Ícone do grupo' });
     await expect(link).toBeVisible();
+    // UX-002 (WCAG 2.4.7): the keyboard ring of the row shows whole; the card
+    // around it used to cut it off on every side.
+    await tabTo(page, link);
+    expect(await focusRingClipped(page)).toEqual([]);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/grupos/${groupId}/icone$`, 'u'));
     await expect(page.getByRole('heading', { level: 1, name: 'Ícone do grupo' })).toBeVisible();
@@ -309,6 +314,13 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
       'aria-pressed',
       'false',
     );
+    // UX-014 (WCAG 1.4.1): the chosen icon carries a check, not only its colour,
+    // and only the chosen one does.
+    const checks = page.getByTestId('appearance-icons').getByTestId(/^appearance-icon-.+-check$/u);
+    await expect(checks).toHaveCount(1);
+    await expect(
+      page.getByRole('button', { name: 'Bola' }).getByTestId('appearance-icon-ball-check'),
+    ).toBeVisible();
     await expect(page.getByTestId('appearance-preview')).toContainText('Racha de Quinta');
     await expect(page.getByTestId('appearance-preview')).toContainText('3 membros');
     await assertAccessible(page);
@@ -340,6 +352,10 @@ test('the owner picks the icon and colour; every member sees it; nobody else can
       'aria-pressed',
       'false',
     );
+    await expect(checks).toHaveCount(1);
+    await expect(
+      page.getByRole('button', { name: 'Chama' }).getByTestId('appearance-icon-flame-check'),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Lilás' })).toHaveAttribute(
       'aria-pressed',
       'true',
