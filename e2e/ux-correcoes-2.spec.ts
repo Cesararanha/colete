@@ -159,3 +159,86 @@ test('HX-014: typing while the profile saves keeps the new text in the open edit
     await db.end();
   }
 });
+
+async function gateway(
+  request: APIRequestContext,
+  actor: Actor,
+  operation: string,
+  data: Record<string, unknown>,
+) {
+  const response = await request.post(`${env.functionsUrl}/groups/${operation}`, {
+    data: { request_id: crypto.randomUUID(), ...data },
+    headers: { Authorization: `Bearer ${actor.token}` },
+  });
+  expect(response.status(), `${operation}: ${await response.text()}`).toBe(200);
+  return ((await response.json()) as { data: Record<string, unknown> }).data;
+}
+
+test('HX-002: while one payment saves, the row says so and the others wait with the reason', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'dona', 'Ana Exemplo', authIds);
+    const bruno = await createActor(request, 'bruno', 'Bruno Teste', authIds);
+    const caio = await createActor(request, 'caio', 'Caio Demo', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    for (const member of [bruno, caio])
+      await db.query(
+        `insert into public.group_members(group_id, profile_id, role, status)
+         values ($1, $2, 'player', 'active')`,
+        [groupId, member.profileId],
+      );
+    const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
+    const made = await gateway(request, owner, 'create_match', {
+      group_id: groupId,
+      config: {
+        starts_at: start.toISOString(),
+        ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
+        timezone: ZONE,
+        location_name: 'Arena Exemplo',
+        location_address: null,
+        description: null,
+        latitude: null,
+        longitude: null,
+        field_slots: 10,
+        field_price: '15.00',
+      },
+    });
+    const matchId = (made['outcome'] as { match_id: string }).match_id;
+    for (const member of [bruno, caio])
+      await gateway(request, member, 'join_match', { match_id: matchId });
+
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    const first = page.getByTestId('match-confirmed-0-mark');
+    const second = page.getByTestId('match-confirmed-1-mark');
+    await expect(first).toHaveText('Marcar pago');
+    await expect(second).toHaveText('Marcar pago');
+    const release = await holdRequests(page, /\/functions\/v1\/groups\/set_match_payment$/u);
+    const marked = handledObserver(
+      page.waitForResponse((item) => item.url().endsWith('/groups/set_match_payment')),
+    );
+    await first.click();
+    await second.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+    await print(page, testInfo.project.name, 'HX-002');
+    // The press is in flight: this row says it is saving, the other waits and says why.
+    await expect(first).toHaveText('Salvando…');
+    await expect(second).toHaveAttribute('aria-disabled', 'true');
+    await expect(second).toHaveAccessibleDescription(/Aguarde: salvando o pagamento de/u);
+    release();
+    expect((await marked).status()).toBe(200);
+    await expect(page.getByTestId('match-confirmed-0-paid')).toHaveText('Pago');
+    await expect(second).not.toHaveAttribute('aria-disabled', 'true');
+    await second.click();
+    await expect(page.getByTestId('match-confirmed-1-paid')).toHaveText('Pago');
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

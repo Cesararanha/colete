@@ -449,6 +449,8 @@ export const pt = {
       markUnpaid: 'Marcar não pago',
       markPaidLabel: (name: string) => `Marcar ${name} como pago`,
       markUnpaidLabel: (name: string) => `Marcar ${name} como não pago`,
+      marking: 'Salvando…',
+      markWait: (name: string) => `Aguarde: salvando o pagamento de ${name}.`,
       marked: (name: string, paid: boolean) => `${name}: ${paid ? 'pago' : 'não pago'}.`,
       errors: {
         started: 'O racha já começou. Não é mais possível confirmar presença nem desistir.',
