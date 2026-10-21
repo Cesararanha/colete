@@ -112,6 +112,10 @@ async function cleanActors(authIds: string[], db: pg.Client) {
     await db.query(`delete from public.group_invites where group_id in (${groups})`, [ids]);
     await db.query(`delete from public.group_members where group_id in (${groups})`, [ids]);
     await db.query('delete from public.groups where owner_id = any($1::uuid[])', [ids]);
+    // join_by_code leaves a rate-limit row per person (UX-011, UX-012 use it).
+    await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
+      ids,
+    ]);
     await db.query('delete from public.profiles where id = any($1::uuid[])', [ids]);
     await db.query('commit');
   } catch (error) {
