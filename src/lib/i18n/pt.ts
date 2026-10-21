@@ -479,6 +479,9 @@ export const pt = {
       redrawBody: 'Os times atuais serão substituídos.',
       keep: 'Voltar',
       stale: 'Times desatualizados',
+      staleHint:
+        'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
+      staleHintPlayer: 'A lista mudou depois do sorteio. Quem organiza pode sortear de novo.',
       team: (letter: string) => `Time ${letter}`,
       coletes: {
         amber: 'Colete âmbar',

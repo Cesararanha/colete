@@ -99,6 +99,10 @@ async function cleanActors(authIds: string[], db: pg.Client) {
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
+    const matches = `select id from private.matches where group_id in (${groups})`;
+    await db.query(`delete from private.match_draws where match_id in (${matches})`, [ids]);
+    await db.query(`delete from private.ratings where group_id in (${groups})`, [ids]);
+    await db.query(`delete from private.rating_history where group_id in (${groups})`, [ids]);
     await db.query(
       `delete from private.match_players where profile_id = any($1::uuid[]) or match_id in
          (select id from private.matches where group_id in (${groups}))`,
@@ -342,6 +346,80 @@ test('UX-007: a player reads "Jogador" as the role on the group list, as in the 
     await expect(card).not.toContainText('Membro');
     await card.click();
     await expect(page.getByTestId('group-members-list')).toContainText('Jogador');
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('UX-021: "Times desatualizados" says what to do', async ({ page, request }, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'dono21', 'Ana Exemplo', authIds);
+    const players = [
+      await createActor(request, 'p1', 'Bruno Teste', authIds),
+      await createActor(request, 'p2', 'Caio Demo', authIds),
+      await createActor(request, 'p3', 'Davi Amostra', authIds),
+      await createActor(request, 'p4', 'Edu Ficção', authIds),
+    ];
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    for (const member of players)
+      await db.query(
+        `insert into public.group_members(group_id, profile_id, role, status)
+         values ($1, $2, 'player', 'active')`,
+        [groupId, member.profileId],
+      );
+    const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
+    const made = await gateway(request, owner, 'create_match', {
+      group_id: groupId,
+      config: {
+        starts_at: start.toISOString(),
+        ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
+        timezone: ZONE,
+        location_name: 'Arena Exemplo',
+        location_address: null,
+        description: null,
+        latitude: null,
+        longitude: null,
+        field_slots: 10,
+        field_price: '15.00',
+      },
+    });
+    const matchId = (made['outcome'] as { match_id: string }).match_id;
+    for (const [index, member] of players.entries()) {
+      await gateway(request, owner, 'set_rating', {
+        group_id: groupId,
+        profile_id: member.profileId,
+        stars: 3 + (index % 2),
+      });
+    }
+    for (const member of players.slice(0, 3))
+      await gateway(request, member, 'join_match', { match_id: matchId });
+    await gateway(request, owner, 'set_rating', {
+      group_id: groupId,
+      profile_id: owner.profileId,
+      stars: 4,
+    });
+    await gateway(request, owner, 'join_match', { match_id: matchId });
+    await gateway(request, owner, 'draw_teams', {
+      match_id: matchId,
+      team_count: 2,
+      confirm_unequal_sizes: false,
+    });
+    // Someone joins after the draw: the teams are stale.
+    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
+    await page.getByTestId('match-teams').scrollIntoViewIfNeeded();
+    await print(page, testInfo.project.name, 'UX-021');
+    await expect(page.getByTestId('match-teams-stale-hint')).toHaveText(
+      'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
+    );
   } finally {
     await cleanActors(authIds, db);
     await db.end();
