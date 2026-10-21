@@ -424,73 +424,139 @@ test('UX-007: a player reads "Jogador" as the role on the group list, as in the 
   }
 });
 
-test('UX-021: "Times desatualizados" says what to do', async ({ page, request }, testInfo) => {
+/**
+ * A match two days ahead whose four confirmed, all rated, were drawn into two
+ * teams, with a fifth member rated and out of the list: each UX-021 test then
+ * makes the teams stale in its own way.
+ */
+async function drawnMatch(request: APIRequestContext, db: pg.Client, authIds: string[]) {
+  const owner = await createActor(request, 'dono21', 'Ana Exemplo', authIds);
+  const players = [
+    await createActor(request, 'p1', 'Bruno Teste', authIds),
+    await createActor(request, 'p2', 'Caio Demo', authIds),
+    await createActor(request, 'p3', 'Davi Amostra', authIds),
+    await createActor(request, 'p4', 'Edu Ficção', authIds),
+  ];
+  const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+  const groupId = (created['outcome'] as { group_id: string }).group_id;
+  for (const member of players)
+    await db.query(
+      `insert into public.group_members(group_id, profile_id, role, status)
+       values ($1, $2, 'player', 'active')`,
+      [groupId, member.profileId],
+    );
+  const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
+  const made = await gateway(request, owner, 'create_match', {
+    group_id: groupId,
+    config: {
+      starts_at: start.toISOString(),
+      ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
+      timezone: ZONE,
+      location_name: 'Arena Exemplo',
+      location_address: null,
+      description: null,
+      latitude: null,
+      longitude: null,
+      field_slots: 10,
+      field_price: '15.00',
+    },
+  });
+  const matchId = (made['outcome'] as { match_id: string }).match_id;
+  for (const [index, member] of [owner, ...players].entries())
+    await gateway(request, owner, 'set_rating', {
+      group_id: groupId,
+      profile_id: member.profileId,
+      stars: 3 + (index % 2),
+    });
+  for (const member of [owner, ...players.slice(0, 3)])
+    await gateway(request, member, 'join_match', { match_id: matchId });
+  await gateway(request, owner, 'draw_teams', {
+    match_id: matchId,
+    team_count: 2,
+    confirm_unequal_sizes: false,
+  });
+  return { owner, players, groupId, matchId };
+}
+
+async function staleHint(page: Page, owner: Actor, matchId: string) {
+  await login(page, owner);
+  await page.goto(`/rachas/${matchId}`);
+  await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
+  await page.getByTestId('match-teams').scrollIntoViewIfNeeded();
+  return page.getByTestId('match-teams-stale-hint');
+}
+
+test('UX-021: stale because who plays changed, the hint names both reasons and the draw', async ({
+  page,
+  request,
+}, testInfo) => {
   const db = new Client({ connectionString: env.dbUrl });
   await db.connect();
   const authIds: string[] = [];
   try {
-    const owner = await createActor(request, 'dono21', 'Ana Exemplo', authIds);
-    const players = [
-      await createActor(request, 'p1', 'Bruno Teste', authIds),
-      await createActor(request, 'p2', 'Caio Demo', authIds),
-      await createActor(request, 'p3', 'Davi Amostra', authIds),
-      await createActor(request, 'p4', 'Edu Ficção', authIds),
-    ];
-    const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
-    const groupId = (created['outcome'] as { group_id: string }).group_id;
-    for (const member of players)
-      await db.query(
-        `insert into public.group_members(group_id, profile_id, role, status)
-         values ($1, $2, 'player', 'active')`,
-        [groupId, member.profileId],
-      );
-    const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
-    const made = await gateway(request, owner, 'create_match', {
-      group_id: groupId,
-      config: {
-        starts_at: start.toISOString(),
-        ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
-        timezone: ZONE,
-        location_name: 'Arena Exemplo',
-        location_address: null,
-        description: null,
-        latitude: null,
-        longitude: null,
-        field_slots: 10,
-        field_price: '15.00',
-      },
-    });
-    const matchId = (made['outcome'] as { match_id: string }).match_id;
-    for (const [index, member] of players.entries()) {
-      await gateway(request, owner, 'set_rating', {
-        group_id: groupId,
-        profile_id: member.profileId,
-        stars: 3 + (index % 2),
-      });
-    }
-    for (const member of players.slice(0, 3))
-      await gateway(request, member, 'join_match', { match_id: matchId });
+    const { owner, players, matchId } = await drawnMatch(request, db, authIds);
+    // Someone joins after the draw.
+    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021');
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. Sorteie de novo para atualizar os times.',
+    );
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('UX-021: stale because a drawn rating changed, the hint does not blame the list', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, players, groupId, matchId } = await drawnMatch(request, db, authIds);
+    // Same people, one new rating for someone already drawn (0032: rating_history_id).
     await gateway(request, owner, 'set_rating', {
       group_id: groupId,
-      profile_id: owner.profileId,
-      stars: 4,
+      profile_id: players[0]!.profileId,
+      stars: 1,
     });
-    await gateway(request, owner, 'join_match', { match_id: matchId });
-    await gateway(request, owner, 'draw_teams', {
-      match_id: matchId,
-      team_count: 2,
-      confirm_unequal_sizes: false,
-    });
-    // Someone joins after the draw: the teams are stale.
-    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021-nota');
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. Sorteie de novo para atualizar os times.',
+    );
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
 
-    await login(page, owner);
-    await page.goto(`/rachas/${matchId}`);
-    await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
-    await page.getByTestId('match-teams').scrollIntoViewIfNeeded();
-    await print(page, testInfo.project.name, 'UX-021');
-    await expect(page.getByTestId('match-teams-stale-hint')).toHaveText(
-      'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
+test('UX-021: stale after the match ended, the hint promises no new draw', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, players, matchId } = await drawnMatch(request, db, authIds);
+    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    // The match is moved into the past: can_draw is false for everyone (0032).
+    await db.query(
+      `update private.matches
+          set starts_at = now() - interval '3 hours', ends_at = now() - interval '90 minutes'
+        where id = $1`,
+      [matchId],
+    );
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021-encerrado');
+    await expect(page.getByTestId('match-teams-draw')).toHaveCount(0);
+    await expect(page.getByTestId('match-teams-redraw')).toHaveCount(0);
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. O racha já terminou: ficam os times do último sorteio.',
     );
   } finally {
     await cleanActors(authIds, db);

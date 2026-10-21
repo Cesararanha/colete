@@ -417,11 +417,14 @@ const PAYMENT_WAIT_ID = 'match-payment-wait';
 const COLLAPSED = 5;
 
 function Rosters({
+  ended,
   groupId,
   matchId,
   profileId,
   roster,
 }: {
+  /** The match is over (passed to the teams, which may no longer be drawn). */
+  ended: boolean;
   groupId: string;
   matchId: string;
   profileId: string;
@@ -544,7 +547,7 @@ function Rosters({
           </View>
         ) : null}
       </View>
-      <MatchTeamsSection matchId={matchId} profileId={profileId} roster={roster} />
+      <MatchTeamsSection ended={ended} matchId={matchId} profileId={profileId} roster={roster} />
       <View style={styles.section} testID="match-waitlist">
         <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
           {pt.matches.detail.waitlistTitle}
@@ -809,6 +812,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
               <Rosters
+                ended={ended}
                 groupId={match.group_id}
                 matchId={matchId}
                 profileId={profile.id}
