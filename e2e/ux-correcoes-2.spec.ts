@@ -314,6 +314,57 @@ async function groupWithRequest(request: APIRequestContext, authIds: string[]) {
   return { owner, fabi, groupId: outcome.group_id };
 }
 
+test('UX-003: a code being verified keeps the code step until its answer', async ({
+  page,
+}, testInfo) => {
+  await page.route(/\/auth\/v1\/recover/u, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+  );
+  // The verification is held, then refused, so no session is ever opened here.
+  let answer: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  await page.route(/\/auth\/v1\/verify/u, async (route) => {
+    await held;
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 403,
+        error_code: 'otp_expired',
+        msg: 'Token has expired or is invalid',
+      }),
+    });
+  });
+  await page.goto('/esqueci-senha');
+  await page.getByTestId('recovery-email').fill('pessoa@colete.test');
+  await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+  const code = page.getByLabel('Código de 6 dígitos');
+  await code.fill('123456');
+  await page.getByRole('button', { name: 'Verificar código' }).click();
+
+  // While the answer is out, "Usar outro e-mail" waits and says why; pressing it
+  // does not leave the step the answer belongs to.
+  const other = page.getByTestId('recovery-other-email');
+  await expect(other).toHaveAttribute('aria-disabled', 'true');
+  await expect(other).toHaveAccessibleDescription(
+    'Aguarde a verificação do código terminar para trocar o e-mail.',
+  );
+  await other.click({ force: true });
+  await print(page, testInfo.project.name, 'UX-003-verificando');
+  await expect(code).toBeVisible();
+  await expect(page.getByTestId('recovery-email')).toHaveCount(0);
+
+  // The answer comes back on the same step; then the e-mail can change.
+  answer();
+  await expect(page.getByRole('alert').first()).toBeVisible();
+  await expect(code).toBeVisible();
+  await expect(other).not.toHaveAttribute('aria-disabled', 'true');
+  await other.click();
+  await expect(page.getByTestId('recovery-email')).toBeVisible();
+});
+
 test('UX-011: an action in progress reads as progress, not as a green success', async ({
   page,
   request,

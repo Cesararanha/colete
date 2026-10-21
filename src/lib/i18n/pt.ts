@@ -765,6 +765,7 @@ export const pt = {
       complete: 'Senha atualizada. Entre usando a nova senha.',
       backToLogin: 'Voltar para entrar',
       otherEmail: 'Usar outro e-mail',
+      otherEmailWait: 'Aguarde a verificação do código terminar para trocar o e-mail.',
     },
     profile: {
       eyebrow: 'Última etapa',

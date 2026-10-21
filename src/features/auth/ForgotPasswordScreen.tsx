@@ -32,6 +32,9 @@ import {
 
 type Stage = 'code' | 'complete' | 'email' | 'password';
 
+/** Says why "Usar outro e-mail" waits while a code is being verified. */
+const VERIFY_WAIT_ID = 'recovery-verify-wait';
+
 export function ForgotPasswordScreen() {
   const { colors } = useTheme();
   const [stage, setStage] = React.useState<Stage>('email');
@@ -74,6 +77,9 @@ export function ForgotPasswordScreen() {
     onSuccess: () => setResendAvailableAt(Date.now() + RESEND_INTERVAL_MS),
   });
   const otherEmail = () => {
+    // A code being verified may open the recovery session at any moment: the
+    // e-mail changes only when no verification is in flight (UX-003).
+    if (verify.isPending) return;
     verify.reset();
     resend.reset();
     otpForm.reset();
@@ -205,7 +211,18 @@ export function ForgotPasswordScreen() {
             ) : (
               <ResendCountdown seconds={clock.seconds} time={clock.time} />
             )}
+            {verify.isPending ? (
+              <Text
+                nativeID={VERIFY_WAIT_ID}
+                style={[styles.status, { color: colors.textMuted }]}
+                testID={VERIFY_WAIT_ID}
+              >
+                {pt.auth.forgot.otherEmailWait}
+              </Text>
+            ) : null}
             <AppButton
+              ariaDisabled={verify.isPending}
+              describedBy={verify.isPending ? VERIFY_WAIT_ID : undefined}
               label={pt.auth.forgot.otherEmail}
               onPress={otherEmail}
               testID="recovery-other-email"
