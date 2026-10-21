@@ -251,7 +251,7 @@ test('HX-002: while one payment saves, the row says so and the others wait with 
   }
 });
 
-test('UX-003: the recovery code step names the e-mail and offers resend, another e-mail and back', async ({
+test('UX-003: the recovery code step names the e-mail, waits before a resend and offers another e-mail and back', async ({
   page,
 }, testInfo) => {
   // The local Auth sends at most two e-mails an hour: the recovery call is
@@ -261,6 +261,8 @@ test('UX-003: the recovery code step names the e-mail and offers resend, another
     recoverCalls += 1;
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
+  // The page clock moves only when the test says, so the wait is proved without waiting.
+  await page.clock.install();
   await page.goto('/esqueci-senha');
   await page.getByTestId('recovery-email').fill('pessoa@colete.test');
   await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
@@ -271,11 +273,26 @@ test('UX-003: the recovery code step names the e-mail and offers resend, another
     'Código enviado para pessoa@colete.test.',
   );
   await expect(page.getByRole('link', { name: 'Voltar para entrar' })).toBeVisible();
-  await page.getByTestId('recovery-resend').click();
+
+  // The same wait as on sign up: no resend before it ends, and the time is said.
+  const resend = page.getByTestId('recovery-resend');
+  const countdown = page.getByTestId('resend-countdown');
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toHaveText(/^Reenvio disponível em \d+ segundos?\.$/u);
+  await page.clock.fastForward(30_000);
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toBeVisible();
+  expect(recoverCalls).toBe(1);
+  await page.clock.fastForward(31_000);
+  await resend.click();
   await expect(page.getByTestId('recovery-resent')).toHaveText(
     'Um novo código foi enviado. Use apenas o mais recente.',
   );
   expect(recoverCalls).toBe(2);
+  // A new code starts a new wait.
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toBeVisible();
+
   await page.getByTestId('recovery-other-email').click();
   await expect(page.getByTestId('recovery-email')).toBeVisible();
   await expect(page.getByLabel('Código de 6 dígitos')).toHaveCount(0);

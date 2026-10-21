@@ -5,6 +5,7 @@ import {
   keepPendingSignup,
   keptPendingSignup,
 } from '../../lib/pending-signup';
+import { RESEND_INTERVAL_MS } from './resend-interval';
 
 type AuthFlowState = {
   pendingEmail: string | null;
@@ -24,7 +25,7 @@ export const useAuthFlowStore = create<AuthFlowState>((set, get) => ({
   resendAvailableAt: null,
   restored: false,
   setPendingSignup: (pendingEmail, pendingName) => {
-    const resendAvailableAt = Date.now() + 60_000;
+    const resendAvailableAt = Date.now() + RESEND_INTERVAL_MS;
     keepPendingSignup({ email: pendingEmail, resendAvailableAt });
     set({ pendingEmail, pendingName, resendAvailableAt, restored: true });
   },

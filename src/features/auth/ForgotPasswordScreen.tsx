@@ -17,6 +17,8 @@ import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
 import { focusFirstInvalid } from './form-utils';
+import { RESEND_INTERVAL_MS } from './resend-interval';
+import { ResendCountdown, useResendClock } from './ResendCountdown';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage, fieldMessage, passwordUpdateErrorMessage } from './messages';
 import {
@@ -53,16 +55,24 @@ export function ForgotPasswordScreen() {
     resolver: zodResolver(newPasswordSchema),
   });
 
+  // Each code sent starts the same wait as on sign up before another may go
+  // (UX-003): the button returns only when it ends, with the time shown meanwhile.
+  const [resendAvailableAt, setResendAvailableAt] = React.useState<number | null>(null);
+  const clock = useResendClock(resendAvailableAt);
   const send = useMutation({
     mutationFn: ({ email: address }: ForgotEmailValues) => api.requestPasswordOtp(address),
     onSuccess: (_result, values) => {
       setEmail(values.email);
+      setResendAvailableAt(Date.now() + RESEND_INTERVAL_MS);
       setStage('code');
     },
   });
   // UX-003/HX-001: the code step says where the code went and offers the way
   // out: send it again (the same recovery call), use another e-mail, or go back.
-  const resend = useMutation({ mutationFn: () => api.requestPasswordOtp(email) });
+  const resend = useMutation({
+    mutationFn: () => api.requestPasswordOtp(email),
+    onSuccess: () => setResendAvailableAt(Date.now() + RESEND_INTERVAL_MS),
+  });
   const otherEmail = () => {
     verify.reset();
     resend.reset();
@@ -182,15 +192,19 @@ export function ForgotPasswordScreen() {
                 variant="secondary"
               />
             ) : null}
-            <AppButton
-              ariaDisabled={resend.isPending}
-              label={resend.isPending ? pt.common.sending : pt.auth.otp.resend}
-              onPress={() => {
-                if (!resend.isPending) resend.mutate();
-              }}
-              testID="recovery-resend"
-              variant="secondary"
-            />
+            {clock.canResend ? (
+              <AppButton
+                ariaDisabled={resend.isPending}
+                label={resend.isPending ? pt.common.sending : pt.auth.otp.resend}
+                onPress={() => {
+                  if (!resend.isPending && clock.canResend) resend.mutate();
+                }}
+                testID="recovery-resend"
+                variant="secondary"
+              />
+            ) : (
+              <ResendCountdown seconds={clock.seconds} time={clock.time} />
+            )}
             <AppButton
               label={pt.auth.forgot.otherEmail}
               onPress={otherEmail}
