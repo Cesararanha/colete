@@ -425,3 +425,34 @@ test('UX-021: "Times desatualizados" says what to do', async ({ page, request },
     await db.end();
   }
 });
+
+test('UX-012: a failed read on Membros offers "Tentar de novo"', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, fabi, groupId } = await groupWithRequest(request, authIds);
+    await login(page, owner);
+    let failing = true;
+    await page.route(/\/functions\/v1\/groups\/get_group_members$/u, async (route) => {
+      if (failing) await route.abort();
+      else await route.continue();
+    });
+    await page.goto(`/grupos/${groupId}/membros`);
+    await expect(page.getByRole('alert').first()).toBeVisible();
+    await page.waitForTimeout(300);
+    await print(page, testInfo.project.name, 'UX-012');
+    const retry = page.getByTestId('administration-retry');
+    await expect(retry).toHaveText('Tentar de novo');
+    failing = false;
+    await retry.click();
+    await expect(page.getByRole('button', { name: `Aprovar ${fabi.name}` })).toBeVisible();
+    await expect(retry).toHaveCount(0);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

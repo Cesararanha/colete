@@ -154,6 +154,15 @@ export function GroupRatingsScreen({ groupId, profile }: { groupId: string; prof
       {ratings.isError ? (
         <AppAlert message={ratingErrorMessage(ratings.error)} testID="ratings-error" />
       ) : null}
+      {/* A lost authority (BB-004) is final: only a passing failure offers a retry. */}
+      {ratings.isError && !lost ? (
+        <AppButton
+          label={pt.common.retry}
+          onPress={() => void ratings.refetch()}
+          testID="ratings-retry"
+          variant="secondary"
+        />
+      ) : null}
       {data && !data.can_rate ? (
         <AppAlert message={pt.ratings.errors.notOrganizer} testID="ratings-not-organizer" />
       ) : null}

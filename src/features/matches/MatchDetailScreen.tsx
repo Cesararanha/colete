@@ -792,7 +792,18 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}
           {rosterQuery.isError ? (
-            <AppAlert message={matchErrorMessage(rosterQuery.error)} testID="match-roster-error" />
+            <>
+              <AppAlert
+                message={matchErrorMessage(rosterQuery.error)}
+                testID="match-roster-error"
+              />
+              <AppButton
+                label={pt.common.retry}
+                onPress={() => void rosterQuery.refetch()}
+                testID="match-roster-retry"
+                variant="secondary"
+              />
+            </>
           ) : null}
           {roster ? (
             <>

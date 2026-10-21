@@ -166,7 +166,15 @@ export function MatchTeamsSection({
   const teams = query.data;
   if (roster.canceled || teams === undefined) {
     return query.isError ? (
-      <AppAlert message={matchErrorMessage(query.error)} testID="match-teams-error" />
+      <View style={styles.section}>
+        <AppAlert message={matchErrorMessage(query.error)} testID="match-teams-error" />
+        <AppButton
+          label={pt.common.retry}
+          onPress={() => void query.refetch()}
+          testID="match-teams-retry"
+          variant="secondary"
+        />
+      </View>
     ) : null;
   }
   const drawn = teams.teams.length > 0;
