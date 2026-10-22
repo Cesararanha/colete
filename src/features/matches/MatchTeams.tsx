@@ -128,10 +128,13 @@ function Teams({ teams }: { teams: MatchTeams }) {
  * place. A canceled match shows no teams.
  */
 export function MatchTeamsSection({
+  ended,
   matchId,
   profileId,
   roster,
 }: {
+  /** The match is over: nobody may draw again (can_draw is false after ends_at). */
+  ended: boolean;
   matchId: string;
   profileId: string;
   roster: MatchRoster;
@@ -226,9 +229,19 @@ export function MatchTeamsSection({
         ) : null}
       </View>
       {drawn && teams.stale ? (
-        // UX-021: the chip says what happened; this says what to do about it.
+        // UX-021: the chip says what happened; this says why and what can be done.
+        // The server marks the teams stale when who plays changed or a drawn
+        // rating changed (0032), without saying which: the reason names both.
+        // A new draw is offered only where can_draw allows it; after the end
+        // nobody may draw, and the text does not promise it.
         <Text style={[styles.body, { color: colors.textSoft }]} testID="match-teams-stale-hint">
-          {teams.can_draw ? pt.matches.teams.staleHint : pt.matches.teams.staleHintPlayer}
+          {`${pt.matches.teams.staleReason} ${
+            teams.can_draw
+              ? pt.matches.teams.staleDraw
+              : ended
+                ? pt.matches.teams.staleEnded
+                : pt.matches.teams.staleAsk
+          }`}
         </Text>
       ) : null}
       {drawn ? <Teams teams={teams} /> : null}

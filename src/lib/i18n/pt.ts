@@ -479,9 +479,10 @@ export const pt = {
       redrawBody: 'Os times atuais serão substituídos.',
       keep: 'Voltar',
       stale: 'Times desatualizados',
-      staleHint:
-        'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
-      staleHintPlayer: 'A lista mudou depois do sorteio. Quem organiza pode sortear de novo.',
+      staleReason: 'Quem joga ou alguma nota mudou depois do sorteio.',
+      staleDraw: 'Sorteie de novo para atualizar os times.',
+      staleAsk: 'Quem organiza pode sortear de novo.',
+      staleEnded: 'O racha já terminou: ficam os times do último sorteio.',
       team: (letter: string) => `Time ${letter}`,
       coletes: {
         amber: 'Colete âmbar',
@@ -765,6 +766,7 @@ export const pt = {
       complete: 'Senha atualizada. Entre usando a nova senha.',
       backToLogin: 'Voltar para entrar',
       otherEmail: 'Usar outro e-mail',
+      otherEmailWait: 'Aguarde a verificação do código terminar para trocar o e-mail.',
     },
     profile: {
       eyebrow: 'Última etapa',

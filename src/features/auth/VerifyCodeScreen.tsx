@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -19,6 +19,8 @@ import { typography } from '@/theme/typography';
 import { hasPendingInvite } from '@/features/groups/join-fragment';
 
 import { useAuthFlowStore } from './auth-flow-store';
+import { RESEND_INTERVAL_MS } from './resend-interval';
+import { ResendCountdown, useResendClock } from './ResendCountdown';
 import { deletionProtocolStore } from '../profile/deletion-protocol';
 import { focusFirstInvalid } from './form-utils';
 import { FormAlert } from './FormAlert';
@@ -35,7 +37,7 @@ export function VerifyCodeScreen() {
   const restorePendingSignup = useAuthFlowStore((state) => state.restorePendingSignup);
   // After the first render, so that it matches the static page.
   useEffect(() => restorePendingSignup(), [restorePendingSignup]);
-  const [now, setNow] = useState(() => Date.now());
+  const clock = useResendClock(resendAvailableAt);
   const {
     control,
     handleSubmit,
@@ -47,11 +49,6 @@ export function VerifyCodeScreen() {
     reValidateMode: 'onChange',
     resolver: zodResolver(otpSchema),
   });
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, []);
 
   const verification = useMutation({
     mutationFn: async ({ code }: OtpValues) => {
@@ -68,7 +65,7 @@ export function VerifyCodeScreen() {
       if (pendingEmail === null) throw new AppError('VALIDATION', pt.auth.errors.validation);
       await api.resendSignupOtp(pendingEmail);
     },
-    onSuccess: () => setResendAvailableAt(Date.now() + 60_000),
+    onSuccess: () => setResendAvailableAt(Date.now() + RESEND_INTERVAL_MS),
   });
 
   const submit = handleSubmit(
@@ -95,13 +92,6 @@ export function VerifyCodeScreen() {
       </AuthShell>
     );
   }
-
-  const canResend = resendAvailableAt === null || now >= resendAvailableAt;
-  const resendSeconds = Math.max(0, Math.ceil(((resendAvailableAt ?? now) - now) / 1_000));
-  const resendTime = new Date(resendAvailableAt ?? now).toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 
   return (
     <AuthShell description={pt.auth.otp.description} title={pt.auth.otp.title}>
@@ -149,25 +139,14 @@ export function VerifyCodeScreen() {
           {verification.error instanceof TransportError ? (
             <AppButton label={pt.common.retry} onPress={submit} variant="secondary" />
           ) : null}
-          {canResend ? (
+          {clock.canResend ? (
             <AppButton
               label={pt.auth.otp.resend}
               onPress={() => resend.mutate()}
               variant="secondary"
             />
           ) : (
-            <View style={styles.resendStatus}>
-              <Text
-                accessibilityLiveRegion="none"
-                style={[styles.status, { color: colors.textMuted }]}
-                testID="resend-countdown"
-              >
-                {pt.auth.otp.resendCountdown(resendSeconds)}
-              </Text>
-              <Text style={[styles.status, { color: colors.textMuted }]}>
-                {pt.auth.otp.resendAt(resendTime)}
-              </Text>
-            </View>
+            <ResendCountdown seconds={clock.seconds} time={clock.time} />
           )}
         </View>
       </AppCard>
@@ -178,6 +157,5 @@ export function VerifyCodeScreen() {
 const styles = StyleSheet.create({
   destination: { ...typography.supportStrong },
   form: { gap: spacing.md },
-  resendStatus: { gap: spacing.xs },
   status: { ...typography.support },
 });

@@ -251,7 +251,7 @@ test('HX-002: while one payment saves, the row says so and the others wait with 
   }
 });
 
-test('UX-003: the recovery code step names the e-mail and offers resend, another e-mail and back', async ({
+test('UX-003: the recovery code step names the e-mail, waits before a resend and offers another e-mail and back', async ({
   page,
 }, testInfo) => {
   // The local Auth sends at most two e-mails an hour: the recovery call is
@@ -261,6 +261,8 @@ test('UX-003: the recovery code step names the e-mail and offers resend, another
     recoverCalls += 1;
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
+  // The page clock moves only when the test says, so the wait is proved without waiting.
+  await page.clock.install();
   await page.goto('/esqueci-senha');
   await page.getByTestId('recovery-email').fill('pessoa@colete.test');
   await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
@@ -271,11 +273,26 @@ test('UX-003: the recovery code step names the e-mail and offers resend, another
     'Código enviado para pessoa@colete.test.',
   );
   await expect(page.getByRole('link', { name: 'Voltar para entrar' })).toBeVisible();
-  await page.getByTestId('recovery-resend').click();
+
+  // The same wait as on sign up: no resend before it ends, and the time is said.
+  const resend = page.getByTestId('recovery-resend');
+  const countdown = page.getByTestId('resend-countdown');
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toHaveText(/^Reenvio disponível em \d+ segundos?\.$/u);
+  await page.clock.fastForward(30_000);
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toBeVisible();
+  expect(recoverCalls).toBe(1);
+  await page.clock.fastForward(31_000);
+  await resend.click();
   await expect(page.getByTestId('recovery-resent')).toHaveText(
     'Um novo código foi enviado. Use apenas o mais recente.',
   );
   expect(recoverCalls).toBe(2);
+  // A new code starts a new wait.
+  await expect(resend).toHaveCount(0);
+  await expect(countdown).toBeVisible();
+
   await page.getByTestId('recovery-other-email').click();
   await expect(page.getByTestId('recovery-email')).toBeVisible();
   await expect(page.getByLabel('Código de 6 dígitos')).toHaveCount(0);
@@ -296,6 +313,57 @@ async function groupWithRequest(request: APIRequestContext, authIds: string[]) {
   await gateway(request, fabi, 'join_by_code', { code });
   return { owner, fabi, groupId: outcome.group_id };
 }
+
+test('UX-003: a code being verified keeps the code step until its answer', async ({
+  page,
+}, testInfo) => {
+  await page.route(/\/auth\/v1\/recover/u, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+  );
+  // The verification is held, then refused, so no session is ever opened here.
+  let answer: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  await page.route(/\/auth\/v1\/verify/u, async (route) => {
+    await held;
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 403,
+        error_code: 'otp_expired',
+        msg: 'Token has expired or is invalid',
+      }),
+    });
+  });
+  await page.goto('/esqueci-senha');
+  await page.getByTestId('recovery-email').fill('pessoa@colete.test');
+  await page.getByRole('button', { name: 'Enviar código de recuperação' }).click();
+  const code = page.getByLabel('Código de 6 dígitos');
+  await code.fill('123456');
+  await page.getByRole('button', { name: 'Verificar código' }).click();
+
+  // While the answer is out, "Usar outro e-mail" waits and says why; pressing it
+  // does not leave the step the answer belongs to.
+  const other = page.getByTestId('recovery-other-email');
+  await expect(other).toHaveAttribute('aria-disabled', 'true');
+  await expect(other).toHaveAccessibleDescription(
+    'Aguarde a verificação do código terminar para trocar o e-mail.',
+  );
+  await other.click({ force: true });
+  await print(page, testInfo.project.name, 'UX-003-verificando');
+  await expect(code).toBeVisible();
+  await expect(page.getByTestId('recovery-email')).toHaveCount(0);
+
+  // The answer comes back on the same step; then the e-mail can change.
+  answer();
+  await expect(page.getByRole('alert').first()).toBeVisible();
+  await expect(code).toBeVisible();
+  await expect(other).not.toHaveAttribute('aria-disabled', 'true');
+  await other.click();
+  await expect(page.getByTestId('recovery-email')).toBeVisible();
+});
 
 test('UX-011: an action in progress reads as progress, not as a green success', async ({
   page,
@@ -356,73 +424,139 @@ test('UX-007: a player reads "Jogador" as the role on the group list, as in the 
   }
 });
 
-test('UX-021: "Times desatualizados" says what to do', async ({ page, request }, testInfo) => {
+/**
+ * A match two days ahead whose four confirmed, all rated, were drawn into two
+ * teams, with a fifth member rated and out of the list: each UX-021 test then
+ * makes the teams stale in its own way.
+ */
+async function drawnMatch(request: APIRequestContext, db: pg.Client, authIds: string[]) {
+  const owner = await createActor(request, 'dono21', 'Ana Exemplo', authIds);
+  const players = [
+    await createActor(request, 'p1', 'Bruno Teste', authIds),
+    await createActor(request, 'p2', 'Caio Demo', authIds),
+    await createActor(request, 'p3', 'Davi Amostra', authIds),
+    await createActor(request, 'p4', 'Edu Ficção', authIds),
+  ];
+  const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
+  const groupId = (created['outcome'] as { group_id: string }).group_id;
+  for (const member of players)
+    await db.query(
+      `insert into public.group_members(group_id, profile_id, role, status)
+       values ($1, $2, 'player', 'active')`,
+      [groupId, member.profileId],
+    );
+  const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
+  const made = await gateway(request, owner, 'create_match', {
+    group_id: groupId,
+    config: {
+      starts_at: start.toISOString(),
+      ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
+      timezone: ZONE,
+      location_name: 'Arena Exemplo',
+      location_address: null,
+      description: null,
+      latitude: null,
+      longitude: null,
+      field_slots: 10,
+      field_price: '15.00',
+    },
+  });
+  const matchId = (made['outcome'] as { match_id: string }).match_id;
+  for (const [index, member] of [owner, ...players].entries())
+    await gateway(request, owner, 'set_rating', {
+      group_id: groupId,
+      profile_id: member.profileId,
+      stars: 3 + (index % 2),
+    });
+  for (const member of [owner, ...players.slice(0, 3)])
+    await gateway(request, member, 'join_match', { match_id: matchId });
+  await gateway(request, owner, 'draw_teams', {
+    match_id: matchId,
+    team_count: 2,
+    confirm_unequal_sizes: false,
+  });
+  return { owner, players, groupId, matchId };
+}
+
+async function staleHint(page: Page, owner: Actor, matchId: string) {
+  await login(page, owner);
+  await page.goto(`/rachas/${matchId}`);
+  await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
+  await page.getByTestId('match-teams').scrollIntoViewIfNeeded();
+  return page.getByTestId('match-teams-stale-hint');
+}
+
+test('UX-021: stale because who plays changed, the hint names both reasons and the draw', async ({
+  page,
+  request,
+}, testInfo) => {
   const db = new Client({ connectionString: env.dbUrl });
   await db.connect();
   const authIds: string[] = [];
   try {
-    const owner = await createActor(request, 'dono21', 'Ana Exemplo', authIds);
-    const players = [
-      await createActor(request, 'p1', 'Bruno Teste', authIds),
-      await createActor(request, 'p2', 'Caio Demo', authIds),
-      await createActor(request, 'p3', 'Davi Amostra', authIds),
-      await createActor(request, 'p4', 'Edu Ficção', authIds),
-    ];
-    const created = await gateway(request, owner, 'create_group', { name: 'Racha de Quinta' });
-    const groupId = (created['outcome'] as { group_id: string }).group_id;
-    for (const member of players)
-      await db.query(
-        `insert into public.group_members(group_id, profile_id, role, status)
-         values ($1, $2, 'player', 'active')`,
-        [groupId, member.profileId],
-      );
-    const start = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 2 * 86_400_000);
-    const made = await gateway(request, owner, 'create_match', {
-      group_id: groupId,
-      config: {
-        starts_at: start.toISOString(),
-        ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(),
-        timezone: ZONE,
-        location_name: 'Arena Exemplo',
-        location_address: null,
-        description: null,
-        latitude: null,
-        longitude: null,
-        field_slots: 10,
-        field_price: '15.00',
-      },
-    });
-    const matchId = (made['outcome'] as { match_id: string }).match_id;
-    for (const [index, member] of players.entries()) {
-      await gateway(request, owner, 'set_rating', {
-        group_id: groupId,
-        profile_id: member.profileId,
-        stars: 3 + (index % 2),
-      });
-    }
-    for (const member of players.slice(0, 3))
-      await gateway(request, member, 'join_match', { match_id: matchId });
+    const { owner, players, matchId } = await drawnMatch(request, db, authIds);
+    // Someone joins after the draw.
+    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021');
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. Sorteie de novo para atualizar os times.',
+    );
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('UX-021: stale because a drawn rating changed, the hint does not blame the list', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, players, groupId, matchId } = await drawnMatch(request, db, authIds);
+    // Same people, one new rating for someone already drawn (0032: rating_history_id).
     await gateway(request, owner, 'set_rating', {
       group_id: groupId,
-      profile_id: owner.profileId,
-      stars: 4,
+      profile_id: players[0]!.profileId,
+      stars: 1,
     });
-    await gateway(request, owner, 'join_match', { match_id: matchId });
-    await gateway(request, owner, 'draw_teams', {
-      match_id: matchId,
-      team_count: 2,
-      confirm_unequal_sizes: false,
-    });
-    // Someone joins after the draw: the teams are stale.
-    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021-nota');
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. Sorteie de novo para atualizar os times.',
+    );
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
 
-    await login(page, owner);
-    await page.goto(`/rachas/${matchId}`);
-    await expect(page.getByTestId('match-teams-stale')).toHaveText('Times desatualizados');
-    await page.getByTestId('match-teams').scrollIntoViewIfNeeded();
-    await print(page, testInfo.project.name, 'UX-021');
-    await expect(page.getByTestId('match-teams-stale-hint')).toHaveText(
-      'A lista mudou depois do sorteio. Sorteie de novo para incluir quem entrou e tirar quem saiu.',
+test('UX-021: stale after the match ended, the hint promises no new draw', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const { owner, players, matchId } = await drawnMatch(request, db, authIds);
+    await gateway(request, players[3]!, 'join_match', { match_id: matchId });
+    // The match is moved into the past: can_draw is false for everyone (0032).
+    await db.query(
+      `update private.matches
+          set starts_at = now() - interval '3 hours', ends_at = now() - interval '90 minutes'
+        where id = $1`,
+      [matchId],
+    );
+    const hint = await staleHint(page, owner, matchId);
+    await print(page, testInfo.project.name, 'UX-021-encerrado');
+    await expect(page.getByTestId('match-teams-draw')).toHaveCount(0);
+    await expect(page.getByTestId('match-teams-redraw')).toHaveCount(0);
+    await expect(hint).toHaveText(
+      'Quem joga ou alguma nota mudou depois do sorteio. O racha já terminou: ficam os times do último sorteio.',
     );
   } finally {
     await cleanActors(authIds, db);
