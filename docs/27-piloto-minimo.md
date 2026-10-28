@@ -7,8 +7,9 @@ O estado entregue abaixo é o de `origin/main` em `2a97d39`, após o merge
 do #88: migrations `0001`–`0032` (não existe `0025`). Boa parte do que entrou
 depois do #41 é corte "modo apresentação" de um contrato maior (seções de
 decisão humana no fim deste mapa); nessas linhas, `JÁ ENTREGUE` vem com a
-ressalva do que falta. O que ainda falta para fechar o piloto está nas
-fatias 1.1 a 1.5 do plano do piloto, fora do repositório. A subseção
+ressalva do que falta. O que ainda falta para fechar o piloto são as linhas
+PILOTO deste mapa e o registro de operações de idempotência (D63.5,
+obrigatório antes do piloto com usuários reais, `25` §8.1). A subseção
 “Pendências pós-piloto” de `25` §8.2 conserva os gates anteriores à
 abertura pública.
 
@@ -31,27 +32,27 @@ abaixo, sem substituir contratos existentes por suposição.
 | 2 — Criar conta | JÁ ENTREGUE | `docs/11-telas-v1.md:89`; D63 `docs/09-pivo-produto.md` §D63. D63.1: identidade do grupo; M1-A, `0006` + UI-B1 | — |
 | 3 — Verificar código (OTP) | JÁ ENTREGUE | `docs/11-telas-v1.md:102`; D63 `docs/09-pivo-produto.md` §D63. D63.1: login por e-mail; M1-A, `0006` + UI-B1 | — |
 | 4 — Esqueci minha senha | JÁ ENTREGUE | `docs/11-telas-v1.md:106`; D63 `docs/09-pivo-produto.md` §D63. D63.1: recuperação; M1-A, UI-B1 | — |
-| 5 — Rachas — vazio | JÁ ENTREGUE | `docs/11-telas-v1.md:113`; D63 `docs/09-pivo-produto.md` §D63. D63.1: acesso ao primeiro racha Entregue como a Agenda vazia: `0021`/#70 e #72. | — |
-| 6 — Rachas — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:117`; D63 `docs/09-pivo-produto.md` §D63. D63.1: lista, vaga e fila; omitir estados de comprovante adiado Entregue como a Agenda (próximos rachas de todos os grupos, filtros "Vou jogar" e "Com vaga"): `0021`/#70, #72, #74, #86. Ressalva: sem estados de comprovante, TP ou T1. | — |
-| 7 — Detalhe do racha | JÁ ENTREGUE | `docs/11-telas-v1.md:137`; D63 `docs/09-pivo-produto.md` §D63. D63.1: ocupação e fila; disputa/apelação e prova ficam fora Entregue: `0021`/#70, `0022`/#71 (presença, espera e pagamento marcado), `0028`/#79, `0032`/#82, fuso do racha no #88. Ressalva: sem claim, T1/T2 nem devolução (fatias 1.3 e 1.4 do plano do piloto). | — |
-| 8 — Pagamento | PILOTO | `docs/11-telas-v1.md:161`; D63-G: instrução «pague ao organizador»; acerto externo e `mark_paid`, sem Pix no app. Parcial: a marcação manual entrou como `set_match_payment` (`0022`/#71) e o jogador vê o próprio estado; a instrução «pague ao organizador» é a fatia 1.1. | — |
-| 9 — Times publicados | JÁ ENTREGUE | `docs/11-telas-v1.md:175`; D63 `docs/09-pivo-produto.md` §D63. D63.1: composição publicada; sem nota pública Entregue na seção "Times" do detalhe: `0032`/#82. Ressalva: o sorteio já vale como publicado, sem proposta nem ajuste manual (`13` §4.4). | — |
-| 10 — Grupos — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:182`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar/entrar em grupo; UI-A do M2 Entregue: UI-A #50; ícone, cor e foto do grupo #77/#81. | — |
-| 11 — Detalhe do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:186`; D63 `docs/09-pivo-produto.md` §D63. D63.1: membros; contestação de nota é D63.2 Entregue: UI-A #50, membros por `get_group_members` (`0019`/#52), próximos rachas do grupo #72. | — |
+| 5 — Rachas — vazio | JÁ ENTREGUE | `docs/11-telas-v1.md:113`; D63 `docs/09-pivo-produto.md` §D63. D63.1: acesso ao primeiro racha. Entregue como a Agenda vazia: `0021`/#70 e #72. | — |
+| 6 — Rachas — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:117`; D63 `docs/09-pivo-produto.md` §D63. D63.1: lista, vaga e fila; omitir estados de comprovante adiado. Entregue como a Agenda (próximos rachas de todos os grupos, filtros "Vou jogar" e "Com vaga"): `0021`/#70, #72, #74, #84. Ressalva: sem estados de comprovante, TP ou T1. | — |
+| 7 — Detalhe do racha | JÁ ENTREGUE | `docs/11-telas-v1.md:137`; D63 `docs/09-pivo-produto.md` §D63. D63.1: ocupação e fila; disputa/apelação e prova ficam fora. Entregue: `0021`/#70, `0022`/#71 (presença, espera e pagamento marcado), `0028`/#79, `0032`/#82, fuso do racha no #88. Ressalva: sem devolução (`record_canceled_match_payment`, `mark_refund_due` e `mark_refunded`, linhas PILOTO abaixo) nem adição/remoção pelo organizador (`add_player`/`remove_player`); claim e T1 são PÓS-PILOTO pela D63-H, e o T2 segue PILOTO em `apply_due_transitions_locked`. | — |
+| 8 — Pagamento | PILOTO | `docs/11-telas-v1.md:161`; D63-G: instrução «pague ao organizador»; acerto externo e `mark_paid`, sem Pix no app. Parcial: a marcação manual entrou como `set_match_payment` (`0022`/#71) e o jogador vê o próprio estado; a instrução «pague ao organizador» segue pendente. | — |
+| 9 — Times publicados | JÁ ENTREGUE | `docs/11-telas-v1.md:175`; D63 `docs/09-pivo-produto.md` §D63. D63.1: composição publicada; sem nota pública. Entregue na seção "Times" do detalhe: `0032`/#82. Ressalva: o sorteio já vale como publicado, sem proposta nem ajuste manual (`13` §4.4). | — |
+| 10 — Grupos — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:182`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar/entrar em grupo; UI-A do M2. Entregue: UI-A #50; ícone, cor e foto do grupo #77/#81. | — |
+| 11 — Detalhe do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:186`; D63 `docs/09-pivo-produto.md` §D63. D63.1: membros; contestação de nota é D63.2. Entregue: UI-A #50, membros por `get_group_members` (`0019`/#52), próximos rachas do grupo #72. | — |
 | 12 — Entrar com código/link | JÁ ENTREGUE | `docs/11-telas-v1.md:195`; D63-F: link de grupo entra; convite avulso de não membro é evolução. Entregue: UI-A #50, QR #69, página do convite antes de pedir (`0026`/#76). | — |
 | 13 — Perfil | JÁ ENTREGUE | `docs/11-telas-v1.md:216`; D63 `docs/09-pivo-produto.md` §D63. UI do perfil no PR #22 e controles de privacidade no PR #29; Google/foto/aceite real ainda têm gates | — |
 | 14 — Preferências de alertas externos | PÓS-PILOTO | `docs/11-telas-v1.md:228`; D63 `docs/09-pivo-produto.md` §D63. D63.2: push/e-mail adiados | Evolução (D63-D) |
 | 15 — Central de notificações | PÓS-PILOTO | `docs/11-telas-v1.md:239`; D63-B: sino in-app é evolução; telas da lista/fila/posição exibem estado atual. | Evolução |
-| 16 — Criar grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:247`; D63 `docs/09-pivo-produto.md` §D63. D63.1; `create_group` previsto na `0017` Entregue: `create_group` (`0017`/#45) e UI-A #50. | — |
-| 17 — Gestão de membros | JÁ ENTREGUE | `docs/11-telas-v1.md:251`; D63 `docs/09-pivo-produto.md` §D63. D63.1; RPCs da `0016` entregues, UI-B pendente Entregue: UI-B #54. | — |
-| 18 — Criar/editar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:261`; D63-E: criação e edição segura entram; recorrência é evolução. Entregue: criar `0021`/#70, usabilidade #72, editar `0028`/#79, fuso do racha #88. Ressalva: sem recorrência, Pix, goleiros nem horários T0/T1/T2. | — |
-| 19 — Painel do organizador | PILOTO | `docs/11-telas-v1.md:292`; D63-E/F/G: `mark_paid`, adição/remoção manual, «a devolver»/«devolvido»; sem Pix no app. Parcial: pagamento marcado (`0022`/#71), sortear (`0032`/#82), avaliar (`0031`/#83) e cancelar (`0028`/#79) entregues; adição/remoção manual e «a devolver»/«devolvido» são as fatias 1.3 e 1.4. | — |
+| 16 — Criar grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:247`; D63 `docs/09-pivo-produto.md` §D63. D63.1. Entregue: `create_group` (`0017`/#45) e UI-A #50. | — |
+| 17 — Gestão de membros | JÁ ENTREGUE | `docs/11-telas-v1.md:251`; D63 `docs/09-pivo-produto.md` §D63. D63.1. Entregue: UI-B #54. | — |
+| 18 — Criar/editar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:261`; D63-E: criação e edição segura entram; recorrência é evolução. Entregue: criar `0021`/#70, usabilidade #72, editar `0028`/#79, fuso do racha #88. Ressalva: sem as travas de edição segura de `13` §3.2, recorrência, Pix, goleiros nem horários T0/T1/T2. | — |
+| 19 — Painel do organizador | PILOTO | `docs/11-telas-v1.md:292`; D63-E/F/G: `mark_paid`, adição/remoção manual, «a devolver»/«devolvido»; sem Pix no app. Parcial: pagamento marcado (`0022`/#71), sortear (`0032`/#82), avaliar (`0031`/#83) e cancelar (`0028`/#79) entregues; adição/remoção manual (`add_player`/`remove_player`) e «a devolver»/«devolvido» (`mark_refund_due`/`mark_refunded`) seguem PILOTO. | — |
 | 20 — Aprovar comprovante | PÓS-PILOTO | `docs/11-telas-v1.md:313`; D63 `docs/09-pivo-produto.md` §D63. D63.2: upload/análise adiados | Evolução (D63-D) |
 | 21 — Avaliar jogadores | JÁ ENTREGUE | `docs/11-telas-v1.md:326`; D63-A: organizador atribui nota a cada jogador de linha para serpentina; detalhes exatos antes de M6. Entregue: `0031`/#83. | — |
 | 22 — Sortear e publicar | JÁ ENTREGUE | `docs/11-telas-v1.md:332`; D63-A: sequência A/B ilustra dois times; resultado guardado/reproduzível, com número de times e formato de persistência a especificar antes de M6. Entregue: `0032`/#82. Ressalva: sortear já publica, sem proposta, ajuste manual nem trilha pública. | — |
-| 23 — Cancelar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:345`; D63-E: cancelar entra no piloto; obrigação/devolução manuais seguem `13` §3.3 e §§2.6.1–2.9. Entregue: `0028`/#79. Ressalva: sem motivo, sem obrigação «a devolver» de quem pagou (fatia 1.3). | — |
-| 24 — Convites do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:351`; D63 `docs/09-pivo-produto.md` §D63. D63.1: link; UI-A depois da `0017` Entregue: `0017`/#45, UI-A #50, QR #69. | — |
-| 25 — Configurações do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:369`; D63 `docs/09-pivo-produto.md` §D63. D63.1: UI-B após `0018`; arquivar por RPC está em `25` §8.2 Entregue: UI-B #54, renomear (`0018`/#46), ícone e cor (`0027`/#77), foto (`0030`/#81), apagar (`0029`/#80). Ressalva: arquivar segue em `25` §8.2. | — |
+| 23 — Cancelar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:345`; D63-E: cancelar entra no piloto; obrigação/devolução manuais seguem `13` §3.3 e §§2.6.1–2.9. Entregue: `0028`/#79. Ressalva: sem motivo e sem obrigação «a devolver» de quem pagou (`mark_refund_due`, linha PILOTO). | — |
+| 24 — Convites do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:351`; D63 `docs/09-pivo-produto.md` §D63. D63.1: link. Entregue: `0017`/#45, UI-A #50, QR #69. | — |
+| 25 — Configurações do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:369`; D63 `docs/09-pivo-produto.md` §D63. D63.1: arquivar por RPC está em `25` §8.2. Entregue: UI-B #54, renomear (`0018`/#46), ícone e cor (`0027`/#77), foto (`0030`/#81), apagar (`0029`/#80). Ressalva: arquivar segue em `25` §8.2. | — |
 
 ## Operações de `13` — RPC, Edge, projeção e job
 
@@ -61,8 +62,8 @@ controle de interface ou integração externa ainda pode estar pendente.
 
 | Operação | Classificação | Base e regra da D63 | Gate público se adiada |
 |---|---|---|---|
-| `join_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:173`; D63 `docs/09-pivo-produto.md` §D63. D63.1 vaga atômica e fila Entregue em corte: `0022`/#71. Ressalva: só lista de linha, sem `list_kind`, TP, T1 nem claim. | — |
-| `leave_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:193`; D63 `docs/09-pivo-produto.md` §D63. D63.1 liberar vaga e preservar fila Entregue em corte: `0022`/#71. Ressalva: sem T1, claim nem N4/N8. | — |
+| `join_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:173`; D63 `docs/09-pivo-produto.md` §D63. D63.1 vaga atômica e fila. Entregue em corte: `0022`/#71. Ressalva: só lista de linha, sem `list_kind`, TP, T1 nem claim. | — |
+| `leave_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:193`; D63 `docs/09-pivo-produto.md` §D63. D63.1 liberar vaga e preservar fila. Entregue em corte: `0022`/#71. Ressalva: sem T1, claim nem N4/N8. | — |
 | `claim_open_slot` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:205`; D63-H: claims de pagamento do `13` dependem de T1 e são evolução; adaptar a fila sem T1 antes de M4. | Evolução |
 | `get_payment_instructions` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:225`; D63-G: projeção sensível de Pix do `13` §1.3.1 é evolução; piloto exibe instrução genérica. | Evolução |
 | `apply_payment_deadline` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:234`; D63-H: T1 automático é evolução e não remove quem o organizador esqueceu de marcar no piloto. | Evolução |
@@ -75,7 +76,7 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `GET /proofs/:proof_id/content` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:320`; D63 `docs/09-pivo-produto.md` §D63. D63.2: stream da evidência adiado | Evolução (D63-D) |
 | `delete_own_proof` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:329`; D63 `docs/09-pivo-produto.md` §D63. D63.2: ciclo de prova adiado | Evolução (D63-D) |
 | `decide_proof` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:336`; D63 `docs/09-pivo-produto.md` §D63. D63.2: decisão de prova adiada | Evolução (D63-D) |
-| `mark_paid` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:352`; D63 `docs/09-pivo-produto.md` §D63. D63.1: organizador marca pagamento manual Entregue em corte como `set_match_payment`: `0022`/#71. Ressalva: booleano reversível, sem resolução única, valor nem N9; o livro de pagamentos é a fatia 1.3. | — |
+| `mark_paid` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:352`; D63 `docs/09-pivo-produto.md` §D63. D63.1: organizador marca pagamento manual. Entregue em corte como `set_match_payment`: `0022`/#71. Ressalva: booleano reversível, sem resolução única, valor nem N9; o livro de pagamentos de `10` (ciclos, resoluções e eventos) segue pendente. | — |
 | `record_canceled_match_payment` | PILOTO | `docs/13-contratos-funcoes.md:361`; D63-E: registra pagamento conhecido após cancelamento e cria obrigação única de devolução (`13` §2.6.1). | — |
 | `mark_refund_due` | PILOTO | `docs/13-contratos-funcoes.md:369`; D63-E: marca manualmente «a devolver» sobre resolução real (`13` §2.7). | — |
 | `mark_refunded` | PILOTO | `docs/13-contratos-funcoes.md:370`; D63-E: organizador declara manualmente «devolvido»; sem confirmação bancária (`13` §2.7). | — |
@@ -93,9 +94,9 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `GET /admin-cases/:case_id/evidence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:440`; D63-D: rota de prova depende de comprovante, que é evolução; não é necessária enquanto ele não for habilitado. | Caso Admin obrigatório antes da abertura pública; rota de prova quando comprovante for habilitado |
 | `admin_decide_proof` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:443`; D63-D: decisão de prova depende de comprovante, que é evolução; não é necessária enquanto ele não for habilitado. | Caso Admin obrigatório antes da abertura pública; decisão de prova quando comprovante for habilitado |
 | `admin_mark_refunded` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:444`; D63 `docs/09-pivo-produto.md` §D63. D63.2: caso Admin adiado | Obrigatório antes da abertura pública (D63-D) |
-| `create_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:453`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar racha Entregue em corte: `0021`/#70, descrição em `0022`/#71. Ressalva: config sem TP/T1/T2, Pix, goleiros nem recorrência. | — |
+| `create_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:453`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar racha. Entregue em corte: `0021`/#70, descrição em `0022`/#71. Ressalva: config sem TP/T1/T2, Pix, goleiros nem recorrência. | — |
 | `update_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:465`; D63-E: edição segura segundo locks de Pix, preço, data, prazos e publicação de `13` §3.2; adaptação do recorte antes de M3. Entregue em corte: `0028`/#79 (`13` §3.3.1). Ressalva: sem as travas de `13` §3.2 (`PRICE_LOCKED`, `DATE_LOCKED` e as demais). | — |
-| `cancel_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:512`; D63-E: cancelamento atômico de claims e obrigações `refund_due`; `13` §3.3; sem recorrência no piloto. Entregue em corte: `0028`/#79 (`13` §3.3.1). Ressalva: sem motivo nem obrigações `refund_due` (fatia 1.3). | — |
+| `cancel_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:512`; D63-E: cancelamento atômico de claims e obrigações `refund_due`; `13` §3.3; sem recorrência no piloto. Entregue em corte: `0028`/#79 (`13` §3.3.1). Ressalva: sem motivo nem obrigações `refund_due` (`mark_refund_due`, linha PILOTO acima). | — |
 | `advance_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:531`; D63-E: recorrência é evolução. | Evolução |
 | `update_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:542`; D63-E: edição de série é evolução. | Evolução |
 | `set_recurrence_active` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:543`; D63-E: ativação/desligamento de série é evolução. | Evolução |
@@ -105,13 +106,13 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `respond_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:577`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
 | `resolve_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:579`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
 | `escalate_rating_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:584`; D63 `docs/09-pivo-produto.md` §D63. D63.2: contestação de nota adiada | Obrigatório antes da abertura pública (D63-D) |
-| `POST /draw` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:587`; D63 `docs/09-pivo-produto.md` §D63. D63.1: sorteio, com algoritmo pendente A Entregue em corte como `draw_teams`: `0032`/#82 (`13` §4.4). | — |
+| `POST /draw` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:587`; D63 `docs/09-pivo-produto.md` §D63. D63.1: sorteio, com algoritmo pendente A. Entregue em corte como `draw_teams`: `0032`/#82 (`13` §4.4). | — |
 | `commit_draw` | PILOTO | `docs/13-contratos-funcoes.md:595`; D63 `docs/09-pivo-produto.md` §D63. D63.1: commit por revisão, algoritmo pendente A | — |
 | `get_draw_proposal` | PILOTO | `docs/13-contratos-funcoes.md:605`; D63 `docs/09-pivo-produto.md` §D63. D63.1: proposta para publicação | — |
-| `publish_draw` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:611`; D63 `docs/09-pivo-produto.md` §D63. D63.1: publicar times Entregue junto com o sorteio em `draw_teams` (`0032`/#82): o sorteio já vale como publicado. | — |
-| `create_group` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:633`; D63 `docs/09-pivo-produto.md` §D63. D63.1: contrato da `0017` em `main`, ainda não implementado Entregue: `0017`/#45. | — |
-| `join_by_code` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:634`; D63 `docs/09-pivo-produto.md` §D63. D63.1: contrato da `0017` em `main`, ainda não implementado; M2 conserva código/link Entregue: `0017`/#45; prévia do grupo em `0026`/#76. | — |
-| `join_by_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:634`; D63 `docs/09-pivo-produto.md` §D63. D63.1: entrar por link Entregue: `0017`/#45; prévia do grupo em `0026`/#76. | — |
+| `publish_draw` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:611`; D63 `docs/09-pivo-produto.md` §D63. D63.1: publicar times. Entregue junto com o sorteio em `draw_teams` (`0032`/#82): o sorteio já vale como publicado. | — |
+| `create_group` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:633`; D63 `docs/09-pivo-produto.md` §D63. D63.1. Entregue: `0017`/#45. | — |
+| `join_by_code` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:634`; D63 `docs/09-pivo-produto.md` §D63. D63.1: M2 conserva código/link. Entregue: `0017`/#45; prévia do grupo em `0026`/#76. | — |
+| `join_by_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:634`; D63 `docs/09-pivo-produto.md` §D63. D63.1: entrar por link. Entregue: `0017`/#45; prévia do grupo em `0026`/#76. | — |
 | `approve_member` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:635`; D63 `docs/09-pivo-produto.md` §D63. D63.1, migration `0016_group_membership_rpcs.sql` | — |
 | `remove_member` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:636`; D63 `docs/09-pivo-produto.md` §D63. D63.1, migration `0016_group_membership_rpcs.sql` | — |
 | `set_role` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:637`; D63 `docs/09-pivo-produto.md` §D63. D63.1, migration `0016_group_membership_rpcs.sql` | — |
@@ -121,7 +122,7 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `leave_group` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:641`; D63 `docs/09-pivo-produto.md` §D63. D63.1, migration `0016_group_membership_rpcs.sql` | — |
 | `create_match_invite` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:642`; D63-F: convite avulso de não membro é evolução. | Evolução |
 | `accept_match_invite` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:643`; D63-F: aceite de convite avulso é evolução. | Evolução |
-| `get_invite_share_link` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:649`; D63 `docs/09-pivo-produto.md` §D63. D63.1: compartilhar link, contrato ampliado em `main` pelo #41, ainda não implementado Entregue: `0017`/#45. | — |
+| `get_invite_share_link` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:649`; D63 `docs/09-pivo-produto.md` §D63. D63.1: compartilhar link, contrato ampliado em `main` pelo #41. Entregue: `0017`/#45. | — |
 | `link_google_identity` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:1042`; D63-I corrigida: Google é evolução; piloto usa e-mail e senha com os códigos de confirmação existentes. | Evolução |
 | `accept_policies` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:1045`; D63 `docs/09-pivo-produto.md` §D63. Migration `0006_identity_rpcs.sql`; catálogo real é gate pré-usuário | — |
 | `request_data_export` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:1085`; D63 `docs/09-pivo-produto.md` §D63. Migration `0013_data_export_delivery.sql` | — |
@@ -154,18 +155,20 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `transfer_financial_authority` (primitiva interna) | PILOTO | `docs/13-contratos-funcoes.md:425`; D63-D corrigida: acompanha M5 e sustenta a exclusão de conta com pagamentos marcados; transfere autoridade ou retorna `FINANCIAL_SUBSTITUTE_REQUIRED`. | — |
 | `finalize_deletion` (worker/RPC interna) | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:1107`; migration `0012_account_deletion.sql`; D63 `docs/09-pivo-produto.md` §D63. | — |
 
-**Entregues fora da tabela acima** (contratos de `13` §5.0 e cortes do modo
-apresentação, sem linha própria neste mapa): `rename_group` (`0018`/#46);
-`get_group_members` (`0019`/#52); `revoke_group_invite`,
-`regenerate_group_invite`, `issue_group_invite`, `preview_group_by_code` e
-`preview_group_by_invite` (`0017`/#45; prévia redefinida em `0026`/#76);
-`get_my_pending_group_requests` (`0017`/#45); `set_group_appearance` (`0027`/#77);
-`delete_group` (`0029`/#80); `begin_photo_upload`, `set_profile_photo`,
-`remove_profile_photo`, `set_group_photo` e `remove_group_photo` (`0030`/#81);
-`get_group_ratings` (`0031`/#83); `get_match_teams` (`0032`/#82); as leituras
-`get_match`, `list_my_matches`, `get_matches_occupancy` e `get_match_roster`
-(`0021`/#70, `0022`/#71); e a busca de endereço `search_address` na Edge
-(`0023`/#72, `0024`/#73, LocationIQ no #75).
+**Entregues sem linha neste mapa** (contratos de `13` §§4.1.2, 4.4, 5.0 e 7 e
+cortes do modo apresentação): `get_group_members` (`0019`/#52);
+`mark_invite_attempt_success` e os jobs `purge_invite_rate_limits` e
+`purge_terminal_group_invites` (`0017`/#45); `set_group_appearance`
+(`0027`/#77); `delete_group` (`0029`/#80); `begin_photo_upload`,
+`set_profile_photo`, `remove_profile_photo`, `set_group_photo`,
+`remove_group_photo`, as projeções `get_photo_upload_target` e
+`get_visible_photos` e o job `reclaim_photo_uploads` (`0030`/#81);
+`get_group_ratings` e o job `purge_ratings` (`0031`/#83); `get_match_teams`
+(`0032`/#82); as leituras `get_match`, `list_my_matches`,
+`get_matches_occupancy` e `get_match_roster` (`0021`/#70, `0022`/#71); e a
+busca de endereço `search_address` na Edge (portão em `0023`/#72 e `0024`/#73,
+LocationIQ no #75). As operações da `0017` e da `0018` que têm linha própria
+estão na seção do #41, abaixo.
 
 ## N1–N28 de `12` — cada evento, incluindo canal
 
@@ -212,7 +215,7 @@ financeira (`docs/12-notificacoes.md:185`; `docs/13-contratos-funcoes.md:397`) e
 
 | Item | Classificação | Base e regra da D63 | Gate público se adiado |
 |---|---|---|---|
-| Sorteio e publicação de times | JÁ ENTREGUE | D63-A: sequência A/B ilustra dois times; resultado guardado/reproduzível, com número de times e formato de persistência a especificar antes de M6; publicação em `docs/13-contratos-funcoes.md:611`. Entregue: `0032`/#82 (serpentina `snake-v1`, 2 a 4 times). | — |
+| Sorteio e publicação de times | JÁ ENTREGUE | D63-A: sequência A/B ilustra dois times; resultado guardado/reproduzível, com número de times e formato de persistência a especificar antes de M6; publicação em `docs/13-contratos-funcoes.md:611`. Entregue: `0032`/#82 (serpentina `snake-v1`, 2 a 4 times). Ressalva: sem proposta nem ajuste manual (`commit_draw`, `get_draw_proposal`) e sem o expurgo dos artefatos (`purge_draw_private_artifacts`). | — |
 | Algoritmo v3 binário (N≤12 exato, N>12 heurístico, encoding/PRNG/score/vetores/benchmark) | PÓS-PILOTO | `docs/04-algoritmo-sorteio.md:1`; D63-A: v3 de `04` preservada como evolução; piloto usa serpentina simples versionada. | Evolução |
 
 ## Marcos de `16`
@@ -226,11 +229,11 @@ continuam nas tabelas acima.
 |---|---|---|---|
 | M0 — fundação | JÁ ENTREGUE | `docs/16-roadmap.md` §5; migrations `0001`–`0003`, registros `docs/19-operacao-m0-a.md:1` e `docs/20-operacao-m0-b.md:1`; D63 `docs/09-pivo-produto.md` §D63. Sentry é obrigatório antes do público por D63-C. | — |
 | M1 — identidade | JÁ ENTREGUE | `docs/16-roadmap.md` §5; migrations `0004`–`0014`, `docs/21-operacao-m1-a.md:1` e `docs/23-operacao-m1-b.md:1`; D63 `docs/09-pivo-produto.md` §D63. Google é evolução (D63-I); aceite real ainda depende de gate. | — |
-| M2 — grupos | JÁ ENTREGUE | `docs/16-roadmap.md` §5; D63 `docs/09-pivo-produto.md` §D63; `0015`/`0016` entregues, `0017`/`0018` e UI-A/UI-B pendentes. Entregue: `0015`–`0020` (#36, #40, #45, #46, #52, #57), UI-A #50, UI-B #54 e faxinas #56/#57. Ressalva: rotação, limitador por IP e arquivamento seguem em `25` §8.2. | — |
-| M3 — racha | PILOTO | `docs/16-roadmap.md` §5; D63-E: criar, editar e cancelar com devolução manual; recorrência é evolução. Parcial: criar, editar e cancelar em corte (`0021`/#70, `0028`/#79); faltam as travas do racha e a devolução (fatia 1.3). | — |
-| M4 — lista | PILOTO | `docs/16-roadmap.md` §5; D63-F/H: T0, fila, T2 e gestão manual; TP/T1 e mensalistas são evolução. Parcial: vaga atômica e espera em corte (`0022`/#71), sem T0/T2; adição/remoção manual é a fatia 1.4. | — |
-| M5 — financeiro | PILOTO | `docs/16-roadmap.md` §5; D63-E/G: acerto externo, `mark_paid`, obrigação/devolução manual; primeira instância é pós-piloto obrigatória antes do público (D63-D, extensão). Parcial: marcação manual em corte (`0022`/#71); instrução de pagamento e devolução são as fatias 1.1 e 1.3. | — |
-| M6 — times | JÁ ENTREGUE | `docs/16-roadmap.md` §5; D63-A: notas de linha e serpentina simples; sequência A/B ilustra dois times, número e formato de persistência pendentes antes do marco. Entregue: notas `0031`/#83 e sorteio `0032`/#82. | — |
+| M2 — grupos | JÁ ENTREGUE | `docs/16-roadmap.md` §5; D63 `docs/09-pivo-produto.md` §D63. Entregue: `0015`–`0020` (#36, #40, #45, #46, #52, #57), UI-A #50, UI-B #54 e faxinas #56/#57. Ressalva: rotação, limitador por IP e arquivamento seguem em `25` §8.2. | — |
+| M3 — racha | PILOTO | `docs/16-roadmap.md` §5; D63-E: criar, editar e cancelar com devolução manual; recorrência é evolução. Parcial: criar, editar e cancelar em corte (`0021`/#70, `0028`/#79); faltam as travas de `13` §3.2 e a devolução (`mark_refund_due`/`mark_refunded`). | — |
+| M4 — lista | PILOTO | `docs/16-roadmap.md` §5; D63-F/H: T0, fila, T2 e gestão manual; TP/T1 e mensalistas são evolução. Parcial: vaga atômica e espera em corte (`0022`/#71), sem T0/T2; adição/remoção manual (`add_player`/`remove_player`) segue PILOTO. | — |
+| M5 — financeiro | PILOTO | `docs/16-roadmap.md` §5; D63-E/G: acerto externo, `mark_paid`, obrigação/devolução manual; primeira instância é pós-piloto obrigatória antes do público (D63-D, extensão). Parcial: marcação manual em corte (`0022`/#71); faltam a instrução «pague ao organizador», a devolução manual (`mark_refund_due`/`mark_refunded`), `transfer_financial_authority` e o bloqueio da exclusão de conta com pagamento marcado. | — |
+| M6 — times | JÁ ENTREGUE | `docs/16-roadmap.md` §5; D63-A: notas de linha e serpentina simples; sequência A/B ilustra dois times, número e formato de persistência pendentes antes do marco. Entregue: notas `0031`/#83 e sorteio `0032`/#82. Ressalva: proposta e ajuste manual (`commit_draw`, `get_draw_proposal`), trilha pública do sorteio, lista de goleiros e o expurgo dos artefatos (`purge_draw_private_artifacts`) seguem PILOTO. | — |
 | M7 — comunicação | PÓS-PILOTO | `docs/16-roadmap.md` §5; D63-B/D: sino e push/e-mail são evolução; WhatsApp leva avisos humanos no piloto. | Evolução |
 | M8 — hardening | PILOTO | `docs/16-roadmap.md` §5; D63 `docs/09-pivo-produto.md` §D63: aplicar acessibilidade/segurança/restore ao escopo piloto; Sentry é gate pré-público D63-C, fora do piloto. | — |
 | Beta controlado → piloto de amigos | PILOTO | `docs/16-roadmap.md` §5; D63 `docs/09-pivo-produto.md` §D63: um grupo percorre o ciclo mínimo; WhatsApp leva avisos. | — |
@@ -270,11 +273,11 @@ O #41 foi mergeado em `origin/main` (`9805ece`). `25` §8.2 “Pendências
 pós-piloto” exige antes da abertura pública arquivamento por RPC/leitura
 histórica, rotação/keyring de convite, dimensão por IP e os demais gates que
 ela enumera. A `0018` contratada ali entrega somente `rename_group`.
-As linhas PILOTO da tabela abaixo são contratos aprovados, ainda sem migration
-ou operação implementada da `0017`/`0018`; o merge documental não as torna
-JÁ ENTREGUE. Este mapa não altera as decisões do §8.2.
+As oito primeiras linhas da tabela abaixo foram entregues depois, pela
+`0017` (#45) e pela `0018` (#46); as três últimas continuam PÓS-PILOTO. Este
+mapa não altera as decisões do §8.2.
 
-### Operações contratadas pelo #41 em `main`, ainda não implementadas
+### Operações contratadas pelo #41 em `main`
 
 As linhas abaixo completam o censo dos contratos incorporados a `13` e da
 subseção “Pendências pós-piloto” incorporada a `25` §8.2. As referências são
@@ -282,14 +285,14 @@ agora aos arquivos em `main`.
 
 | Operação contratada | Classificação | Base e regra da D63 | Gate público se adiada |
 |---|---|---|---|
-| `check_and_debit_invite_attempt` | PILOTO | `docs/13-contratos-funcoes.md:720`; D63 `docs/09-pivo-produto.md` §D63: limitador de convite por perfil. | — |
-| `preview_group_by_code` | PILOTO | `docs/13-contratos-funcoes.md:801`; D63 `docs/09-pivo-produto.md` §D63: preview sem consumo. | — |
-| `preview_group_by_invite` | PILOTO | `docs/13-contratos-funcoes.md:802`; D63 `docs/09-pivo-produto.md` §D63: preview do link. | — |
-| `get_my_pending_group_requests` | PILOTO | `docs/13-contratos-funcoes.md:830`; D63 `docs/09-pivo-produto.md` §D63: pedido próprio pendente. | — |
-| `revoke_group_invite` | PILOTO | `docs/13-contratos-funcoes.md:971`; D63 `docs/09-pivo-produto.md` §D63: higiene do convite vivo. | — |
-| `regenerate_group_invite` | PILOTO | `docs/13-contratos-funcoes.md:972`; D63 `docs/09-pivo-produto.md` §D63: invalida material anterior. | — |
-| `issue_group_invite` | PILOTO | `docs/13-contratos-funcoes.md:973`; D63 `docs/09-pivo-produto.md` §D63: nova ocasião após terminal. | — |
-| `rename_group` | PILOTO | `docs/13-contratos-funcoes.md:1013`; D63 `docs/09-pivo-produto.md` §D63: `0018` somente renomeia. | — |
+| `check_and_debit_invite_attempt` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:720`; D63 `docs/09-pivo-produto.md` §D63: limitador de convite por perfil. Entregue: `0017`/#45. | — |
+| `preview_group_by_code` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:801`; D63 `docs/09-pivo-produto.md` §D63: preview sem consumo. Entregue: `0017`/#45; prévia redefinida em `0026`/#76. | — |
+| `preview_group_by_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:802`; D63 `docs/09-pivo-produto.md` §D63: preview do link. Entregue: `0017`/#45; prévia redefinida em `0026`/#76. | — |
+| `get_my_pending_group_requests` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:830`; D63 `docs/09-pivo-produto.md` §D63: pedido próprio pendente. Entregue: `0017`/#45. | — |
+| `revoke_group_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:971`; D63 `docs/09-pivo-produto.md` §D63: higiene do convite vivo. Entregue: `0017`/#45. | — |
+| `regenerate_group_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:972`; D63 `docs/09-pivo-produto.md` §D63: invalida material anterior. Entregue: `0017`/#45. | — |
+| `issue_group_invite` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:973`; D63 `docs/09-pivo-produto.md` §D63: nova ocasião após terminal. Entregue: `0017`/#45. | — |
+| `rename_group` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:1013`; D63 `docs/09-pivo-produto.md` §D63: `0018` somente renomeia. Entregue: `0018`/#46. | — |
 | `archive_group` | PÓS-PILOTO | `docs/25-plano-m2.md:1749`; D63 `docs/09-pivo-produto.md` §D63: contrato preservado em `25` §8.2. | **Obrigatório antes da abertura pública** (M2-D40). |
 | Rotação/keyring de convite entre versões | PÓS-PILOTO | `docs/25-plano-m2.md:1828`; D63 `docs/09-pivo-produto.md` §D63: v1 do piloto preserva contrato futuro. | **Obrigatório antes da abertura pública** (M2-D39). |
 | Dimensão de IP e restore do limitador de convite | PÓS-PILOTO | `docs/25-plano-m2.md:1866`; D63 `docs/09-pivo-produto.md` §D63: perfil continua barreira no piloto. | **Obrigatório antes da abertura pública** (M2-D39). |
