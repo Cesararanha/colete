@@ -875,8 +875,10 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
           <LiveRefresh
             queries={[detail, rosterQuery, teamsQuery]}
             // The teams below read under the same key, so "Atualizar" reads them too;
-            // and who collects, while the payment instruction shows (rev91 P2-3): a
-            // disabled read (no instruction) is skipped by refetchQueries.
+            // and who collects (rev91 P2-3). Without the payment instruction the read
+            // here is disabled and refetchQueries skips it, unless the same group's
+            // detail is still mounted in the Grupos tab, which keeps it enabled
+            // (conf91 N1): one harmless read per tap, of a list that person already reads.
             refresh={() =>
               Promise.all([
                 queryClient.refetchQueries({

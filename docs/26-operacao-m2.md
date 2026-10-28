@@ -3665,8 +3665,11 @@ a 412 px (o Pixel 7 do projeto `mobile-chromium`) em `~/colete-noite/ux-prints/p
 fora do repositório; o antes é a mesma tela sem o bloco. **Custo** (medido na revisão, `rev91`):
 em regime, o detalhe faz as mesmas 6 leituras por minuto de antes (`get_match`,
 `get_match_roster` e `get_match_teams`, a cada 30 s); a instrução acrescenta 1 `get_group_members`
-ao abrir, só para quem a vê, mais a releitura ao tocar "Atualizar" ou ao voltar à tela. A leitura
-de membros não tem `refetchInterval`.
+ao abrir, só para quem a vê, mais a releitura ao tocar "Atualizar" ou ao voltar à tela. Quem não
+vê a instrução também relê os membros ao tocar "Atualizar" se o detalhe do mesmo grupo ainda está
+aberto na aba Grupos, porque aquela tela mantém a mesma leitura ligada (conferência do #91, N1):
+uma leitura por toque, de uma lista que essa pessoa já lê ali. A leitura de membros não tem
+`refetchInterval`.
 
 #### Correções da revisão do #91
 
@@ -3678,8 +3681,9 @@ P11. Entram neste PR:
   "nada na linha de quem organiza" é feita sobre uma linha confirmada.
 - **P2-2.** O dono vem depois do organizador no alfabeto, no unitário ("Zeca ou Ana", "Zeca, Ana ou
   Bruno") e no e2e, então "dono primeiro" não passa mais por ordenação por nome.
-- **P2-3.** "Atualizar" no detalhe relê também quem recebe, enquanto a instrução aparece (a leitura
-  desligada, sem instrução, é pulada). Um organizador removido com o detalhe aberto some da
+- **P2-3.** "Atualizar" no detalhe relê também quem recebe, enquanto a instrução aparece (sem
+  instrução a leitura fica desligada e é pulada, salvo com o grupo aberto na aba Grupos, como diz
+  o custo acima). Um organizador removido com o detalhe aberto some da
   instrução ao tocar "Atualizar". A leitura de membros continua fora do intervalo de 30 s.
 - **P3-1.** O e2e cobre também o racha já terminado; o título do unitário deixou de prometer o
   início do racha, que não entra na regra.
