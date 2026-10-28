@@ -3604,3 +3604,24 @@ rodadas seguidas; `test:groups:web` 120 passed + 5 skipped + 1 falha na primeira
 (`ajustes-teste.spec.ts:105`, o primeiro teste da suíte, preso no carregamento inicial antes de
 qualquer tela com releitura; passou 3 de 3 sozinho) e 121 passed + 5 skipped na rodada seguinte.
 Censo depois: zero usuários, perfis, grupos, membros e rachas.
+
+#### Correções da conferência do #89
+
+A conferência (`~/colete-noite/conf89.md`, fora do repositório) deu CONFERIDO no `a2c799d`: 6
+achados corrigidos, 1 parcial e 2 achados novos, todos P3. Entram neste PR:
+
+- **N1.** "Racha não encontrado" ficava em branco quando uma releitura falhava pela rede, porque
+  `readProblem` tratava o `null` da leitura (racha inexistente ou alheio) como dado na tela.
+  Agora `null` conta como tela vazia, e a falha mostra o aviso de rede.
+- **N2.** O `role="status"` ligava e desligava no mesmo nó a cada ciclo de falha. Agora uma região
+  `role="status"` fica sempre montada e oculta, com o mesmo texto durante toda a falha ("Não foi
+  possível atualizar. A tela mostra a última leitura."): é dita quando a falha começa e não se
+  repete a cada 30 s. A linha visível deixa de ser região viva.
+- **P3-4 (parcial).** Um teste derruba `get_match_roster` com a lista na tela e afirma que a lista
+  fica e o erro em linha não aparece. O mutante M5 da conferência (voltar a trocar a lista pelo
+  erro) agora reprova (`match-roster-error`: esperado 0, recebido 1).
+
+**Contraprovas contra `a2c799d`**: os testes do anúncio e do N1 reprovam. **Validação:**
+`verify:app` exit 0 (vitest 63 arquivos e 747 testes); `test:matches:web` 44 passed;
+`test:groups:web` 121 passed + 5 skipped. Censo depois: zero usuários, perfis, grupos, membros e
+rachas.

@@ -46,16 +46,19 @@ export function LiveRefresh({
   const time = updatedAt(queries);
   if (time === undefined) return null;
   const fetching = queries.some((query) => query.isFetching);
-  const failed = !fetching && refreshFailed(queries);
+  // A failed read stays in error while the next ones are tried, so the failure
+  // holds through "Atualizando…" until a read succeeds.
+  const failing = refreshFailed(queries);
+  const failed = !fetching && failing;
   return (
     <View style={styles.row} testID={testID}>
+      {/* Always mounted, with the same text for the whole failure: it is said once,
+          when the failure begins, and not again at each 30 s try (conf89 N2). */}
+      <Text role="status" style={styles.visuallyHidden} testID={`${testID}-announcement`}>
+        {failing ? pt.common.refreshFailedAnnouncement : ''}
+      </Text>
       {failed ? (
-        // Said once, when it happens: the text that follows each read is not announced.
-        <Text
-          role="status"
-          style={[styles.time, { color: colors.critical }]}
-          testID={`${testID}-time`}
-        >
+        <Text style={[styles.time, { color: colors.critical }]} testID={`${testID}-time`}>
           {pt.common.refreshFailed(time)}
         </Text>
       ) : (
@@ -109,4 +112,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   time: { ...typography.support, flexShrink: 1 },
+  visuallyHidden: {
+    height: 1,
+    left: 0,
+    overflow: 'hidden',
+    position: 'absolute',
+    top: 0,
+    width: 1,
+  },
 });

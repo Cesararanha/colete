@@ -940,16 +940,29 @@ test('Atualização: a failed read keeps the Agenda; a refused session stops the
     await page.clock.fastForward(31_000);
     await page.clock.runFor(2_000);
     await expect(time).toHaveText(/^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u);
-    await expect(time).toHaveAttribute('role', 'status');
+    const announcement = page.getByTestId('matches-refresh-announcement');
+    await expect(announcement).toHaveAttribute('role', 'status');
+    await expect(announcement).toHaveText(
+      'Não foi possível atualizar. A tela mostra a última leitura.',
+    );
+    await expect(time).not.toHaveAttribute('role', 'status');
     await expect(page.getByTestId('match-list-card')).toBeVisible();
     await expect(page.getByText('Não foi possível falar com o serviço')).toHaveCount(0);
     await assertAccessible(page);
 
-    // The network is back: the next read clears the line.
+    // Still down at the next try: the announcement keeps the same text, so it is not said again.
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(announcement).toHaveText(
+      'Não foi possível atualizar. A tela mostra a última leitura.',
+    );
+
+    // The network is back: the next read clears the line and the announcement.
     await page.unroute('**/functions/v1/groups/list_my_matches');
     await page.clock.fastForward(31_000);
     await page.clock.runFor(2_000);
     await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    await expect(announcement).toHaveText('');
 
     // The session is revoked elsewhere: one refusal, the session notice, then silence.
     const revoked = await request.post(`${env.apiUrl}/auth/v1/logout?scope=global`, {
@@ -1024,6 +1037,50 @@ test('Atualização: the detail says it is reading, and Atualizar reads this mat
     await expect(page.getByTestId('match-refresh-time')).toHaveText(
       /^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u,
     );
+
+    // The list failing over a list already shown keeps the list: no error in place of it,
+    // only the line (conf89, P3-4). The teams answer again first, so the line comes from
+    // the list alone, and the check waits for the list's read to fail.
+    await page.unroute('**/functions/v1/groups/get_match_teams');
+    await page.getByTestId('match-refresh-button').click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+    await page.route('**/functions/v1/groups/get_match_roster', (route) => route.abort('failed'));
+    const rosterFailed = page.waitForEvent('requestfailed', (item) =>
+      new URL(item.url()).pathname.endsWith('/groups/get_match_roster'),
+    );
+    await page.getByTestId('match-refresh-button').click();
+    await rosterFailed;
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(
+      /^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u,
+    );
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId('match-roster-error')).toHaveCount(0);
+    await expect(page.getByTestId('match-confirmed')).toBeVisible();
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// conf89 N1: a match that does not exist (or is not the person's) stays explained
+// when a later read fails at the network: the network notice, never a blank screen.
+test('Atualização: "Racha não encontrado" becomes the network notice when a read fails', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-inexistente', authIds);
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto(`/rachas/${crypto.randomUUID()}`);
+    await expect(page.getByText('Racha não encontrado')).toBeVisible();
+    await page.route('**/functions/v1/groups/get_match', (route) => route.abort('failed'));
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(page.getByText('Não foi possível falar com o serviço')).toBeVisible();
   } finally {
     await cleanActors(authIds, db);
     await db.end();

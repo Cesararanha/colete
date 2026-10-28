@@ -680,6 +680,8 @@ export const pt = {
     refreshing: 'Atualizando…',
     /** A read failed over data already shown (rev89 P3-2). */
     refreshFailed: (time: string) => `Não foi possível atualizar. Última leitura às ${time}`,
+    /** Said once, when a read starts failing over data already shown (conf89 N2). */
+    refreshFailedAnnouncement: 'Não foi possível atualizar. A tela mostra a última leitura.',
     refresh: 'Atualizar',
     refreshLabel: 'Atualizar agora',
     backHome: 'Voltar ao início',

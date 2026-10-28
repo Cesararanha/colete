@@ -47,7 +47,8 @@ export function readProblem(
 ): 'session' | 'network' | undefined {
   if (!query.isError) return undefined;
   if (isSessionUnavailable(query.error)) return 'session';
-  return query.data === undefined ? 'network' : undefined;
+  // null is a read that found nothing ("Racha não encontrado"): nothing on the screen (conf89 N1).
+  return query.data == null ? 'network' : undefined;
 }
 
 /** A read failed while the screen still shows the one before it (not the session: that has its notice). */
@@ -55,6 +56,6 @@ export function refreshFailed(
   queries: readonly Pick<LiveQuery, 'data' | 'error' | 'isError'>[],
 ): boolean {
   return queries.some(
-    (query) => query.isError && query.data !== undefined && !isSessionUnavailable(query.error),
+    (query) => query.isError && query.data != null && !isSessionUnavailable(query.error),
   );
 }

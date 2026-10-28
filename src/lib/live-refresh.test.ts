@@ -40,11 +40,14 @@ describe('when a screen reads by itself (rev89)', () => {
     expect(readProblem({ data: undefined, error: unavailable, isError: true })).toBe('network');
     expect(readProblem({ data: ['x'], error: unavailable, isError: true })).toBeUndefined();
     expect(readProblem({ data: ['x'], error: sessionRefused, isError: true })).toBe('session');
+    // "Racha não encontrado" is a read that found nothing: the network notice, not silence (conf89 N1).
+    expect(readProblem({ data: null, error: unavailable, isError: true })).toBe('network');
   });
 
   it('says a failed read over data already shown in the time line, not for the session', () => {
     expect(refreshFailed([{ data: ['x'], error: unavailable, isError: true }])).toBe(true);
     expect(refreshFailed([{ data: undefined, error: unavailable, isError: true }])).toBe(false);
+    expect(refreshFailed([{ data: null, error: unavailable, isError: true }])).toBe(false);
     expect(refreshFailed([{ data: ['x'], error: sessionRefused, isError: true }])).toBe(false);
     expect(refreshFailed([{ data: ['x'], error: null, isError: false }])).toBe(false);
   });
