@@ -25,6 +25,19 @@ describe('who collects the payment (P11)', () => {
     ).toBe('Ana, Beto ou Caio');
   });
 
+  it('puts the owner first even when a name comes before it in the alphabet (rev91 P2-2)', () => {
+    expect(collectorNames([member('Ana', 'organizer'), member('Zeca', 'owner')])).toBe(
+      'Zeca ou Ana',
+    );
+    expect(
+      collectorNames([
+        member('Ana', 'organizer'),
+        member('Bruno', 'organizer'),
+        member('Zeca', 'owner'),
+      ]),
+    ).toBe('Zeca, Ana ou Bruno');
+  });
+
   it('says nothing about names it does not have yet', () => {
     expect(collectorNames(undefined)).toBe('');
     expect(collectorNames([member('Dani', 'player')])).toBe('');
@@ -40,7 +53,8 @@ describe('when the instruction shows (P12)', () => {
     collectors: 'Ana ou Beto',
   };
 
-  it('shows the instruction to who is confirmed and not paid, even once the match started', () => {
+  // The match's start and end do not enter the rule at all: the debt stays (P12).
+  it('shows the instruction to who is confirmed and not paid', () => {
     expect(paymentNotice(base)).toEqual({ kind: 'pay', collectors: 'Ana ou Beto' });
   });
 
