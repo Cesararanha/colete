@@ -675,6 +675,15 @@ export const pt = {
       `${name} · ${mimeType} · ${size} bytes. Nenhum byte foi persistido ou enviado.`,
   },
   common: {
+    /** HX-003: the time the screen last read, on the device's clock. */
+    updatedAt: (time: string) => `Atualizado às ${time}`,
+    refreshing: 'Atualizando…',
+    /** A read failed over data already shown (rev89 P3-2). */
+    refreshFailed: (time: string) => `Não foi possível atualizar. Última leitura às ${time}`,
+    /** Said once, when a read starts failing over data already shown (conf89 N2). */
+    refreshFailedAnnouncement: 'Não foi possível atualizar. A tela mostra a última leitura.',
+    refresh: 'Atualizar',
+    refreshLabel: 'Atualizar agora',
     backHome: 'Voltar ao início',
     retry: 'Tentar de novo',
     loading: 'Carregando com segurança…',

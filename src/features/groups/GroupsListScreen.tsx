@@ -7,11 +7,13 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { LiveRefresh, ReadNotice } from '@/components/ui/LiveRefresh';
 import type { GroupAppearance } from '@/components/ui/group-icon';
 import { Scoreboard } from '@/components/ui/Scoreboard';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
+import { useLiveInterval } from '@/lib/use-live-interval';
 import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
@@ -123,7 +125,9 @@ export function GroupsListScreen({
   requested?: boolean;
 }) {
   const { colors } = useTheme();
+  const refetchInterval = useLiveInterval();
   const listing = useQuery({
+    refetchInterval,
     queryKey: [PRIVATE_QUERY_ROOT, 'groups', profile.id],
     queryFn: () =>
       withCurrentAccessToken(async (token) => {
@@ -205,6 +209,7 @@ export function GroupsListScreen({
       }
       title={pt.groups.list.title}
     >
+      <LiveRefresh queries={[listing]} testID="groups-refresh" />
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
       {deleted ? (
         <AppStatus message={pt.groups.list.deleted} testID="group-deleted-status" />
@@ -214,15 +219,7 @@ export function GroupsListScreen({
         <AppStatus message={pt.groups.list.requestSent} testID="group-request-sent" />
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
-      {listing.isError ? (
-        <AsyncNotice
-          kind="network"
-          title={pt.common.networkTitle}
-          message={pt.common.networkBody}
-          actionLabel={pt.common.retry}
-          action={() => void listing.refetch()}
-        />
-      ) : null}
+      <ReadNotice query={listing} />
       {empty ? (
         <AsyncNotice
           kind="empty"

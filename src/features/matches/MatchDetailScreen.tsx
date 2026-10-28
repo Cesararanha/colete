@@ -8,6 +8,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon, type IconName } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { LiveRefresh, ReadNotice } from '@/components/ui/LiveRefresh';
 import { Chip, type ChipTone } from '@/components/ui/Chip';
 import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
@@ -24,6 +25,8 @@ import {
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
+import { queryClient } from '@/lib/query-client';
+import { useLiveInterval } from '@/lib/use-live-interval';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
@@ -39,7 +42,7 @@ import { deviceTimeZone } from './match-form';
 import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
 import { deviceDiffers, zoneLabel } from './match-zone';
-import { MatchTeamsSection } from './MatchTeams';
+import { matchTeamsQueryKey, MatchTeamsSection } from './MatchTeams';
 import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
@@ -694,15 +697,25 @@ function CancelMatch({
 
 export function MatchDetailScreen({ matchId, profile }: { matchId: string; profile: OwnProfile }) {
   const { colors } = useTheme();
+  const refetchInterval = useLiveInterval();
   const detail = useQuery({
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId],
     queryFn: ({ signal }) => api.getMatch(matchId, signal),
+    refetchInterval,
   });
   const match = detail.data ?? undefined;
   const rosterQuery = useQuery({
     enabled: match !== undefined,
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId, 'roster'],
     queryFn: ({ signal }) => api.getMatchRoster(matchId, signal),
+    refetchInterval,
+  });
+  // The teams' state, for "Atualizado às": MatchTeams reads them on its own
+  // interval; this observer never reads, it only follows (rev89 P3-3).
+  const teamsQuery = useQuery({
+    enabled: false,
+    queryKey: matchTeamsQueryKey(profile.id, matchId),
+    queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
   });
   const roster = rosterQuery.data;
   // Whoever may create matches in the group edits and cancels it, until it
@@ -777,15 +790,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
         : {})}
     >
       {detail.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
-      {detail.isError ? (
-        <AsyncNotice
-          kind="network"
-          title={pt.common.networkTitle}
-          message={pt.common.networkBody}
-          actionLabel={pt.common.retry}
-          action={() => void detail.refetch()}
-        />
-      ) : null}
+      <ReadNotice query={detail} />
       {detail.isSuccess && match === undefined ? (
         <AsyncNotice
           action={() => backTo(back.href)}
@@ -797,11 +802,22 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       ) : null}
       {match ? (
         <>
+          <LiveRefresh
+            queries={[detail, rosterQuery, teamsQuery]}
+            // The teams below read under the same key, so "Atualizar" reads them too.
+            refresh={() =>
+              queryClient.refetchQueries({
+                queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId],
+              })
+            }
+            testID="match-refresh"
+          />
           <Place match={match} />
           {rosterQuery.isPending ? (
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}
-          {rosterQuery.isError ? (
+          {/* Over a list already shown, a failed read is said in LiveRefresh (rev89 P3-2). */}
+          {rosterQuery.isError && roster === undefined ? (
             <>
               <AppAlert
                 message={matchErrorMessage(rosterQuery.error)}

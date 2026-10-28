@@ -58,8 +58,10 @@ async function gateway(
   operation: string,
   body: Record<string, unknown>,
 ) {
+  // The share link is a read: it takes no request_id.
+  const read = operation === 'get_invite_share_link';
   const response = await request.post(`${env.functionsUrl}/groups/${operation}`, {
-    data: { request_id: crypto.randomUUID(), ...body },
+    data: read ? body : { request_id: crypto.randomUUID(), ...body },
     headers: { Authorization: `Bearer ${actor.token}` },
   });
   expect(response.status(), `${operation}: ${await response.text()}`).toBe(200);
@@ -106,11 +108,14 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
   await db.query('begin');
   try {
+    await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
+      ids,
+    ]);
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
     await db.query(
-      `delete from private.match_players where match_id in
+      `delete from private.match_players where profile_id = any($1::uuid[]) or match_id in
          (select id from private.matches where group_id in (${groups}))`,
       [ids],
     );
@@ -146,6 +151,29 @@ async function login(page: Page, actor: Actor) {
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   expect((await response).status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Grupos', level: 1 })).toBeVisible();
+}
+
+/** Counts the Edge reads of one operation, to prove when the page reads and when it does not. */
+function countReads(page: Page, operation: string, matchId?: string) {
+  const counter = { count: 0 };
+  page.on('request', (item) => {
+    if (!new URL(item.url()).pathname.endsWith(`/groups/${operation}`)) return;
+    if (matchId !== undefined && item.postDataJSON()?.['match_id'] !== matchId) return;
+    counter.count += 1;
+  });
+  return counter;
+}
+
+/** Hides or shows the page the way a phone does when the app goes to the background. */
+async function setHidden(page: Page, hidden: boolean) {
+  await page.evaluate((value) => {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (value ? 'hidden' : 'visible'),
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+  }, hidden);
 }
 
 /** A day in São Paulo as digits typed into the date mask: DDMMAAAA. */
@@ -669,6 +697,390 @@ test('Usabilidade: "Ver distância" computes on the device, granted and denied',
     } finally {
       await deniedContext.close();
     }
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// HX-003 (fatia 1.5, decisão humana de 28/10/2026): Grupos, Agenda and the
+// match detail read again every 30 s while the page is in front, and never
+// while it is hidden; "Atualizar" reads at once and says when the screen last
+// read. The page clock moves only when the test says, so the 30 s are proved
+// without waiting.
+test('Atualização: an approval and a new player show up without a reload, within 30 s', async ({
+  browser,
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-dona', authIds);
+    const ana = await createActor(request, 'vivo-ana', authIds);
+    const bia = await createActor(request, 'vivo-bia', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha ao Vivo' });
+    const { group_id: groupId, invite_id: inviteId } = created['outcome'] as {
+      group_id: string;
+      invite_id: string;
+    };
+    const share = await gateway(request, owner, 'get_invite_share_link', { invite_id: inviteId });
+    await gateway(request, bia, 'join_by_code', { code: share['code'] });
+    await gateway(request, owner, 'approve_member', {
+      group_id: groupId,
+      profile_id: bia.profileId,
+      approve: true,
+    });
+    const matchId = await createMatch(request, owner, groupId, { days: 2, place: 'Arena ao Vivo' });
+    await gateway(request, owner, 'join_match', { match_id: matchId });
+
+    // Ana asked to enter; her Grupos says "pending" and stays open.
+    await gateway(request, ana, 'join_by_code', { code: share['code'] });
+    const anaContext = await browser.newContext({ timezoneId: ZONE, colorScheme: 'dark' });
+    contexts.push(anaContext);
+    const anaPage = await anaContext.newPage();
+    await anaPage.clock.install();
+    await login(anaPage, ana);
+    await expect(anaPage.getByTestId('pending-group-card')).toContainText('Racha ao Vivo');
+    await expect(anaPage.getByTestId('group-list-card')).toHaveCount(0);
+    await shot(anaPage, testInfo.project.name, 'atualizacao-01-grupos.png');
+    await expect(anaPage.getByTestId('groups-refresh-time')).toHaveText(
+      /^Atualizado às \d{2}:\d{2}$/u,
+    );
+    await assertAccessible(anaPage);
+
+    // The owner opens the match detail: 1 of 10.
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    const board = page.getByTestId('match-scoreboard');
+    await expect(board).toHaveAttribute('aria-label', '1 de 10 vagas confirmadas');
+    await shot(page, testInfo.project.name, 'atualizacao-02-detalhe.png');
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+
+    // Elsewhere, the owner approves Ana and Bia says she will play.
+    await gateway(request, owner, 'approve_member', {
+      group_id: groupId,
+      profile_id: ana.profileId,
+      approve: true,
+    });
+    await gateway(request, bia, 'join_match', { match_id: matchId });
+
+    // Before 30 s nothing changes on either screen; at 30 s both read again.
+    await anaPage.clock.fastForward(20_000);
+    await page.clock.fastForward(20_000);
+    await expect(anaPage.getByTestId('group-list-card')).toHaveCount(0);
+    await expect(board).toHaveAttribute('aria-label', '1 de 10 vagas confirmadas');
+    await anaPage.clock.fastForward(11_000);
+    await page.clock.fastForward(11_000);
+    await expect(anaPage.getByTestId('group-list-card')).toContainText('Racha ao Vivo');
+    await expect(anaPage.getByTestId('pending-group-card')).toHaveCount(0);
+    await expect(board).toHaveAttribute('aria-label', '2 de 10 vagas confirmadas');
+    await expect(page.getByTestId('match-confirmed')).toContainText('Pessoa vivo-bia');
+  } finally {
+    for (const context of contexts) await context.close();
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('Atualização: a hidden page never reads; "Atualizar" reads at once on the Agenda', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-agenda', authIds);
+    const groupId = await createGroup(request, owner, 'Agenda ao Vivo');
+    await createMatch(request, owner, groupId, { days: 2, place: 'Arena ao Vivo' });
+
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto('/rachas');
+    await expect(page.getByTestId('matches-filters')).toBeVisible();
+    await shot(page, testInfo.project.name, 'atualizacao-03-agenda.png');
+    const time = page.getByTestId('matches-refresh-time');
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    const reads = countReads(page, 'list_my_matches');
+
+    // In front, one read every 30 s; the screen says so while it reads. The
+    // read waits on the session's own timers: the page clock runs them, so it
+    // ends before the page is hidden (a read still in flight would end later
+    // and look fresh when the page comes back).
+    await page.clock.fastForward(31_000);
+    await expect.poll(() => reads.count).toBe(1);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+
+    // Hidden for two minutes: no read at all.
+    await setHidden(page, true);
+    await page.clock.fastForward(120_000);
+    await page.waitForTimeout(500);
+    expect(reads.count).toBe(1);
+
+    // Back in front: it reads again at once, and keeps the rhythm.
+    await setHidden(page, false);
+    await page.clock.fastForward(1_000);
+    await expect.poll(() => reads.count).toBe(2);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    await page.clock.fastForward(31_000);
+    await expect.poll(() => reads.count).toBe(3);
+
+    // "Atualizar" reads at once, without waiting for the interval.
+    await page.getByTestId('matches-refresh-button').click();
+    await expect.poll(() => reads.count).toBe(4);
+    await expect(page.getByTestId('matches-refresh-button')).toHaveAccessibleName(
+      'Atualizar agora',
+    );
+    await assertAccessible(page);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// rev89 P2-1: a tab or a screen left mounted under another does not read;
+// only the one in front does, the teams included, and coming back to a screen
+// reads at once what went stale meanwhile.
+test('Atualização: only the screen in front reads, the teams with the detail', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-frente', authIds);
+    const groupId = await createGroup(request, owner, 'Frente ao Vivo');
+    const matchId = await createMatch(request, owner, groupId, {
+      days: 2,
+      place: 'Arena da Frente',
+    });
+    await gateway(request, owner, 'join_match', { match_id: matchId });
+
+    const reads = {
+      pending: countReads(page, 'get_my_pending_group_requests'),
+      agenda: countReads(page, 'list_my_matches'),
+      match: countReads(page, 'get_match', matchId),
+      roster: countReads(page, 'get_match_roster', matchId),
+      teams: countReads(page, 'get_match_teams', matchId),
+    };
+    const counts = () => Object.fromEntries(Object.entries(reads).map(([k, v]) => [k, v.count]));
+    const after30s = async () => {
+      const before = counts();
+      await page.clock.fastForward(31_000);
+      await page.clock.runFor(2_000);
+      await page.waitForTimeout(300);
+      const now = counts();
+      return Object.fromEntries(Object.keys(now).map((k) => [k, now[k]! - before[k]!]));
+    };
+
+    // Grupos, then Agenda by the tab, then the match from its card: three screens mounted.
+    await page.clock.install();
+    await login(page, owner);
+    await expect(page.getByTestId('groups-refresh-time')).toHaveText(/^Atualizado às/u);
+    const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
+    await navigation.getByRole('link', { name: 'Agenda' }).click();
+    await expect(page.getByTestId('matches-refresh-time')).toHaveText(/^Atualizado às/u);
+    expect(await after30s()).toEqual({ pending: 0, agenda: 1, match: 0, roster: 0, teams: 0 });
+    await page.getByTestId('match-list-card').click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+    await page.clock.runFor(2_000);
+
+    // The detail in front: only its three reads, Grupos and Agenda stay quiet.
+    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1 });
+
+    // Editar on top: nothing reads under it.
+    await page.getByTestId('match-edit').click();
+    await expect(page.getByRole('heading', { name: 'Editar racha', level: 1 })).toBeVisible();
+    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 0, roster: 0, teams: 0 });
+
+    // Back to the detail: what went stale is read at once, and the rhythm returns.
+    const beforeBack = reads.match.count;
+    await page.getByTestId('match-create-close').click();
+    await expect(page.getByTestId('match-refresh-time')).toBeVisible();
+    await expect.poll(() => reads.match.count).toBe(beforeBack + 1);
+    await page.clock.runFor(2_000);
+    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1 });
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// rev89 P3-1 and P3-2: a read that fails over data already shown keeps the
+// list and says so in the time line; a session the server refused shows the
+// session notice and stops the reads.
+test('Atualização: a failed read keeps the Agenda; a refused session stops the reads', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-falha', authIds);
+    const groupId = await createGroup(request, owner, 'Falha ao Vivo');
+    await createMatch(request, owner, groupId, { days: 2, place: 'Arena da Falha' });
+
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto('/rachas');
+    const time = page.getByTestId('matches-refresh-time');
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    const reads = countReads(page, 'list_my_matches');
+
+    // The next read fails at the network: the card stays, the line says it.
+    await page.route('**/functions/v1/groups/list_my_matches', (route) => route.abort('failed'));
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u);
+    const announcement = page.getByTestId('matches-refresh-announcement');
+    await expect(announcement).toHaveAttribute('role', 'status');
+    await expect(announcement).toHaveText(
+      'Não foi possível atualizar. A tela mostra a última leitura.',
+    );
+    await expect(time).not.toHaveAttribute('role', 'status');
+    await expect(page.getByTestId('match-list-card')).toBeVisible();
+    await expect(page.getByText('Não foi possível falar com o serviço')).toHaveCount(0);
+    await assertAccessible(page);
+
+    // Still down at the next try: the announcement keeps the same text, so it is not said again.
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(announcement).toHaveText(
+      'Não foi possível atualizar. A tela mostra a última leitura.',
+    );
+
+    // The network is back: the next read clears the line and the announcement.
+    await page.unroute('**/functions/v1/groups/list_my_matches');
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    await expect(announcement).toHaveText('');
+
+    // The session is revoked elsewhere: one refusal, the session notice, then silence.
+    const revoked = await request.post(`${env.apiUrl}/auth/v1/logout?scope=global`, {
+      headers: { apikey: env.publishableKey, Authorization: `Bearer ${owner.token}` },
+    });
+    expect(revoked.status()).toBe(204);
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(page.getByText('Não foi possível confirmar sua sessão')).toBeVisible();
+    const refused = reads.count;
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await page.waitForTimeout(300);
+    expect(reads.count).toBe(refused);
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// rev89 P3-3 and P3-4, on the real clock: the detail says "Atualizando…"
+// while it reads, its time follows the teams too, and "Atualizar" reads this
+// match's three reads and nothing of another match already in the cache.
+test('Atualização: the detail says it is reading, and Atualizar reads this match only', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-detalhe', authIds);
+    const groupId = await createGroup(request, owner, 'Detalhe ao Vivo');
+    const first = await createMatch(request, owner, groupId, { days: 2, place: 'Arena Um' });
+    const second = await createMatch(request, owner, groupId, { days: 3, place: 'Arena Dois' });
+
+    // Both matches in the cache: the second one first, then the first one.
+    await login(page, owner);
+    await page.goto('/rachas');
+    await page.getByTestId('match-list-card').filter({ hasText: 'Arena Dois' }).click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+    await page.getByTestId('match-back').click();
+    await page.getByTestId('match-list-card').filter({ hasText: 'Arena Um' }).click();
+    await expect(page.getByTestId('match-fact-where')).toContainText('Arena Um');
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+
+    const ofFirst = {
+      match: countReads(page, 'get_match', first),
+      roster: countReads(page, 'get_match_roster', first),
+      teams: countReads(page, 'get_match_teams', first),
+    };
+    const ofSecond = ['get_match', 'get_match_roster', 'get_match_teams'].map((operation) =>
+      countReads(page, operation, second),
+    );
+    // The teams answer late: the line says "Atualizando…" until they do.
+    await page.route('**/functions/v1/groups/get_match_teams', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.fallback();
+    });
+    await page.getByTestId('match-refresh-button').click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText('Atualizando…');
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+    expect([ofFirst.match.count, ofFirst.roster.count, ofFirst.teams.count]).toEqual([1, 1, 1]);
+    expect(ofSecond.map((counter) => counter.count)).toEqual([0, 0, 0]);
+    await page.unroute('**/functions/v1/groups/get_match_teams');
+
+    // A failed read of the teams alone is said on the detail too.
+    await page.route('**/functions/v1/groups/get_match_teams', (route) => route.abort('failed'));
+    await page.getByTestId('match-refresh-button').click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(
+      /^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u,
+    );
+
+    // The list failing over a list already shown keeps the list: no error in place of it,
+    // only the line (conf89, P3-4). The teams answer again first, so the line comes from
+    // the list alone, and the check waits for the list's read to fail.
+    await page.unroute('**/functions/v1/groups/get_match_teams');
+    await page.getByTestId('match-refresh-button').click();
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
+    await page.route('**/functions/v1/groups/get_match_roster', (route) => route.abort('failed'));
+    const rosterFailed = page.waitForEvent('requestfailed', (item) =>
+      new URL(item.url()).pathname.endsWith('/groups/get_match_roster'),
+    );
+    await page.getByTestId('match-refresh-button').click();
+    await rosterFailed;
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(
+      /^Não foi possível atualizar\. Última leitura às \d{2}:\d{2}$/u,
+    );
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId('match-roster-error')).toHaveCount(0);
+    await expect(page.getByTestId('match-confirmed')).toBeVisible();
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// conf89 N1: a match that does not exist (or is not the person's) stays explained
+// when a later read fails at the network: the network notice, never a blank screen.
+test('Atualização: "Racha não encontrado" becomes the network notice when a read fails', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-inexistente', authIds);
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto(`/rachas/${crypto.randomUUID()}`);
+    await expect(page.getByText('Racha não encontrado')).toBeVisible();
+    await page.route('**/functions/v1/groups/get_match', (route) => route.abort('failed'));
+    await page.clock.fastForward(31_000);
+    await page.clock.runFor(2_000);
+    await expect(page.getByText('Não foi possível falar com o serviço')).toBeVisible();
   } finally {
     await cleanActors(authIds, db);
     await db.end();
