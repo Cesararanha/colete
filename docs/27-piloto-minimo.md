@@ -167,8 +167,11 @@ cortes do modo apresentação): `get_group_members` (`0019`/#52);
 (`0032`/#82); as leituras `get_match`, `list_my_matches`,
 `get_matches_occupancy` e `get_match_roster` (`0021`/#70, `0022`/#71); e a
 busca de endereço `search_address` na Edge (portão em `0023`/#72 e `0024`/#73,
-LocationIQ no #75). As operações da `0017` e da `0018` que têm linha própria
-estão na seção do #41, abaixo.
+LocationIQ no #75). As demais operações da `0017` e da `0018` têm linha
+própria: `create_group`, `join_by_code`, `join_by_invite` e
+`get_invite_share_link` na tabela acima; as prévias, o limitador, os pedidos
+pendentes, revogar/regenerar/emitir convite e `rename_group` na seção do #41,
+abaixo.
 
 ## N1–N28 de `12` — cada evento, incluindo canal
 
