@@ -74,7 +74,7 @@ insert into match_helper values
   ('private.match_payment_summary(uuid)'),
   ('private.promote_match_waitlist(uuid)'),
   ('private.release_match_players_on_membership_exit()'),
-  ('private.validate_through_create_match_outcome(text,jsonb)');
+  ('private.check_idempotency_conclusion(private.idempotency_records)');
 select ok(not has_function_privilege('service_role', signature, 'execute')
   and not has_function_privilege('authenticated', signature, 'execute'),
   signature || ' is not a gateway routine') from match_helper;
@@ -119,10 +119,8 @@ select throws_ok($$select private.validate_idempotency_outcome('leave_match',
 select lives_ok($$select private.validate_idempotency_outcome('create_match',
   '{"group_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21e","logical_result":"match_created","match_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21f"}'::jsonb)$$,
   'the chain still delegates create_match');
-select ok((select pg_get_constraintdef(oid) like '%set_match_payment%' from pg_constraint
-  where conname = 'idempotency_records_operation_check'), 'operation list includes the new three');
-select ok((select pg_get_constraintdef(oid) like '%payment_unchanged%' from pg_constraint
-  where conname = 'idempotency_records_outcome_code_check'), 'outcome list includes the new results');
+select ok((select count(*) = 3 from private.idempotency_operations where operation in ('join_match', 'leave_match', 'set_match_payment')), 'operation registry includes the new three');
+select ok((select count(distinct logical_result) = 1 from private.idempotency_operation_results where logical_result in ('payment_unchanged')), 'result registry includes the new results');
 
 select throws_ok($$select public.join_match('15000000-0000-4000-8000-000000000001',
   '15000000-0000-4000-8000-000000000001', '01890f7e-e948-4c53-b13a-4a36e4b7d21e',

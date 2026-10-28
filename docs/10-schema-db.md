@@ -1311,6 +1311,14 @@ create table legal_holds (
 );
 ```
 
+**Registro de operações (D63.5, `0033`).** A lista de operações de `idempotency_records` não é um
+`CHECK`: mora em `private.idempotency_operations` (uma linha por operação, com família
+`identity`, `account` ou `group`, formato do desfecho, chaves UUID exatas e recurso) e
+`private.idempotency_operation_results` (um resultado lógico por linha), as duas em `private`,
+sem RLS e sem grant, e imutáveis (`UPDATE`, `DELETE` e `TRUNCATE` recusados). Três FKs ligam o
+registro a elas: `(operation)`, `(operation, outcome_code)` e `(operation, resource_type)`, as
+duas compostas com `MATCH SIMPLE`. A regra de uso está em `13` §0.3.
+
 `private.job_runs.match_id` nasce nullable e sem FK no M1-A, porque `public.matches` ainda não
 existe. A migration que criar `matches` adiciona e testa a FK; a ausência inicial é uma ordem
 explícita de implantação, não um relaxamento permanente de integridade.

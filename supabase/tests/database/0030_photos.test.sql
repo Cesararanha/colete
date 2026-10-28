@@ -63,20 +63,10 @@ select ok(
 -- ---------------------------------------------------------------------------
 -- Livro de idempotência: listas fechadas preservadas e desfechos só com IDs
 -- ---------------------------------------------------------------------------
-select ok((select pg_get_constraintdef(oid) ~ 'delete_group'
-  and pg_get_constraintdef(oid) ~ 'set_group_appearance'
-  and pg_get_constraintdef(oid) ~ 'cancel_match'
-  and pg_get_constraintdef(oid) ~ 'request_data_export'
-  and pg_get_constraintdef(oid) ~ 'begin_photo_upload'
-  and pg_get_constraintdef(oid) ~ 'remove_group_photo'
-  from pg_constraint where conname = 'idempotency_records_operation_check'),
-  'every existing operation stays in the list, and the five photo operations join it');
-select ok((select pg_get_constraintdef(oid) ~ 'group_deleted'
-  and pg_get_constraintdef(oid) ~ 'group_appearance_set'
-  and pg_get_constraintdef(oid) ~ 'photo_upload_started'
-  and pg_get_constraintdef(oid) ~ 'group_photo_unchanged'
-  from pg_constraint where conname = 'idempotency_records_outcome_code_check'),
-  'every existing outcome stays in the list, and the photo outcomes join it');
+select ok((select count(*) = 6 from private.idempotency_operations where operation in ('delete_group', 'set_group_appearance', 'cancel_match', 'request_data_export', 'begin_photo_upload', 'remove_group_photo')),
+  'every existing operation stays in the registry, and the five photo operations are in it');
+select ok((select count(distinct logical_result) = 4 from private.idempotency_operation_results where logical_result in ('group_deleted', 'group_appearance_set', 'photo_upload_started', 'group_photo_unchanged')),
+  'every existing outcome stays in the registry, and the photo outcomes are in it');
 select lives_ok($$select private.validate_idempotency_outcome('begin_photo_upload',
   '{"upload_id":"30c00001-0000-4000-8000-000000000000","logical_result":"photo_upload_started"}'::jsonb)$$,
   'a session outcome holds only its ID');

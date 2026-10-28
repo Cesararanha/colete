@@ -3737,3 +3737,98 @@ GHSA-7wch-p9px-956x, GHSA-jc66-7q78-782g, GHSA-8hrf-8g6f-7xwp,
 GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
 (vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
 o resultado é relatado conforme essa seção.
+
+## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
+
+Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigatória antes do piloto com
+usuários reais, `25` §8.1). Pré-plano conferido em duas rodadas (`~/colete-noite/plano-d63-5.md`,
+`rev-plano-d63-5.md` e `rev2-plano-d63-5.md`, fora do repositório); decisões humanas de César de
+28/10/2026, P-A a P-F. Cerimônia cheia: revisão completa e conferência, e o PR para por decisão
+humana por alterar `docs/10` e `docs/13` (AGENTS §4.11).
+
+**O que mudou.** Até a `0032`, cada operação nova redefinia a lista de operações em cinco lugares
+(três CHECKs de `private.idempotency_records`, `acquire_group_idempotency`,
+`complete_group_idempotency`, o gatilho de conclusão e mais um elo numa cadeia de 13 validadores
+renomeados). Agora:
+
+- `private.idempotency_operations` (35 linhas: 4 `identity`, 2 `account`, 29 `group`) e
+  `private.idempotency_operation_results` (52 pares), em `private`, sem RLS e sem grant, imutáveis
+  por gatilho de linha e de `TRUNCATE`.
+- Três FKs no lugar dos três CHECKs: `(operation)`, que vale também para o
+  `executing_uncommitted`; `(operation, outcome_code)`; e `(operation, resource_type)`. As compostas
+  são `MATCH SIMPLE`: com nulo não conferem, com valor conferem por operação, o que é mais estrito
+  que os CHECKs globais. O SQLSTATE de operação desconhecida passa de `23514` a `23503`; nenhum
+  chamador lê esse código (os `acquire_*` recusam antes com `VALIDATION`).
+- Um validador estável (`stable`, invoker, `search_path` vazio) para os 35, e uma regra de conclusão
+  única (`private.check_idempotency_conclusion`) usada pelo gatilho e pela revalidação.
+- `acquire_group_idempotency` e `complete_group_idempotency` leem `family = 'group'` e o recurso da
+  tabela. Os helpers de identidade e de conta ficam como estavam (P-B), mas passam a usar o mesmo
+  validador e o mesmo gatilho.
+- Os 13 elos da cadeia saíram.
+
+**Endurecimentos deliberados** (caminhos que nenhuma RPC alcança): `logical_result` precisa ser
+string em todas as operações (`rename_group` e `request_data_export` aceitavam JSON `null` no
+validador); o gatilho compara recurso com `is distinct from` em todas (identidade e conta usavam
+`<>`, que deixa nulo passar); o limite de 4096 bytes do desfecho, que valia para as de identidade,
+vale para todas.
+
+**A migration.** Uma transação: `lock_timeout` de 5 s; `access exclusive` em
+`idempotency_records` desde o início; recusa se houver `executing_uncommitted` visível; carga do
+registro; validador e regra de conclusão; revalidação de todo `completed` existente com a regra
+nova (P-D), abortando no primeiro que falhar; as FKs (que conferem também os `payload_expired` ao
+nascer); `drop` dos CHECKs; troca dos helpers e do gatilho; `drop` dos 13 elos. Aplicar no staging
+é um gate operacional separado, com autorização própria e janela sem uso.
+
+**Ordem de travas.** As FKs tomam `FOR KEY SHARE` na linha da operação em todo `acquire`, e na linha
+do resultado e da operação em todo `complete_*`. As linhas nunca são atualizadas (imutáveis), então
+não há conflito; o registro desta ordem no `docs/25` §2, que é normativo, fica para decisão de
+César (a P-F autorizou só o `docs/10` e o `docs/13`).
+
+**Provas.** As asserções que afirmavam onde a lista morava (os `pg_get_constraintdef` dos CHECKs, os
+privilégios dos elos `validate_through_*`, os `pg_get_functiondef ... like '%draw_teams%'` e o
+SQLSTATE `23514` da operação desconhecida, em `0004`, `0016`, `0021`, `0022` e `0027`–`0032`)
+foram trocadas por equivalentes contra o registro, uma a uma, sem mudar a contagem de nenhum
+arquivo. As comportamentais (`lives_ok`/`throws_ok` sobre o validador, os `complete_*`, os replays
+e as RPCs) ficaram intactas e são a prova de equivalência. A operação desconhecida continua
+recusada (`throws_ok`, agora `23503`). Novos:
+
+- `0033_idempotency_operations.test.sql` (63): o registro (35 operações, 52 pares, famílias,
+  formatos, recurso igual ao ator); sem RLS e papel-sonda negativo (`anon`, `authenticated`,
+  `service_role` sem `select` nem `insert`, `service_role` sem `usage` em `private`, sem `execute`
+  nas funções novas); volatilidade e `security definer` de cada função; as três FKs, o fim dos
+  CHECKs e dos 13 elos; imutabilidade (`UPDATE`, `DELETE`, `TRUNCATE` e `TRUNCATE ... CASCADE`); os
+  três formatos e o endurecimento; as FKs por DML direto (resultado e tipo de recurso de outra
+  operação, recurso em `update_profile`, `payload_expired` com resultado alheio); a regra de
+  conclusão com registros plantados (coerente passa; `outcome_code` diferente do `logical_result`,
+  `resource_id` divergente e o `logical_result: null` que a cadeia velha aceitava são recusados;
+  `payload_expired` coerente passa); e os helpers de grupo recusando operação de outra família, com
+  um controle positivo do mesmo ator.
+- `db:test:membership` ganha a deriva da `0033` (`EXPECTED_0033_OVERRIDES`: as quatro funções da
+  `0016`, agora com o validador `stable`), a consistência entre a Edge e o registro (as listas de
+  `operations.ts`, `invite-gateway.ts` e `photo-gateway.ts`, menos as seis leituras declaradas,
+  iguais às famílias do registro: 6 de identidade e conta, 29 de grupo) e o commit real do gatilho
+  diferido (dois registros que passam nas FKs e violam a regra são recusados no `COMMIT` com
+  `IDEMPOTENCY_OUTCOME_INVALID`, sem resíduo).
+
+**Mutantes**, cada um numa cópia da `0033` com `db:reset`: validador que ignora os resultados (12
+reprovados); validador que aceita chave a mais (16); regra de conclusão sem o mapeamento de recurso
+(1); `acquire_group_idempotency` sem o filtro de família (1, depois de o teste passar a usar um
+perfil real: com ator inexistente, o `acquire` recusava pelo ator e o mutante sobrevivia); `grant`
+do registro para `service_role` (7); gatilho sem `security definer` (1); só a FK simples, sem as
+compostas (6). Limite registrado: que a migration chame a revalidação não tem teste depois do
+banco criado (o `db:reset` parte de uma tabela vazia); a regra que ela chama é a mesma função
+testada acima, e o replay de um registro gravado antes da `0033` só devolve o desfecho, sem
+revalidá-lo.
+
+**Suítes de banco** (AGENTS §5), com a pilha local na trava `pilha.lock`: `db:reset` exit 0;
+`db:test` 31 arquivos e 2.358 testes; `db:test:idempotency`, `gateway`, `cors`, `worker`,
+`deletion`, `export`, `invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`,
+`members`, `matches`, `match-players`, `ratings`, `teams` e `geocode`, todos exit 0.
+
+**Validação web** (AGENTS §5): `verify:app` exit 0; `build:web:auth-e2e` exit 0; `test:auth:web` 12
+passed + 2 skipped; `test:privacy:web` 5 passed + 5 skipped; `test:cors:web` 4 passed;
+`test:groups:web` 121 passed + 5 skipped; `test:matches:web` 44 passed; `test:qr:web` 30 passed;
+`build:web:smoke` e `test:smoke:web` 6 passed; `scan:docs`, `scan:secrets`, `test:audit` e
+`test:staging` exit 0. `audit:high` não roda como gate (a fatia não altera nenhum arquivo da lista
+da AGENTS §5); na `main` ele segue vermelho pelos alertas do vite e do zod. Censo depois:
+zero usuários, perfis, grupos, rachas e registros de idempotência. `package.json` intocado.

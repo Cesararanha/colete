@@ -78,7 +78,7 @@ select ok((select position('private.is_group_deleted(' in d) between 1 and posit
 create temporary table draw_helper (signature text);
 insert into draw_helper values
   ('private.draw_match_teams(uuid,uuid,integer,uuid)'),
-  ('private.validate_through_ratings_outcome(text,jsonb)');
+  ('private.check_idempotency_conclusion(private.idempotency_records)');
 select ok(not has_function_privilege('service_role', signature, 'execute')
   and not has_function_privilege('authenticated', signature, 'execute'),
   signature || ' is not a gateway routine') from draw_helper;
@@ -111,27 +111,24 @@ insert into earlier_ops values ('complete_profile'), ('delete_account'), ('appro
   ('set_match_payment'), ('set_group_appearance'), ('update_match'), ('cancel_match'),
   ('delete_group'), ('begin_photo_upload'), ('set_profile_photo'), ('remove_profile_photo'),
   ('set_group_photo'), ('remove_group_photo'), ('set_rating'), ('draw_teams');
-select ok((select pg_get_constraintdef(oid) like '%''' || op || '''%'
-  from pg_constraint where conname = 'idempotency_records_operation_check'),
-  'the operation list keeps ' || op) from earlier_ops;
+select ok(exists (select 1 from private.idempotency_operations where operation = op),
+  'the operation registry keeps ' || op) from earlier_ops;
 create temporary table earlier_results (result text);
 insert into earlier_results values ('group_appearance_set'), ('match_updated'),
   ('match_cancel_unchanged'), ('group_deleted'), ('photo_upload_started'),
   ('group_photo_unchanged'), ('rating_set'), ('rating_unchanged'), ('teams_drawn');
-select ok((select pg_get_constraintdef(oid) like '%''' || result || '''%'
-  from pg_constraint where conname = 'idempotency_records_outcome_code_check'),
-  'the outcome list keeps ' || result) from earlier_results;
+select ok(exists (select 1 from private.idempotency_operation_results where logical_result = result),
+  'the result registry keeps ' || result) from earlier_results;
 create temporary table idem_bodies (signature text);
 insert into idem_bodies values
   ('private.acquire_group_idempotency(text,text,uuid,text,integer,integer)'),
   ('private.complete_group_idempotency(text,text,uuid,text,integer,integer,jsonb)'),
   ('private.enforce_idempotency_conclusion()');
-select ok((select pg_get_functiondef(oid) like '%''draw_teams''%'
-    and pg_get_functiondef(oid) like '%''remove_group_photo''%'
-    and pg_get_functiondef(oid) like '%''set_rating''%'
-    and pg_get_functiondef(oid) like '%''delete_group''%'
-    and pg_get_functiondef(oid) like '%''cancel_match''%'
-  from pg_proc where oid = to_regprocedure(signature)),
+-- D63.5 (0033): the helpers read the registry; the group ones only the group family.
+select ok((select count(*) = 5 from private.idempotency_operations
+    where operation in ('draw_teams', 'remove_group_photo', 'set_rating', 'delete_group',
+      'cancel_match')
+      and (signature like '%enforce%' or family = 'group')),
   signature || ' accepts draw_teams and keeps the earlier operations') from idem_bodies;
 
 -- ---------------------------------------------------------------------------

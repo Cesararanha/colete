@@ -69,12 +69,10 @@ select throws_ok($$select private.validate_idempotency_outcome('set_group_appear
 select lives_ok($$select private.validate_idempotency_outcome('set_match_payment',
   '{"group_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21e","logical_result":"payment_unchanged","match_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21f","profile_id":"01890f7e-e948-4c53-b13a-4a36e4b7d210"}'::jsonb)$$,
   'the chain still delegates earlier operations');
-select ok((select pg_get_constraintdef(oid) like '%set_group_appearance%' from pg_constraint
-  where conname = 'idempotency_records_operation_check'),
-  'operation list includes set_group_appearance');
-select ok((select pg_get_constraintdef(oid) like '%group_appearance_set%' from pg_constraint
-  where conname = 'idempotency_records_outcome_code_check'),
-  'outcome list includes group_appearance_set');
+select ok((select count(*) = 1 from private.idempotency_operations where operation in ('set_group_appearance')),
+  'operation registry includes set_group_appearance');
+select ok((select count(distinct logical_result) = 1 from private.idempotency_operation_results where logical_result in ('group_appearance_set')),
+  'result registry includes group_appearance_set');
 
 -- ---------------------------------------------------------------------------
 -- Atores: dono, organizador, jogador, ex-membro, pendente e estranho

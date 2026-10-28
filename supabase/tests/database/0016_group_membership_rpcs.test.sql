@@ -17,27 +17,23 @@ select no_plan();
 -- Envelope: allowlists append-only e validador de outcome
 -- ---------------------------------------------------------------------------
 
+-- D63.5 (0033): as listas moram no registro de operações, não em CHECKs.
 select ok(
-  pg_get_constraintdef(oid) like all (array[
-    '%complete_profile%', '%request_data_export%', '%approve_member%', '%remove_member%',
-    '%set_role%', '%set_monthly%', '%set_ratings_visibility%', '%transfer_ownership%',
-    '%leave_group%']),
-  'a allowlist de operação conserva as seis anteriores e ganha as sete da fatia'
-)
-from pg_constraint where conname = 'idempotency_records_operation_check';
+  (select count(*) = 9 from private.idempotency_operations where operation in ('complete_profile', 'request_data_export', 'approve_member', 'remove_member', 'set_role', 'set_monthly', 'set_ratings_visibility', 'transfer_ownership', 'leave_group')),
+  'o registro de operações conserva as seis anteriores e as sete da fatia'
+);
 select ok(
-  pg_get_constraintdef(oid) like all (array[
-    '%profile_created%', '%data_export_requested%', '%member_approved%', '%member_refused%',
-    '%member_removed%', '%role_set%', '%monthly_set%', '%ratings_visibility_set%',
-    '%ownership_transferred%', '%group_left%']),
-  'a allowlist de outcome é append-only'
-)
-from pg_constraint where conname = 'idempotency_records_outcome_code_check';
+  (select count(distinct logical_result) = 10 from private.idempotency_operation_results where logical_result in ('profile_created', 'data_export_requested', 'member_approved', 'member_refused', 'member_removed', 'role_set', 'monthly_set', 'ratings_visibility_set', 'ownership_transferred', 'group_left')),
+  'o registro de resultados conserva os anteriores'
+);
 select ok(
-  pg_get_constraintdef(oid) like all (array['%deletion_request%', '%data_export%', '%''group''%']),
+  (select bool_and(resource_type = 'group') from private.idempotency_operations
+     where operation in ('approve_member', 'remove_member', 'set_role', 'set_monthly',
+       'set_ratings_visibility', 'transfer_ownership', 'leave_group'))
+  and exists (select 1 from private.idempotency_operations where resource_type = 'deletion_request')
+  and exists (select 1 from private.idempotency_operations where resource_type = 'data_export'),
   'o resource das operações de grupo é o grupo'
-)
-from pg_constraint where conname = 'idempotency_records_resource_type_check';
+);
 
 select lives_ok(
   $$select private.validate_idempotency_outcome('approve_member',
@@ -90,7 +86,7 @@ insert into acl_0016 values
   ('public.leave_group(uuid,uuid,uuid,text,integer,integer,uuid)', '{postgres=X/postgres,service_role=X/postgres}', array[true,false,false,false]),
   ('public.worker_execute_database_job(bigint)', '{postgres=X/postgres,service_role=X/postgres}', array[true,false,false,false]),
   ('private.validate_idempotency_outcome(text,jsonb)', '{postgres=X/postgres}', array[false,false,false,false]),
-  ('private.validate_through_data_export_outcome(text,jsonb)', '{postgres=X/postgres}', array[false,false,false,false]),
+  ('private.check_idempotency_conclusion(private.idempotency_records)', '{postgres=X/postgres}', array[false,false,false,false]),
   ('private.acquire_group_idempotency(text,text,uuid,text,integer,integer)', '{postgres=X/postgres}', array[false,false,false,false]),
   ('private.complete_group_idempotency(text,text,uuid,text,integer,integer,jsonb)', '{postgres=X/postgres}', array[false,false,false,false]),
   ('private.enforce_idempotency_conclusion()', '{postgres=X/postgres}', array[false,false,false,false]),

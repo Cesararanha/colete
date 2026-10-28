@@ -60,7 +60,7 @@ select ok((select pg_get_functiondef(oid) like '%from public.groups%where id = p
   'set_rating decides a deleted group before locking its row or memberships (0029)');
 create temporary table rating_helper (signature text);
 insert into rating_helper values ('private.purge_ratings()'),
-  ('private.validate_through_photos_outcome(text,jsonb)'),
+  ('private.check_idempotency_conclusion(private.idempotency_records)'),
   ('private.require_rating_matches_history()'), ('private.forbid_rating_history_update()');
 select ok(not has_function_privilege('service_role', signature, 'execute')
   and not has_function_privilege('authenticated', signature, 'execute'),
@@ -90,24 +90,19 @@ insert into earlier_ops values ('complete_profile'), ('delete_account'), ('appro
   ('rename_group'), ('create_match'), ('join_match'), ('set_match_payment'),
   ('set_group_appearance'), ('update_match'), ('cancel_match'), ('delete_group'),
   ('begin_photo_upload'), ('remove_group_photo'), ('set_rating');
-select ok((select pg_get_constraintdef(oid) like '%''' || op || '''%'
-  from pg_constraint where conname = 'idempotency_records_operation_check'),
-  'the operation list keeps ' || op) from earlier_ops;
-select ok((select pg_get_constraintdef(oid) like '%''rating_set''%'
-    and pg_get_constraintdef(oid) like '%''rating_unchanged''%'
-    and pg_get_constraintdef(oid) like '%''group_photo_unchanged''%'
-    and pg_get_constraintdef(oid) like '%''group_deleted''%'
-  from pg_constraint where conname = 'idempotency_records_outcome_code_check'),
-  'the outcome list keeps the earlier results and adds rating_set and rating_unchanged');
+select ok(exists (select 1 from private.idempotency_operations where operation = op),
+  'the operation registry keeps ' || op) from earlier_ops;
+select ok((select count(distinct logical_result) = 4 from private.idempotency_operation_results where logical_result in ('rating_set', 'rating_unchanged', 'group_photo_unchanged', 'group_deleted')),
+  'the result registry keeps the earlier results and has rating_set and rating_unchanged');
 create temporary table idem_bodies (signature text);
 insert into idem_bodies values
   ('private.acquire_group_idempotency(text,text,uuid,text,integer,integer)'),
   ('private.complete_group_idempotency(text,text,uuid,text,integer,integer,jsonb)'),
   ('private.enforce_idempotency_conclusion()');
-select ok((select pg_get_functiondef(oid) like '%''set_rating''%'
-    and pg_get_functiondef(oid) like '%''remove_group_photo''%'
-    and pg_get_functiondef(oid) like '%''delete_group''%'
-  from pg_proc where oid = to_regprocedure(signature)),
+-- D63.5 (0033): the helpers read the registry; the group ones only the group family.
+select ok((select count(*) = 3 from private.idempotency_operations
+    where operation in ('set_rating', 'remove_group_photo', 'delete_group')
+      and (signature like '%enforce%' or family = 'group')),
   signature || ' accepts set_rating and keeps the earlier operations') from idem_bodies;
 
 -- ---------------------------------------------------------------------------
