@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
-import { LIVE_REFRESH_MS } from '@/lib/query-client';
+import { useLiveInterval } from '@/lib/use-live-interval';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
@@ -128,6 +128,10 @@ function Teams({ teams }: { teams: MatchTeams }) {
  * on the server. Drawing again replaces the teams, after a confirmation in
  * place. A canceled match shows no teams.
  */
+/** The teams of a match, under the match's key; the detail also reads their state (HX-003). */
+export const matchTeamsQueryKey = (profileId: string, matchId: string) =>
+  [PRIVATE_QUERY_ROOT, 'matches', profileId, matchId, 'teams'] as const;
+
 export function MatchTeamsSection({
   ended,
   matchId,
@@ -142,11 +146,12 @@ export function MatchTeamsSection({
 }) {
   const { colors } = useTheme();
   // Under the match's key: a presence, payment or draw re-reads it with the roster.
+  const refetchInterval = useLiveInterval();
   const query = useQuery({
     enabled: !roster.canceled,
-    queryKey: [PRIVATE_QUERY_ROOT, 'matches', profileId, matchId, 'teams'],
+    queryKey: matchTeamsQueryKey(profileId, matchId),
     queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
-    refetchInterval: LIVE_REFRESH_MS,
+    refetchInterval,
   });
   const actions = useMatchActions(profileId);
   const [count, setCount] = useState<MatchTeamCount>(2);

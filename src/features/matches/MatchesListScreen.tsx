@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
-import { LiveRefresh } from '@/components/ui/LiveRefresh';
+import { LiveRefresh, ReadNotice } from '@/components/ui/LiveRefresh';
 import type { MatchSummary, OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -161,15 +161,7 @@ export function MatchesListScreen({ profile }: { profile: OwnProfile }) {
         </View>
       ) : null}
       {listing.isPending ? <AsyncNotice kind="loading" message={pt.common.loading} /> : null}
-      {listing.isError ? (
-        <AsyncNotice
-          kind="network"
-          title={pt.common.networkTitle}
-          message={pt.common.networkBody}
-          actionLabel={pt.common.retry}
-          action={() => void listing.refetch()}
-        />
-      ) : null}
+      <ReadNotice query={listing} />
       {listing.data && matches.length === 0 ? (
         <AsyncNotice
           kind="empty"

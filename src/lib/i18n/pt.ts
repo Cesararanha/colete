@@ -678,6 +678,8 @@ export const pt = {
     /** HX-003: the time the screen last read, on the device's clock. */
     updatedAt: (time: string) => `Atualizado às ${time}`,
     refreshing: 'Atualizando…',
+    /** A read failed over data already shown (rev89 P3-2). */
+    refreshFailed: (time: string) => `Não foi possível atualizar. Última leitura às ${time}`,
     refresh: 'Atualizar',
     refreshLabel: 'Atualizar agora',
     backHome: 'Voltar ao início',

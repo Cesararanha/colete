@@ -3509,11 +3509,19 @@ recarregar: o `QueryClient` não tinha `refetchInterval` (confirmado em `2a97d39
 
 - **Leitura a cada 30 s com a tela na frente.** Grupos (lista e pedidos pendentes), Agenda (e a
   lista de rachas do detalhe do grupo, que usa a mesma leitura) e o detalhe do racha (racha,
-  lista e times) leem de novo a cada `LIVE_REFRESH_MS` (`src/lib/query-client.ts`). Com a
-  página oculta nada é lido; ao voltar, a leitura vencida acontece na hora. No celular nativo,
+  lista e times) leem de novo a cada `LIVE_REFRESH_MS` (`src/lib/query-client.ts`), só enquanto
+  a página está visível **e** aquela tela é a da frente (`useLiveInterval`, com o `useIsFocused`
+  do expo-router): uma aba ou tela que ficou montada por baixo de outra não lê. Ao voltar à
+  frente (a página ou a tela), o que venceu é lido na hora. No celular nativo,
   `src/lib/app-focus.ts` liga o foco do TanStack ao `AppState`.
 - **"Atualizado às HH:MM" e "Atualizar".** As três telas mostram a hora da leitura mais antiga
-  da tela e um botão que lê na hora (`LiveRefresh`); no detalhe, o botão lê também os times.
+  da tela (no detalhe, contando racha, lista e times) e um botão que lê na hora (`LiveRefresh`);
+  no detalhe, o botão lê também os times.
+- **Falha e sessão.** Uma leitura que falha com dados na tela não troca a lista pelo aviso
+  grande: a linha diz "Não foi possível atualizar. Última leitura às HH:MM" (`role="status"`). O
+  aviso grande de rede fica para a tela sem nada carregado. Sessão recusada pelo servidor mostra
+  o aviso de sessão e para a leitura de 30 s (`liveInterval`), em vez de um 401 a cada 30 s até
+  o token vencer.
 
 **Medição antes de fixar o intervalo** (`~/colete-noite/medicao-cpu-1.5/`, fora do
 repositório): CPU do contêiner da Edge pelo cgroup (`usage_usec`), descontado o ocioso, 40
@@ -3522,8 +3530,10 @@ leituras por operação com um racha de 10 vagas e 11 inscritos, em duas rodadas
 `get_match_teams` e `get_my_pending_group_requests` (p50 de 20 a 22 ms). Por tela: Agenda 6,4 e
 7,6 ms, detalhe 9,1 e 10,6 ms, Grupos 3,8 ms. Duas abas no detalhe lendo juntas (6 leituras em
 voo, 20 rajadas): 120 de 120 respostas 200, nenhum 5xx. A 30 s, um detalhe aberto custa cerca
-de 20 ms de CPU por minuto e 360 chamadas à Edge por hora; o que pesa no plano hospedado é o
-número de chamadas, não o CPU.
+de 20 ms de CPU por minuto e 360 chamadas à Edge por hora (as 3 do detalhe a cada 30 s, medidas
+no e2e com Grupos e Agenda montados por baixo); a Agenda na frente custa 240 chamadas à Edge e
+240 ao PostgREST por hora. O que pesa no plano hospedado é o número de chamadas, não o CPU. A
+revisão (rev89) mediu de 2,2 a 3,4 ms por leitura, na mesma ordem.
 
 **Provas.** `src/lib/live-refresh.test.ts` (hora da leitura mais antiga, leitura que ainda não
 aconteceu, meia-noite). Dois testes novos no fim de `e2e/rachas-ux.spec.ts` (assim a suíte
@@ -3544,7 +3554,10 @@ aprovado não aparece aos 30 s e porque a Agenda não lê sozinha (0 leituras, e
 da suíte, nunca sozinho: depois do envio vazio, o foco vai ao primeiro campo inválido num
 `requestAnimationFrame`; com o quadro atrasado (cerca de 70 ms no trace), o foco voltava à Data
 no meio do preenchimento do Início, e "19:30" ia para a Data cheia. O teste passa a esperar o foco
-na Data antes de preencher. Depois disso, 3 rodadas seguidas da suíte com 36 passed.
+na Data antes de preencher. Depois disso, 3 rodadas seguidas da suíte com 36 passed. A revisão não
+reproduziu a falha (16 execuções com o quadro atrasado à força), achou o mecanismo coerente com o
+código e confirmou que a espera não esconde defeito do app; o trace da falha fica em
+`~/colete-noite/hx003-evidencias/trace-rachas-v1-instavel.zip`, fora do repositório.
 
 **Validação** com a pilha local na trava `pilha.lock`: `db:reset` exit 0; `verify:app` exit 0
 (vitest 63 arquivos e 744 testes); `build:web:auth-e2e` exit 0; `test:matches:web` 36 passed em
@@ -3553,3 +3566,41 @@ neste ramo, sem relação com a fatia (que não muda dependência): GHSA-587h-7w
 alerta novo GHSA-mrhx-c7xc-m3w5 (zod) e a exceção órfã GHSA-vfj7-8cjw-p6xm (braces). Censo depois da rodada: zero
 usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
 `~/colete-noite/ux-prints/hx003-antes/` e `hx003-depois/`, fora do repositório.
+
+#### Correções da revisão do #89
+
+A revisão independente (`~/colete-noite/rev89.md`, fora do repositório) deu CONFERIDO no
+`60b4254`, com 0 P1, 1 P2 e 6 P3. Por decisão de César, todos entram neste PR.
+
+- **P2-1.** O intervalo só parava com a página oculta: Grupos e Agenda, montados por baixo,
+  continuavam lendo com o detalhe na frente, inclusive sob Criar e Editar (6 chamadas à Edge a
+  cada 30 s com o detalhe aberto, não 3). Agora `useLiveInterval` liga o intervalo ao foco da
+  navegação (`useIsFocused` do expo-router), e o `LiveRefresh` lê na hora, ao voltar, o que
+  venceu enquanto a tela estava por baixo.
+- **P3-1.** Com a sessão recusada, a tela dizia "falar com o serviço" e mandava um 401 por
+  leitura a cada 30 s até o token vencer. Agora o intervalo para e aparece o aviso de sessão
+  (`ReadNotice`).
+- **P3-2.** Uma releitura que falha com dados na tela não põe mais o aviso grande no meio da
+  lista: a linha da hora diz "Não foi possível atualizar. Última leitura às HH:MM". O aviso de
+  rede fica para a tela vazia; na lista do detalhe, o erro em linha também só aparece sem lista.
+- **P3-3.** No detalhe, a hora e o "Atualizando…" passam a contar os times (um observador
+  desligado da mesma chave, que só acompanha o estado; quem lê continua sendo o `MatchTeams`).
+- **P3-4.** Três testes novos no `rachas-ux`: só a tela da frente lê (contagem por operação com
+  Grupos, Agenda, detalhe e Editar); falha com dados na tela e sessão revogada; e, com o relógio
+  real, "Atualizando…" enquanto os times respondem atrasados, "Atualizar" lendo só o racha
+  aberto (nada do outro racha no cache) e a falha só dos times dita na linha.
+- **P3-5.** O comentário de `dayDigits` volta a ficar sobre a própria função.
+- **P3-6.** A causa do instável está no trace guardado (ver acima); a revisão confirmou o
+  mecanismo pelo código, sem reproduzir.
+
+**Contraprovas contra `60b4254`**, com os testes novos e o `src` revisado: os três reprovam. Só
+a tela da frente: Grupos leu com a Agenda na frente (esperado `pending: 0`). Falha com dados:
+"Atualizado às", sem a linha de falha. Detalhe: a falha só dos times não aparece na linha (e,
+numa rodada, a Agenda por baixo leu durante o teste).
+
+**Validação das correções** com a pilha local na trava `pilha.lock`: `verify:app` exit 0 (vitest
+63 arquivos e 747 testes); `build:web:auth-e2e` exit 0; `test:matches:web` 42 passed em duas
+rodadas seguidas; `test:groups:web` 120 passed + 5 skipped + 1 falha na primeira rodada
+(`ajustes-teste.spec.ts:105`, o primeiro teste da suíte, preso no carregamento inicial antes de
+qualquer tela com releitura; passou 3 de 3 sozinho) e 121 passed + 5 skipped na rodada seguinte.
+Censo depois: zero usuários, perfis, grupos, membros e rachas.
