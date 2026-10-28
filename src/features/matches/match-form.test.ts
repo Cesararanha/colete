@@ -6,6 +6,7 @@ import { pt } from '../../lib/i18n/pt';
 import {
   formValuesFromMatch,
   matchConfigFromForm,
+  matchEditConfigFromForm,
   roundCoordinate,
   type MatchFormValues,
 } from './match-form';
@@ -236,16 +237,33 @@ describe("the match keeps its own time zone, not the device's (HX-005)", () => {
     ]);
   });
 
-  it('saves an untouched edit with the same instants and zone', () => {
+  it('edits in the match zone and keeps its zone, with no zone passed by the screen', () => {
+    // The screen gives the stored match, never a zone: the edit itself takes
+    // the match's (rev88 P3-1). Untouched, the same instants come back.
     const { values: filled, place } = formValuesFromMatch(stored);
-    const result = matchConfigFromForm(filled, place, tokyoNow, stored.timezone, {
-      kept: { startsAt: stored.starts_at, endsAt: stored.ends_at },
-    });
-    if (!('config' in result)) throw new Error('expected a config');
-    expect(result.config).toMatchObject({
+    const untouched = matchEditConfigFromForm(filled, place, stored, 0, tokyoNow);
+    if (!('config' in untouched)) throw new Error('expected a config');
+    expect(untouched.config).toMatchObject({
       starts_at: stored.starts_at,
       ends_at: stored.ends_at,
       timezone: TOKYO,
+    });
+    // 20:00 typed is 20:00 in Tokyo, whatever zone this machine is in.
+    const later = matchEditConfigFromForm(
+      { ...filled, startTime: '20:00', endTime: '21:30' },
+      place,
+      stored,
+      0,
+      tokyoNow,
+    );
+    if (!('config' in later)) throw new Error('expected a config');
+    expect([later.config.starts_at, later.config.ends_at, later.config.timezone]).toEqual([
+      '2030-10-15T11:00:00.000Z',
+      '2030-10-15T12:30:00.000Z',
+      TOKYO,
+    ]);
+    expect(matchEditConfigFromForm({ ...filled, slots: '3' }, place, stored, 4, tokyoNow)).toEqual({
+      errors: { slots: 'Já há 4 confirmados' },
     });
   });
 

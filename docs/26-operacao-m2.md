@@ -3444,7 +3444,7 @@ racha ia para as 20:00 de São Paulo e passava a ser exibido no horário de Mana
   envia no fuso do racha, e manda sempre `match.timezone`. Mudança de horário de verão: no
   buraco, o instante cai depois do salto; na hora repetida, na primeira.
 - **O fuso aparece só quando o aparelho mostra outra hora.** "Horário do racha: Horário Padrão
-  de Brasília (GMT-3)" sob a Data, no formulário de edição, e sob o horário, no detalhe. A
+  de Brasília (GMT-3)" acima da Data, no formulário de edição, e sob o horário, no detalhe. A
   comparação é pelo deslocamento no início do racha: um aparelho em Maceió diante de um racha de
   São Paulo não vê aviso. O texto `detail.timezone`, que não era usado, deu lugar a
   `matches.zone`.
@@ -3464,7 +3464,8 @@ São Paulo vê 20:00–21:30 sem aviso.
 
 - `match-form.test.ts` com a máquina em São Paulo: 3/15 reprovados (os três do bloco HX-005);
   em Manaus: 6/15 reprovados;
-- `editar-racha`, teste do fuso (390 px): reprovado no aviso, ausente; sem as linhas do aviso,
+- `editar-racha`, teste do fuso, nos dois projetos (412 px no `mobile-chromium`, que é o Pixel 7,
+  e 1280 px; medido pelo revisor): reprovado no aviso, ausente; sem as linhas do aviso,
   reprovado em `match-startTime`, esperado "19:00", recebido "18:00".
 
 **Validação** com a pilha local na trava `pilha.lock`: `db:start` exit 0 (migrations `0001` a
@@ -3472,3 +3473,29 @@ São Paulo vê 20:00–21:30 sem aviso.
 `test:matches:web` 32 passed; `test:groups:web` 121 passed + 5 skipped. Censo depois da rodada:
 zero usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
 `~/colete-noite/ux-prints/hx005-antes/` e `hx005-depois/`, fora do repositório.
+
+#### Correções da revisão do #88
+
+A revisão independente (`~/colete-noite/rev88.md`, fora do repositório) deu CONFERIDO no
+`3cb430b`, com 0 P1, 0 P2 e 5 P3. Por decisão de César, quatro entram neste PR e o P3-3 fica
+como está: o aviso compara os fusos no início gravado, não na data digitada, e isso só muda algo
+onde há horário de verão, que o Brasil não tem desde 2019.
+
+- **P3-1.** O teste "saves an untouched edit" passava também na base, porque recebia o fuso
+  pronto e o defeito estava na tela. A regra da edição sai da tela para `matchEditConfigFromForm`
+  (fuso, início e fim do próprio racha), e o teste novo a chama sem fuso nenhum.
+- **P3-2.** O aviso só descrevia o campo Data. Ele passa a ser um texto único acima da Data,
+  ligado como descrição acessível de Data, Início e Fim (`AppTextField` ganha
+  `describedByExtra`).
+- **P3-4.** Sem o nome longo do fuso no `Intl`, o rótulo virava só `America/Maceio`. Agora é
+  `America/Maceio (GMT-3)`.
+- **P3-5.** A largura do e2e nas contraprovas acima: 412 e 1280 px, não 390 px.
+
+**Contraprovas contra `3cb430b`**, com os testes novos e o `src` revisado: 2/20 reprovados em
+`match-zone.test.ts` e `match-form.test.ts` (o rótulo sem nome longo e a edição sem fuso).
+
+**Validação** com a pilha local na trava `pilha.lock`: vitest 741 testes com a máquina em
+`America/Sao_Paulo`, `America/Manaus`, `Asia/Tokyo` e `UTC`; `verify:app` exit 0 (62 arquivos e
+741 testes); `db:start` e `build:web:auth-e2e` exit 0; `test:matches:web` 32 passed;
+`test:groups:web` 121 passed + 5 skipped. Censo depois da rodada: zero usuários, perfis, grupos,
+membros e rachas.

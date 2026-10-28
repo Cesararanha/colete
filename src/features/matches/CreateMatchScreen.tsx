@@ -39,6 +39,7 @@ import {
   deviceTimeZone,
   formValuesFromMatch,
   matchConfigFromForm,
+  matchEditConfigFromForm,
   nextDayNotice,
   type ConfirmedPlace,
   type MatchFormErrors,
@@ -47,6 +48,8 @@ import {
 import { maskDate, maskMoney, maskTime } from './match-masks';
 import { serverErrorTarget } from './match-server-errors';
 import { deviceDiffers, zoneLabel } from './match-zone';
+
+const ZONE_NOTICE_ID = 'match-zone-notice';
 
 const EMPTY: MatchFormValues = {
   date: '',
@@ -448,11 +451,7 @@ export function CreateMatchScreen({
   const saveEdit = () => {
     if (saving.isPending || match === undefined || editedRoster.data === undefined) return;
     setFormError('');
-    // The match keeps its own zone, whatever zone this device is in (HX-005).
-    const result = matchConfigFromForm(values, place, new Date(), match.timezone, {
-      kept: { startsAt: match.starts_at, endsAt: match.ends_at },
-      confirmed: editedRoster.data.confirmed_count,
-    });
+    const result = matchEditConfigFromForm(values, place, match, editedRoster.data.confirmed_count);
     if ('errors' in result) {
       setErrors(result.errors);
       const first = FIELD_ORDER.find((name) => result.errors[name] !== undefined);
@@ -515,6 +514,7 @@ export function CreateMatchScreen({
     name: keyof MatchFormValues,
     label: string,
     options: {
+      describedByExtra?: string | undefined;
       hint?: string | undefined;
       keyboardType?: 'default' | 'number-pad';
       maxLength?: number;
@@ -523,6 +523,7 @@ export function CreateMatchScreen({
     } = {},
   ) => (
     <AppTextField
+      describedByExtra={options.describedByExtra}
       error={errors[name]}
       hint={options.hint}
       keyboardType={options.keyboardType ?? 'default'}
@@ -540,12 +541,14 @@ export function CreateMatchScreen({
   );
   const nextDay = nextDayNotice(values.startTime, values.endTime);
   // A new match takes this device's zone; an edited one keeps its own, and
-  // says which when this device shows other times (HX-005).
+  // says which when this device shows other times (HX-005). The notice is shown
+  // once, above the date, and describes the date, start and end alike (rev88 P3-2).
   const zoneNotice =
     match !== undefined &&
     deviceDiffers(match.timezone, new Date(match.starts_at), deviceTimeZone())
       ? pt.matches.zone(zoneLabel(match.timezone, new Date(match.starts_at)))
       : undefined;
+  const zoneDescription = zoneNotice === undefined ? undefined : ZONE_NOTICE_ID;
 
   return (
     <AuthenticatedShell
@@ -677,8 +680,17 @@ export function CreateMatchScreen({
               value={groupId}
             />
           )}
+          {zoneNotice === undefined ? null : (
+            <Text
+              nativeID={ZONE_NOTICE_ID}
+              style={[styles.zone, { color: colors.textMuted }]}
+              testID="match-zone"
+            >
+              {zoneNotice}
+            </Text>
+          )}
           {field('date', pt.matches.create.date, {
-            hint: zoneNotice,
+            describedByExtra: zoneDescription,
             keyboardType: 'number-pad',
             maxLength: 10,
             placeholder: 'DD/MM/AAAA',
@@ -686,6 +698,7 @@ export function CreateMatchScreen({
           <View style={styles.pair}>
             <View style={styles.pairItem}>
               {field('startTime', pt.matches.create.start, {
+                describedByExtra: zoneDescription,
                 keyboardType: 'number-pad',
                 maxLength: 5,
                 placeholder: 'HH:MM',
@@ -693,6 +706,7 @@ export function CreateMatchScreen({
             </View>
             <View style={styles.pairItem}>
               {field('endTime', pt.matches.create.end, {
+                describedByExtra: zoneDescription,
                 hint: nextDay,
                 keyboardType: 'number-pad',
                 maxLength: 5,
@@ -821,6 +835,7 @@ const styles = StyleSheet.create({
   optionText: { ...typography.body, flex: 1, minWidth: 0 },
   options: { gap: spacing.sm },
   pair: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  zone: { ...typography.support },
   pairItem: { flexBasis: 160, flexGrow: 1, minWidth: 0 },
   results: { borderRadius: radius.row, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
 });

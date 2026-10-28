@@ -95,9 +95,13 @@ export function deviceDiffers(timeZone: string, instant: Date, deviceZone: strin
   return zoneOffsetMs(instant, timeZone) !== zoneOffsetMs(instant, deviceZone);
 }
 
-/** "Horário Padrão de Brasília (GMT-3)", or the zone's IANA name where Intl has no name for it. */
+/**
+ * "Horário Padrão de Brasília (GMT-3)". Where Intl has no long name, the
+ * zone's IANA name stands in, still with the offset when there is one
+ * ("America/Maceio (GMT-3)", rev88 P3-4).
+ */
 export function zoneLabel(timeZone: string, instant: Date): string {
-  const name = (style: 'longGeneric' | 'shortOffset') => {
+  const part = (style: 'longGeneric' | 'shortOffset') => {
     try {
       return new Intl.DateTimeFormat('pt-BR', { timeZone, timeZoneName: style })
         .formatToParts(instant)
@@ -106,8 +110,8 @@ export function zoneLabel(timeZone: string, instant: Date): string {
       return undefined;
     }
   };
-  const long = name('longGeneric');
-  const offset = name('shortOffset');
-  if (long === undefined) return timeZone;
-  return offset === undefined || offset === long ? long : `${long} (${offset})`;
+  const long = part('longGeneric');
+  const offset = part('shortOffset');
+  const name = long ?? timeZone;
+  return offset === undefined || offset === name ? name : `${name} (${offset})`;
 }

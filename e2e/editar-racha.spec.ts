@@ -493,9 +493,16 @@ test('Fuso do racha: a phone in Manaus edits a match in São Paulo and keeps its
     await expect(page.getByTestId('match-date')).toHaveValue(`${day}/${month}/${year}`);
     await expect(page.getByTestId('match-startTime')).toHaveValue('19:00');
     await expect(page.getByTestId('match-endTime')).toHaveValue('20:30');
-    await expect(page.getByTestId('match-date')).toHaveAccessibleDescription(
-      /Horário do racha: Horário Padrão de Brasília \(GMT-3\)/,
+    // Shown once, above the date, and read with the date, the start and the end
+    // (rev88 P3-2).
+    await expect(page.getByTestId('match-zone')).toHaveText(
+      'Horário do racha: Horário Padrão de Brasília (GMT-3)',
     );
+    for (const id of ['match-date', 'match-startTime', 'match-endTime']) {
+      await expect(page.getByTestId(id)).toHaveAccessibleDescription(
+        /Horário do racha: Horário Padrão de Brasília \(GMT-3\)/,
+      );
+    }
     await assertAccessible(page);
     await shot(page, testInfo.project.name, '10-editar-fuso-manaus.png');
 

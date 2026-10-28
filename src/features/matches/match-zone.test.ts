@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { deviceDiffers, wallClock, zonedInstant, zoneLabel, zoneOffsetMs } from './match-zone';
 
@@ -41,5 +41,23 @@ describe('wall clock in a match time zone (HX-005)', () => {
     expect(deviceDiffers('America/Maceio', at, 'America/Sao_Paulo')).toBe(false);
     expect(deviceDiffers('America/Maceio', at, 'America/Manaus')).toBe(true);
     expect(zoneLabel('America/Maceio', at)).toBe('Horário Padrão de Brasília (GMT-3)');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the offset when Intl has no long name for the zone (rev88 P3-4)', () => {
+    const Original = Intl.DateTimeFormat;
+    // A constructor, as zoneLabel calls it with new: only the long name fails.
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      locales?: string | string[],
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      if (options?.timeZoneName === 'longGeneric') throw new RangeError('no long name');
+      return new Original(locales, options);
+    } as unknown as typeof Intl.DateTimeFormat);
+    const at = new Date('2030-10-15T22:00:00.000Z');
+    expect(zoneLabel('America/Maceio', at)).toBe('America/Maceio (GMT-3)');
   });
 });

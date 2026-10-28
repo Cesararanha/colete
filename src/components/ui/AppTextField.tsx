@@ -10,13 +10,24 @@ import { AppIcon } from './AppIcon';
 type AppTextFieldProps = Omit<TextInputProps, 'style'> & {
   error?: string | undefined;
   hint?: string | undefined;
+  /** The nativeID of a text outside the field that also describes it, read after the hint. */
+  describedByExtra?: string | undefined;
   label: string;
   passwordToggleLabel?: { hide: string; show: string } | undefined;
   testID?: string | undefined;
 };
 
 export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function AppTextField(
-  { error, hint, label, passwordToggleLabel, secureTextEntry, testID, ...inputProps },
+  {
+    describedByExtra,
+    error,
+    hint,
+    label,
+    passwordToggleLabel,
+    secureTextEntry,
+    testID,
+    ...inputProps
+  },
   ref,
 ) {
   const { colors } = useTheme();
@@ -25,6 +36,10 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
   const describedBy = `app-field-${fieldId}-description`;
   const invalid = error !== undefined;
   const toggleText = passwordVisible ? passwordToggleLabel?.hide : passwordToggleLabel?.show;
+  const descriptions = [
+    error !== undefined || hint !== undefined ? describedBy : undefined,
+    describedByExtra,
+  ].filter((id) => id !== undefined);
 
   return (
     <View style={styles.group}>
@@ -34,7 +49,7 @@ export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function Ap
           {...inputProps}
           ref={ref}
           accessibilityLabel={label}
-          aria-describedby={error !== undefined || hint !== undefined ? describedBy : undefined}
+          aria-describedby={descriptions.length > 0 ? descriptions.join(' ') : undefined}
           aria-invalid={invalid}
           placeholderTextColor={colors.textMuted}
           secureTextEntry={secureTextEntry === true && !passwordVisible}

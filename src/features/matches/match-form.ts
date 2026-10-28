@@ -281,3 +281,20 @@ export function matchConfigFromForm(
     },
   };
 }
+
+/**
+ * The edit of a stored match: always in the match's own zone, whatever zone
+ * this device is in, with its stored start and end kept as they are (HX-005).
+ */
+export function matchEditConfigFromForm(
+  values: MatchFormValues,
+  place: ConfirmedPlace,
+  match: Pick<MatchSummary, 'starts_at' | 'ends_at' | 'timezone'>,
+  confirmed: number,
+  now = new Date(),
+): { config: MatchConfig } | { errors: MatchFormErrors } {
+  return matchConfigFromForm(values, place, now, match.timezone, {
+    kept: { startsAt: match.starts_at, endsAt: match.ends_at },
+    confirmed,
+  });
+}
