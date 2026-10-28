@@ -359,3 +359,160 @@ test('Racha completo: clear refusals once the match started or the membership en
     await db.end();
   }
 });
+
+// Fatia 1.1 (D63-G; decisões humanas de 28/10/2026, P11 e P12): who is
+// confirmed and not paid sees «Pague ao organizador» with the owner and the
+// organizers, owner first, and the price; nobody else does. Once marked, the
+// player sees the mark; a canceled match drops the instruction, and a match
+// that already started keeps it (the debt stays).
+test('Pagamento: the instruction goes only to who is confirmed and not paid', async ({
+  browser,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  try {
+    // The owner comes after the organizer in the alphabet, so "owner first" is
+    // proved, not a by-product of sorting by name (rev91 P2-2).
+    const owner = await createActor(request, 'pag-zeca', authIds);
+    const organizer = await createActor(request, 'pag-bruno', authIds);
+    const ana = await createActor(request, 'pag-ana', authIds);
+    const bia = await createActor(request, 'pag-bia', authIds);
+    const caio = await createActor(request, 'pag-caio', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha Pago' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    for (const [member, role] of [
+      [organizer, 'organizer'],
+      [ana, 'player'],
+      [bia, 'player'],
+      [caio, 'player'],
+    ] as const) {
+      await db.query(
+        `insert into public.group_members(group_id, profile_id, role, status)
+         values ($1, $2, $3, 'active')`,
+        [groupId, member.profileId, role],
+      );
+    }
+    const matchId = await createMatch(request, owner, groupId);
+    // Four slots: Ana, Bia, the owner and the organizer are confirmed, Caio waits.
+    // The owner and the organizer play too, so "nothing on the organisation's own
+    // line" is proved on a confirmed line (rev91 P2-1).
+    await db.query('update private.matches set field_slots = 4 where id = $1', [matchId]);
+    for (const member of [ana, bia, owner, organizer, caio]) {
+      await gateway(request, member, 'join_match', { match_id: matchId });
+    }
+    // The names as the group reads them: the owner first, then the organizer.
+    const read = await request.post(`${env.functionsUrl}/groups/get_group_members`, {
+      data: { group_id: groupId },
+      headers: { Authorization: `Bearer ${ana.token}` },
+    });
+    expect(read.status()).toBe(200);
+    const members = (
+      (await read.json()) as { data: { profile_id: string; display_name: string }[] }
+    ).data;
+    const nameOf = (actor: Actor) =>
+      members.find((member) => member.profile_id === actor.profileId)!.display_name;
+    const instruction = `Pague ao organizador: ${nameOf(owner)} ou ${nameOf(organizer)}.`;
+    expect(nameOf(organizer).localeCompare(nameOf(owner))).toBeLessThan(0);
+
+    // Ana, confirmed and not paid: the instruction and the price.
+    const anaView = await open(browser, ana, matchId);
+    contexts.push(anaView.context);
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(instruction);
+    await expect(anaView.page.getByTestId('match-pay-notice-note')).toContainText(
+      'R$ 12,50 por jogador',
+    );
+    await assertAccessible(anaView.page);
+    await anaView.page.getByTestId('match-pay-notice').scrollIntoViewIfNeeded();
+    await shot(anaView.page, testInfo.project.name, 'pagamento-01-instrucao.png');
+
+    // Caio waits: nothing. The owner and the organizer, confirmed: nothing on their
+    // own line, and none of the three reads who collects (rev91 P2-1 and P3-2).
+    for (const actor of [caio, owner, organizer]) {
+      const context = await browser.newContext({ timezoneId: ZONE, colorScheme: 'dark' });
+      contexts.push(context);
+      const page = await context.newPage();
+      let memberReads = 0;
+      page.on('request', (item) => {
+        if (new URL(item.url()).pathname.endsWith('/groups/get_group_members')) memberReads += 1;
+      });
+      await login(page, actor);
+      await page.goto(`/rachas/${matchId}`);
+      await expect(page.getByTestId('match-presence')).toBeVisible();
+      await expect(page.getByTestId('match-confirmed')).toBeVisible();
+      await expect(page.getByTestId('match-pay-notice')).toHaveCount(0);
+      expect(memberReads, `${actor.name} read who collects`).toBe(0);
+    }
+    // The owner, who plays, sees the organisation's summary instead.
+    const ownerView = await open(browser, owner, matchId);
+    contexts.push(ownerView.context);
+    await expect(ownerView.page.getByTestId('match-payment-summary')).toBeVisible();
+
+    // The organizer leaves the organisation while Ana's detail is open: "Atualizar"
+    // reads who collects again, and the instruction no longer names them (rev91 P2-3).
+    await gateway(request, owner, 'remove_member', {
+      group_id: groupId,
+      profile_id: organizer.profileId,
+      reason: 'Saiu da organização',
+    });
+    await anaView.page.getByTestId('match-refresh-button').click();
+    const onlyOwner = `Pague ao organizador: ${nameOf(owner)}.`;
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
+
+    // Marked paid: Ana sees the mark instead of the instruction.
+    await gateway(request, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: ana.profileId,
+      paid: true,
+    });
+    await anaView.page.reload();
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(
+      'Pagamento marcado pela organização.',
+    );
+    await anaView.page.getByTestId('match-pay-notice').scrollIntoViewIfNeeded();
+    await shot(anaView.page, testInfo.project.name, 'pagamento-02-pago.png');
+
+    // Canceled: Bia, who did not pay, no longer sees the instruction; Ana keeps the mark.
+    const biaView = await open(browser, bia, matchId);
+    contexts.push(biaView.context);
+    await expect(biaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
+    await gateway(request, owner, 'cancel_match', { match_id: matchId });
+    await biaView.page.reload();
+    await expect(biaView.page.getByTestId('match-confirmed')).toBeVisible();
+    await expect(biaView.page.getByTestId('match-pay-notice')).toHaveCount(0);
+    await anaView.page.reload();
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(
+      'Pagamento marcado pela organização.',
+    );
+
+    // A match that already started keeps the instruction for who still owes.
+    const started = await createMatch(request, owner, groupId);
+    await gateway(request, bia, 'join_match', { match_id: started });
+    await db.query(
+      `update private.matches
+         set starts_at = now() - interval '10 minutes', ends_at = now() + interval '80 minutes'
+       where id = $1`,
+      [started],
+    );
+    await biaView.page.goto(`/rachas/${started}`);
+    await expect(biaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
+
+    // A match that already ended keeps it too (rev91 P3-1).
+    const ended = await createMatch(request, owner, groupId);
+    await gateway(request, bia, 'join_match', { match_id: ended });
+    await db.query(
+      `update private.matches
+         set starts_at = now() - interval '3 hours', ends_at = now() - interval '90 minutes'
+       where id = $1`,
+      [ended],
+    );
+    await biaView.page.goto(`/rachas/${ended}`);
+    await expect(biaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
+  } finally {
+    for (const context of contexts) await context.close();
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

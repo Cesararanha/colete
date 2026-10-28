@@ -372,7 +372,12 @@ export const pt = {
         'Abre o Google Maps fora do Colete. Ele recebe só a busca pelo local do racha, e só quando você toca aqui.',
       missingTitle: 'Racha não encontrado',
       missing: 'Não foi possível abrir este racha. Volte à lista e atualize os dados.',
-      payNote: 'O pagamento é combinado com o organizador, fora do app.',
+      // Fatia 1.1 (D63-G): no article before the names, since a name does not say which fits.
+      payTo: (names: string) =>
+        names ? `Pague ao organizador: ${names}.` : 'Pague ao organizador.',
+      payNote: (price: string) =>
+        `${price} por jogador. O acerto é feito fora do app: quando a organização receber, ela marca você como pago.`,
+      paidNotice: 'Pagamento marcado pela organização.',
       distance: 'Ver distância',
       distanceLocating: 'Obtendo sua posição…',
       distanceHint: 'Calculada neste aparelho. Sua posição não é enviada nem guardada.',

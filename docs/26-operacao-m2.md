@@ -3625,3 +3625,77 @@ achados corrigidos, 1 parcial e 2 achados novos, todos P3. Entram neste PR:
 `verify:app` exit 0 (vitest 63 arquivos e 747 testes); `test:matches:web` 44 passed;
 `test:groups:web` 121 passed + 5 skipped. Censo depois: zero usuários, perfis, grupos, membros e
 rachas.
+
+### Instrução de pagamento para quem joga — D63-G, sem migration (28/10/2026)
+
+Fatia 1.1 do plano do piloto (`~/colete-noite/plano-piloto.md`, fora do repositório; pré-plano
+CONFERIDO para a 1.1 em `rev-plano-piloto.md`; respostas de César de 28/10/2026: P5 (a), sem
+campo novo; P11 (b), o dono e os organizadores; P12, os estados). Antes, quem jogava via só o
+chip "Não pagou", e o texto `payNote` existia sem uso (UX-022).
+
+- **O bloco "Pagamento" no detalhe do racha**, na seção de confirmados: «Pague ao organizador:
+  Ana ou Beto.» e "R$ 12,50 por jogador. O acerto é feito fora do app: quando a organização
+  receber, ela marca você como pago." Depois da marcação: "Pagamento marcado pela organização."
+- **Quem recebe** vem de `get_group_members`, que todo membro ativo já lê: o dono primeiro e
+  depois os organizadores ativos, sem o `created_by` do racha, que é histórico. Sem artigo antes
+  dos nomes, porque o nome não diz qual cabe. A leitura só acontece enquanto a instrução aparece.
+- **Estados (P12)** em `src/features/matches/payment-notice.ts`: a instrução só para quem está
+  confirmado e não pago, também com o racha iniciado ou terminado; nada na espera, nada para quem
+  não pagou num racha cancelado e nada na linha de quem organiza (que vê o resumo). Quem foi
+  marcado pago vê a marcação, inclusive no racha cancelado.
+- Sem migration, Edge nem mudança de contrato.
+
+**Provas.** `payment-notice.test.ts` (nomes com o dono primeiro e organizadores ativos, sem nome
+quando não há leitura, os estados da P12). `racha-completo` ganha um teste com dono, organizador,
+dois confirmados e um na espera: a instrução e o preço para a confirmada não paga; nada para a
+espera, nada para o dono e o organizador **confirmados** (eles jogam no racha do teste) e nenhuma
+leitura de quem recebe nas três páginas; o dono primeiro mesmo vindo depois do organizador no
+alfabeto; o nome do organizador removido sumindo ao tocar "Atualizar"; a marcação depois do
+pagamento; nada para quem não pagou depois do cancelamento, enquanto quem pagou mantém a marcação;
+e a instrução num racha já iniciado e num já terminado. Roda nos dois projetos (412 e 1280 px).
+
+**Contraprovas contra `2760546`**, com o teste novo e o `src` da base: reprovado, o bloco não
+existe. Mutante com a instrução também na espera: reprovado (`match-pay-notice`: esperado 0,
+recebido 1).
+
+**Validação** com a pilha local na trava `pilha.lock`: `verify:app` exit 0 (vitest 64 arquivos e
+753 testes); `build:web:auth-e2e` exit 0; `test:matches:web` 46 passed; `test:groups:web` 121
+passed + 5 skipped. Censo depois da rodada: zero usuários, perfis, grupos, membros e rachas. Prints
+a 412 px (o Pixel 7 do projeto `mobile-chromium`) em `~/colete-noite/ux-prints/pagamento-11/`,
+fora do repositório; o antes é a mesma tela sem o bloco. **Custo** (medido na revisão, `rev91`):
+em regime, o detalhe faz as mesmas 6 leituras por minuto de antes (`get_match`,
+`get_match_roster` e `get_match_teams`, a cada 30 s); a instrução acrescenta 1 `get_group_members`
+ao abrir, só para quem a vê, mais a releitura ao tocar "Atualizar" ou ao voltar à tela. Quem não
+vê a instrução também relê os membros ao tocar "Atualizar" se o detalhe do mesmo grupo ainda está
+aberto na aba Grupos, porque aquela tela mantém a mesma leitura ligada (conferência do #91, N1):
+uma leitura por toque, de uma lista que essa pessoa já lê ali. A leitura de membros não tem
+`refetchInterval`.
+
+#### Correções da revisão do #91
+
+A revisão independente (`~/colete-noite/rev91.md`, fora do repositório) deu CONFERIDO no `f4d773d`,
+com 0 P1, 3 P2 e 3 P3; o comportamento já estava certo em todos os estados da P12 e na regra da
+P11. Entram neste PR:
+
+- **P2-1.** O dono e o organizador do e2e passam a jogar (o racha ganha 4 vagas), e a afirmação
+  "nada na linha de quem organiza" é feita sobre uma linha confirmada.
+- **P2-2.** O dono vem depois do organizador no alfabeto, no unitário ("Zeca ou Ana", "Zeca, Ana ou
+  Bruno") e no e2e, então "dono primeiro" não passa mais por ordenação por nome.
+- **P2-3.** "Atualizar" no detalhe relê também quem recebe, enquanto a instrução aparece (sem
+  instrução a leitura fica desligada e é pulada, salvo com o grupo aberto na aba Grupos, como diz
+  o custo acima). Um organizador removido com o detalhe aberto some da
+  instrução ao tocar "Atualizar". A leitura de membros continua fora do intervalo de 30 s.
+- **P3-1.** O e2e cobre também o racha já terminado; o título do unitário deixou de prometer o
+  início do racha, que não entra na regra.
+- **P3-2.** O e2e conta as leituras de `get_group_members` nas páginas da espera, do dono e do
+  organizador: zero.
+- **P3-3.** A seção acima corrige a largura dos prints (412 px), traz o custo medido e descreve a
+  prova do dono e do organizador como ela é.
+
+**Mutantes da revisão**, agora todos reprovados no e2e (`mobile-chromium`): a regra sem
+`canManage`; `canManage: false` na tela; nomes por ordem alfabética; leitura de membros sempre
+ligada; o bloco sumindo no racha terminado; e "Atualizar" sem reler quem recebe.
+
+**Validação das correções:** `verify:app` exit 0 (vitest 64 arquivos e 754 testes);
+`test:matches:web` 46 passed; `test:groups:web` 121 passed + 5 skipped. Censo depois: zero
+usuários, perfis, grupos e rachas.
