@@ -58,8 +58,10 @@ async function gateway(
   operation: string,
   body: Record<string, unknown>,
 ) {
+  // The share link is a read: it takes no request_id.
+  const read = operation === 'get_invite_share_link';
   const response = await request.post(`${env.functionsUrl}/groups/${operation}`, {
-    data: { request_id: crypto.randomUUID(), ...body },
+    data: read ? body : { request_id: crypto.randomUUID(), ...body },
     headers: { Authorization: `Bearer ${actor.token}` },
   });
   expect(response.status(), `${operation}: ${await response.text()}`).toBe(200);
@@ -106,11 +108,14 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
   await db.query('begin');
   try {
+    await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
+      ids,
+    ]);
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
     await db.query(
-      `delete from private.match_players where match_id in
+      `delete from private.match_players where profile_id = any($1::uuid[]) or match_id in
          (select id from private.matches where group_id in (${groups}))`,
       [ids],
     );
@@ -149,6 +154,27 @@ async function login(page: Page, actor: Actor) {
 }
 
 /** A day in São Paulo as digits typed into the date mask: DDMMAAAA. */
+/** Counts the Edge reads of one operation, to prove when the page reads and when it does not. */
+function countReads(page: Page, operation: string) {
+  const counter = { count: 0 };
+  page.on('request', (item) => {
+    if (new URL(item.url()).pathname.endsWith(`/groups/${operation}`)) counter.count += 1;
+  });
+  return counter;
+}
+
+/** Hides or shows the page the way a phone does when the app goes to the background. */
+async function setHidden(page: Page, hidden: boolean) {
+  await page.evaluate((value) => {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (value ? 'hidden' : 'visible'),
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+  }, hidden);
+}
+
 function dayDigits(offsetDays: number): string {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
@@ -669,6 +695,147 @@ test('Usabilidade: "Ver distância" computes on the device, granted and denied',
     } finally {
       await deniedContext.close();
     }
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// HX-003 (fatia 1.5, decisão humana de 28/10/2026): Grupos, Agenda and the
+// match detail read again every 30 s while the page is in front, and never
+// while it is hidden; "Atualizar" reads at once and says when the screen last
+// read. The page clock moves only when the test says, so the 30 s are proved
+// without waiting.
+test('Atualização: an approval and a new player show up without a reload, within 30 s', async ({
+  browser,
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-dona', authIds);
+    const ana = await createActor(request, 'vivo-ana', authIds);
+    const bia = await createActor(request, 'vivo-bia', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha ao Vivo' });
+    const { group_id: groupId, invite_id: inviteId } = created['outcome'] as {
+      group_id: string;
+      invite_id: string;
+    };
+    const share = await gateway(request, owner, 'get_invite_share_link', { invite_id: inviteId });
+    await gateway(request, bia, 'join_by_code', { code: share['code'] });
+    await gateway(request, owner, 'approve_member', {
+      group_id: groupId,
+      profile_id: bia.profileId,
+      approve: true,
+    });
+    const matchId = await createMatch(request, owner, groupId, { days: 2, place: 'Arena ao Vivo' });
+    await gateway(request, owner, 'join_match', { match_id: matchId });
+
+    // Ana asked to enter; her Grupos says "pending" and stays open.
+    await gateway(request, ana, 'join_by_code', { code: share['code'] });
+    const anaContext = await browser.newContext({ timezoneId: ZONE, colorScheme: 'dark' });
+    contexts.push(anaContext);
+    const anaPage = await anaContext.newPage();
+    await anaPage.clock.install();
+    await login(anaPage, ana);
+    await expect(anaPage.getByTestId('pending-group-card')).toContainText('Racha ao Vivo');
+    await expect(anaPage.getByTestId('group-list-card')).toHaveCount(0);
+    await shot(anaPage, testInfo.project.name, 'atualizacao-01-grupos.png');
+    await expect(anaPage.getByTestId('groups-refresh-time')).toHaveText(
+      /^Atualizado às \d{2}:\d{2}$/u,
+    );
+    await assertAccessible(anaPage);
+
+    // The owner opens the match detail: 1 of 10.
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    const board = page.getByTestId('match-scoreboard');
+    await expect(board).toHaveAttribute('aria-label', '1 de 10 vagas confirmadas');
+    await shot(page, testInfo.project.name, 'atualizacao-02-detalhe.png');
+    await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+
+    // Elsewhere, the owner approves Ana and Bia says she will play.
+    await gateway(request, owner, 'approve_member', {
+      group_id: groupId,
+      profile_id: ana.profileId,
+      approve: true,
+    });
+    await gateway(request, bia, 'join_match', { match_id: matchId });
+
+    // Before 30 s nothing changes on either screen; at 30 s both read again.
+    await anaPage.clock.fastForward(20_000);
+    await page.clock.fastForward(20_000);
+    await expect(anaPage.getByTestId('group-list-card')).toHaveCount(0);
+    await expect(board).toHaveAttribute('aria-label', '1 de 10 vagas confirmadas');
+    await anaPage.clock.fastForward(11_000);
+    await page.clock.fastForward(11_000);
+    await expect(anaPage.getByTestId('group-list-card')).toContainText('Racha ao Vivo');
+    await expect(anaPage.getByTestId('pending-group-card')).toHaveCount(0);
+    await expect(board).toHaveAttribute('aria-label', '2 de 10 vagas confirmadas');
+    await expect(page.getByTestId('match-confirmed')).toContainText('Pessoa vivo-bia');
+  } finally {
+    for (const context of contexts) await context.close();
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+test('Atualização: a hidden page never reads; "Atualizar" reads at once on the Agenda', async ({
+  page,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    const owner = await createActor(request, 'vivo-agenda', authIds);
+    const groupId = await createGroup(request, owner, 'Agenda ao Vivo');
+    await createMatch(request, owner, groupId, { days: 2, place: 'Arena ao Vivo' });
+
+    await page.clock.install();
+    await login(page, owner);
+    await page.goto('/rachas');
+    await expect(page.getByTestId('matches-filters')).toBeVisible();
+    await shot(page, testInfo.project.name, 'atualizacao-03-agenda.png');
+    const time = page.getByTestId('matches-refresh-time');
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    const reads = countReads(page, 'list_my_matches');
+
+    // In front, one read every 30 s; the screen says so while it reads. The
+    // read waits on the session's own timers: the page clock runs them, so it
+    // ends before the page is hidden (a read still in flight would end later
+    // and look fresh when the page comes back).
+    await page.clock.fastForward(31_000);
+    await expect.poll(() => reads.count).toBe(1);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+
+    // Hidden for two minutes: no read at all.
+    await setHidden(page, true);
+    await page.clock.fastForward(120_000);
+    await page.waitForTimeout(500);
+    expect(reads.count).toBe(1);
+
+    // Back in front: it reads again at once, and keeps the rhythm.
+    await setHidden(page, false);
+    await page.clock.fastForward(1_000);
+    await expect.poll(() => reads.count).toBe(2);
+    await page.clock.runFor(2_000);
+    await expect(time).toHaveText(/^Atualizado às \d{2}:\d{2}$/u);
+    await page.clock.fastForward(31_000);
+    await expect.poll(() => reads.count).toBe(3);
+
+    // "Atualizar" reads at once, without waiting for the interval.
+    await page.getByTestId('matches-refresh-button').click();
+    await expect.poll(() => reads.count).toBe(4);
+    await expect(page.getByTestId('matches-refresh-button')).toHaveAccessibleName(
+      'Atualizar agora',
+    );
+    await assertAccessible(page);
   } finally {
     await cleanActors(authIds, db);
     await db.end();

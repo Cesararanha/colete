@@ -7,11 +7,13 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { LiveRefresh } from '@/components/ui/LiveRefresh';
 import type { GroupAppearance } from '@/components/ui/group-icon';
 import { Scoreboard } from '@/components/ui/Scoreboard';
 import { api, type OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT, withCurrentAccessToken } from '@/lib/private-queries';
+import { LIVE_REFRESH_MS } from '@/lib/query-client';
 import { useReducedMotion } from '@/theme/motion';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
@@ -124,6 +126,7 @@ export function GroupsListScreen({
 }) {
   const { colors } = useTheme();
   const listing = useQuery({
+    refetchInterval: LIVE_REFRESH_MS,
     queryKey: [PRIVATE_QUERY_ROOT, 'groups', profile.id],
     queryFn: () =>
       withCurrentAccessToken(async (token) => {
@@ -205,6 +208,7 @@ export function GroupsListScreen({
       }
       title={pt.groups.list.title}
     >
+      <LiveRefresh queries={[listing]} testID="groups-refresh" />
       {left ? <AppStatus message={pt.groups.detail.left} testID="group-left-status" /> : null}
       {deleted ? (
         <AppStatus message={pt.groups.list.deleted} testID="group-deleted-status" />

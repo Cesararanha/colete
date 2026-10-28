@@ -10,6 +10,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SessionLifecycle } from '@/features/auth/SessionLifecycle';
+import '@/lib/app-focus';
 import { pt } from '@/lib/i18n/pt';
 import { queryClient } from '@/lib/query-client';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';

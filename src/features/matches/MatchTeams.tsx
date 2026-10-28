@@ -16,6 +16,7 @@ import {
 } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
+import { LIVE_REFRESH_MS } from '@/lib/query-client';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
@@ -145,6 +146,7 @@ export function MatchTeamsSection({
     enabled: !roster.canceled,
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profileId, matchId, 'teams'],
     queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
+    refetchInterval: LIVE_REFRESH_MS,
   });
   const actions = useMatchActions(profileId);
   const [count, setCount] = useState<MatchTeamCount>(2);

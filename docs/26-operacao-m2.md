@@ -3499,3 +3499,57 @@ onde há horário de verão, que o Brasil não tem desde 2019.
 741 testes); `db:start` e `build:web:auth-e2e` exit 0; `test:matches:web` 32 passed;
 `test:groups:web` 121 passed + 5 skipped. Censo depois da rodada: zero usuários, perfis, grupos,
 membros e rachas.
+
+### Tela que se atualiza sozinha — HX-003, sem migration (28/10/2026)
+
+Fatia 1.5 do plano do piloto (`~/colete-noite/plano-piloto.md`, fora do repositório; resposta de
+César de 28/10/2026, P9 (b): 30 s, só com a tela em primeiro plano, confirmado por medição).
+Antes, aprovação, promoção da espera e mudanças feitas por outra pessoa só apareciam depois de
+recarregar: o `QueryClient` não tinha `refetchInterval` (confirmado em `2a97d39`).
+
+- **Leitura a cada 30 s com a tela na frente.** Grupos (lista e pedidos pendentes), Agenda (e a
+  lista de rachas do detalhe do grupo, que usa a mesma leitura) e o detalhe do racha (racha,
+  lista e times) leem de novo a cada `LIVE_REFRESH_MS` (`src/lib/query-client.ts`). Com a
+  página oculta nada é lido; ao voltar, a leitura vencida acontece na hora. No celular nativo,
+  `src/lib/app-focus.ts` liga o foco do TanStack ao `AppState`.
+- **"Atualizado às HH:MM" e "Atualizar".** As três telas mostram a hora da leitura mais antiga
+  da tela e um botão que lê na hora (`LiveRefresh`); no detalhe, o botão lê também os times.
+
+**Medição antes de fixar o intervalo** (`~/colete-noite/medicao-cpu-1.5/`, fora do
+repositório): CPU do contêiner da Edge pelo cgroup (`usage_usec`), descontado o ocioso, 40
+leituras por operação com um racha de 10 vagas e 11 inscritos, em duas rodadas. Por leitura:
+3,2 a 3,9 ms em `list_my_matches`, `get_matches_occupancy`, `get_match`, `get_match_roster`,
+`get_match_teams` e `get_my_pending_group_requests` (p50 de 20 a 22 ms). Por tela: Agenda 6,4 e
+7,6 ms, detalhe 9,1 e 10,6 ms, Grupos 3,8 ms. Duas abas no detalhe lendo juntas (6 leituras em
+voo, 20 rajadas): 120 de 120 respostas 200, nenhum 5xx. A 30 s, um detalhe aberto custa cerca
+de 20 ms de CPU por minuto e 360 chamadas à Edge por hora; o que pesa no plano hospedado é o
+número de chamadas, não o CPU.
+
+**Provas.** `src/lib/live-refresh.test.ts` (hora da leitura mais antiga, leitura que ainda não
+aconteceu, meia-noite). Dois testes novos no fim de `e2e/rachas-ux.spec.ts` (assim a suíte
+`test:matches:web` os roda sem mudar o `package.json`, cuja alteração exigiria `audit:high` com
+exit 0, hoje vermelho na `main`), com o relógio da página nas mãos
+do teste: a Ana, com Grupos aberto e o pedido pendente, vê o grupo aprovado aos 30 s e não aos
+20 s; o dono, no detalhe, vê o segundo confirmado aos 30 s sem recarregar; na Agenda, uma
+leitura por intervalo, nenhuma em 2 minutos de página oculta, uma ao voltar e "Atualizar" lê na
+hora. Roda nos dois projetos (412 e 1280 px). O teste deixa o relógio rodar até cada leitura
+terminar: uma leitura ainda em voo quando a página some termina depois e parece recente na
+volta, e o TanStack, corretamente, não lê de novo.
+
+**Contraprovas contra `2a97d39`**, com o teste novo e o `src` da base: reprovado no texto
+"Atualizado às", ausente; sem as linhas desse texto e do botão, reprovado porque o grupo
+aprovado não aparece aos 30 s e porque a Agenda não lê sozinha (0 leituras, esperada 1).
+
+**Instável achado na rodada.** `rachas-v1`, "tabs, modal creation", falhou 4 vezes em 7 rodadas
+da suíte, nunca sozinho: depois do envio vazio, o foco vai ao primeiro campo inválido num
+`requestAnimationFrame`; com o quadro atrasado (cerca de 70 ms no trace), o foco voltava à Data
+no meio do preenchimento do Início, e "19:30" ia para a Data cheia. O teste passa a esperar o foco
+na Data antes de preencher. Depois disso, 3 rodadas seguidas da suíte com 36 passed.
+
+**Validação** com a pilha local na trava `pilha.lock`: `db:reset` exit 0; `verify:app` exit 0
+(vitest 63 arquivos e 744 testes); `build:web:auth-e2e` exit 0; `test:matches:web` 36 passed em
+3 rodadas seguidas; `test:groups:web` 121 passed + 5 skipped. `audit:high` exit 1 na `main` e
+neste ramo, sem relação com a fatia (que não muda dependência): GHSA-587h-7wmj-h5pm (vite), o
+alerta novo GHSA-mrhx-c7xc-m3w5 (zod) e a exceção órfã GHSA-vfj7-8cjw-p6xm (braces). Censo depois da rodada: zero
+usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
+`~/colete-noite/ux-prints/hx003-antes/` e `hx003-depois/`, fora do repositório.

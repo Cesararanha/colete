@@ -8,6 +8,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppIcon, type IconName } from '@/components/ui/AppIcon';
 import { AuthenticatedShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { LiveRefresh } from '@/components/ui/LiveRefresh';
 import { Chip, type ChipTone } from '@/components/ui/Chip';
 import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
@@ -24,6 +25,7 @@ import {
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
+import { LIVE_REFRESH_MS, queryClient } from '@/lib/query-client';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/spacing';
 import { face, typography } from '@/theme/typography';
@@ -697,12 +699,14 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
   const detail = useQuery({
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId],
     queryFn: ({ signal }) => api.getMatch(matchId, signal),
+    refetchInterval: LIVE_REFRESH_MS,
   });
   const match = detail.data ?? undefined;
   const rosterQuery = useQuery({
     enabled: match !== undefined,
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId, 'roster'],
     queryFn: ({ signal }) => api.getMatchRoster(matchId, signal),
+    refetchInterval: LIVE_REFRESH_MS,
   });
   const roster = rosterQuery.data;
   // Whoever may create matches in the group edits and cancels it, until it
@@ -797,6 +801,16 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       ) : null}
       {match ? (
         <>
+          <LiveRefresh
+            queries={[detail, rosterQuery]}
+            // The teams below read under the same key, so "Atualizar" reads them too.
+            refresh={() =>
+              queryClient.refetchQueries({
+                queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId],
+              })
+            }
+            testID="match-refresh"
+          />
           <Place match={match} />
           {rosterQuery.isPending ? (
             <AsyncNotice kind="loading" message={pt.common.loading} />

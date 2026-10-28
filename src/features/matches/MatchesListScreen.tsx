@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AuthenticatedListShell } from '@/components/ui/AuthenticatedShell';
 import { AsyncNotice } from '@/components/ui/AsyncNotice';
+import { LiveRefresh } from '@/components/ui/LiveRefresh';
 import type { MatchSummary, OwnProfile } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -141,6 +142,7 @@ export function MatchesListScreen({ profile }: { profile: OwnProfile }) {
       title={pt.matches.list.title}
       titleSize="display"
     >
+      <LiveRefresh queries={[listing]} testID="matches-refresh" />
       {matches.length > 0 ? (
         <View
           accessibilityLabel={pt.matches.list.filtersLabel}
