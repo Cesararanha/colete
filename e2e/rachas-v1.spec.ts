@@ -230,6 +230,9 @@ test('Rachas: tabs, modal creation with confirmed GPS, list and detail with real
     await expect(page.getByText('Informe uma data válida no formato DD/MM/AAAA.')).toBeVisible();
     await expect(page.getByText('Informe de 1 a 99 vagas.')).toBeVisible();
     expect(gatewayCalls).toBe(0);
+    // The focus goes to the first invalid field on the next frame: typing
+    // before it lands would send the next field's text into the date.
+    await expect(page.getByTestId('match-date')).toBeFocused();
 
     // The place comes from the address search (simulated Edge): choosing a
     // result keeps its rounded coordinates.
