@@ -442,3 +442,87 @@ test('Editar e cancelar: a player sees neither, and a forced call through the Ed
     await db.end();
   }
 });
+
+// HX-005: a phone in another zone edits the match in the match's zone. The
+// owner's phone is in Manaus (UTC-4), the match in São Paulo (UTC-3): the form
+// shows and saves São Paulo times, says which zone they are in, and the match
+// keeps its zone.
+test('Fuso do racha: a phone in Manaus edits a match in São Paulo and keeps its times', async ({
+  browser,
+  request,
+}, testInfo) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  try {
+    const owner = await createActor(request, 'fuso', authIds);
+    const created = await gateway(request, owner, 'create_group', { name: 'Racha no Fuso' });
+    const groupId = (created['outcome'] as { group_id: string }).group_id;
+    // 19:00 in São Paulo, three days from now on São Paulo's calendar.
+    const [day, month, year] = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      timeZone: ZONE,
+      year: 'numeric',
+    })
+      .format(new Date(Date.now() + 3 * 86_400_000))
+      .split('/');
+    const date = `${year}-${month}-${day}`;
+    const made = await gateway(request, owner, 'create_match', {
+      group_id: groupId,
+      config: config(new Date(`${date}T19:00:00-03:00`), 10),
+    });
+    const matchId = (made['outcome'] as { match_id: string }).match_id;
+
+    const context = await browser.newContext({
+      timezoneId: 'America/Manaus',
+      colorScheme: 'dark',
+    });
+    contexts.push(context);
+    const page = await context.newPage();
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    await expect(page.getByTestId('match-fact-when')).toContainText('19:00–20:30');
+    await expect(page.getByTestId('match-fact-zone')).toHaveText(
+      'Horário do racha: Horário Padrão de Brasília (GMT-3)',
+    );
+    await shot(page, testInfo.project.name, '09-detalhe-fuso-manaus.png');
+
+    await page.getByTestId('match-edit').click();
+    await expect(page.getByTestId('match-date')).toHaveValue(`${day}/${month}/${year}`);
+    await expect(page.getByTestId('match-startTime')).toHaveValue('19:00');
+    await expect(page.getByTestId('match-endTime')).toHaveValue('20:30');
+    await expect(page.getByTestId('match-date')).toHaveAccessibleDescription(
+      /Horário do racha: Horário Padrão de Brasília \(GMT-3\)/,
+    );
+    await assertAccessible(page);
+    await shot(page, testInfo.project.name, '10-editar-fuso-manaus.png');
+
+    await page.getByTestId('match-startTime').fill('2000');
+    await page.getByTestId('match-endTime').fill('2130');
+    await page.getByTestId('match-create-submit').click();
+    await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+    await expect(page.getByTestId('match-fact-when')).toContainText('20:00–21:30');
+
+    const stored = await db.query(
+      'select starts_at, ends_at, timezone from private.matches where id = $1',
+      [matchId],
+    );
+    expect(stored.rows[0]).toEqual({
+      starts_at: new Date(`${date}T20:00:00-03:00`),
+      ends_at: new Date(`${date}T21:30:00-03:00`),
+      timezone: ZONE,
+    });
+
+    // On a phone in the match's own zone, nothing says the zone.
+    const home = await open(browser, owner, matchId);
+    contexts.push(home.context);
+    await expect(home.page.getByTestId('match-fact-when')).toContainText('20:00–21:30');
+    await expect(home.page.getByTestId('match-fact-zone')).toHaveCount(0);
+  } finally {
+    for (const context of contexts) await context.close();
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

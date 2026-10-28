@@ -35,8 +35,10 @@ import { useGroupRatings } from '../ratings/rating-queries';
 import { matchErrorMessage } from './match-errors';
 import { distanceInMeters, distanceText } from './match-distance';
 import { endsNextDay } from './match-card-state';
+import { deviceTimeZone } from './match-form';
 import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
+import { deviceDiffers, zoneLabel } from './match-zone';
 import { MatchTeamsSection } from './MatchTeams';
 import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
@@ -733,6 +735,11 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
           <Text style={{ color: colors.textMuted }}> {pt.matches.card.nextDay}</Text>
         ) : null}
       </Text>
+      {deviceDiffers(match.timezone, new Date(match.starts_at), deviceTimeZone()) ? (
+        <Text style={[styles.zone, { color: colors.textMuted }]} testID="match-fact-zone">
+          {pt.matches.zone(zoneLabel(match.timezone, new Date(match.starts_at)))}
+        </Text>
+      ) : null}
       <View style={styles.group} testID="match-fact-group">
         <GroupPhotoIcon
           appearance={groupAppearance(match.group_icon, match.group_color)}
@@ -918,4 +925,5 @@ const styles = StyleSheet.create({
   unrated: { alignItems: 'flex-start' },
   title: { ...typography.heading },
   when: { ...typography.bodyStrong },
+  zone: { ...typography.caption },
 });

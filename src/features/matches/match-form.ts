@@ -8,6 +8,7 @@ import { pt } from '../../lib/i18n/pt';
 
 import { normaliseDescription } from './match-description';
 import { maskMoney } from './match-masks';
+import { dayBefore, wallClock, zonedInstant, type WallClock } from './match-zone';
 
 export type MatchFormValues = {
   date: string;
@@ -54,7 +55,7 @@ function minutes(value: string): number | undefined {
 }
 
 /**
- * The span from start to end, in minutes, on the device clock. An end before
+ * The span from start to end, in minutes, on the match's clock. An end before
  * the start is the next day ("22:00" to "01:00" is 180 minutes); an end equal
  * to the start is no span at all.
  */
@@ -108,35 +109,35 @@ export function priceFromField(value: string): string | undefined {
 export type KeptTimes = { startsAt: string; endsAt: string };
 
 /**
- * Wall-clock date and times in the device's time zone, field by field: a
- * date before today is an error on the date; today with a start already gone
- * is an error on the start; the end follows endRule. In the edit, the start
- * and end the match already has are accepted as they are, so a match in
- * progress can still have its place or price corrected.
+ * Wall-clock date and times in the match's time zone, field by field (HX-005:
+ * never the device's): a date before today in that zone is an error on the
+ * date; today with a start already gone is an error on the start; the end
+ * follows endRule. In the edit, the start and end the match already has are
+ * accepted as they are, so a match in progress can still have its place or
+ * price corrected.
  */
 function instants(
   values: MatchFormValues,
   errors: MatchFormErrors,
   now: Date,
   kept: KeptTimes | undefined,
+  timezone: string,
 ) {
   const date = DATE.exec(values.date.trim());
   const start = TIME.exec(values.startTime.trim());
   const end = TIME.exec(values.endTime.trim());
-  let day: Date | undefined;
+  let day: WallClock | undefined;
   let pastDay = false;
   if (date === null) {
     errors.date = pt.matches.create.errors.date;
   } else {
     const [, dd, mm, yyyy] = date;
-    day = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-    if (day.getDate() !== Number(dd) || day.getMonth() !== Number(mm) - 1) {
+    const check = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
+    if (check.getUTCDate() !== Number(dd) || check.getUTCMonth() !== Number(mm) - 1) {
       errors.date = pt.matches.create.errors.date;
-      day = undefined;
-    } else if (
-      day.getTime() < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-    ) {
-      pastDay = true;
+    } else {
+      day = { year: Number(yyyy), month: Number(mm), day: Number(dd), hour: 0, minute: 0 };
+      pastDay = dayBefore(day, wallClock(now, timezone));
     }
   }
   if (start === null) errors.startTime = pt.matches.create.errors.time;
@@ -147,11 +148,15 @@ function instants(
     if (pastDay) errors.date = pt.matches.create.errors.pastDate;
     return undefined;
   }
-  const startsAt = new Date(day);
-  startsAt.setHours(Number(start[1]), Number(start[2]), 0, 0);
-  const endsAt = new Date(day);
-  endsAt.setHours(Number(end[1]), Number(end[2]), 0, 0);
-  if (endsAt.getTime() <= startsAt.getTime()) endsAt.setDate(endsAt.getDate() + 1);
+  const startClock = { ...day, hour: Number(start[1]), minute: Number(start[2]) };
+  const endClock = { ...day, hour: Number(end[1]), minute: Number(end[2]) };
+  const overnight =
+    endClock.hour * 60 + endClock.minute <= startClock.hour * 60 + startClock.minute;
+  const startsAt = zonedInstant(startClock, timezone);
+  const endsAt = zonedInstant(
+    overnight ? { ...endClock, day: endClock.day + 1 } : endClock,
+    timezone,
+  );
   const unchanged =
     kept !== undefined &&
     startsAt.getTime() === new Date(kept.startsAt).getTime() &&
@@ -173,15 +178,17 @@ function twoDigits(value: number): string {
 }
 
 /**
- * The form filled with a stored match, in the device's time zone like the
- * form itself: the date and times the person would type, the price as the
- * mask shows it, and the confirmed place when the match has coordinates.
+ * The form filled with a stored match, in the match's time zone like the
+ * form itself (HX-005): the date and times the person would type, the price
+ * as the mask shows it, and the confirmed place when the match has
+ * coordinates.
  */
 export function formValuesFromMatch(
   match: Pick<
     MatchSummary,
     | 'starts_at'
     | 'ends_at'
+    | 'timezone'
     | 'location_name'
     | 'location_address'
     | 'description'
@@ -191,13 +198,13 @@ export function formValuesFromMatch(
     | 'longitude'
   >,
 ): { values: MatchFormValues; place: ConfirmedPlace } {
-  const start = new Date(match.starts_at);
-  const end = new Date(match.ends_at);
+  const start = wallClock(match.starts_at, match.timezone);
+  const end = wallClock(match.ends_at, match.timezone);
   return {
     values: {
-      date: `${twoDigits(start.getDate())}/${twoDigits(start.getMonth() + 1)}/${start.getFullYear()}`,
-      startTime: `${twoDigits(start.getHours())}:${twoDigits(start.getMinutes())}`,
-      endTime: `${twoDigits(end.getHours())}:${twoDigits(end.getMinutes())}`,
+      date: `${twoDigits(start.day)}/${twoDigits(start.month)}/${start.year}`,
+      startTime: `${twoDigits(start.hour)}:${twoDigits(start.minute)}`,
+      endTime: `${twoDigits(end.hour)}:${twoDigits(end.minute)}`,
       locationName: match.location_name,
       locationAddress: match.location_address ?? '',
       description: match.description ?? '',
@@ -226,7 +233,7 @@ export function matchConfigFromForm(
   edit: MatchEditRules = {},
 ): { config: MatchConfig } | { errors: MatchFormErrors } {
   const errors: MatchFormErrors = {};
-  const times = instants(values, errors, now, edit.kept);
+  const times = instants(values, errors, now, edit.kept, timezone);
   const nameLength = visibleLength(values.locationName);
   if (nameLength < 2 || nameLength > 80) errors.locationName = pt.matches.create.errors.place;
   const addressLength = visibleLength(values.locationAddress);

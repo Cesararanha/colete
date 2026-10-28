@@ -9,9 +9,10 @@ import {
   type MatchFormValues,
 } from './match-form';
 
-// Human decision of 17/10/2026: field-by-field time rules. The device clock
-// reads 14/10/2030 12:00 in whatever zone the suite runs.
-const NOW = new Date(2030, 9, 14, 12, 0);
+// Human decision of 17/10/2026: field-by-field time rules, on the match's
+// clock (HX-005). The match is in São Paulo (UTC-3), where NOW is 14/10/2030
+// 12:00, whatever zone the suite runs in.
+const NOW = new Date('2030-10-14T15:00:00.000Z');
 const ZONE = 'America/Sao_Paulo';
 const base: MatchFormValues = {
   date: '15/10/2030',
@@ -45,14 +46,14 @@ describe('the time rule of the form', () => {
       startTime: 'O horário de início já passou',
     });
     expect(configOf({ date: '14/10/2030', startTime: '12:01', endTime: '13:00' }).starts_at).toBe(
-      new Date(2030, 9, 14, 12, 1).toISOString(),
+      '2030-10-14T15:01:00.000Z',
     );
   });
 
   it('accepts 22:00 to 01:00 as a match that ends the next day, with the notice', () => {
     const config = configOf({ startTime: '22:00', endTime: '01:00' });
-    expect(config.starts_at).toBe(new Date(2030, 9, 15, 22, 0).toISOString());
-    expect(config.ends_at).toBe(new Date(2030, 9, 16, 1, 0).toISOString());
+    expect(config.starts_at).toBe('2030-10-16T01:00:00.000Z');
+    expect(config.ends_at).toBe('2030-10-16T04:00:00.000Z');
     expect(nextDayNotice('22:00', '01:00')).toBe('Termina às 01:00 do dia seguinte');
     expect(endRule('22:00', '01:00')).toEqual({ nextDay: '01:00' });
   });

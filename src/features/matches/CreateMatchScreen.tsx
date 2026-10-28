@@ -36,6 +36,7 @@ import { GroupPhotoIcon } from '../photos/PhotoAvatar';
 import { DESCRIPTION_MAX, descriptionLength } from './match-description';
 import { matchErrorMessage } from './match-errors';
 import {
+  deviceTimeZone,
   formValuesFromMatch,
   matchConfigFromForm,
   nextDayNotice,
@@ -45,6 +46,7 @@ import {
 } from './match-form';
 import { maskDate, maskMoney, maskTime } from './match-masks';
 import { serverErrorTarget } from './match-server-errors';
+import { deviceDiffers, zoneLabel } from './match-zone';
 
 const EMPTY: MatchFormValues = {
   date: '',
@@ -446,7 +448,8 @@ export function CreateMatchScreen({
   const saveEdit = () => {
     if (saving.isPending || match === undefined || editedRoster.data === undefined) return;
     setFormError('');
-    const result = matchConfigFromForm(values, place, new Date(), undefined, {
+    // The match keeps its own zone, whatever zone this device is in (HX-005).
+    const result = matchConfigFromForm(values, place, new Date(), match.timezone, {
       kept: { startsAt: match.starts_at, endsAt: match.ends_at },
       confirmed: editedRoster.data.confirmed_count,
     });
@@ -536,6 +539,13 @@ export function CreateMatchScreen({
     />
   );
   const nextDay = nextDayNotice(values.startTime, values.endTime);
+  // A new match takes this device's zone; an edited one keeps its own, and
+  // says which when this device shows other times (HX-005).
+  const zoneNotice =
+    match !== undefined &&
+    deviceDiffers(match.timezone, new Date(match.starts_at), deviceTimeZone())
+      ? pt.matches.zone(zoneLabel(match.timezone, new Date(match.starts_at)))
+      : undefined;
 
   return (
     <AuthenticatedShell
@@ -668,6 +678,7 @@ export function CreateMatchScreen({
             />
           )}
           {field('date', pt.matches.create.date, {
+            hint: zoneNotice,
             keyboardType: 'number-pad',
             maxLength: 10,
             placeholder: 'DD/MM/AAAA',

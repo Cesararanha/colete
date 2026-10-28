@@ -3427,3 +3427,48 @@ dois projetos, com o celular fixado em 390 px.
 passed + 2 skipped; `test:privacy:web` 5 passed + 5 skipped. Censo depois da rodada: zero
 usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
 `~/colete-noite/ux-prints/`, fora do repositório.
+
+### Fuso do racha — HX-005, sem migration (28/10/2026)
+
+Fatia 1.2 do plano do piloto (`~/colete-noite/plano-piloto.md`, fora do repositório; respostas
+de César de 28/10/2026, P6 (a): só o app passa a mandar o fuso do racha, sem trava no servidor).
+O defeito ainda acontecia em `4a115e6`: o formulário de edição pré-preenchia data e horas pelo
+relógio do aparelho (`getDate`/`getHours`), montava o instante com `setHours` e, como a edição
+não passava o fuso, gravava o fuso do aparelho no lugar do fuso do racha. Um organizador com o
+celular em Manaus via 18:00 num racha marcado para 19:00 em São Paulo; se digitasse 19:00, o
+racha ia para as 20:00 de São Paulo e passava a ser exibido no horário de Manaus para todos.
+
+- **Formulário no fuso do racha.** Um módulo novo (`src/features/matches/match-zone.ts`, só
+  `Intl`, sem dependência) converte relógio de parede ↔ instante num fuso IANA. A criação usa o
+  fuso do aparelho, como antes; a edição pré-preenche, valida "hoje" e "início já passou" e
+  envia no fuso do racha, e manda sempre `match.timezone`. Mudança de horário de verão: no
+  buraco, o instante cai depois do salto; na hora repetida, na primeira.
+- **O fuso aparece só quando o aparelho mostra outra hora.** "Horário do racha: Horário Padrão
+  de Brasília (GMT-3)" sob a Data, no formulário de edição, e sob o horário, no detalhe. A
+  comparação é pelo deslocamento no início do racha: um aparelho em Maceió diante de um racha de
+  São Paulo não vê aviso. O texto `detail.timezone`, que não era usado, deu lugar a
+  `matches.zone`.
+
+**Provas.** `match-zone.test.ts` (ida e volta em quatro fusos, virada de mês, buraco e hora
+repetida de Lisboa, quando avisar). `match-form.test.ts` ganha um bloco HX-005 com um racha em
+Tóquio (UTC+9). `match-form.test.ts` e `match-schedule.test.ts` deixam de montar os instantes
+esperados pelo relógio da máquina e passam a escrevê-los em UTC para São Paulo. A suíte inteira
+passa com a máquina em `America/Sao_Paulo`, `America/Manaus`, `Asia/Tokyo`, `UTC`,
+`Pacific/Kiritimati` e `America/Los_Angeles` (740 testes em cada). `editar-racha` ganha um
+teste com o contexto do navegador em `America/Manaus` editando um racha de São Paulo: o detalhe
+e o formulário mostram 19:00–20:30 e o aviso; mudar para 20:00–21:30 grava
+`20:00-03:00`/`21:30-03:00` com `timezone = America/Sao_Paulo`, e o mesmo dono num contexto em
+São Paulo vê 20:00–21:30 sem aviso.
+
+**Contraprovas contra `4a115e6`**, com os testes novos e o `src` da base:
+
+- `match-form.test.ts` com a máquina em São Paulo: 3/15 reprovados (os três do bloco HX-005);
+  em Manaus: 6/15 reprovados;
+- `editar-racha`, teste do fuso (390 px): reprovado no aviso, ausente; sem as linhas do aviso,
+  reprovado em `match-startTime`, esperado "19:00", recebido "18:00".
+
+**Validação** com a pilha local na trava `pilha.lock`: `db:start` exit 0 (migrations `0001` a
+`0032`); `verify:app` exit 0 (vitest 62 arquivos e 740 testes); `build:web:auth-e2e` exit 0;
+`test:matches:web` 32 passed; `test:groups:web` 121 passed + 5 skipped. Censo depois da rodada:
+zero usuários, perfis, grupos, membros e rachas. Prints antes/depois (390 px) em
+`~/colete-noite/ux-prints/hx005-antes/` e `hx005-depois/`, fora do repositório.
