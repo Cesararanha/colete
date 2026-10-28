@@ -3625,3 +3625,39 @@ achados corrigidos, 1 parcial e 2 achados novos, todos P3. Entram neste PR:
 `verify:app` exit 0 (vitest 63 arquivos e 747 testes); `test:matches:web` 44 passed;
 `test:groups:web` 121 passed + 5 skipped. Censo depois: zero usuários, perfis, grupos, membros e
 rachas.
+
+### Instrução de pagamento para quem joga — D63-G, sem migration (28/10/2026)
+
+Fatia 1.1 do plano do piloto (`~/colete-noite/plano-piloto.md`, fora do repositório; pré-plano
+CONFERIDO para a 1.1 em `rev-plano-piloto.md`; respostas de César de 28/10/2026: P5 (a), sem
+campo novo; P11 (b), o dono e os organizadores; P12, os estados). Antes, quem jogava via só o
+chip "Não pagou", e o texto `payNote` existia sem uso (UX-022).
+
+- **O bloco "Pagamento" no detalhe do racha**, na seção de confirmados: «Pague ao organizador:
+  Ana ou Beto.» e "R$ 12,50 por jogador. O acerto é feito fora do app: quando a organização
+  receber, ela marca você como pago." Depois da marcação: "Pagamento marcado pela organização."
+- **Quem recebe** vem de `get_group_members`, que todo membro ativo já lê: o dono primeiro e
+  depois os organizadores ativos, sem o `created_by` do racha, que é histórico. Sem artigo antes
+  dos nomes, porque o nome não diz qual cabe. A leitura só acontece enquanto a instrução aparece.
+- **Estados (P12)** em `src/features/matches/payment-notice.ts`: a instrução só para quem está
+  confirmado e não pago, também com o racha iniciado ou terminado; nada na espera, nada para quem
+  não pagou num racha cancelado e nada na linha de quem organiza (que vê o resumo). Quem foi
+  marcado pago vê a marcação, inclusive no racha cancelado.
+- Sem migration, Edge nem mudança de contrato.
+
+**Provas.** `payment-notice.test.ts` (nomes com o dono primeiro e organizadores ativos, sem nome
+quando não há leitura, os estados da P12). `racha-completo` ganha um teste com dono, organizador,
+dois confirmados e um na espera: a instrução e o preço para a confirmada não paga; nada para a
+espera, para o dono e para o organizador; a marcação depois do pagamento; nada para quem não
+pagou depois do cancelamento, enquanto quem pagou mantém a marcação; e a instrução num racha já
+iniciado. Roda nos dois projetos (412 e 1280 px).
+
+**Contraprovas contra `2760546`**, com o teste novo e o `src` da base: reprovado, o bloco não
+existe. Mutante com a instrução também na espera: reprovado (`match-pay-notice`: esperado 0,
+recebido 1).
+
+**Validação** com a pilha local na trava `pilha.lock`: `verify:app` exit 0 (vitest 64 arquivos e
+753 testes); `build:web:auth-e2e` exit 0; `test:matches:web` 46 passed; `test:groups:web` 121
+passed + 5 skipped. Censo depois da rodada: zero usuários, perfis, grupos, membros e rachas. Prints
+a 390 px em `~/colete-noite/ux-prints/pagamento-11/`, fora do repositório; o antes é a mesma tela
+sem o bloco.

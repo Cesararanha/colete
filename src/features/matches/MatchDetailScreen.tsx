@@ -36,6 +36,7 @@ import { GroupPhotoIcon, PhotoAvatar } from '../photos/PhotoAvatar';
 import { unratedAmong } from '../ratings/rating-format';
 import { useGroupRatings } from '../ratings/rating-queries';
 import { matchErrorMessage } from './match-errors';
+import { collectorNames, paymentNotice } from './payment-notice';
 import { distanceInMeters, distanceText } from './match-distance';
 import { endsNextDay } from './match-card-state';
 import { deviceTimeZone } from './match-form';
@@ -421,10 +422,76 @@ const PAYMENT_WAIT_ID = 'match-payment-wait';
 /** Beyond this many confirmed, the list opens with the first ones and "Ver os N confirmados". */
 const COLLAPSED = 5;
 
+/**
+ * Fatia 1.1 (D63-G): how the person who plays pays. Who collects comes from
+ * get_group_members, which every active member already reads (never the
+ * match's created_by, which is history); it is read only while the
+ * instruction shows.
+ */
+function PaymentNoticeBlock({
+  groupId,
+  price,
+  profileId,
+  roster,
+}: {
+  groupId: string;
+  price: number;
+  profileId: string;
+  roster: MatchRoster;
+}) {
+  const { colors } = useTheme();
+  const asked =
+    paymentNotice({
+      status: roster.viewer.status,
+      paid: roster.viewer.paid,
+      canManage: roster.viewer.can_manage,
+      canceled: roster.canceled,
+      collectors: '',
+    })?.kind === 'pay';
+  const members = useQuery({
+    enabled: asked,
+    queryKey: [PRIVATE_QUERY_ROOT, 'group-members', profileId, groupId],
+    queryFn: ({ signal }) => api.getGroupMembers(groupId, signal),
+  });
+  const notice = paymentNotice({
+    status: roster.viewer.status,
+    paid: roster.viewer.paid,
+    canManage: roster.viewer.can_manage,
+    canceled: roster.canceled,
+    collectors: collectorNames(members.data),
+  });
+  if (notice === null) return null;
+  return (
+    <View style={[styles.payNotice, { backgroundColor: colors.surface }]} testID="match-pay-notice">
+      <AppIcon
+        color={notice.kind === 'paid' ? colors.positive : colors.textMuted}
+        name={notice.kind === 'paid' ? 'check-circle' : 'credit-card'}
+        size={20}
+      />
+      <View style={styles.payNoticeBody}>
+        <Text
+          style={[styles.payNoticeTitle, { color: colors.text }]}
+          testID="match-pay-notice-title"
+        >
+          {notice.kind === 'paid'
+            ? pt.matches.detail.paidNotice
+            : pt.matches.detail.payTo(notice.collectors)}
+        </Text>
+        {notice.kind === 'pay' ? (
+          <Text style={[styles.small, { color: colors.textMuted }]} testID="match-pay-notice-note">
+            {pt.matches.detail.payNote(matchPrice(price))}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function Rosters({
   ended,
   groupId,
   matchId,
+  price,
   profileId,
   roster,
 }: {
@@ -432,6 +499,8 @@ function Rosters({
   ended: boolean;
   groupId: string;
   matchId: string;
+  /** The price per player, for the payment instruction. */
+  price: number;
   profileId: string;
   roster: MatchRoster;
 }) {
@@ -489,6 +558,7 @@ function Rosters({
             </View>
           ) : null}
         </View>
+        <PaymentNoticeBlock groupId={groupId} price={price} profileId={profileId} roster={roster} />
         {unrated > 0 ? (
           <View style={styles.unrated}>
             <AppButton
@@ -838,6 +908,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                 ended={ended}
                 groupId={match.group_id}
                 matchId={matchId}
+                price={Number(match.field_price)}
                 profileId={profile.id}
                 roster={roster}
               />
@@ -938,6 +1009,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   small: { ...typography.support, fontSize: 14, lineHeight: 20 },
+  payNotice: {
+    alignItems: 'flex-start',
+    borderRadius: radius.row,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  payNoticeBody: { flex: 1, gap: spacing.xs, minWidth: 0 },
+  payNoticeTitle: { ...typography.bodyStrong },
   unrated: { alignItems: 'flex-start' },
   title: { ...typography.heading },
   when: { ...typography.bodyStrong },
