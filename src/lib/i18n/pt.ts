@@ -311,6 +311,8 @@ export const pt = {
     },
   },
   matches: {
+    /** Under the times, only where this device shows other times than the match's zone (HX-005). */
+    zone: (label: string) => `Horário do racha: ${label}`,
     list: {
       title: 'Agenda',
       create: 'Criar racha',
@@ -365,7 +367,6 @@ export const pt = {
       about: 'Descrição',
       price: 'Valor por jogador',
       group: 'Grupo',
-      timezone: (zone: string) => `Horário de ${zone}`,
       map: 'Abrir no Google Maps',
       mapHint:
         'Abre o Google Maps fora do Colete. Ele recebe só a busca pelo local do racha, e só quando você toca aqui.',

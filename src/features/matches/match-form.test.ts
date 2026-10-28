@@ -6,14 +6,16 @@ import { pt } from '../../lib/i18n/pt';
 import {
   formValuesFromMatch,
   matchConfigFromForm,
+  matchEditConfigFromForm,
   roundCoordinate,
   type MatchFormValues,
 } from './match-form';
 
 const ZONE = 'America/Sao_Paulo';
-// The form reads the device's wall clock, so the expected instants are built
-// from that same local clock: the check holds in any zone the suite runs in.
-const NOW = new Date(2030, 9, 14, 12, 0);
+// The form reads the match's wall clock, never the device's (HX-005): the
+// instants are written in UTC for São Paulo (UTC-3, no daylight saving since
+// 2019), so the check holds in any zone the suite runs in.
+const NOW = new Date('2030-10-14T15:00:00.000Z'); // 12:00 in São Paulo
 
 const values: MatchFormValues = {
   date: '15/10/2030',
@@ -45,8 +47,8 @@ describe('match form to create_match config', () => {
       field_slots: 14,
       field_price: '25.50',
     });
-    expect(result.config.starts_at).toBe(new Date(2030, 9, 15, 19, 30).toISOString());
-    expect(result.config.ends_at).toBe(new Date(2030, 9, 15, 21, 0).toISOString());
+    expect(result.config.starts_at).toBe('2030-10-15T22:30:00.000Z');
+    expect(result.config.ends_at).toBe('2030-10-16T00:00:00.000Z');
   });
 
   it('sends no coordinate unless one was confirmed', () => {
@@ -147,8 +149,9 @@ describe('match display in the match time zone', () => {
 
 describe('match form in the edit (0028)', () => {
   const stored = {
-    starts_at: new Date(2030, 9, 14, 11, 30).toISOString(),
-    ends_at: new Date(2030, 9, 14, 13, 0).toISOString(),
+    starts_at: '2030-10-14T14:30:00.000Z', // 11:30 in São Paulo
+    ends_at: '2030-10-14T16:00:00.000Z',
+    timezone: ZONE,
     location_name: 'Quadra',
     location_address: 'Rua Um, 10',
     description: 'Traga colete',
@@ -204,5 +207,89 @@ describe('match form in the edit (0028)', () => {
     expect(
       'config' in matchConfigFromForm({ ...values, slots: '4' }, null, NOW, ZONE, { confirmed: 4 }),
     ).toBe(true);
+  });
+});
+
+describe("the match keeps its own time zone, not the device's (HX-005)", () => {
+  // Tokyo (UTC+9) is far from any zone the suite runs in, so a form that read
+  // the device's clock would show and send other times.
+  const TOKYO = 'Asia/Tokyo';
+  const tokyoNow = new Date('2030-10-14T03:00:00.000Z'); // 12:00 in Tokyo
+  const stored = {
+    starts_at: '2030-10-15T10:00:00.000Z', // 19:00 in Tokyo
+    ends_at: '2030-10-15T11:30:00.000Z', // 20:30 in Tokyo
+    timezone: TOKYO,
+    location_name: 'Quadra',
+    location_address: null,
+    description: null,
+    field_slots: 10,
+    field_price: 20,
+    latitude: null,
+    longitude: null,
+  };
+
+  it('fills the form with the times of the match zone', () => {
+    const { values: filled } = formValuesFromMatch(stored);
+    expect([filled.date, filled.startTime, filled.endTime]).toEqual([
+      '15/10/2030',
+      '19:00',
+      '20:30',
+    ]);
+  });
+
+  it('edits in the match zone and keeps its zone, with no zone passed by the screen', () => {
+    // The screen gives the stored match, never a zone: the edit itself takes
+    // the match's (rev88 P3-1). Untouched, the same instants come back.
+    const { values: filled, place } = formValuesFromMatch(stored);
+    const untouched = matchEditConfigFromForm(filled, place, stored, 0, tokyoNow);
+    if (!('config' in untouched)) throw new Error('expected a config');
+    expect(untouched.config).toMatchObject({
+      starts_at: stored.starts_at,
+      ends_at: stored.ends_at,
+      timezone: TOKYO,
+    });
+    // 20:00 typed is 20:00 in Tokyo, whatever zone this machine is in.
+    const later = matchEditConfigFromForm(
+      { ...filled, startTime: '20:00', endTime: '21:30' },
+      place,
+      stored,
+      0,
+      tokyoNow,
+    );
+    if (!('config' in later)) throw new Error('expected a config');
+    expect([later.config.starts_at, later.config.ends_at, later.config.timezone]).toEqual([
+      '2030-10-15T11:00:00.000Z',
+      '2030-10-15T12:30:00.000Z',
+      TOKYO,
+    ]);
+    expect(matchEditConfigFromForm({ ...filled, slots: '3' }, place, stored, 4, tokyoNow)).toEqual({
+      errors: { slots: 'Já há 4 confirmados' },
+    });
+  });
+
+  it('reads typed times in the match zone, the next day included', () => {
+    const result = matchConfigFromForm(
+      { ...values, date: '15/10/2030', startTime: '23:00', endTime: '00:30' },
+      null,
+      tokyoNow,
+      TOKYO,
+    );
+    if (!('config' in result)) throw new Error('expected a config');
+    expect(result.config.starts_at).toBe('2030-10-15T14:00:00.000Z');
+    expect(result.config.ends_at).toBe('2030-10-15T15:30:00.000Z');
+  });
+
+  it('judges "today" and "already started" on the match clock', () => {
+    // 02:00 UTC on the 14th is 23:00 of the 13th in São Paulo and 11:00 of
+    // the 14th in Tokyo: the same instant is another day in each zone.
+    const early = new Date('2030-10-14T02:00:00.000Z');
+    const today = { ...values, date: '14/10/2030', startTime: '11:30', endTime: '13:00' };
+    expect('config' in matchConfigFromForm(today, null, early, TOKYO)).toBe(true);
+    expect(matchConfigFromForm({ ...today, date: '13/10/2030' }, null, early, TOKYO)).toEqual({
+      errors: { date: pt.matches.create.errors.pastDate },
+    });
+    expect(matchConfigFromForm({ ...today, startTime: '10:30' }, null, early, TOKYO)).toEqual({
+      errors: { startTime: pt.matches.create.errors.startPassed },
+    });
   });
 });
