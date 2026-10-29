@@ -39,7 +39,10 @@
 -- as operações (rename_group e request_data_export aceitavam JSON null no
 -- validador), e o gatilho compara recurso com is distinct from em todas (as de
 -- identidade e conta usavam <>, que deixa nulo passar). O limite de 4096 bytes
--- do desfecho, que valia para as de identidade, passa a valer para todas.
+-- do desfecho, que valia para as de identidade, passa a valer para todas, como
+-- defesa sem efeito observável: com chaves exatas, nenhum desfecho válido chega
+-- perto dele. E operation NULL, que o elo do topo validava como draw_teams, é
+-- recusada (inalcançável: operation é not null).
 --
 -- Fronteira de privilégios: as tabelas nascem em private, sem RLS e sem grant
 -- (14 §5.2), lidas só por funções; o validador e os helpers continuam
@@ -372,14 +375,24 @@ revoke all on function private.check_idempotency_conclusion(private.idempotency_
 -- ---------------------------------------------------------------------------
 -- Revalidação dos registros existentes (P-D), antes de trocar qualquer coisa
 -- ---------------------------------------------------------------------------
+-- Ao abortar, o DETAIL diz qual registro falhou (operation e request_id, sem
+-- actor_key), para que quem aplica não precise refazer a varredura à mão.
 do $revalidate$
 declare
   v_record private.idempotency_records;
+  v_state text;
+  v_message text;
 begin
   for v_record in
     select * from private.idempotency_records where state = 'completed'
   loop
-    perform private.check_idempotency_conclusion(v_record);
+    begin
+      perform private.check_idempotency_conclusion(v_record);
+    exception when others then
+      get stacked diagnostics v_state = returned_sqlstate, v_message = message_text;
+      raise exception using errcode = v_state, message = v_message,
+        detail = format('operation=%s request_id=%s', v_record.operation, v_record.request_id);
+    end;
   end loop;
 end;
 $revalidate$;

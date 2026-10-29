@@ -99,10 +99,14 @@ insert into idem_bodies values
   ('private.acquire_group_idempotency(text,text,uuid,text,integer,integer)'),
   ('private.complete_group_idempotency(text,text,uuid,text,integer,integer,jsonb)'),
   ('private.enforce_idempotency_conclusion()');
--- D63.5 (0033): the helpers read the registry; the group ones only the group family.
+-- D63.5 (0033): the helpers read the registry; the group ones only the group family
+-- (rev92 P3-2: the assertion reads each body again, not just the registry rows).
 select ok((select count(*) = 3 from private.idempotency_operations
     where operation in ('set_rating', 'remove_group_photo', 'delete_group')
-      and (signature like '%enforce%' or family = 'group')),
+      and family = 'group')
+    and pg_get_functiondef(signature::regprocedure) like case
+      when signature like '%enforce%' then '%perform private.check_idempotency_conclusion(%'
+      else '%from private.idempotency_operations as operations%operations.family = ''group''%' end,
   signature || ' accepts set_rating and keeps the earlier operations') from idem_bodies;
 
 -- ---------------------------------------------------------------------------

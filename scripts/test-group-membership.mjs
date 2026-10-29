@@ -914,24 +914,56 @@ async function proveRegistryCommitReal(admin) {
         profile_id: '01890f7e-e948-4c53-b13a-4a36e4b7d21f',
       },
     },
+    {
+      // rev92 P2-1: only the resource_is_actor clause refuses this one; the
+      // profile is created in the same transaction, so the refusal undoes it.
+      label: 'a resource that matches the outcome but is not the actor',
+      operation: 'set_profile_photo',
+      outcomeCode: 'profile_photo_set',
+      resourceType: 'profile',
+      resourceId: '01890f7e-e948-4c53-b13a-4a36e4b7d220',
+      actor: true,
+      outcome: {
+        logical_result: 'profile_photo_set',
+        profile_id: '01890f7e-e948-4c53-b13a-4a36e4b7d220',
+      },
+    },
   ];
   for (const [index, item] of cases.entries()) {
     const requestId = `33000000-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`;
+    const actorId = idFor('a0', 0x635, index + 1);
+    const authId = idFor('e0', 0x635, index + 1);
     await admin.query('begin');
     let error;
     try {
+      if (item.actor) {
+        await admin.query('insert into auth.users (id, email) values ($1, $2)', [
+          authId,
+          harnessEmail(AUTH_EMAIL_PREFIX, `0635-${index + 1}`),
+        ]);
+        await admin.query(
+          `insert into public.profiles (id, auth_user_id, name, account_status)
+           values ($1::uuid, $2, 'Membership ' || $1::uuid::text, 'active')`,
+          [actorId, authId],
+        );
+      }
       await admin.query(
         `insert into private.idempotency_records
-           (actor_key, operation, request_id, request_hash, hash_key_version)
-         values ('system:d635_commit', $1, $2, repeat('a', 64), 1)`,
-        [item.operation, requestId],
+           (actor_key, actor_id, operation, request_id, request_hash, hash_key_version)
+         values ($1, $2, $3, $4, repeat('a', 64), 1)`,
+        [
+          item.actor ? `profile:${actorId}` : 'system:d635_commit',
+          item.actor ? actorId : null,
+          item.operation,
+          requestId,
+        ],
       );
       await admin.query(
         `update private.idempotency_records
             set state = 'completed', outcome_code = $1, completed_at = now(),
-                resource_type = 'group', resource_id = $2, outcome = $3
-          where request_id = $4`,
-        [item.outcomeCode, item.resourceId, item.outcome, requestId],
+                resource_type = $2, resource_id = $3, outcome = $4
+          where request_id = $5`,
+        [item.outcomeCode, item.resourceType ?? 'group', item.resourceId, item.outcome, requestId],
       );
       await admin.query('commit');
     } catch (caught) {
@@ -945,6 +977,13 @@ async function proveRegistryCommitReal(admin) {
       [requestId],
     );
     assert.equal(rows[0].n, 0, `${item.label}: the refused record stayed`);
+    if (item.actor) {
+      const { rows: profiles } = await admin.query(
+        'select count(*)::int as n from public.profiles where id = $1',
+        [actorId],
+      );
+      assert.equal(profiles[0].n, 0, `${item.label}: the actor fixture stayed`);
+    }
   }
   console.log(`ok - the deferred trigger refuses ${cases.length} records at a real COMMIT`);
 }

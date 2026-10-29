@@ -6,7 +6,7 @@ set local search_path = public, extensions;
 -- comportamentais de cada operação continuam nos testes de cada fatia, que
 -- rodam inalterados; aqui ficam o registro, a fronteira, as FKs, a
 -- imutabilidade, o validador estável e a regra de conclusão.
-select plan(63);
+select plan(65);
 
 -- ---------------------------------------------------------------------------
 -- O registro
@@ -120,7 +120,7 @@ select throws_ok($$select private.validate_idempotency_outcome('request_data_exp
   '22023', 'VALIDATION', 'request_data_export refuses a null logical_result');
 select throws_ok($$select private.validate_idempotency_outcome('draw_teams',
   ('{"group_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21e","logical_result":"teams_drawn","match_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21f","pad":"' || repeat('x', 4100) || '"}')::jsonb)$$,
-  '22023', 'VALIDATION', 'the 4096-byte limit now holds for every operation');
+  '22023', 'VALIDATION', 'an outcome over 4096 bytes is refused (also by its extra key: with exact keys no valid outcome nears the cap, rev92 P3-1)');
 
 -- ---------------------------------------------------------------------------
 -- As FKs, por DML direto (P2-4)
@@ -201,6 +201,28 @@ update private.idempotency_records
 select lives_ok($$select private.check_idempotency_conclusion(r) from private.idempotency_records r
     where request_id = '33000000-0000-4000-8000-000000000006'$$,
   'a coherent payload_expired record passes');
+
+-- A cláusula do ator (rev92 P2-1): set_profile_photo marca resource_is_actor, e
+-- só ela recusa um recurso que bate com o desfecho mas não é o ator.
+select lives_ok($$select private.check_idempotency_conclusion(jsonb_populate_record(
+    null::private.idempotency_records, jsonb_build_object(
+      'state', 'completed', 'operation', 'set_profile_photo',
+      'outcome_code', 'profile_photo_set', 'resource_type', 'profile',
+      'actor_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a1',
+      'resource_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a1',
+      'outcome', jsonb_build_object('logical_result', 'profile_photo_set',
+        'profile_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a1'))))$$,
+  'control: set_profile_photo concludes when the resource is the actor');
+select throws_ok($$select private.check_idempotency_conclusion(jsonb_populate_record(
+    null::private.idempotency_records, jsonb_build_object(
+      'state', 'completed', 'operation', 'set_profile_photo',
+      'outcome_code', 'profile_photo_set', 'resource_type', 'profile',
+      'actor_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a1',
+      'resource_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a2',
+      'outcome', jsonb_build_object('logical_result', 'profile_photo_set',
+        'profile_id', '01890f7e-e948-4c53-b13a-4a36e4b7d2a2'))))$$,
+  '23514', 'IDEMPOTENCY_OUTCOME_INVALID',
+  'set_profile_photo refuses a resource that matches the outcome but is not the actor');
 
 -- ---------------------------------------------------------------------------
 -- Os helpers da família group leem o registro
