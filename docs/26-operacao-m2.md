@@ -3699,3 +3699,41 @@ ligada; o bloco sumindo no racha terminado; e "Atualizar" sem reler quem recebe.
 **Validação das correções:** `verify:app` exit 0 (vitest 64 arquivos e 754 testes);
 `test:matches:web` 46 passed; `test:groups:web` 121 passed + 5 skipped. Censo depois: zero
 usuários, perfis, grupos e rachas.
+
+### Sincronização do teste de polling ao voltar de Editar racha (05/11/2026)
+
+O cenário de `e2e/rachas-ux.spec.ts` captura os cinco contadores antes de fechar Editar,
+retém uma única resposta real de `get_match` desse racha até observar “Atualizando” e a
+libera antes de esperar “Atualizado às”. O `finally` libera a resposta e remove a
+interceptação também na falha. Antes de avançar o relógio, exige uma leitura de detalhe,
+presença e times, com zero leituras de Grupos e Agenda; o ciclo seguinte exige o mesmo.
+A conferência independente de `d984fa3` resolveu os dois P2 e não encontrou achado novo.
+O arquivo de teste desta entrega é idêntico ao desse SHA.
+
+**Contraprovas já executadas**, em mobile e wide: a resposta pronta antes da observação
+faz o teste anterior perder “Atualizando” (2 falhas); com retenção, 2 passam. Suprimir só
+a leitura imediata de times mantém o teste anterior verde (2 passam), mas o corrigido
+detecta `teams: 0` antes do relógio (2 falhas). Sem perturbação, 30/30 antes e 30/30
+depois (15 por viewport em cada versão), conforme o plano mestre. Logs da rodada em
+`/tmp/rachas-p2.Xa2oYt`, fora do repositório.
+
+**Validação obrigatória desta entrega**, sob a trava `noite/pilha.lock`, em
+`/tmp/colete-polling-delivery.1VZQK8`: `db:reset` exit 0, recriando somente pelas
+migrations até a `0032`; `db:test` PASS, 30 arquivos e 2.295 testes. Todos os harnesses
+`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`, `export`, `invites`,
+`groups`, `membership`, `rename`, `group-deletion`, `photos`, `members`, `matches`,
+`match-players`, `ratings`, `teams` e `geocode` terminaram com exit 0, incluindo seus
+censos de resíduo. `build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped; privacidade
+5 passed + 5 skipped; CORS 4 passed; grupos 121 passed + 5 skipped; rachas 46 passed;
+QR 30 passed; build smoke exit 0 e smoke 6 passed. `verify:app` exit 0, com 64 arquivos
+e 754 testes unitários, lint, formatação, typecheck, build, PWA e configuração Auth;
+`scan:docs` e `scan:secrets` exit 0 (500 arquivos no scan de fronteiras).
+`test:audit` 94/94 e `test:staging` 102/102. Pilha local parada e trava removida ao fim.
+Nenhum projeto Supabase remoto ou serviço de produção foi acessado nesta validação.
+
+`audit:high` exit 1: exceção órfã GHSA-vfj7-8cjw-p6xm (braces) e alertas high
+GHSA-mrhx-c7xc-m3w5 (zod), GHSA-qr28-fpjm-wq7f (decode-uri-component),
+GHSA-7wch-p9px-956x, GHSA-jc66-7q78-782g, GHSA-8hrf-8g6f-7xwp,
+GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
+(vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
+o resultado é relatado conforme essa seção.
