@@ -100,13 +100,17 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
 8. Um único commit, mensagem no imperativo, sem escopo além da fatia.
 9. `git push -u origin <branch>` e abra um **Pull Request draft**.
 10. Espere os quatro jobs da CI que rodam em draft e reporte o status de cada
-    um; `Database security` fica pulado. Quando o PR ficar pronto para revisão,
-    espere também esse job e confirme os cinco verdes antes do merge (§5,
-    decisão humana de 06/11/2026). A separação autor/revisor do §4.11 permanece.
+    um; `Database security` fica pulado. Depois da revisão em rascunho, o autor
+    ou a sessão orquestradora marca o PR como pronto. Espere também esse job:
+    os cinco precisam aparecer como `SUCCESS` no SHA final antes do merge;
+    `SKIPPED` não conta como verde (§5, decisão humana de 06/11/2026).
+    Correção após falha do banco volta para conferência (§4.12).
+    A separação autor/revisor do §4.11 permanece.
 11. **Política de merge.**
     - Você pode mergear um Pull Request produzido por outra sessão depois de revisá-lo
-      criticamente contra os documentos normativos e confirmar que os cinco jobs da CI
-      estão verdes. Pull Requests do Dependabot contam como trabalho de outra parte.
+      criticamente contra os documentos normativos e confirmar os cinco jobs da CI
+      como `SUCCESS` no SHA final; `SKIPPED` não conta como verde.
+      Pull Requests do Dependabot contam como trabalho de outra parte.
     - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
       para revisão independente.
     - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18`,

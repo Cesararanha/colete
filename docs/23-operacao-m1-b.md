@@ -1788,6 +1788,7 @@ Vitest em **4.1.11**. Scripts, testes, harnesses e asserções não mudaram.
 | vite | 8.2.2 | 8.3.6 | transitivo de Vitest; alertas high removidos |
 | node-forge | 1.4.0 | 1.4.3 | transitivo da CLI; alertas high removidos |
 | @expo/cli | 57.0.20 | 57.0.33 | atualização transitiva; deixa de instalar zod 3.25.76 |
+| @expo/metro-runtime direto | 57.0.14 | 57.0.18 | correção do P2 da revisão do #95; atende ao peer de router-server 57.0.15 |
 | @expo/config | 57.0.9 | 57.0.11 | atualização transitiva; deepmerge 4.3.1 sai da árvore |
 | @expo/config-plugins | 57.0.9 | 57.0.12 | atualização transitiva |
 | xcode | 3.0.1 | 4.0.0 | transitivo de config-plugins, resolvido pelo npm sem force; uuid 7.0.3 sai da árvore |
@@ -1795,8 +1796,17 @@ Vitest em **4.1.11**. Scripts, testes, harnesses e asserções não mudaram.
 O npm informou **40 pacotes adicionados, 18 removidos e 35 alterados** pelo
 `audit fix`. As demais atualizações e realocações transitivas estão no lockfile,
 incluindo ferramentas Expo, TypeScript ESLint, glob, postcss, nanoid e os
-binários de rolldown. A única versão direta alterada em `package.json` é zod;
-os overrides anteriores permanecem iguais.
+binários de rolldown. Na etapa inicial, a única versão direta alterada em
+`package.json` foi zod; a correção da revisão também alinha
+`@expo/metro-runtime`. Os overrides anteriores permanecem iguais.
+
+A revisão independente do PR #95, sobre `7eed6bc`, encontrou um peer inválido:
+`@expo/cli` 57.0.33 traz `@expo/router-server` 57.0.15, que pede
+`@expo/metro-runtime ^57.0.18`, mas o projeto fixava 57.0.14.
+`npm ls --all --package-lock-only` terminava com exit 1. A correção fixa
+57.0.18 e atualiza o lockfile com
+`npm install @expo/metro-runtime@57.0.18 --save-exact --package-lock-only`,
+sem `--force`.
 
 As duas entradas de `audit-exceptions.json` venceram no início de 06/11 UTC.
 Depois das atualizações, o script também acusou ambas como órfãs: os advisories
@@ -1847,18 +1857,31 @@ de import desse pacote nas Edge Functions.
 
 César Aranha autorizou, por AGENTS §8, exceção somente para
 **GHSA-qr28-fpjm-wq7f**, pacote **decode-uri-component**, com
-`expiresOn: 2026-12-06`. Ela vence no início de **06/12/2026 UTC**, sem
-renovação automática. O caminho definitivo é **subir para o Expo 58 em PR
-próprio**; a correção direta exige expo-router 58, uma troca major. O override
+`expiresOn: 2026-12-06`. Ela vence em **05/12/2026 às 21h de Brasília**, no
+início de **06/12/2026 UTC**, sem renovação automática. O caminho definitivo é
+**subir para o Expo 58 em PR próprio**; a correção direta exige expo-router 58,
+uma troca major. O override
 0.5.1 não foi aplicado, pela incompatibilidade CommonJS/ESM reproduzida acima.
 
 Diferentemente das exceções anteriores, o pacote **chega ao PWA**. Não está
 nas Edge Functions, conforme a inspeção descrita acima. `app.json` define
 `web.output: static`; a análise não encontrou servidor Node usando esse código.
-Isso não prova ausência de risco: o pior caso avaliado é travar a aba de quem
-abre um link malicioso. **Não foi realizado teste de ataque.** A decisão
+Isso não prova ausência de risco: o pior caso avaliado é consumo excessivo de
+CPU e travamento da aba de quem abre um link malicioso. Na análise original,
+**não foi realizado teste de ataque**; a revisão independente mediu o decoder
+direto em Node, conforme abaixo, sem provar o alcance no navegador. A decisão
 aceita esse risco até o vencimento, sem estender a exceção a outro advisory ou
 alterar o limiar global de auditoria, scripts ou testes.
+
+O [GHSA-vcc3-ghjq-m6fr](https://github.com/advisories/GHSA-vcc3-ghjq-m6fr),
+moderado, também atinge o `decode-uri-component` 0.2.2 instalado: afeta versões
+≤0.4.2 por decodificação exponencial de entrada malformada. A revisão observou
+que `%C3` repetido 1.024 vezes (3 KB) passou de 4 s no decoder direto sob Node;
+a atribuição desse caso ao advisory é uma inferência do revisor. Assim, o tamanho
+do link não protege contra o consumo de CPU e o travamento da aba avaliados.
+Não foi criada exceção para esse alerta moderado: a leitura de
+`scripts/audit-high.mjs` confirmou que `serious` seleciona somente `high` e
+`critical`, inclusive ao avaliar as causas transitivas.
 
 Quando o alerta desaparecer, remover a entrada para evitar exceção órfã. Se
 persistir no vencimento, a auditoria deve reprovar; sem a atualização,
@@ -1882,9 +1905,30 @@ commit de CI, junto com a seção abaixo; o commit de dependências não altera 
 manifesto.
 
 Nenhum commit, push ou staging foi tentado nesta retomada, por instrução de
-César; os commits serão feitos por ele depois da conferência. Não foram
+César; os commits cabem à sessão orquestradora depois da conferência. Não foram
 executados banco, navegador, CI do GitHub, build nativo ou teste em aparelho;
 não houve acesso a projeto Supabase remoto, deploy ou serviço de produção.
+
+### Correção da revisão do PR #95 — validação em 06/11/2026
+
+Após alinhar `@expo/metro-runtime` de 57.0.14 para 57.0.18, sob Node 24.20.0
+e npm 11.19.0, todos os comandos pedidos terminaram com **exit 0**:
+
+- `npm ci` e `npm ls --all --package-lock-only`: instalação limpa e árvore
+  válida, sem novo conflito de peer e sem `--force`.
+- `npm run lint`, `npm run format:check` e `npm run typecheck`.
+- `npm test`: **754 testes em 64 arquivos** aprovados.
+- `npm run test:audit`: **94 testes**, zero falhas ou skips.
+- `npm run build:web`: export web concluído.
+- `npm run audit:high`: nenhum alerta alto ou crítico fora da única exceção
+  ativa, GHSA-qr28-fpjm-wq7f; nenhuma exceção nova.
+- `npm run scan:docs`: **23 arquivos**; `npm run scan:secrets`: **502 arquivos**.
+- `git diff --check`.
+
+Somente `AGENTS.md`, este registro, `package.json` e `package-lock.json` foram
+alterados. Nenhum deles integra o manifesto, que permanece inalterado.
+Não houve commit, push, execução de CI, suíte de banco/navegador, acesso a
+Supabase remoto, deploy ou serviço de produção nesta correção.
 
 ## CI em rascunho e limite do banco — decisão humana de César, 06/11/2026
 
@@ -1922,7 +1966,7 @@ Validação local da etapa anterior de CI, em 06/11/2026, Node 24.20.0 e npm
 A validação após a exceção datada está na seção de dependências acima. A
 exceção não dispensa o exit 0 de `audit:high` exigido por AGENTS §5 para o
 workflow. Os dois conjuntos de mudanças permanecem sem commit por instrução
-de César, que fará os commits separados depois da conferência.
+de César; os commits separados cabem à sessão orquestradora depois da conferência.
 
 Não foram executadas as suítes de banco/navegador nem a CI do GitHub; a tarefa
 limita a validação aos checks locais relacionados. `actionlint` não está
