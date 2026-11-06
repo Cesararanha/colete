@@ -680,6 +680,11 @@ const EXPECTED_0031_OVERRIDES = EXPECTED_0030_OVERRIDES;
 // current pattern.
 const EXPECTED_0032_OVERRIDES = EXPECTED_0021_OVERRIDES;
 
+// 0033 (D63.5) is the last redefinition of the four: the operation lists move
+// to private.idempotency_operations, the validator turns stable and reads it,
+// and the helpers and the conclusion trigger read the registry too.
+const EXPECTED_0033_OVERRIDES = EXPECTED_0021_OVERRIDES;
+
 async function proveCanonicalText(admin) {
   const defined = migrationFunctions(MIGRATION);
   const overrides = migrationFunctions('0017_group_invites.sql');
@@ -692,33 +697,36 @@ async function proveCanonicalText(admin) {
   const photoOverrides = migrationFunctions('0030_photos.sql');
   const ratingOverrides = migrationFunctions('0031_ratings.sql');
   const drawOverrides = migrationFunctions('0032_draw_teams.sql');
+  const registryOverrides = migrationFunctions('0033_idempotency_operations.sql');
   assert.deepEqual(
     [...defined.keys()].sort(),
     DEFINED_0016,
     'the extractor did not find exactly the functions defined by 0016',
   );
   for (const [qualifiedName, expected] of defined) {
-    const expectedLive = EXPECTED_0032_OVERRIDES.has(qualifiedName)
-      ? drawOverrides.get(qualifiedName)
-      : EXPECTED_0031_OVERRIDES.has(qualifiedName)
-        ? ratingOverrides.get(qualifiedName)
-        : EXPECTED_0030_OVERRIDES.has(qualifiedName)
-          ? photoOverrides.get(qualifiedName)
-          : EXPECTED_0029_OVERRIDES.has(qualifiedName)
-            ? deleteOverrides.get(qualifiedName)
-            : EXPECTED_0028_OVERRIDES.has(qualifiedName)
-              ? editOverrides.get(qualifiedName)
-              : EXPECTED_0027_OVERRIDES.has(qualifiedName)
-                ? appearanceOverrides.get(qualifiedName)
-                : EXPECTED_0022_OVERRIDES.has(qualifiedName)
-                  ? playerOverrides.get(qualifiedName)
-                  : EXPECTED_0021_OVERRIDES.has(qualifiedName)
-                    ? matchOverrides.get(qualifiedName)
-                    : EXPECTED_0018_OVERRIDES.has(qualifiedName)
-                      ? renameOverrides.get(qualifiedName)
-                      : EXPECTED_0017_OVERRIDES.has(qualifiedName)
-                        ? overrides.get(qualifiedName)
-                        : expected;
+    const expectedLive = EXPECTED_0033_OVERRIDES.has(qualifiedName)
+      ? registryOverrides.get(qualifiedName)
+      : EXPECTED_0032_OVERRIDES.has(qualifiedName)
+        ? drawOverrides.get(qualifiedName)
+        : EXPECTED_0031_OVERRIDES.has(qualifiedName)
+          ? ratingOverrides.get(qualifiedName)
+          : EXPECTED_0030_OVERRIDES.has(qualifiedName)
+            ? photoOverrides.get(qualifiedName)
+            : EXPECTED_0029_OVERRIDES.has(qualifiedName)
+              ? deleteOverrides.get(qualifiedName)
+              : EXPECTED_0028_OVERRIDES.has(qualifiedName)
+                ? editOverrides.get(qualifiedName)
+                : EXPECTED_0027_OVERRIDES.has(qualifiedName)
+                  ? appearanceOverrides.get(qualifiedName)
+                  : EXPECTED_0022_OVERRIDES.has(qualifiedName)
+                    ? playerOverrides.get(qualifiedName)
+                    : EXPECTED_0021_OVERRIDES.has(qualifiedName)
+                      ? matchOverrides.get(qualifiedName)
+                      : EXPECTED_0018_OVERRIDES.has(qualifiedName)
+                        ? renameOverrides.get(qualifiedName)
+                        : EXPECTED_0017_OVERRIDES.has(qualifiedName)
+                          ? overrides.get(qualifiedName)
+                          : expected;
     assert.ok(expectedLive, `${qualifiedName} has no expected live definition`);
     const differences = compareDefinition(expectedLive, await liveFunction(admin, qualifiedName));
     assert.deepEqual(
@@ -743,7 +751,9 @@ async function proveCanonicalText(admin) {
             (file === '0029_delete_group.sql' && EXPECTED_0029_OVERRIDES.has(qualifiedName)) ||
             (file === '0030_photos.sql' && EXPECTED_0030_OVERRIDES.has(qualifiedName)) ||
             (file === '0031_ratings.sql' && EXPECTED_0031_OVERRIDES.has(qualifiedName)) ||
-            (file === '0032_draw_teams.sql' && EXPECTED_0032_OVERRIDES.has(qualifiedName)),
+            (file === '0032_draw_teams.sql' && EXPECTED_0032_OVERRIDES.has(qualifiedName)) ||
+            (file === '0033_idempotency_operations.sql' &&
+              EXPECTED_0033_OVERRIDES.has(qualifiedName)),
           `${file} unexpectedly redefines ${qualifiedName}`,
         );
       }
@@ -799,6 +809,11 @@ async function proveCanonicalText(admin) {
     [...EXPECTED_0032_OVERRIDES].sort(),
     '0032 must redefine exactly the four expected 0016 functions',
   );
+  assert.deepEqual(
+    [...registryOverrides.keys()].filter((name) => defined.has(name)).sort(),
+    [...EXPECTED_0033_OVERRIDES].sort(),
+    '0033 must redefine exactly the four expected 0016 functions',
+  );
   // Nenhuma função que a 0015 fixou é redefinida pela 0016.
   for (const qualifiedName of migrationFunctions('0015_group_foundation.sql').keys()) {
     assert.ok(!defined.has(qualifiedName), `0016 redefines ${qualifiedName} fixed by 0015`);
@@ -806,6 +821,171 @@ async function proveCanonicalText(admin) {
   console.log(
     `ok - ${defined.size} functions: pg_get_functiondef equals the latest migration byte for byte`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Prova: o registro de operações (0033, D63.5) e as listas da Edge
+// ---------------------------------------------------------------------------
+
+/** The string literals of one exported `as const` array of a Edge module. */
+function edgeList(file, name) {
+  const text = fs.readFileSync(
+    path.join(repositoryRoot, 'supabase', 'functions', '_shared', file),
+    'utf8',
+  );
+  const match = text.match(new RegExp(`export const ${name} = \\[([\\s\\S]*?)\\] as const;`));
+  assert.ok(match, `${file} has no ${name} list`);
+  return [...match[1].matchAll(/'([a-z_]+)'/g)].map((item) => item[1]);
+}
+
+// The reads of the invite and photo gateways: no idempotency record, so no row
+// in the registry. A new read lands here on purpose; a new mutation missing
+// from the registry fails the comparison below.
+const EDGE_READS = [
+  'get_group_members',
+  'get_invite_share_link',
+  'get_my_pending_group_requests',
+  'get_photo_urls',
+  'preview_group_by_code',
+  'preview_group_by_invite',
+];
+
+async function proveRegistryMatchesEdge(admin) {
+  const identity = edgeList('operations.ts', 'IDENTITY_OPERATIONS');
+  const edgeGroup = [
+    ...edgeList('operations.ts', 'GROUP_OPERATIONS'),
+    ...edgeList('invite-gateway.ts', 'INVITE_OPERATIONS'),
+    ...edgeList('photo-gateway.ts', 'PHOTO_OPERATIONS'),
+  ];
+  const { rows } = await admin.query(
+    'select operation, family from private.idempotency_operations order by operation',
+  );
+  const byFamily = (families) =>
+    rows
+      .filter((row) => families.includes(row.family))
+      .map((row) => row.operation)
+      .sort();
+  // The Edge's identity list is the registry's identity and account families.
+  assert.deepEqual(
+    [...identity].sort(),
+    byFamily(['identity', 'account']),
+    'the Edge identity operations are the registry identity and account families',
+  );
+  const mutations = edgeGroup.filter((operation) => !EDGE_READS.includes(operation));
+  assert.deepEqual(
+    [...new Set(mutations)].sort(),
+    byFamily(['group']),
+    'the Edge group, invite and photo mutations are the registry group family',
+  );
+  assert.deepEqual(
+    edgeGroup.filter((operation) => EDGE_READS.includes(operation)).sort(),
+    [...EDGE_READS].sort(),
+    'every declared read is still in a Edge list',
+  );
+  console.log(
+    `ok - registry matches the Edge: ${identity.length} identity and account, ${mutations.length} group`,
+  );
+}
+
+// 0033: the deferred conclusion trigger reads the registry at a real COMMIT.
+// Each case passes the three FKs and breaks the rule, so only the trigger can
+// refuse it; the transaction must not commit and must leave nothing behind.
+async function proveRegistryCommitReal(admin) {
+  const cases = [
+    {
+      label: 'a resource_id different from the outcome',
+      operation: 'approve_member',
+      outcomeCode: 'member_approved',
+      resourceId: '01890f7e-e948-4c53-b13a-4a36e4b7d210',
+      outcome: {
+        group_id: '01890f7e-e948-4c53-b13a-4a36e4b7d21e',
+        logical_result: 'member_approved',
+        profile_id: '01890f7e-e948-4c53-b13a-4a36e4b7d21f',
+      },
+    },
+    {
+      label: 'an outcome_code different from the logical_result, within valid pairs',
+      operation: 'approve_member',
+      outcomeCode: 'member_refused',
+      resourceId: '01890f7e-e948-4c53-b13a-4a36e4b7d21e',
+      outcome: {
+        group_id: '01890f7e-e948-4c53-b13a-4a36e4b7d21e',
+        logical_result: 'member_approved',
+        profile_id: '01890f7e-e948-4c53-b13a-4a36e4b7d21f',
+      },
+    },
+    {
+      // rev92 P2-1: only the resource_is_actor clause refuses this one; the
+      // profile is created in the same transaction, so the refusal undoes it.
+      label: 'a resource that matches the outcome but is not the actor',
+      operation: 'set_profile_photo',
+      outcomeCode: 'profile_photo_set',
+      resourceType: 'profile',
+      resourceId: '01890f7e-e948-4c53-b13a-4a36e4b7d220',
+      actor: true,
+      outcome: {
+        logical_result: 'profile_photo_set',
+        profile_id: '01890f7e-e948-4c53-b13a-4a36e4b7d220',
+      },
+    },
+  ];
+  for (const [index, item] of cases.entries()) {
+    const requestId = `33000000-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`;
+    const actorId = idFor('a0', 0x635, index + 1);
+    const authId = idFor('e0', 0x635, index + 1);
+    await admin.query('begin');
+    let error;
+    try {
+      if (item.actor) {
+        await admin.query('insert into auth.users (id, email) values ($1, $2)', [
+          authId,
+          harnessEmail(AUTH_EMAIL_PREFIX, `0635-${index + 1}`),
+        ]);
+        await admin.query(
+          `insert into public.profiles (id, auth_user_id, name, account_status)
+           values ($1::uuid, $2, 'Membership ' || $1::uuid::text, 'active')`,
+          [actorId, authId],
+        );
+      }
+      await admin.query(
+        `insert into private.idempotency_records
+           (actor_key, actor_id, operation, request_id, request_hash, hash_key_version)
+         values ($1, $2, $3, $4, repeat('a', 64), 1)`,
+        [
+          item.actor ? `profile:${actorId}` : 'system:d635_commit',
+          item.actor ? actorId : null,
+          item.operation,
+          requestId,
+        ],
+      );
+      await admin.query(
+        `update private.idempotency_records
+            set state = 'completed', outcome_code = $1, completed_at = now(),
+                resource_type = $2, resource_id = $3, outcome = $4
+          where request_id = $5`,
+        [item.outcomeCode, item.resourceType ?? 'group', item.resourceId, item.outcome, requestId],
+      );
+      await admin.query('commit');
+    } catch (caught) {
+      error = caught;
+      await admin.query('rollback').catch(() => {});
+    }
+    assert.ok(error, `${item.label}: the COMMIT went through`);
+    assert.equal(error.message, 'IDEMPOTENCY_OUTCOME_INVALID', `${item.label}: ${error.message}`);
+    const { rows } = await admin.query(
+      'select count(*)::int as n from private.idempotency_records where request_id = $1',
+      [requestId],
+    );
+    assert.equal(rows[0].n, 0, `${item.label}: the refused record stayed`);
+    if (item.actor) {
+      const { rows: profiles } = await admin.query(
+        'select count(*)::int as n from public.profiles where id = $1',
+        [actorId],
+      );
+      assert.equal(profiles[0].n, 0, `${item.label}: the actor fixture stayed`);
+    }
+  }
+  console.log(`ok - the deferred trigger refuses ${cases.length} records at a real COMMIT`);
 }
 
 // M2-D13: toda cláusula de lock das funções da 0016, lida do banco vivo. A
@@ -2897,6 +3077,8 @@ async function assertNoResidue(client, tableBaseline) {
 
 const PROOFS = [
   ['canonical', 'the 0016 text is the canonical definition'],
+  ['registry-edge', 'the 0033 operation registry matches the Edge lists'],
+  ['registry-commit-real', 'the 0033 conclusion rule holds at a real COMMIT'],
   ['lock-modes', 'every 0016 lock clause follows M2-D13'],
   ['commit-real', 'real commits under service_role and concluded idempotency'],
   ...Object.keys(CROSS).map((name) => [name, 'M2-D13 cross pair, barrier and simultaneous']),
@@ -2971,6 +3153,8 @@ async function main() {
     const connections = { observer, holder, first, second };
     const run = (name) => selectedProof === undefined || selectedProof === name;
     if (run('canonical')) await proveCanonicalText(admin);
+    if (run('registry-edge')) await proveRegistryMatchesEdge(admin);
+    if (run('registry-commit-real')) await proveRegistryCommitReal(admin);
     if (run('lock-modes')) await proveLockModes(admin);
     if (run('commit-real')) await proveCommitReal(admin, first);
     for (const name of Object.keys(CROSS)) {

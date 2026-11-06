@@ -134,9 +134,9 @@ select throws_ok(
       (actor_key, operation, request_id, request_hash, hash_key_version)
     values ('system:retention_probe', 'unknown_operation',
             '10000000-0000-4000-8000-000000000003', repeat('a', 64), 1)$$,
-  '23514',
+  '23503',
   null,
-  'an operation needs an explicit migration before it can use idempotency'
+  'an operation needs an explicit migration before it can use idempotency (D63.5: the registry FK)'
 );
 select throws_ok(
   $$insert into private.idempotency_records

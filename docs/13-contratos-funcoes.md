@@ -167,6 +167,26 @@ simultâneo abaixo e mantém casos menores/maiores conforme a operação.
 8. Golden vectors rodam nos três runtimes; casos negativos cobrem ordem de objeto, NFC/NFD,
    `null`/ausência, timestamp com offset, dinheiro, arrays set-like e alteração de um campo.
 
+### 0.3 Registro de operações de idempotência (D63.5, `0033`)
+
+Decisão humana de César de 28/10/2026 (P-A a P-F). O desfecho de cada operação é validado por um
+validador estável que lê o registro de operações (`10` §9), não por uma cadeia de validadores
+redefinida a cada fatia. O que vale para uma operação nova:
+
+- **Família `group`, formato `ids`** (IDs UUID e `logical_result`): uma linha em
+  `idempotency_operations` e uma por resultado lógico em `idempotency_operation_results`, numa
+  migration; mais a lista da Edge correspondente (`operations.ts`, `invite-gateway.ts` ou
+  `photo-gateway.ts`) e o teste de consistência entre a Edge e o registro. Nenhuma função de
+  idempotência é redefinida.
+- **Família `identity` ou `account`**: ainda redefine os próprios helpers de aquisição e
+  conclusão, além das linhas no registro.
+- **Formato novo** de desfecho: ainda redefine o validador.
+
+O registro é imutável. `operation` faz parte da chave do registro de idempotência e da entrada do
+HMAC (§0.1), então o desfecho de uma operação já existente não muda trocando o nome dela: um
+retry que atravessasse a troca executaria de novo. Acrescentar um resultado lógico é só uma linha
+nova; mudar as chaves de um desfecho pede desenho próprio na fatia que precisar.
+
 
 ### CORS das Edge Functions de navegador — decisão do planejador de 06/10/2026
 

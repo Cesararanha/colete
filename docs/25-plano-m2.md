@@ -160,6 +160,13 @@ fecha quando todos os achados estão corrigidos e a suíte completa volta a verd
 
 ### Ordem global de locks do M2 em diante
 
+As FKs de `idempotency_records` tomam `FOR KEY SHARE` na linha da operação em
+todo `acquire`, e na linha do resultado e da operação em todo `complete_*`.
+Essas linhas são imutáveis: gatilhos recusam `UPDATE`, `DELETE` e `TRUNCATE`,
+então não há conflito com essas travas nem ciclo com a ordem global. A medição
+de MultiXact está em `26-operacao-m2.md`, seção "Registro de operações de
+idempotência".
+
 A ordem normativa passa a ser, sem retirar nenhum nível de `09` D37, `10` §1 ou
 `13` §0:
 
@@ -1238,6 +1245,14 @@ código produtivo.
 ## 8. Decisões e gates humanos
 
 ### 8.1 Decisões humanas e técnicas registradas
+
+- **D63.5: ordem de travas do registro — decisão humana de César, 05/11/2026, AGENTS §8.**
+  Autorizado registrar no §2 as travas `FOR KEY SHARE` das FKs de
+  `idempotency_records` nas linhas imutáveis de operação e resultado, sem
+  conflito nem ciclo com a ordem global; gatilhos recusam `UPDATE`, `DELETE`
+  e `TRUNCATE`. A medição de MultiXact fica em `26-operacao-m2.md`, seção
+  "Registro de operações de idempotência". Esta autorização cobre somente
+  esse parágrafo e este registro; o merge continua sendo decisão de César.
 
 - **Rachas v1 — decisão humana de César, 12/10/2026, AGENTS §8.**
   Até a entrega de Desenvolvimento Mobile, modo apresentação: racha simples

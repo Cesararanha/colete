@@ -45,7 +45,7 @@ select ok((select pg_get_functiondef(oid) like '%private.lock_match_context(%'
 create temporary table edit_helper (signature text);
 insert into edit_helper values
   ('private.match_config_from_json(jsonb)'),
-  ('private.validate_through_group_appearance_outcome(text,jsonb)');
+  ('private.check_idempotency_conclusion(private.idempotency_records)');
 select ok(not has_function_privilege('service_role', signature, 'execute')
   and not has_function_privilege('authenticated', signature, 'execute'),
   signature || ' is not a gateway routine') from edit_helper;
@@ -83,18 +83,10 @@ select throws_ok($$select private.validate_idempotency_outcome('cancel_match',
 select lives_ok($$select private.validate_idempotency_outcome('set_group_appearance',
   '{"group_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21e","logical_result":"group_appearance_set"}'::jsonb)$$,
   'the chain still delegates set_group_appearance');
-select ok((select pg_get_constraintdef(oid) like '%set_group_appearance%'
-  and pg_get_constraintdef(oid) like '%update_match%'
-  and pg_get_constraintdef(oid) like '%cancel_match%'
-  and pg_get_constraintdef(oid) like '%set_match_payment%'
-  and pg_get_constraintdef(oid) like '%create_match%'
-  from pg_constraint where conname = 'idempotency_records_operation_check'),
-  'operation list keeps every earlier operation and adds the two new ones');
-select ok((select pg_get_constraintdef(oid) like '%group_appearance_set%'
-  and pg_get_constraintdef(oid) like '%match_updated%'
-  and pg_get_constraintdef(oid) like '%match_cancel_unchanged%'
-  from pg_constraint where conname = 'idempotency_records_outcome_code_check'),
-  'outcome list keeps group_appearance_set and adds the new results');
+select ok((select count(*) = 5 from private.idempotency_operations where operation in ('set_group_appearance', 'update_match', 'cancel_match', 'set_match_payment', 'create_match')),
+  'operation registry keeps every earlier operation and has the two new ones');
+select ok((select count(distinct logical_result) = 3 from private.idempotency_operation_results where logical_result in ('group_appearance_set', 'match_updated', 'match_cancel_unchanged')),
+  'result registry keeps group_appearance_set and has the new results');
 
 -- ---------------------------------------------------------------------------
 -- Atores e rachas

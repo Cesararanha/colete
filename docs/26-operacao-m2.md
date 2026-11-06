@@ -3737,3 +3737,142 @@ GHSA-7wch-p9px-956x, GHSA-jc66-7q78-782g, GHSA-8hrf-8g6f-7xwp,
 GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
 (vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
 o resultado é relatado conforme essa seção.
+
+## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
+
+Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigatória antes do piloto com
+usuários reais, `25` §8.1). Pré-plano conferido em duas rodadas (`~/colete-noite/plano-d63-5.md`,
+`rev-plano-d63-5.md` e `rev2-plano-d63-5.md`, fora do repositório); decisões humanas de César de
+28/10/2026, P-A a P-F. Cerimônia cheia: revisão completa e conferência, e o PR para por decisão
+humana por alterar `docs/10` e `docs/13` (AGENTS §4.11).
+
+**O que mudou.** Até a `0032`, cada operação nova redefinia a lista de operações em cinco lugares
+(três CHECKs de `private.idempotency_records`, `acquire_group_idempotency`,
+`complete_group_idempotency`, o gatilho de conclusão e mais um elo numa cadeia de 13 validadores
+renomeados). Agora:
+
+- `private.idempotency_operations` (35 linhas: 4 `identity`, 2 `account`, 29 `group`) e
+  `private.idempotency_operation_results` (52 pares), em `private`, sem RLS e sem grant, imutáveis
+  por gatilho de linha e de `TRUNCATE`.
+- Três FKs no lugar dos três CHECKs: `(operation)`, que vale também para o
+  `executing_uncommitted`; `(operation, outcome_code)`; e `(operation, resource_type)`. As compostas
+  são `MATCH SIMPLE`: com nulo não conferem, com valor conferem por operação, o que é mais estrito
+  que os CHECKs globais. O SQLSTATE de operação desconhecida passa de `23514` a `23503`; nenhum
+  chamador lê esse código (os `acquire_*` recusam antes com `VALIDATION`).
+- Um validador estável (`stable`, invoker, `search_path` vazio) para os 35, e uma regra de conclusão
+  única (`private.check_idempotency_conclusion`) usada pelo gatilho e pela revalidação.
+- `acquire_group_idempotency` e `complete_group_idempotency` leem `family = 'group'` e o recurso da
+  tabela. Os helpers de identidade e de conta ficam como estavam (P-B), mas passam a usar o mesmo
+  validador e o mesmo gatilho.
+- Os 13 elos da cadeia saíram.
+
+**Endurecimentos deliberados** (caminhos que nenhuma RPC alcança): `logical_result` precisa ser
+string em todas as operações (`rename_group` e `request_data_export` aceitavam JSON `null` no
+validador); o gatilho compara recurso com `is distinct from` em todas (identidade e conta usavam
+`<>`, que deixa nulo passar); `operation` NULL, que o elo do topo da cadeia validava como
+`draw_teams`, é recusada (inalcançável: `operation` é `not null` e todo `complete_*` confere a
+operação antes). O limite de 4096 bytes do desfecho, que valia para as de identidade, vale para
+todas, mas é só defesa: com chaves exatas, nenhum desfecho que passe nas outras regras chega perto
+dele, então ele não muda nenhum resultado.
+
+**A migration.** Uma transação: `lock_timeout` de 5 s; `access exclusive` em
+`idempotency_records` desde o início; recusa se houver `executing_uncommitted` visível; carga do
+registro; validador e regra de conclusão; revalidação de todo `completed` existente com a regra
+nova (P-D), abortando no primeiro que falhar, com `operation` e `request_id` do registro no
+`DETAIL` (sem `actor_key`); as FKs (que conferem também os `payload_expired` ao
+nascer); `drop` dos CHECKs; troca dos helpers e do gatilho; `drop` dos 13 elos. Aplicar no staging
+é um gate operacional separado, com autorização própria e janela sem uso.
+
+**Ordem de travas.** As FKs tomam `FOR KEY SHARE` na linha da operação em todo `acquire`, e na linha
+do resultado e da operação em todo `complete_*`. As linhas nunca são atualizadas (imutáveis), então
+não há conflito. Medido no `db:test:idempotency` (25 conexões), com `checkpoint` e
+`pg_control_checkpoint()` antes e depois: 112 MultiXact por rodada na `0032` e 114 na `0033`, iguais
+nas duas repetições de cada lado. O registro desta ordem no `docs/25` §2 foi autorizado por César em 05/11/2026,
+com a decisão registrada no §8.1; o merge continua sendo decisão dele.
+
+**Provas.** As asserções que afirmavam onde a lista morava (os `pg_get_constraintdef` dos CHECKs, os
+privilégios dos elos `validate_through_*`, os `pg_get_functiondef ... like '%draw_teams%'` e o
+SQLSTATE `23514` da operação desconhecida, em `0004`, `0016`, `0021`, `0022` e `0027`–`0032`)
+foram trocadas por equivalentes contra o registro, uma a uma, sem mudar a contagem de nenhum
+arquivo. As comportamentais (`lives_ok`/`throws_ok` sobre o validador, os `complete_*`, os replays
+e as RPCs) ficaram intactas e são a prova de equivalência. A operação desconhecida continua
+recusada (`throws_ok`, agora `23503`). Novos:
+
+- `0033_idempotency_operations.test.sql` (65): o registro (35 operações, 52 pares, famílias,
+  formatos, recurso igual ao ator); sem RLS e papel-sonda negativo (`anon`, `authenticated`,
+  `service_role` sem `select` nem `insert`, `service_role` sem `usage` em `private`, sem `execute`
+  nas funções novas); volatilidade e `security definer` de cada função; as três FKs, o fim dos
+  CHECKs e dos 13 elos; imutabilidade (`UPDATE`, `DELETE`, `TRUNCATE` e `TRUNCATE ... CASCADE`); os
+  três formatos e o endurecimento; as FKs por DML direto (resultado e tipo de recurso de outra
+  operação, recurso em `update_profile`, `payload_expired` com resultado alheio); a regra de
+  conclusão com registros plantados (coerente passa; `outcome_code` diferente do `logical_result`,
+  `resource_id` divergente e o `logical_result: null` que a cadeia velha aceitava são recusados;
+  `payload_expired` coerente passa; `set_profile_photo` com recurso igual ao desfecho e diferente
+do ator é recusado, com o controle do recurso igual ao ator); e os helpers de grupo recusando operação de outra família, com
+  um controle positivo do mesmo ator.
+- `db:test:membership` ganha a deriva da `0033` (`EXPECTED_0033_OVERRIDES`: as quatro funções da
+  `0016`, agora com o validador `stable`), a consistência entre a Edge e o registro (as listas de
+  `operations.ts`, `invite-gateway.ts` e `photo-gateway.ts`, menos as seis leituras declaradas,
+  iguais às famílias do registro: 6 de identidade e conta, 29 de grupo) e o commit real do gatilho
+  diferido (três registros que passam nas FKs e violam a regra são recusados no `COMMIT` com
+  `IDEMPOTENCY_OUTCOME_INVALID`, sem resíduo; o terceiro é o de `set_profile_photo` com recurso
+  diferente do ator, com o perfil criado na mesma transação). A prova roda como `postgres`, não
+  como `service_role`: o gatilho é `security definer`, então o papel do `COMMIT` não muda o que
+  ele lê, e a fronteira do `definer` é provada à parte (`0033` e `db:test:gateway`, mutante do
+  gatilho sem `security definer`).
+
+**Mutantes**, cada um numa cópia da `0033` com `db:reset`: validador que ignora os resultados (12
+reprovados); validador que aceita chave a mais (16); regra de conclusão sem o mapeamento de recurso
+(1); regra de conclusão sem a cláusula do ator (1 no `db:test`, mais o commit real);
+`acquire_group_idempotency` sem o filtro de família (1, depois de o teste passar a usar um
+perfil real: com ator inexistente, o `acquire` recusava pelo ator e o mutante sobrevivia); `grant`
+do registro para `service_role` (7, com `select` e `insert`; só `select` dá 3); gatilho sem
+`security definer` (1); só a FK simples, sem as compostas (6); gatilho que não chama a regra (1 no
+`0031` e 1 no `0032`, mais o commit real); `complete_group_idempotency` sem o filtro de família (3).
+O limite de 4096 bytes não tem mutante que morra, porque não tem efeito observável (ver os
+endurecimentos).
+
+**A migration sobre dados** (medição, não harness). A revalidação só age num banco que já tem
+registros, e o `db:reset` parte de uma tabela vazia. Procedimento: tirar a `0033` da pasta,
+`supabase db reset --local` (banco na `0032`), plantar registros por SQL, devolver a `0033` e
+`supabase migration up --local`. Na revisão (`~/colete-noite/rev92.md`, fora do repositório):
+256 registros válidos das 35 operações (6 deles `payload_expired`) passaram, com os dados
+idênticos antes e depois e o replay devolvendo o mesmo desfecho; quatro bancos com um registro
+inválido plantado abortaram com rollback total (`22023`, `23514`, `23503` e `55P03`, este com
+um `executing_uncommitted` concorrente). Depois da correção, o aborto do `revoke_current_session`
+sem recurso traz `operation=revoke_current_session request_id=…` no `DETAIL`. Virar isso em
+harness fica como dívida aberta: pede um banco intermediário na `0032`, que nenhuma suíte monta
+hoje.
+
+**Suítes de banco** (AGENTS §5), com a pilha local na trava `pilha.lock`: `db:reset` exit 0;
+`db:test` 31 arquivos e 2.360 testes; `db:test:idempotency`, `gateway`, `cors`, `worker`,
+`deletion`, `export`, `invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`,
+`members`, `matches`, `match-players`, `ratings`, `teams` e `geocode`, todos exit 0.
+
+**Validação web** (AGENTS §5): `verify:app` exit 0; `build:web:auth-e2e` exit 0; `test:auth:web` 12
+passed + 2 skipped; `test:privacy:web` 5 passed + 5 skipped; `test:cors:web` 4 passed;
+`test:groups:web` 121 passed + 5 skipped; `test:matches:web` 44 passed; `test:qr:web` 30 passed;
+`build:web:smoke` e `test:smoke:web` 6 passed; `scan:docs`, `scan:secrets`, `test:audit` e
+`test:staging` exit 0. `audit:high` não roda como gate (a fatia não altera nenhum arquivo da lista
+da AGENTS §5); na `main` ele segue vermelho pelos alertas do vite e do zod. Censo depois:
+zero usuários, perfis, grupos, rachas e registros de idempotência. `package.json` intocado.
+
+#### Correções da revisão do #92
+
+A revisão completa (`~/colete-noite/rev92.md`, fora do repositório) deu CONFERIDO no `bc7264a`, com
+0 P1, 1 P2 e 7 P3. O diferencial dela (4.516 vetores no validador e 30.304 commits reais) não achou
+nenhum desfecho recusado antes que passe a ser aceito. Entram neste PR:
+
+- **P2-1.** A cláusula "recurso = ator" da regra de conclusão ganha teste: um par
+  `lives_ok`/`throws_ok` no pgTAP e o terceiro caso do commit real. O mutante que a apaga, que
+  sobrevivia a todas as suítes, agora reprova nas duas.
+- **P3-1.** A asserção dos 4096 bytes diz o que prova, e o limite fica registrado como defesa sem
+  efeito observável.
+- **P3-2.** No `0031` e no `0032`, a asserção sobre os helpers volta a ler o corpo de cada função:
+  os de grupo leem o registro com `family = 'group'`, e o gatilho chama a regra única.
+- **P3-3.** O papel do commit real (`postgres`) e o motivo estão registrados acima.
+- **P3-4.** `operation` NULL entra na lista dos endurecimentos.
+- **P3-5.** O aborto da revalidação diz qual registro falhou.
+- **P3-6.** O MultiXact medido está na ordem de travas.
+- **P3-7.** A medição da migration sobre dados está registrada, e o harness fica como dívida
+  aberta.

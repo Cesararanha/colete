@@ -39,7 +39,7 @@ select ok((select prosecdef and provolatile = 'v' and proconfig = array['search_
   'delete_group is volatile security definer with fixed search_path');
 select ok(not has_function_privilege(role, signature, 'execute'), signature || ' is not executable by ' || role)
 from (values ('private.is_group_deleted(uuid)'),
-  ('private.validate_through_edit_cancel_match_outcome(text,jsonb)'),
+  ('private.check_idempotency_conclusion(private.idempotency_records)'),
   ('private.group_actor_authority(uuid,uuid)'), ('private.match_actor_authority(uuid,uuid)'),
   ('private.join_group_invite(text,uuid,uuid,uuid,text,integer,integer,uuid,smallint,text,text)'))
   as helpers(signature),
@@ -74,19 +74,10 @@ select lives_ok($$select private.validate_idempotency_outcome('cancel_match',
 select lives_ok($$select private.validate_idempotency_outcome('set_group_appearance',
   '{"group_id":"01890f7e-e948-4c53-b13a-4a36e4b7d21e","logical_result":"group_appearance_set"}'::jsonb)$$,
   'and set_group_appearance (0027)');
-select ok((select bool_and(pg_get_constraintdef(c.oid) like '%''' || operation || '''%')
-  from pg_constraint c, unnest(array['complete_profile', 'delete_account', 'request_data_export',
-    'approve_member', 'transfer_ownership', 'leave_group', 'create_group', 'join_by_code',
-    'issue_group_invite', 'rename_group', 'create_match', 'join_match', 'leave_match',
-    'set_match_payment', 'set_group_appearance', 'update_match', 'cancel_match',
-    'delete_group']) as operation
-  where c.conname = 'idempotency_records_operation_check'),
-  'the operation list keeps every earlier operation and adds delete_group');
-select ok((select pg_get_constraintdef(oid) like '%group_appearance_set%'
-  and pg_get_constraintdef(oid) like '%match_cancel_unchanged%'
-  and pg_get_constraintdef(oid) like '%group_deleted%'
-  from pg_constraint where conname = 'idempotency_records_outcome_code_check'),
-  'the outcome list keeps the earlier results and adds group_deleted');
+select ok((select count(*) = 18 from private.idempotency_operations where operation in ('complete_profile', 'delete_account', 'request_data_export', 'approve_member', 'transfer_ownership', 'leave_group', 'create_group', 'join_by_code', 'issue_group_invite', 'rename_group', 'create_match', 'join_match', 'leave_match', 'set_match_payment', 'set_group_appearance', 'update_match', 'cancel_match', 'delete_group')),
+  'the operation registry keeps every earlier operation and has delete_group');
+select ok((select count(distinct logical_result) = 3 from private.idempotency_operation_results where logical_result in ('group_appearance_set', 'match_cancel_unchanged', 'group_deleted')),
+  'the result registry keeps the earlier results and has group_deleted');
 
 -- ---------------------------------------------------------------------------
 -- Atores, grupos, rachas e convites
