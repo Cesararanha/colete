@@ -96,6 +96,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Record the runner CPU model
+        run: lscpu || true
       - name: Check out source without retaining credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -154,7 +156,8 @@ jobs:
         run: npm run db:test:ratings
       - name: Run the team draw HTTP, lock barrier, no-wait and lock mutant harness
         run: npm run db:test:teams
-      - run: npm run db:test:refunds
+      - name: Run the match refund HTTP, replay and permission harness
+        run: npm run db:test:refunds
       - name: Run the group deletion HTTP, replay, lock barrier and lock mutant harness
         run: npm run db:test:group-deletion
       - name: Run the photo HTTP, Storage, visibility, reclaim, export and deletion harness
