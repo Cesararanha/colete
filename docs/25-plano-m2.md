@@ -1410,7 +1410,8 @@ código produtivo.
   sem merge após três rodadas de revisão. `scripts/audit-high.mjs` conserva
   a rejeição de todo alerta high/critical salvo exceção datada. Em PR, o passo
   só é obrigatório para os arquivos de dependência/trava listados em AGENTS §5;
-  os cinco jobs permanecem. Diferença incalculável exige auditoria. Um workflow
+  os cinco jobs permanecem, com a execução em rascunho ajustada pela decisão de
+  06/11/2026 abaixo. Diferença incalculável exige auditoria. Um workflow
   separado verifica `main` diariamente e sob demanda, sem trigger de push.
   César confere a execução diária: critical é tratado no mesmo dia; high entra
   na rodada quinzenal. Aceito o risco de alerta novo não impedir merge de
@@ -1445,7 +1446,21 @@ código produtivo.
   a CI de novo.", substituindo a exigência de auditoria de 08/10; há uma única
   guarda no workflow. A cópia do seletor vem do SHA da base do evento
   (`github.event.pull_request.base.sha`), sem resolver o nome `origin/main`.
-  As demais regras e os cinco jobs permanecem.
+  As demais regras e os cinco jobs permanecem, com a execução em rascunho
+  ajustada pela decisão de 06/11/2026 abaixo.
+
+- **CI em rascunho e limite do banco — decisão humana de César, 06/11/2026,
+  AGENTS §8.** Para preservar a cota de minutos do GitHub Actions e evitar que
+  um cancelamento no limite desperdice a execução inteira, PR em rascunho não
+  roda `Database security`. O job roda quando o PR fica pronto para revisão
+  (`ready_for_review`), em cada commit novo depois disso (`synchronize`) e na
+  abertura/reabertura de PR pronto; seu timeout sobe de 35 para 45 minutos.
+  `App quality`, `PWA export`, `Repository guardrails` e `PWA smoke` continuam
+  em todo PR, inclusive em rascunho. Push, schedule e workflow_dispatch mantêm
+  o comportamento anterior. A revisão independente e os cinco jobs verdes
+  antes do merge continuam obrigatórios (AGENTS §4.11); a mudança não altera
+  testes, harnesses, asserções, paralelismo ou os outros jobs. Registro
+  operacional em `23-operacao-m1-b.md`.
 
 - **Q1 — revisão UI-B, decisão técnica do planejador, 04/10/2026:**
   `transfer_ownership` altera somente `groups.owner_id`. O antigo dono conserva

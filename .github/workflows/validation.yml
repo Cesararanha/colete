@@ -1,9 +1,11 @@
 name: Colete validation
 
-# Every PR retains all five validation jobs. Dependency advisories are
-# checked conditionally here and daily in dependency-audit.yml.
+# Draft PRs run four validation jobs; Database security waits until ready for
+# review and has a 45-minute limit (human decision, 2026-11-06). Dependency
+# advisories are checked conditionally here and daily in dependency-audit.yml.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   schedule:
@@ -89,10 +91,10 @@ jobs:
 
   database-security:
     name: Database security
-    # Pull requests only: this job's result cannot change unless the code does.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    # Ready pull requests and manual runs; draft PRs wait for ready_for_review.
+    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Check out source without retaining credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

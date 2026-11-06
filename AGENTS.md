@@ -99,11 +99,18 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
    nunca estimados nem copiados de execução anterior.
 8. Um único commit, mensagem no imperativo, sem escopo além da fatia.
 9. `git push -u origin <branch>` e abra um **Pull Request draft**.
-10. Espere os cinco jobs da CI e reporte o status de cada um.
+10. Espere os quatro jobs da CI que rodam em draft e reporte o status de cada
+    um; `Database security` fica pulado. Depois da revisão em rascunho, o autor
+    ou a sessão orquestradora marca o PR como pronto. Espere também esse job:
+    os cinco precisam aparecer como `SUCCESS` no SHA final antes do merge;
+    `SKIPPED` não conta como verde (§5, decisão humana de 06/11/2026).
+    Correção após falha do banco volta para conferência (§4.12).
+    A separação autor/revisor do §4.11 permanece.
 11. **Política de merge.**
     - Você pode mergear um Pull Request produzido por outra sessão depois de revisá-lo
-      criticamente contra os documentos normativos e confirmar que os cinco jobs da CI
-      estão verdes. Pull Requests do Dependabot contam como trabalho de outra parte.
+      criticamente contra os documentos normativos e confirmar os cinco jobs da CI
+      como `SUCCESS` no SHA final; `SKIPPED` não conta como verde.
+      Pull Requests do Dependabot contam como trabalho de outra parte.
     - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
       para revisão independente.
     - Mesmo escrito por outra sessão, todo Pull Request que altera `docs/01`–`docs/18`,
@@ -192,9 +199,19 @@ São detalhes de 08/10/2026, ajustados pela decisão humana de 09/10/2026,
 da decisão de 07/10/2026. Os limites aceitos estão em `docs/23`.
 Nos demais casos, execute o comando e relate o resultado, mas um alerta de
 auditoria não bloqueia a fatia. `test:audit` roda sempre.
-Na CI, os cinco jobs continuam em todo PR; somente o passo de `audit:high`
-é condicional. O procedimento diário, a rodada quinzenal e as exceções datadas
+Na CI, `App quality`, `PWA export`, `Repository guardrails` e `PWA smoke`
+continuam em todo PR, inclusive em rascunho; o passo de `audit:high` continua
+condicional. O procedimento diário, a rodada quinzenal e as exceções datadas
 estão em `docs/23`.
+
+**CI em rascunho e limite do banco — decisão humana de César, 06/11/2026.**
+Para preservar a cota de minutos do GitHub Actions e evitar perder uma execução
+inteira ao atingir o limite, PR em rascunho não roda `Database security`.
+O job roda ao ficar pronto para revisão (`ready_for_review`) e a cada commit
+novo depois disso (`synchronize`), além de abertura/reabertura de PR pronto.
+Seu timeout sobe de 35 para 45 minutos. Os outros quatro jobs continuam em
+todo PR. Push, schedule e workflow_dispatch conservam o comportamento anterior.
+O merge continua exigindo os cinco jobs verdes e a revisão independente (§4.11).
 
 Todo harness novo de fatia entra no `package.json`, neste bloco e no job
 `database-security` do workflow no mesmo commit que o cria.

@@ -1484,8 +1484,10 @@ de novo." A única guarda fica no workflow, antes da busca; o seletor não a dup
 Isso substitui a regra de 08/10 de exigir auditoria para outra base.
 O log informa o motivo ou a dispensa; sem `GITHUB_OUTPUT`, informa auditoria exigida e nenhuma saída gravada, coerente
 com a condição do workflow (`'' != 'false'`).
-`Repository guardrails` continua em todo PR, conservando os cinco jobs;
-`test:audit` roda sempre. Localmente, mesmo fora da lista, o agente executa e
+`Repository guardrails` continua em todo PR, inclusive em rascunho; os cinco
+jobs são exigidos antes do merge. Pela decisão humana de 06/11/2026 registrada
+abaixo, só `Database security` fica pulado em rascunho. `test:audit` roda sempre
+em `Repository guardrails`. Localmente, mesmo fora da lista, o agente executa e
 relata `audit:high`, mas não interrompe a fatia por esse alerta.
 
 ### Limites aceitos — decisão humana de César, 09/10/2026
@@ -1762,3 +1764,211 @@ A guarda `verify:auth-config` prova apenas a igualdade local de 90 dias com
 7776000s do banco; não prova que o Supabase Free ofereça limite de sessão.
 Essa lacuna foi aceita por César só para staging fictício e bloqueia o primeiro
 convite até Pro configurado ou implementação independente de plano (`25` §8.1).
+
+## Correção de dependências — decisão humana de César, 06/11/2026
+
+Trabalho na branch `ci/rascunho-e-limite`, a partir de `1881dae`, com a mudança
+de CI anterior preservada sem commit. César determinou dependências primeiro e
+CI depois, em commits separados no mesmo PR. A decisão humana de 06/11/2026
+abaixo autoriza uma exceção datada somente para GHSA-qr28-fpjm-wq7f, mantendo
+o gate de `audit:high` com exit 0. Sem commit, push ou abertura de PR nesta
+tarefa, por instrução de César.
+
+### Atualizações e remoção das exceções
+
+Executados `npm install zod@4.6.7 --save-exact` e `npm audit fix`, sem
+`--force`. O segundo comando aplicou correções e terminou com exit 1 pelos
+alertas restantes; isso não desfaz as atualizações. Nenhuma dependência direta
+mudou de major. Expo continua em **57.0.18**, expo-router em **57.0.17** e
+Vitest em **4.1.11**. Scripts, testes, harnesses e asserções não mudaram.
+
+| Pacote | Antes | Depois | Observação |
+| --- | --- | --- | --- |
+| zod direto | 4.5.4 | 4.6.7 | primeira correção do GHSA-mrhx-c7xc-m3w5: 4.6.6 |
+| vite | 8.2.2 | 8.3.6 | transitivo de Vitest; alertas high removidos |
+| node-forge | 1.4.0 | 1.4.3 | transitivo da CLI; alertas high removidos |
+| @expo/cli | 57.0.20 | 57.0.33 | atualização transitiva; deixa de instalar zod 3.25.76 |
+| @expo/metro-runtime direto | 57.0.14 | 57.0.18 | correção do P2 da revisão do #95; atende ao peer de router-server 57.0.15 |
+| @expo/config | 57.0.9 | 57.0.11 | atualização transitiva; deepmerge 4.3.1 sai da árvore |
+| @expo/config-plugins | 57.0.9 | 57.0.12 | atualização transitiva |
+| xcode | 3.0.1 | 4.0.0 | transitivo de config-plugins, resolvido pelo npm sem force; uuid 7.0.3 sai da árvore |
+
+O npm informou **40 pacotes adicionados, 18 removidos e 35 alterados** pelo
+`audit fix`. As demais atualizações e realocações transitivas estão no lockfile,
+incluindo ferramentas Expo, TypeScript ESLint, glob, postcss, nanoid e os
+binários de rolldown. Na etapa inicial, a única versão direta alterada em
+`package.json` foi zod; a correção da revisão também alinha
+`@expo/metro-runtime`. Os overrides anteriores permanecem iguais.
+
+A revisão independente do PR #95, sobre `7eed6bc`, encontrou um peer inválido:
+`@expo/cli` 57.0.33 traz `@expo/router-server` 57.0.15, que pede
+`@expo/metro-runtime ^57.0.18`, mas o projeto fixava 57.0.14.
+`npm ls --all --package-lock-only` terminava com exit 1. A correção fixa
+57.0.18 e atualiza o lockfile com
+`npm install @expo/metro-runtime@57.0.18 --save-exact --package-lock-only`,
+sem `--force`.
+
+As duas entradas de `audit-exceptions.json` venceram no início de 06/11 UTC.
+Depois das atualizações, o script também acusou ambas como órfãs: os advisories
+GHSA-86w9-cpqp-85rv (node-forge) e GHSA-vfj7-8cjw-p6xm (braces) não estão mais
+ativos. Ambas foram removidas. Braces continua instalado em
+3.0.3; não se afirma correção de versão nem se renova sua exceção. Nenhuma
+dessas exceções foi renovada; o filtro de auditoria permanece intacto.
+
+### decode-uri-component: presença e incompatibilidade do override
+
+`npm ls decode-uri-component query-string --all` confirmou o caminho de
+produção **expo-router 57.0.17 → query-string 7.1.3 → decode-uri-component
+0.2.2**. A API oficial `gh api /advisories/GHSA-qr28-fpjm-wq7f` e o
+[advisory do pacote](https://github.com/SamVerschueren/decode-uri-component/security/advisories/GHSA-qr28-fpjm-wq7f)
+confirmaram **0.5.1** como primeira versão corrigida; 0.5.0 ainda é vulnerável.
+`npm view decode-uri-component@0.5.1 version type exports engines --json`
+confirmou `type: module` e export default. O consumidor instalado é CommonJS:
+`query-string/index.js:3` faz `require('decode-uri-component')` e a linha 233
+chama o resultado como função.
+
+Uma instalação isolada em `/private/tmp/colete-decode-20261106`, com
+`query-string: 7.1.3` e o override npm escopado abaixo, terminou com exit 0:
+
+```json
+{"overrides":{"query-string":{"decode-uri-component":"0.5.1"}}}
+```
+
+Sob Node **24.20.0**, chamar `query-string.parse('name=Jo%C3%A3o')` nessa árvore
+terminou com **exit 1, `TypeError: decodeComponent is not a function`**. O
+`require` recebe o namespace ESM em vez da função esperada. Esse override não
+foi aplicado ao projeto. Não se alterou teste para acomodar a incompatibilidade,
+não se aplicou a sugestão de expo-router 58.0.30. A exceção datada foi
+autorizada posteriormente, conforme o registro abaixo.
+
+O export real `npm run build:web -- --source-maps` passou. O mapa
+`dist/_expo/static/js/web/entry-7f51aa7a6b11bb49349390e2a7369a40.js.map`
+contém **1.223 fontes**, inclusive `/node_modules/query-string/index.js` e
+`/node_modules/decode-uri-component/index.js`. O `sourcesContent` deste último
+é byte a byte igual ao decoder 0.2.2 instalado: o pacote **chega ao PWA**.
+Nas Edge Functions, a inspeção AST TypeScript de imports, reexports,
+`import()` e `require()` nos **27 arquivos produtivos** encontrou **81 imports,
+todos relativos**, sem import dinâmico não literal. A busca por
+`decode-uri-component|query-string|decodeComponents|customDecodeURIComponent`
+em `supabase/functions` teve zero ocorrências (exit 1 esperado). Não há cadeia
+de import desse pacote nas Edge Functions.
+
+### Exceção de decode-uri-component — decisão humana de 06/11/2026
+
+César Aranha autorizou, por AGENTS §8, exceção somente para
+**GHSA-qr28-fpjm-wq7f**, pacote **decode-uri-component**, com
+`expiresOn: 2026-12-06`. Ela vence em **05/12/2026 às 21h de Brasília**, no
+início de **06/12/2026 UTC**, sem renovação automática. O caminho definitivo é
+**subir para o Expo 58 em PR próprio**; a correção direta exige expo-router 58,
+uma troca major. O override
+0.5.1 não foi aplicado, pela incompatibilidade CommonJS/ESM reproduzida acima.
+
+Diferentemente das exceções anteriores, o pacote **chega ao PWA**. Não está
+nas Edge Functions, conforme a inspeção descrita acima. `app.json` define
+`web.output: static`; a análise não encontrou servidor Node usando esse código.
+Isso não prova ausência de risco: o pior caso avaliado é consumo excessivo de
+CPU e travamento da aba de quem abre um link malicioso. Na análise original,
+**não foi realizado teste de ataque**; a revisão independente mediu o decoder
+direto em Node, conforme abaixo, sem provar o alcance no navegador. A decisão
+aceita esse risco até o vencimento, sem estender a exceção a outro advisory ou
+alterar o limiar global de auditoria, scripts ou testes.
+
+O [GHSA-vcc3-ghjq-m6fr](https://github.com/advisories/GHSA-vcc3-ghjq-m6fr),
+moderado, também atinge o `decode-uri-component` 0.2.2 instalado: afeta versões
+≤0.4.2 por decodificação exponencial de entrada malformada. A revisão observou
+que `%C3` repetido 1.024 vezes (3 KB) passou de 4 s no decoder direto sob Node;
+a atribuição desse caso ao advisory é uma inferência do revisor. Assim, o tamanho
+do link não protege contra o consumo de CPU e o travamento da aba avaliados.
+Não foi criada exceção para esse alerta moderado: a leitura de
+`scripts/audit-high.mjs` confirmou que `serious` seleciona somente `high` e
+`critical`, inclusive ao avaliar as causas transitivas.
+
+Quando o alerta desaparecer, remover a entrada para evitar exceção órfã. Se
+persistir no vencimento, a auditoria deve reprovar; sem a atualização,
+qualquer nova exceção exige outra decisão humana.
+
+### Validação medida após a exceção
+
+Nesta retomada de 06/11/2026, `npm run audit:high` terminou com **exit 0**:
+nenhum alerta alto ou crítico fora da **única exceção ativa**, a de
+GHSA-qr28-fpjm-wq7f. `npm run test:audit` terminou com **exit 0, 94 testes
+aprovados, zero falhas ou skips**. `npm run lint`, `npm run format:check`,
+`npm run scan:docs` (**23 arquivos**), `npm run scan:secrets` (**502 arquivos**)
+e `git diff --check` também terminaram com **exit 0**. Instalação, testes
+unitários e export da etapa anterior não foram repetidos nesta retomada.
+Nenhuma dependência adicional, script de auditoria ou teste foi alterado.
+
+Esta seção operacional não integra o manifesto. O checksum existente de `25`
+foi conferido e já corresponde ao arquivo: não foi necessário recalculá-lo.
+A alteração dessa linha do manifesto em relação ao HEAD pertence somente ao
+commit de CI, junto com a seção abaixo; o commit de dependências não altera o
+manifesto.
+
+Nenhum commit, push ou staging foi tentado nesta retomada, por instrução de
+César; os commits cabem à sessão orquestradora depois da conferência. Não foram
+executados banco, navegador, CI do GitHub, build nativo ou teste em aparelho;
+não houve acesso a projeto Supabase remoto, deploy ou serviço de produção.
+
+### Correção da revisão do PR #95 — validação em 06/11/2026
+
+Após alinhar `@expo/metro-runtime` de 57.0.14 para 57.0.18, sob Node 24.20.0
+e npm 11.19.0, todos os comandos pedidos terminaram com **exit 0**:
+
+- `npm ci` e `npm ls --all --package-lock-only`: instalação limpa e árvore
+  válida, sem novo conflito de peer e sem `--force`.
+- `npm run lint`, `npm run format:check` e `npm run typecheck`.
+- `npm test`: **754 testes em 64 arquivos** aprovados.
+- `npm run test:audit`: **94 testes**, zero falhas ou skips.
+- `npm run build:web`: export web concluído.
+- `npm run audit:high`: nenhum alerta alto ou crítico fora da única exceção
+  ativa, GHSA-qr28-fpjm-wq7f; nenhuma exceção nova.
+- `npm run scan:docs`: **23 arquivos**; `npm run scan:secrets`: **502 arquivos**.
+- `git diff --check`.
+
+Somente `AGENTS.md`, este registro, `package.json` e `package-lock.json` foram
+alterados. Nenhum deles integra o manifesto, que permanece inalterado.
+Não houve commit, push, execução de CI, suíte de banco/navegador, acesso a
+Supabase remoto, deploy ou serviço de produção nesta correção.
+
+## CI em rascunho e limite do banco — decisão humana de César, 06/11/2026
+
+Motivo: preservar a cota de minutos do GitHub Actions; um job cancelado ao
+atingir o limite perde a execução inteira e precisa ser executado novamente.
+PR em rascunho passa a pular `Database security`. O job roda ao ficar pronto
+para revisão (`ready_for_review`), a cada commit novo depois disso
+(`synchronize`) e na abertura/reabertura de PR pronto. Seu timeout sobe de
+35 para 45 minutos. `App quality`, `PWA export`, `Repository guardrails` e
+`PWA smoke` continuam em todo PR, inclusive em rascunho.
+
+O workflow explicita os tipos `opened`, `synchronize`, `reopened` e
+`ready_for_review`. A condição conserva a execução manual de `Database security`
+e sua dispensa em push e schedule; os outros jobs não mudam. Testes de navegador,
+harnesses, asserções e paralelismo permanecem intactos. A revisão independente
+e os cinco jobs verdes antes do merge continuam obrigatórios (AGENTS §4.11).
+A decisão também está em AGENTS §5 e `25` §8.1; somente o checksum de `25` muda
+no manifesto de especificação.
+
+`scripts/test-audit-needed.mjs` lê o workflow e executa o trecho do seletor de
+auditoria em `Repository guardrails`. Não verifica os tipos de PR, a condição
+ou o timeout de `Database security`; não precisa de ajuste nesta mudança.
+
+Validação local da etapa anterior de CI, em 06/11/2026, Node 24.20.0 e npm
+11.19.0 (não repetida integralmente nesta retomada):
+
+- `npm ci`, `npm run lint`, `npm run format:check`, `npm run scan:docs`,
+  `npm run scan:secrets`, `npm run verify:auth-config` e `git diff --check`:
+  exit 0. Manifesto conferido; scan de segredos em 502 arquivos.
+- `npm run test:audit`: exit 0, 94 testes aprovados, zero falhas ou skips.
+- Verificação pontual com Node e o parser YAML já instalado: 11 combinações de
+  evento/estado aprovadas; quatro jobs, passos do banco, paralelismo e triggers
+  não PR iguais ao HEAD anterior. Nenhum teste ou guardrail foi alterado.
+
+A validação após a exceção datada está na seção de dependências acima. A
+exceção não dispensa o exit 0 de `audit:high` exigido por AGENTS §5 para o
+workflow. Os dois conjuntos de mudanças permanecem sem commit por instrução
+de César; os commits separados cabem à sessão orquestradora depois da conferência.
+
+Não foram executadas as suítes de banco/navegador nem a CI do GitHub; a tarefa
+limita a validação aos checks locais relacionados. `actionlint` não está
+instalado. Nenhum projeto Supabase remoto, deploy ou serviço de produção foi
+acessado; sem push ou abertura de PR, por instrução de César nesta tarefa.
