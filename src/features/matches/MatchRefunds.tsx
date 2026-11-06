@@ -20,12 +20,16 @@ export function MatchRefunds({
   matchId,
   profileId,
   timezone,
+  price,
+  matchLabel,
   roster,
   refunds,
 }: {
   matchId: string;
   profileId: string;
   timezone: string;
+  price: number;
+  matchLabel: string;
   roster: MatchRoster;
   refunds: ManagedMatchRefund[];
 }) {
@@ -40,6 +44,15 @@ export function MatchRefunds({
   const [saved, setSaved] = useState(false);
   const manage = roster.viewer.can_manage;
   if (!manage) return null;
+  const confirmationTarget = confirming
+    ? confirming.kind === 'payment'
+      ? roster.confirmed.find((entry) => entry.profile_id === confirming.id)
+      : refunds.find((refund) => refund.id === confirming.id)
+    : undefined;
+  const confirmationAmount =
+    confirming?.kind === 'payment'
+      ? price
+      : refunds.find((refund) => refund.id === confirming?.id)?.amount;
   const confirm = () => {
     if (!confirming || actions.pending) return;
     const target = confirming;
@@ -62,7 +75,20 @@ export function MatchRefunds({
         if (result) {
           setConfirming(null);
           setSaved(true);
-          focusGroupControl(`refund-${target.id}`);
+          if (target.kind === 'payment') {
+            // Wait for the confirmation to close and the refreshed row to render.
+            requestAnimationFrame(() => {
+              const control = `refund-${result.outcome.refund_id}`;
+              focusGroupControl(
+                typeof document !== 'undefined' &&
+                  document.querySelector(`[data-testid="${control}"]`)
+                  ? control
+                  : 'match-refresh-button',
+              );
+            });
+          } else {
+            focusGroupControl(`refund-${target.id}`);
+          }
         }
       });
   };
@@ -160,6 +186,15 @@ export function MatchRefunds({
           testID="refund-confirmation"
         >
           <Text style={{ color: colors.text }}>
+            {confirmationTarget?.account_removed
+              ? pt.matches.detail.removedAccount
+              : (confirmationTarget?.nickname ?? confirmationTarget?.name)}
+            {' · '}
+            {confirmationAmount === undefined ? '' : matchPrice(Number(confirmationAmount))}
+            {' · '}
+            {matchLabel}
+          </Text>
+          <Text style={{ color: colors.text }}>
             {confirming.kind === 'correct'
               ? pt.refunds.confirmCorrect
               : confirming.kind === 'payment'
@@ -192,10 +227,13 @@ export function MatchRefunds({
             variant="secondary"
             onPress={() => {
               if (actions.pending) return;
-              const id = confirming.id;
+              const control =
+                confirming.kind === 'payment'
+                  ? `canceled-payment-${confirming.id}`
+                  : `refund-${confirming.id}`;
               setConfirming(null);
               actions.discardIntent();
-              focusGroupControl(`refund-${id}`);
+              focusGroupControl(control);
             }}
             testID="refund-cancel"
           />

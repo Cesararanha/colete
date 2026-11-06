@@ -982,6 +982,8 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                       matchId={matchId}
                       profileId={profile.id}
                       timezone={match.timezone}
+                      price={Number(match.field_price)}
+                      matchLabel={`${match.location_name} · ${matchDateTitle(match.starts_at, match.timezone)}`}
                       roster={roster}
                       refunds={refundsQuery.data}
                     />

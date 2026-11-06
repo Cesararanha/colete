@@ -3917,10 +3917,10 @@ provada, nem que os dois eventos tenham a mesma causa.
 
 ## Piloto 1.3 — devolução no cancelamento (`0034`, 06/11/2026)
 
-Implementação nesta worktree, branch `feat/devolucao-cancelamento`, base `main 93c3494`.
+Implementação na branch `feat/devolucao-cancelamento`, com a `main 20eda49` incorporada.
 Autorização de César P10/P16 e decisões do plano do piloto de 28/10 e 06/11 (§14 prevalece),
-fora do repositório. Sem add, commit, push ou PR nesta sessão; revisão independente de risco
-alto e publicação ficam com o orquestrador. Somente pilha Supabase local deste projeto,
+fora do repositório. Revisão independente de risco alto e publicação a cargo do orquestrador.
+Somente pilha Supabase local deste projeto,
 registry público de pacotes e consulta inicial ao GitHub; nenhum projeto Supabase remoto,
 serviço de produção ou credencial real. Nenhum `.env` de outra checkout foi lido/copiado.
 
@@ -3961,9 +3961,12 @@ Database security juntos; o workflow só mudou nesse job.
 **Interface e leituras.** Bloco da 1.1 mostra a própria devolução, sem esconder a instrução
 da inscrição nova quando a pessoa voltou. Organização vê inclusive ex-membros; conta em
 exclusão aparece “Conta excluída”. Confirmação de cancelamento lista pagos e total; registro
-manual/correção pede confirmação e data no fuso do racha (mesmo helper da 1.2). Sem alegar
-confirmação bancária. A projeção nova participa de Atualizar, intervalo e hora da leitura
-mais antiga. Conta refeita a partir do custo e das correções de #89/#91 neste documento:
+manual/correção pede confirmação com pessoa, valor e racha (`15`, prevenção de erro) e data
+no fuso do racha (mesmo helper da 1.2). Sem alegar confirmação bancária. Após pagamento tardio,
+o foco usa o `refund_id` do desfecho, depois de renderizar; se o controle ainda não estiver
+na tela, volta a Atualizar. Marcação e correção conservam o foco na obrigação; cancelar a
+confirmação de pagamento volta ao botão da pessoa. A projeção nova participa de Atualizar,
+intervalo e hora da leitura mais antiga. Conta refeita a partir do custo e das correções de #89/#91 neste documento:
 
 | Tela na frente, visível | Leituras a cada 30 s | Chamadas Edge/hora (aritmética, sem retries) |
 |---|---|---|
@@ -3975,18 +3978,54 @@ mais antiga. Conta refeita a partir do custo e das correções de #89/#91 neste 
 get_group_members da instrução não tem intervalo: uma leitura ao abrir quando necessário,
 mais Atualizar/volta à tela; get_group_ratings também não tem intervalo. Não há “5 leituras
 periódicas” na organização. Duas abas de organização abertas: 8 chamadas por ciclo, 960/h.
-Estes números são contagem do código e aritmética sobre a medição anterior, **não medição
-nova de CPU**. O teste de polling agora conta também refunds e mantém Grupos/Agenda/Editar
-quietos conforme foco. Os e2e de pagamento/cancelamento/devolução/correção/pagamento tardio
-(390 e 1280 px) e exclusão com os dois erros foram escritos, mas não executaram o fluxo
-nesta sessão pelo bloqueio abaixo. Nenhum print ou resultado de acessibilidade é alegado.
+As chamadas por hora são contagem do código e aritmética, sem retries. A medição nova de
+CPU está registrada abaixo. O teste de polling conta também refunds e mantém
+Grupos/Agenda/Editar quietos conforme foco. Os fluxos de navegador e as capturas foram
+validados pelo orquestrador fora do sandbox, conforme registro abaixo.
 
-**Validação medida nesta sessão.** SUPABASE_TELEMETRY_DISABLED=1 foi usado para evitar a
+**Medição de CPU refeita — 06/11/2026 (§13.1 do plano do piloto).** Script e
+artefato fora do repositório em `/Users/cesararanha/dev/colete/noite/medicao-cpu-1.3/`:
+`medir.mjs` e `resultado-1793989187662.json`. Execução, a partir desta worktree:
+`node /Users/cesararanha/dev/colete/noite/medicao-cpu-1.3/medir.mjs` — exit 0.
+Mesmo método da 1.5: `usage_usec` do cgroup v2 de `supabase_edge_runtime_colete`,
+descontando o ocioso pela média ponderada de duas janelas de 5 s (antes/depois de cada
+rodada). Ocioso: 2,7343 e 3,1430 µs/ms. Quarenta leituras sequenciais por operação,
+duas rodadas, racha futuro de 10 vagas e 11 inscritos (10 confirmados + 1 na espera),
+com dois times sorteados e uma obrigação pendente de pagamento anterior de quem voltou.
+Sessão real GoTrue da organização; sem retries HTTP. As duas abas são simuladas por HTTP
+com as quatro operações de cada detalhe em voo juntas, sem navegador. Os helpers de status local, pedidos,
+conexão pg e fluxo GoTrue/Edge foram adaptados de `scripts/test-match-refunds.mjs`, sem
+importá-lo (o módulo executaria o harness e a limpeza das fixtures fixas).
+
+| Operação | CPU líquida ms/leitura, rodada 1 | Rodada 2 | Respostas 200 (duas rodadas) | 5xx |
+|---|---|---|---|---|
+| get_match | 2,4068 | 2,4313 | 80/80 | 0 |
+| get_match_roster | 3,0037 | 2,5686 | 80/80 | 0 |
+| get_match_teams | 2,9507 | 2,1776 | 80/80 | 0 |
+| get_match_refunds | 2,5516 | 2,9415 | 80/80 | 0 |
+| Duas abas de organização, 8 leituras em voo × 20 rajadas por rodada | 1,7855 | 1,8911 | 320/320 | 0 |
+
+Soma das quatro leituras isoladas do detalhe: **10,9128 e 10,1189 ms de CPU**;
+a cada 30 s, estimativa aritmética de 21,8255 e 20,2378 ms de CPU/minuto por detalhe
+não cancelado. As rajadas consumiram **285,6865 e 302,5759 ms de CPU** no total de
+160 leituras por rodada (14,2843 e 15,1288 ms por rajada). Latência p50 por operação
+isolada: 17,55–19,55 ms; nas rajadas: 41,23 e 42,24 ms. Total medido: **640/640 HTTP 200,
+zero 5xx**, zero outros HTTP/erros de transporte/envelopes inválidos; aquecimento à parte:
+40/40 HTTP 200. Medição local do contêiner, sem inferir custo do runtime hospedado.
+
+Uma tentativa de preparo inicial recusou o sorteio com 409 por falta de notas na fixture;
+foi limpa sem chegar à medição. O script passou a cadastrar as notas antes do sorteio.
+Nas duas execuções, o censo dos IDs criados terminou em zero usuários Auth, perfis, grupos,
+memberships, rachas, inscrições, sorteios e idempotências. Obrigações e membros de times
+seguem as FKs com cascade; notas/histórico do grupo criado são removidos explicitamente.
+Nenhum dado preexistente foi apagado, nenhum outro contêiner foi acessado.
+
+**Validação da implementação original.** SUPABASE_TELEMETRY_DISABLED=1 foi usado para evitar a
 escrita de telemetria fora das raízes permitidas. O primeiro db:reset teve exit 1 por
 EPERM de telemetria; com telemetria desligada, exit 1 porque a pilha estava parada.
 db:start terminou com exit 0, baixando imagens pelo CLI e aplicando migrations do zero;
 depois db:reset exit 0 até a 0034. O Docker não foi bloqueado nem contornado. A pilha local
-ficou ligada para o orquestrador; nenhum outro contêiner foi inspecionado/parado/removido.
+permaneceu ligada; nenhum outro contêiner foi inspecionado/parado/removido.
 
 | Comando | Exit final / resultado |
 |---|---|
@@ -4032,33 +4071,53 @@ depois exit 0. O harness de devolução foi corrigido durante sua construção (
 casts e relógio de teste; datas vêm do relógio do banco para não presumir sincronização de
 milissegundos com a máquina). São falhas resolvidas, distintas do limite do navegador.
 
-**Não validado:** Chromium aborta no sandbox com `FATAL mach_port_rendezvous_mac.cc`,
-`bootstrap_check_in ... Permission denied (1100)` / SIGTRAP, antes da primeira página.
-Não houve tentativa de contornar o sandbox. Não foram executadas as demais suítes web após
-essa confirmação, nem revisão visual/prints, acessibilidade real ou medição nova de CPU.
-CI/revisão independente não foram feitas (sem commit/push/PR, conforme pedido).
+**Validação de navegador pelo orquestrador — 06/11/2026.** Fora do sandbox, sobre a
+`main 20eda49` incorporada:
 
-Comandos exatos para o orquestrador fora do sandbox, ainda com a pilha local, sem staging:
+| Comando | Exit / resultado |
+|---|---|
+| npm run build:web:auth-e2e | 0 |
+| npm run test:qr:web | 0; 30 passaram |
+| npm run test:auth:web | 0; 12 passaram |
+| npm run test:privacy:web | 0; 5 passaram |
+| npm run test:cors:web | 0; 4 passaram |
+| npm run build:web:smoke | 0 |
+| npm run test:smoke:web | 0; 6 passaram |
+| npm run test:groups:web | 1; 120 passaram, 5 pulados, 1 falha |
+| Repetição isolada de e2e/ajustes-teste.spec.ts, com build de autenticação refeito | 0; 6 de 6 passaram |
+| npm run test:matches:web, após corrigir a assinatura com alvo | 0; 46 passaram |
 
-```sh
-npm run build:web:auth-e2e
-npm run test:auth:web
-npm run test:privacy:web
-npm run test:cors:web
-npm run test:groups:web
-npm run test:matches:web
-npm run test:qr:web
-npm run build:web:smoke
-npm run test:smoke:web
-```
+A falha de `test:groups:web` foi em `e2e/ajustes-teste.spec.ts:105`, projeto
+mobile-chromium: timeout esperando `complete_profile`. O teste não toca devolução;
+fica registrado como intermitente, sem causa provada. A primeira execução de
+`test:matches:web` falhou nos dois projetos em `e2e/racha-completo.spec.ts:376`:
+o cliente recusava `profile_id` antes do transporte em `record_canceled_match_payment`.
+A operação entrou na lista de assinaturas com alvo; depois disso, 46 passaram.
+O teste novo de `src/lib/api.test.ts`, no padrão de `set_rating`, afirma a URL e o corpo
+com `request_id`, `match_id` e `profile_id`. Contraprova executada: retirar somente essa
+operação da lista faz o teste falhar com `AppError`/`VALIDATION`, antes do fetch (exit 1);
+com a correção restaurada, exit 0.
 
-Para capturas da devolução: criar uma pasta temporária e definir
-COLETE_RACHAS_SCREENSHOTS_DIR nessa pasta ao rodar test:matches:web; os arquivos
-mobile-chromium-devolucao-* e wide-chromium-devolucao-* correspondem a 390/1280 px.
-É preciso verificar os PNGs antes de afirmar validação visual. Recriar o build auth antes
-se dist estiver com o build smoke.
+Prints da devolução em 390 e 1280 px foram gerados e olhados pelo orquestrador;
+a acessibilidade automática do fluxo (`assertAccessible`) passou no teste. Os ajustes
+posteriores de foco e conteúdo da confirmação receberam a validação local abaixo;
+nenhum Playwright foi executado novamente no sandbox.
 
-Censo final medido: **zero** auth.users, profiles, groups, group_members, matches,
+**Validação local dos ajustes — 06/11/2026.**
+
+| Comando | Exit / resultado |
+|---|---|
+| npx vitest run src/lib/api.test.ts -t 'sends a canceled match payment' | 0; teste novo passou (35 outros não selecionados) |
+| Mesmo teste com a operação retirada temporariamente da lista de alvos | 1; VALIDATION antes do transporte, correção restaurada em finally |
+| npm run verify:app | 0; lint, formato, tipos, 65 arquivos / 774 unitários, build web, PWA, Auth e scans |
+| npm run scan:docs | 0; hash real de docs/25 atualizado no manifesto |
+| git diff --check | 0 |
+
+Log da verificação local: `/tmp/colete-refunds-followup-verify.log`. Nenhuma migration foi
+alterada; a suíte de navegador não foi reexecutada no sandbox. Os resultados do orquestrador
+acima precedem estes ajustes de foco e confirmação.
+
+Censo final da validação original: **zero** auth.users, profiles, groups, group_members, matches,
 match_players, match_refunds, idempotency_records, deletion_requests e external_effects.
 As sementes/execuções operacionais da pilha permanecem; nenhum objeto de teste novo ficou.
 Logs locais: /tmp/colete-refunds-validation, /tmp/colete-refunds-final e

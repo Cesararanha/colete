@@ -550,6 +550,38 @@ describe('UI-B group targets and transport', () => {
       { url: 'http://local.test/functions/v1/groups/get_my_rating', body: { group_id: 'group' } },
     ]);
   });
+  it('sends a canceled match payment with the paid member as a business target', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: {
+            outcome: {
+              group_id: 'group',
+              match_id: 'match',
+              refund_id: 'refund',
+              logical_result: 'canceled_payment_recorded',
+            },
+          },
+          request_id: body.request_id,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+
+    await client.recordCanceledMatchPayment('match', 'member').execute();
+
+    expect(calls).toEqual([
+      {
+        url: 'http://local.test/functions/v1/groups/record_canceled_match_payment',
+        body: { request_id: REQUEST_ID, match_id: 'match', profile_id: 'member' },
+      },
+    ]);
+  });
   it('sends the draw with the match and the number of teams only, and reads the teams', async () => {
     const calls: { url: string; body: Record<string, unknown> }[] = [];
     const client = createApiClient({

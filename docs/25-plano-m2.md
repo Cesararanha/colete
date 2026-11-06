@@ -1261,7 +1261,7 @@ código produtivo.
   `cancel_match` e exige migrar todo `removed` pago, sem exceção histórica. Registros da
   `0033` só recebem INSERT; a fatia 1.4 continua separada. Pendências de exclusão de conta,
   ex-membro, retenção e desidentificação financeira ficam em `27`; risco alto (§4.12),
-  revisão independente a cargo do orquestrador, sem commit/push nesta sessão.
+  revisão independente a cargo do orquestrador.
 
 - **Rachas v1 — decisão humana de César, 12/10/2026, AGENTS §8.**
   Até a entrega de Desenvolvimento Mobile, modo apresentação: racha simples
