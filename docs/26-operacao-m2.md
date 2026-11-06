@@ -4124,7 +4124,9 @@ pago fora de `starter` e campo vazio usando o relógio do servidor. Pilha local 
 | Comando | Exit / resultado |
 |---|---|
 | npm run db:test | 0; 2.464 asserções |
-| npm run db:test:refunds, match-players, group-deletion, membership, deletion | 0 |
+| npm run db:test:refunds, match-players, membership, deletion | 0 |
+| npm run db:test:group-deletion, primeira execução | 1; limite de 3 s em `waited for the lock of the deleted group: replay regenerate_group_invite`, causa não comprovada |
+| npm run db:test:group-deletion, repetido | 0; máximo de 107 ms nessa prova |
 | npm run verify:app | 0; 778 unitários |
 | npm run test:groups:web, test:cors:web, test:privacy:web, test:smoke:web | 0; 121, 4, 5 e 6 passaram |
 | npm run test:qr:web, na rodada completa | 1; 28 passaram e 2 falharam, levando 7,2 min |
@@ -4135,10 +4137,13 @@ pago fora de `starter` e campo vazio usando o relógio do servidor. Pilha local 
 
 As falhas de QR e autenticação foram tempo limite com a máquina carregada, e não voltaram ao repetir;
 a causa não foi provada, e a suíte de autenticação inteira não foi repetida depois disso. A asserção nova de foco achou um
-defeito: o foco era pedido antes de a confirmação fechar e se perdia. O foco agora espera o quadro
-seguinte nas três operações. O Playwright rodou uma vez com o relógio do aparelho a +2 e a -2 minutos, nos
-dois projetos. Depois da correção do foco, só `test:matches:web` e `verify:app` foram repetidos; o
-ajuste não toca os fluxos das outras suítes.
+defeito: o `AppButton` com `ariaDisabled` é outro elemento na web e, ao terminar o envio, o foco posto
+nele se perdia. O foco agora é pedido em um efeito, depois do commit em que o botão volta a ficar ativo. O Playwright rodou uma vez com o relógio do aparelho a +2 e a -2 minutos, nos
+dois projetos. Depois da conferência (`~/dev/colete/noite/conf96.md`), mudaram o efeito de foco, o texto de `13` e `25`, a
+limpeza do erro ao cancelar, a faixa "até agora" só no servidor e a espera da leitura nos testes do painel.
+Em seguida: `test:matches:web` com 50 passando, numa versão do efeito ainda com estado, e, na versão final com referência,
+`verify:app` com exit 0 e 777 unitários e `e2e/racha-completo.spec.ts` com 10 passando. As demais suítes não
+foram repetidas: quem as confirma no SHA final é o `Database security`.
 
 Censo final da validação original: **zero** auth.users, profiles, groups, group_members, matches,
 match_players, match_refunds, idempotency_records, deletion_requests e external_effects.

@@ -1258,7 +1258,10 @@ código produtivo.
   devolução manual e correção somente da data; sem referência livre nem livro completo.
   Preço trava com pago ou obrigação pendente; apagar grupo recusa pago em racha a cancelar
   (inclusive em andamento) e qualquer devolução pendente. §14 mantém as chaves atuais de
-  `cancel_match` e exige migrar todo `removed` pago, sem exceção histórica. Registros da
+  `cancel_match` e exige migrar todo `removed` pago, sem exceção histórica.
+  **§15, decisões da orquestradora na revisão do #96, a confirmar por César no merge:** o
+  backfill cobre todo pago fora de `starter` (também quem voltou para a espera), e data vazia
+  em `mark_refunded` e `correct_refund` usa o relógio do servidor. Registros da
   `0033` só recebem INSERT; a fatia 1.4 continua separada. Pendências de exclusão de conta,
   ex-membro, retenção e desidentificação financeira ficam em `27`; risco alto (§4.12),
   revisão independente a cargo do orquestrador.

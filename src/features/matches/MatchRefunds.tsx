@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -43,7 +43,25 @@ export function MatchRefunds({
   const [date, setDate] = useState('');
   const [invalid, setInvalid] = useState(false);
   const [saved, setSaved] = useState(false);
+  const focusRefund = useRef<string | null>(null);
   const manage = roster.viewer.can_manage;
+  // After the commit that closes the confirmation and enables the row's button: an
+  // ariaDisabled AppButton is another element on the web, and focus on it would be lost.
+  useEffect(() => {
+    const target = focusRefund.current;
+    if (target === null || actions.pending) return;
+    if (refunds.some((refund) => refund.id === target)) {
+      focusRefund.current = null;
+      focusGroupControl(`refund-${target}`);
+      return;
+    }
+    // A row the refreshed list did not bring: focus stays on the page's own control.
+    const fallback = setTimeout(() => {
+      focusRefund.current = null;
+      focusGroupControl('match-refresh-button');
+    }, 1000);
+    return () => clearTimeout(fallback);
+  }, [confirming, actions.pending, refunds]);
   const paymentsToRecord = roster.canceled
     ? roster.confirmed.filter(
         (entry) =>
@@ -82,18 +100,9 @@ export function MatchRefunds({
       )
       .then((result) => {
         if (result) {
+          focusRefund.current = target.kind === 'payment' ? result.outcome.refund_id : target.id;
           setConfirming(null);
           setSaved(true);
-          // Wait for the confirmation to close and the refreshed row to render.
-          const control = `refund-${target.kind === 'payment' ? result.outcome.refund_id : target.id}`;
-          requestAnimationFrame(() => {
-            focusGroupControl(
-              typeof document !== 'undefined' &&
-                document.querySelector(`[data-testid="${control}"]`)
-                ? control
-                : 'match-refresh-button',
-            );
-          });
         }
       });
   };
@@ -236,7 +245,9 @@ export function MatchRefunds({
                   ? `canceled-payment-${confirming.id}`
                   : `refund-${confirming.id}`;
               setConfirming(null);
+              setInvalid(false);
               actions.discardIntent();
+              actions.clearError();
               focusGroupControl(control);
             }}
             testID="refund-cancel"

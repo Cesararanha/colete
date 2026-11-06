@@ -16,6 +16,16 @@ type Actor = { authId: string; profileId: string; token: string; email: string; 
 
 test.use({ timezoneId: ZONE, colorScheme: 'dark' });
 
+async function readRefunds(page: Page) {
+  // The panel mounts only after this read: an absence asserted before it proves nothing.
+  const read = page.waitForResponse((item) => item.url().endsWith('/get_match_refunds'));
+  await page.reload();
+  expect((await read).status()).toBe(200);
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+}
+
 async function shot(page: Page, project: string, file: string) {
   if (
     (project !== 'mobile-chromium' && !file.startsWith('devolucao-')) ||
@@ -457,6 +467,7 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     const ownerView = await open(browser, owner, matchId);
     contexts.push(ownerView.context);
     await expect(ownerView.page.getByTestId('match-payment-summary')).toBeVisible();
+    await readRefunds(ownerView.page);
     await expect(ownerView.page.getByTestId('match-refunds')).toHaveCount(0);
 
     // The organizer leaves the organisation while Ana's detail is open: "Atualizar"
@@ -634,6 +645,7 @@ for (const offset of [-120_000, 120_000]) {
       context = opened.context;
       const page = opened.page;
       await expect(page.getByTestId('match-confirmed')).toBeVisible();
+      await readRefunds(page);
       await expect(page.getByTestId('match-refunds')).toHaveCount(0);
       await page.getByTestId('match-cancel').click();
       await expect(page.getByTestId('match-cancel-confirmation-heading')).toBeFocused();

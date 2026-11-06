@@ -621,8 +621,9 @@ perdeu a autoridade segue §5.0.1), e a saída do grupo não promove a espera de
 
 #### 3.3.2 Devolução no piloto — `0034` (fatia 1.3)
 
-Decisões de César de 28/10 e 06/11/2026, P1/P3/P4/P10/P13–P17/P19/P20 e §§14–15 do
-plano do piloto, registradas em `25` §8.1. Este recorte substitui três pontos do §3.3.1:
+Decisões de César de 28/10 e 06/11/2026 (P1/P3/P4/P10/P13–P17/P19/P20 e §14 do plano do
+piloto) e decisões da orquestradora sobre a revisão do #96 (§15), a confirmar por César no
+merge, todas registradas em `25` §8.1. Este recorte substitui três pontos do §3.3.1:
 preço trava com qualquer inscrição `paid = true` ou obrigação `refund_due` no racha
 (`PRICE_LOCKED`, 409); cancelamento cria obrigações na mesma transação; saída do grupo
 não altera nenhuma inscrição de racha cancelado, preservando lista e obrigações históricas.
