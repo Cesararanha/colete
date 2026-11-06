@@ -3787,8 +3787,8 @@ nascer); `drop` dos CHECKs; troca dos helpers e do gatilho; `drop` dos 13 elos. 
 do resultado e da operação em todo `complete_*`. As linhas nunca são atualizadas (imutáveis), então
 não há conflito. Medido no `db:test:idempotency` (25 conexões), com `checkpoint` e
 `pg_control_checkpoint()` antes e depois: 112 MultiXact por rodada na `0032` e 114 na `0033`, iguais
-nas duas repetições de cada lado. O registro desta ordem no `docs/25` §2, que é normativo, fica para decisão de
-César (a P-F autorizou só o `docs/10` e o `docs/13`).
+nas duas repetições de cada lado. O registro desta ordem no `docs/25` §2 foi autorizado por César em 05/11/2026,
+com a decisão registrada no §8.1; o merge continua sendo decisão dele.
 
 **Provas.** As asserções que afirmavam onde a lista morava (os `pg_get_constraintdef` dos CHECKs, os
 privilégios dos elos `validate_through_*`, os `pg_get_functiondef ... like '%draw_teams%'` e o
