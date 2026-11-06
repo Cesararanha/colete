@@ -71,6 +71,9 @@ export type GroupOperation =
   | 'set_match_payment'
   | 'update_match'
   | 'cancel_match'
+  | 'record_canceled_match_payment'
+  | 'mark_refunded'
+  | 'correct_refund'
   | 'delete_group'
   | 'draw_teams'
   | 'begin_photo_upload'
@@ -180,6 +183,22 @@ export type MatchRosterEntry = {
   is_viewer: boolean;
   /** Only for the organisation, and only on confirmed lines. */
   paid?: boolean | null;
+  can_record_canceled_payment?: boolean;
+};
+export type MatchRefund = {
+  id: string;
+  amount: number;
+  status: 'refund_due' | 'refunded';
+  created_at: string;
+  refunded_at: string | null;
+};
+export type ManagedMatchRefund = MatchRefund & {
+  name: string | null;
+  nickname: string | null;
+  account_removed: boolean;
+};
+export type MatchRefundOutcome = {
+  outcome: { group_id: string; match_id: string; refund_id: string; logical_result: string };
 };
 export type MatchRoster = {
   match_id: string;
@@ -192,6 +211,7 @@ export type MatchRoster = {
     status: MatchPresenceStatus;
     waitlist_position: number | null;
     paid: boolean | null;
+    refunds: MatchRefund[];
     can_manage: boolean;
   };
   confirmed: MatchRosterEntry[];
@@ -469,6 +489,9 @@ const groupOperations = new Set<string>([
   'set_match_payment',
   'update_match',
   'cancel_match',
+  'record_canceled_match_payment',
+  'mark_refunded',
+  'correct_refund',
   'delete_group',
   'draw_teams',
   'begin_photo_upload',
@@ -854,6 +877,25 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         profile_id: targetId,
         paid,
       }),
+    recordCanceledMatchPayment: (matchId: string, profileId: string) =>
+      mutation<MatchRefundOutcome>('record_canceled_match_payment', {
+        match_id: matchId,
+        profile_id: profileId,
+      }),
+    markRefunded: (matchId: string, refundId: string, refundedAt: string) =>
+      mutation<MatchRefundOutcome>('mark_refunded', {
+        match_id: matchId,
+        refund_id: refundId,
+        refunded_at: refundedAt,
+      }),
+    correctRefund: (matchId: string, refundId: string, correctedAt: string) =>
+      mutation<MatchRefundOutcome>('correct_refund', {
+        match_id: matchId,
+        refund_id: refundId,
+        corrected_at: correctedAt,
+      }),
+    getMatchRefunds: (matchId: string, signal?: AbortSignal) =>
+      groupRead<ManagedMatchRefund[]>('get_match_refunds', { match_id: matchId }, signal),
     getMatchRoster: (matchId: string, signal?: AbortSignal) =>
       groupRead<MatchRoster>('get_match_roster', { match_id: matchId }, signal),
     /** The server draws from the confirmed list and ratings it holds; only the count and the unequal-sizes confirmation travel. */

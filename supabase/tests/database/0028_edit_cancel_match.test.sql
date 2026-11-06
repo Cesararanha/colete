@@ -275,21 +275,21 @@ select is(pg_temp.slots('28300000-0000-4000-8000-000000000001'),
   'Jogador:starter,Sete:starter,Oito:starter,Nove:starter',
   'enough slots promote the whole waitlist in order');
 
--- Preço muda; a marcação de pago fica como estava.
-select is((select pg_temp.upd('28000000-0000-4000-8000-000000000001',
-    '28300000-0000-4000-8000-000000000001', '{"field_price": "22.50"}')
-    -> 'outcome' ->> 'logical_result'), 'match_updated', 'the price can change');
+-- 0034: payment locks price; same-price edits keep author and time.
+select throws_ok($$select pg_temp.upd('28000000-0000-4000-8000-000000000001',
+    '28300000-0000-4000-8000-000000000001', '{"field_price": "22.50"}')$$,
+  'P0001','PRICE_LOCKED','a paid mark prevents repricing');
 select is((select field_price::text from private.matches
-  where id = '28300000-0000-4000-8000-000000000001'), '22.50', 'the new price is stored');
+  where id = '28300000-0000-4000-8000-000000000001'), '15.00', 'locked price stays');
 select is((select paid::text || '/' || payment_marked_by::text || '/'
     || (payment_marked_at < now() - interval '59 minutes')::text
   from private.match_players where match_id = '28300000-0000-4000-8000-000000000001'
     and profile_id = '28100000-0000-4000-8000-000000000003'),
   'true/28100000-0000-4000-8000-000000000001/true',
-  'the paid mark keeps its value, author and time');
+  'refused edit keeps mark, author and time');
 select is((select public.get_match_roster('28000000-0000-4000-8000-000000000001',
     gen_random_uuid(), '28300000-0000-4000-8000-000000000001') -> 'payment_summary' ->> 'total'),
-  '22.50', 'the total follows the new price');
+  '15.00', 'total keeps the marked price');
 
 -- Local, endereço, descrição, coordenadas e horário: tudo o que o formulário edita.
 select is((select pg_temp.upd('28000000-0000-4000-8000-000000000001',
@@ -437,8 +437,8 @@ update public.group_members set status = 'removed', removed_at = now()
 where group_id = '28200000-0000-4000-8000-000000000001'
   and profile_id = '28100000-0000-4000-8000-000000000007';
 select is(pg_temp.slots('28300000-0000-4000-8000-000000000004'),
-  'Jogador:starter,Oito:waitlist',
-  'leaving the group frees the line without promoting a canceled waitlist');
+  'Jogador:starter,Sete:starter,Oito:waitlist',
+  'leaving the group preserves the canceled list without promotion');
 select is(pg_temp.slots('28300000-0000-4000-8000-000000000001'),
   'Jogador:starter,Oito:starter,Nove:starter',
   'a live match still drops the leaver');
@@ -465,7 +465,7 @@ select is((select public.get_match_roster('28000000-0000-4000-8000-000000000003'
 select is((select jsonb_path_query_array(public.get_match_roster(
     '28000000-0000-4000-8000-000000000003', gen_random_uuid(),
     '28300000-0000-4000-8000-000000000004'), '$.confirmed[*].name')),
-  '["Jogador"]'::jsonb, 'and still shows who was confirmed');
+  '["Jogador","Sete"]'::jsonb, 'and still shows who was confirmed');
 select ok(not exists (select 1 from public.get_match('28000000-0000-4000-8000-000000000003',
     gen_random_uuid(), '28300000-0000-4000-8000-000000000004') as m
   where to_jsonb(m) ?| array['canceled_at', 'canceled_by']),

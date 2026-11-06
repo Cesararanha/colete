@@ -368,6 +368,7 @@ async function proveHttp(status, db) {
     waitlist_position: 1,
     paid: null,
     can_manage: false,
+    refunds: [],
   });
   const ownerView = ok(await read(status, owner, 'get_match_roster', { match_id: matchId }), 'o');
   assert.deepEqual(ownerView.payment_summary, {
@@ -519,6 +520,7 @@ async function proveHttp(status, db) {
     waitlist_position: 1,
     paid: null,
     can_manage: false,
+    refunds: [],
   });
   console.log(
     'ok - paid cannot leave; unmarked leaves and C is promoted; return goes to the end; leaving the waitlist promotes nobody',
@@ -1078,7 +1080,7 @@ async function proveEditCancel(status, db, context) {
     'slots below the confirmed',
   );
 
-  // Preço: muda, e a marcação de pago fica.
+  // 0034: a paid mark locks price; a same-price edit still works.
   ok(
     await mutate(status, owner, 'set_match_payment', {
       match_id: matchId,
@@ -1088,12 +1090,21 @@ async function proveEditCancel(status, db, context) {
     'mark x',
   );
   const markedAt = (await statuses(db, matchId)).find((row) => row.profile_id === x.profileId);
-  ok(
+  denied(
     await mutate(status, organizer, 'update_match', {
       match_id: matchId,
       config: { ...config, field_slots: 2, field_price: '30', location_name: 'Arena Nova' },
     }),
-    'new price',
+    409,
+    'PRICE_LOCKED',
+    'paid locks price',
+  );
+  ok(
+    await mutate(status, organizer, 'update_match', {
+      match_id: matchId,
+      config: { ...config, field_slots: 2, location_name: 'Arena Nova' },
+    }),
+    'same price edit',
   );
   const marked = (await statuses(db, matchId)).find((row) => row.profile_id === x.profileId);
   assert.deepEqual(
@@ -1102,15 +1113,19 @@ async function proveEditCancel(status, db, context) {
     'the paid mark keeps value, author and time',
   );
   const roster = ok(await read(status, owner, 'get_match_roster', { match_id: matchId }), 'roster');
-  assert.deepEqual(roster.payment_summary, { paid_count: 1, confirmed_count: 2, total: '30.00' });
+  assert.deepEqual(roster.payment_summary, {
+    paid_count: 1,
+    confirmed_count: 2,
+    total: Number(config.field_price).toFixed(2),
+  });
   // O membro vê a mudança na leitura dele.
   const [seen] = ok(await read(status, z, 'get_match', { match_id: matchId }), 'member reads');
   assert.deepEqual(
     [seen.location_name, Number(seen.field_price), seen.field_slots, seen.canceled],
-    ['Arena Nova', 30, 2, false],
+    ['Arena Nova', Number(config.field_price), 2, false],
   );
   console.log(
-    'ok - raising the slots promotes the waitlist head; below the confirmed is 409; a new price keeps the paid mark; the member reads the change',
+    'ok - raising the slots promotes the waitlist head; below the confirmed is 409; a paid mark locks repricing; the member reads the change',
   );
 
   // Cancelar: definitivo; presença, espera e pagamento recusam pela Edge.

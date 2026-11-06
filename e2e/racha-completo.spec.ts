@@ -17,8 +17,16 @@ type Actor = { authId: string; profileId: string; token: string; email: string; 
 test.use({ timezoneId: ZONE, colorScheme: 'dark' });
 
 async function shot(page: Page, project: string, file: string) {
-  if (project !== 'mobile-chromium' || !screenshotRoot || !existsSync(screenshotRoot)) return;
-  await page.screenshot({ path: path.join(screenshotRoot, file), fullPage: true });
+  if (
+    (project !== 'mobile-chromium' && !file.startsWith('devolucao-')) ||
+    !screenshotRoot ||
+    !existsSync(screenshotRoot)
+  )
+    return;
+  await page.screenshot({
+    path: path.join(screenshotRoot, file.startsWith('devolucao-') ? `${project}-${file}` : file),
+    fullPage: true,
+  });
 }
 
 async function createActor(
@@ -474,7 +482,7 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await anaView.page.getByTestId('match-pay-notice').scrollIntoViewIfNeeded();
     await shot(anaView.page, testInfo.project.name, 'pagamento-02-pago.png');
 
-    // Canceled: Bia, who did not pay, no longer sees the instruction; Ana keeps the mark.
+    // Canceled: Bia, who did not pay, no longer sees the instruction; Ana sees her refund obligation.
     const biaView = await open(browser, bia, matchId);
     contexts.push(biaView.context);
     await expect(biaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
@@ -483,9 +491,49 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await expect(biaView.page.getByTestId('match-confirmed')).toBeVisible();
     await expect(biaView.page.getByTestId('match-pay-notice')).toHaveCount(0);
     await anaView.page.reload();
-    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(
-      'Pagamento marcado pela organização.',
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toContainText('A devolver');
+
+    // 1.3: organization reads obligations; player sees only their own. UI stays current.
+    await ownerView.page.reload();
+    const refundId = (
+      await db.query(
+        `select r.id from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1 and p.profile_id=$2`,
+        [matchId, ana.profileId],
+      )
+    ).rows[0].id as string;
+    await expect(ownerView.page.getByTestId('match-refunds-total')).toContainText('12,50');
+    await expect(ownerView.page.getByTestId('match-payment-summary')).toHaveCount(0);
+    if (testInfo.project.name === 'mobile-chromium')
+      await ownerView.page.setViewportSize({ width: 390, height: 844 });
+    else await ownerView.page.setViewportSize({ width: 1280, height: 800 });
+    await ownerView.page.getByTestId(`refund-${refundId}`).click();
+    await expect(ownerView.page.getByTestId('refund-confirmation-heading')).toBeFocused();
+    await expect(ownerView.page.getByTestId('refund-date')).toHaveAccessibleDescription(
+      /America\/Sao_Paulo/,
     );
+    await assertAccessible(ownerView.page);
+    await shot(ownerView.page, testInfo.project.name, 'devolucao-01-a-devolver.png');
+    await ownerView.page.getByTestId('refund-confirm').click();
+    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText(
+      'Devolvido, confira no banco',
+    );
+    await anaView.page.getByTestId('match-refresh-button').click();
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toContainText(
+      'Devolvido, confira no banco',
+    );
+    await shot(ownerView.page, testInfo.project.name, 'devolucao-02-devolvido.png');
+    await ownerView.page.getByTestId(`refund-${refundId}`).click();
+    await ownerView.page.getByTestId('refund-confirm').click();
+    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText(
+      'Devolvido, confira no banco',
+    );
+    await ownerView.page.getByTestId(`canceled-payment-${bia.profileId}`).click();
+    await ownerView.page.getByTestId('refund-confirm').click();
+    await expect(ownerView.page.getByTestId('match-refunds-total')).toContainText('12,50');
+    await expect(ownerView.page.getByTestId(`canceled-payment-${bia.profileId}`)).toHaveCount(0);
+    await biaView.page.getByTestId('match-refresh-button').click();
+    await expect(biaView.page.getByTestId('match-pay-notice-title')).toContainText('A devolver');
+    await expect(biaView.page.getByTestId('match-refunds')).toHaveCount(0);
 
     // A match that already started keeps the instruction for who still owes.
     const started = await createMatch(request, owner, groupId);

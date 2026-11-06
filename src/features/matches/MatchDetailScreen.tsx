@@ -44,6 +44,7 @@ import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
 import { deviceDiffers, zoneLabel } from './match-zone';
 import { matchTeamsQueryKey, MatchTeamsSection } from './MatchTeams';
+import { MatchRefunds } from './MatchRefunds';
 import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
@@ -460,30 +461,53 @@ function PaymentNoticeBlock({
     canceled: roster.canceled,
     collectors: collectorNames(members.data),
   });
-  if (notice === null) return null;
-  return (
-    <View style={[styles.payNotice, { backgroundColor: colors.surface }]} testID="match-pay-notice">
-      <AppIcon
-        color={notice.kind === 'paid' ? colors.positive : colors.textMuted}
-        name={notice.kind === 'paid' ? 'check-circle' : 'credit-card'}
-        size={20}
-      />
-      <View style={styles.payNoticeBody}>
-        <Text
-          style={[styles.payNoticeTitle, { color: colors.text }]}
-          testID="match-pay-notice-title"
-        >
-          {notice.kind === 'paid'
-            ? pt.matches.detail.paidNotice
-            : pt.matches.detail.payTo(notice.collectors)}
-        </Text>
-        {notice.kind === 'pay' ? (
-          <Text style={[styles.small, { color: colors.textMuted }]} testID="match-pay-notice-note">
-            {pt.matches.detail.payNote(matchPrice(price))}
+  const ownRefundNotice =
+    !roster.viewer.can_manage && roster.viewer.refunds?.length ? (
+      <View
+        style={styles.payNotice}
+        testID={notice === null ? 'match-pay-notice' : 'match-own-refunds'}
+      >
+        {roster.viewer.refunds.map((refund) => (
+          <Text key={refund.id} style={{ color: colors.text }} testID="match-pay-notice-title">
+            {refund.status === 'refund_due' ? pt.refunds.due : pt.refunds.refunded} ·{' '}
+            {matchPrice(Number(refund.amount))}
           </Text>
-        ) : null}
+        ))}
       </View>
-    </View>
+    ) : null;
+  if (notice === null) return ownRefundNotice;
+  return (
+    <>
+      {ownRefundNotice}
+      <View
+        style={[styles.payNotice, { backgroundColor: colors.surface }]}
+        testID="match-pay-notice"
+      >
+        <AppIcon
+          color={notice.kind === 'paid' ? colors.positive : colors.textMuted}
+          name={notice.kind === 'paid' ? 'check-circle' : 'credit-card'}
+          size={20}
+        />
+        <View style={styles.payNoticeBody}>
+          <Text
+            style={[styles.payNoticeTitle, { color: colors.text }]}
+            testID="match-pay-notice-title"
+          >
+            {notice.kind === 'paid'
+              ? pt.matches.detail.paidNotice
+              : pt.matches.detail.payTo(notice.collectors)}
+          </Text>
+          {notice.kind === 'pay' ? (
+            <Text
+              style={[styles.small, { color: colors.textMuted }]}
+              testID="match-pay-notice-note"
+            >
+              {pt.matches.detail.payNote(matchPrice(price))}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </>
   );
 }
 
@@ -543,7 +567,7 @@ function Rosters({
           <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
             {pt.matches.detail.confirmedTitle}
           </Text>
-          {manage && summary ? (
+          {manage && summary && !roster.canceled ? (
             <View testID="match-payments">
               <Text
                 style={[styles.small, { color: colors.textMuted }]}
@@ -601,9 +625,9 @@ function Rosters({
             <ConfirmedRow
               entry={item}
               locked={roster.canceled}
-              manage={manage}
+              manage={manage && !roster.canceled}
               onMark={mark}
-              ownPaid={roster.viewer.paid}
+              ownPaid={roster.canceled ? null : roster.viewer.paid}
               saving={saving !== null && saving.id === item.profile_id}
               testID={`match-confirmed-${index}`}
               waiting={saving !== null && saving.id !== item.profile_id}
@@ -680,13 +704,18 @@ function CancelMatch({
   manageable,
   matchId,
   profileId,
+  roster,
+  price,
 }: {
+  roster: MatchRoster;
+  price: number;
   date: string;
   /** False once the match is canceled or over; the result of this screen's own cancel stays. */
   manageable: boolean;
   matchId: string;
   profileId: string;
 }) {
+  const { colors } = useTheme();
   const actions = useMatchActions(profileId);
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
@@ -724,6 +753,19 @@ function CancelMatch({
           title={pt.matches.detail.cancelMatchTitle(date)}
           testID="match-cancel-confirmation"
         >
+          <Text style={{ color: colors.text }}>{pt.refunds.warning}</Text>
+          {roster.confirmed
+            .filter((entry) => entry.paid)
+            .map((entry, index) => (
+              <Text style={{ color: colors.text }} key={entry.profile_id ?? index}>
+                {entryName(entry)} · {pt.refunds.due} · {matchPrice(price)}
+              </Text>
+            ))}
+          <Text style={{ color: colors.text }}>
+            {pt.refunds.total(
+              matchPrice(roster.confirmed.filter((entry) => entry.paid).length * price),
+            )}
+          </Text>
           <View style={styles.actions}>
             <AppButton
               ariaDisabled={actions.pending}
@@ -788,6 +830,12 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
     queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
   });
   const roster = rosterQuery.data;
+  const refundsQuery = useQuery({
+    enabled: roster?.viewer.can_manage === true,
+    queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId, 'refunds'],
+    queryFn: ({ signal }) => api.getMatchRefunds(matchId, signal),
+    refetchInterval,
+  });
   // Whoever may create matches in the group edits and cancels it, until it
   // ends (0028). The server decides again on every call.
   // "Now" is read once per read of the match: it moves only when the match does.
@@ -873,7 +921,12 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
       {match ? (
         <>
           <LiveRefresh
-            queries={[detail, rosterQuery, teamsQuery]}
+            queries={[
+              detail,
+              rosterQuery,
+              teamsQuery,
+              ...(roster?.viewer.can_manage ? [refundsQuery] : []),
+            ]}
             // The teams below read under the same key, so "Atualizar" reads them too;
             // and who collects (rev91 P2-3). Without the payment instruction the read
             // here is disabled and refetchQueries skips it, unless the same group's
@@ -922,7 +975,23 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                 roster={roster}
               />
               {roster.viewer.can_manage ? (
+                <>
+                  <ReadNotice query={refundsQuery} />
+                  {refundsQuery.data ? (
+                    <MatchRefunds
+                      matchId={matchId}
+                      profileId={profile.id}
+                      timezone={match.timezone}
+                      roster={roster}
+                      refunds={refundsQuery.data}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+              {roster.viewer.can_manage ? (
                 <CancelMatch
+                  roster={roster}
+                  price={Number(match.field_price)}
                   date={matchDateTitle(match.starts_at, match.timezone)}
                   manageable={manageable}
                   matchId={matchId}

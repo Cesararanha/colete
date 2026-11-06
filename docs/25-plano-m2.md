@@ -1246,6 +1246,18 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Piloto 1.3 — decisões de César de 28/10 e 06/11/2026 (P10/P16, AGENTS §8).**
+  Autorizados os recortes de `13` §3.3.2 e §5.0.8, o mapa `27` e seus hashes reais.
+  Migration `0034`: obrigação por pagamento, preço congelado, transferência/zeramento
+  atômicos, saída do grupo sem tocar cancelado, pagamento conhecido após cancelamento,
+  devolução manual e correção somente da data; sem referência livre nem livro completo.
+  Preço trava com pago ou obrigação pendente; apagar grupo recusa pago em racha a cancelar
+  (inclusive em andamento) e qualquer devolução pendente. §14 mantém as chaves atuais de
+  `cancel_match` e exige migrar todo `removed` pago, sem exceção histórica. Registros da
+  `0033` só recebem INSERT; a fatia 1.4 continua separada. Pendências de exclusão de conta,
+  ex-membro, retenção e desidentificação financeira ficam em `27`; risco alto (§4.12),
+  revisão independente a cargo do orquestrador, sem commit/push nesta sessão.
+
 - **D63.5: ordem de travas do registro — decisão humana de César, 05/11/2026, AGENTS §8.**
   Autorizado registrar no §2 as travas `FOR KEY SHARE` das FKs de
   `idempotency_records` nas linhas imutáveis de operação e resultado, sem

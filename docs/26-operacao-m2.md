@@ -3876,3 +3876,157 @@ nenhum desfecho recusado antes que passe a ser aceito. Entram neste PR:
 - **P3-6.** O MultiXact medido está na ordem de travas.
 - **P3-7.** A medição da migration sobre dados está registrada, e o harness fica como dívida
   aberta.
+
+## Piloto 1.3 — devolução no cancelamento (`0034`, 06/11/2026)
+
+Implementação nesta worktree, branch `feat/devolucao-cancelamento`, base `main 93c3494`.
+Autorização de César P10/P16 e decisões do plano do piloto de 28/10 e 06/11 (§14 prevalece),
+fora do repositório. Sem add, commit, push ou PR nesta sessão; revisão independente de risco
+alto e publicação ficam com o orquestrador. Somente pilha Supabase local deste projeto,
+registry público de pacotes e consulta inicial ao GitHub; nenhum projeto Supabase remoto,
+serviço de produção ou credencial real. Nenhum `.env` de outra checkout foi lido/copiado.
+
+**Entrega.** `private.match_refunds`, por identidade de pagamento (inscrição + instante),
+preço congelado, origem `canceled|left_group`, estados `refund_due|refunded`, datas e autores
+sem referência livre. Cancelamento e saída do grupo transferem atomicamente a marcação e
+limpam seus três campos; cancelado preserva lista histórica mesmo com saída do grupo.
+Backfill de todo `removed` pago, inclusive em andamento/terminado, e pago em cancelado,
+usando o preço atual (origem canceled prevalece). CHECK de pago somente em starter.
+`record_canceled_match_payment`, `mark_refunded`, `correct_refund` por gateway/idempotência;
+a correção preserva devolvido e altera só a data. `cancel_match` mantém o desfecho anterior,
+sem contagem/total. As três operações são INSERT nos dois registros da `0033`, imutável:
+**38 operações / 57 resultados** no estado novo. Preço e exclusão do grupo têm as travas
+do `13` §3.3.2/§5.0.8. Nenhuma operação da fatia 1.4 entrou.
+
+**Provas novas.** pgTAP: fronteira sem RLS/grants, EXECUTE nominal, unicidade por pagamento
+com inserção esperando 23505 (origem diferente não pode escapar), zeramento conjunto, retorno
+não pago com obrigação antiga e segundo pagamento/segunda saída produzindo duas obrigações;
+P13×P17, lista starter e obrigação canceled preservadas em leave_group, preço bloqueado com
+pago e com obrigação sem paid, exclusão recusada em futuro/em andamento e com obrigação de
+racha terminado, permissões, datas, replays, correção preservando os fatos financeiros,
+projeção própria/organizacional e conta em exclusão desidentificada. Um teste documenta o
+risco já aceito: exclusão do dono solo ainda arquiva grupo com obrigação de terceiro.
+Testes anteriores de preço, cancelado e apagar foram adaptados ao contrato autorizado,
+conservando suas provas de replay e de concorrência; nenhuma asserção foi removida.
+
+`db:test:refunds` usa conexões distintas, barreira observada em pg_stat_activity, duas
+marcações e duas correções concorrentes com commit real sob service_role. O gatilho de
+idempotência recusa commit de executing_uncommitted e de completed malformado sob esse
+papel. Contraprova tira as travas do contexto e torna vermelha a barreira delete×payment;
+a definição original é restaurada no finally. Backfill usa o trecho SQL real da migration
+sobre fixture do estado anterior dentro de rollback (canceled, futuro, em andamento e
+terminado); não é simulação do predicado em JavaScript. Também cria sessão real GoTrue e
+exercita as três operações, seus replays, projeção da organização e recusa ao jogador por
+HTTP Edge. Não depende do navegador para essa prova. Entra em package.json, AGENTS §5 e
+Database security juntos; o workflow só mudou nesse job.
+
+**Interface e leituras.** Bloco da 1.1 mostra a própria devolução, sem esconder a instrução
+da inscrição nova quando a pessoa voltou. Organização vê inclusive ex-membros; conta em
+exclusão aparece “Conta excluída”. Confirmação de cancelamento lista pagos e total; registro
+manual/correção pede confirmação e data no fuso do racha (mesmo helper da 1.2). Sem alegar
+confirmação bancária. A projeção nova participa de Atualizar, intervalo e hora da leitura
+mais antiga. Conta refeita a partir do custo e das correções de #89/#91 neste documento:
+
+| Tela na frente, visível | Leituras a cada 30 s | Chamadas Edge/hora (aritmética, sem retries) |
+|---|---|---|
+| Detalhe não cancelado, jogador | get_match, get_match_roster, get_match_teams: 3 | 360 |
+| Detalhe não cancelado, organização | as mesmas + get_match_refunds: 4 | 480 |
+| Detalhe cancelado, jogador | get_match, get_match_roster: 2 | 240 |
+| Detalhe cancelado, organização | as mesmas + get_match_refunds: 3 | 360 |
+
+get_group_members da instrução não tem intervalo: uma leitura ao abrir quando necessário,
+mais Atualizar/volta à tela; get_group_ratings também não tem intervalo. Não há “5 leituras
+periódicas” na organização. Duas abas de organização abertas: 8 chamadas por ciclo, 960/h.
+Estes números são contagem do código e aritmética sobre a medição anterior, **não medição
+nova de CPU**. O teste de polling agora conta também refunds e mantém Grupos/Agenda/Editar
+quietos conforme foco. Os e2e de pagamento/cancelamento/devolução/correção/pagamento tardio
+(390 e 1280 px) e exclusão com os dois erros foram escritos, mas não executaram o fluxo
+nesta sessão pelo bloqueio abaixo. Nenhum print ou resultado de acessibilidade é alegado.
+
+**Validação medida nesta sessão.** SUPABASE_TELEMETRY_DISABLED=1 foi usado para evitar a
+escrita de telemetria fora das raízes permitidas. O primeiro db:reset teve exit 1 por
+EPERM de telemetria; com telemetria desligada, exit 1 porque a pilha estava parada.
+db:start terminou com exit 0, baixando imagens pelo CLI e aplicando migrations do zero;
+depois db:reset exit 0 até a 0034. O Docker não foi bloqueado nem contornado. A pilha local
+ficou ligada para o orquestrador; nenhum outro contêiner foi inspecionado/parado/removido.
+
+| Comando | Exit final / resultado |
+|---|---|
+| npm run db:start | 0 |
+| npm run db:reset | 0; recriação só pelas migrations |
+| npm run db:test | 0; 32 arquivos, **2.449 asserções** |
+| npm run db:test:idempotency | 0 |
+| npm run db:test:gateway | 0 |
+| npm run db:test:cors | 0 |
+| npm run db:test:worker | 0 |
+| npm run db:test:deletion | 0 |
+| npm run db:test:export | 0 |
+| npm run db:test:invites | 0 |
+| npm run db:test:groups | 0 |
+| npm run db:test:membership | 0 |
+| npm run db:test:rename | 0 |
+| npm run db:test:group-deletion | 0; retestado após adaptar fixtures de sucesso à trava financeira |
+| npm run db:test:photos | 0 |
+| npm run db:test:members | 0 |
+| npm run db:test:matches | 0 |
+| npm run db:test:match-players | 0 |
+| npm run db:test:ratings | 0 |
+| npm run db:test:teams | 0 |
+| npm run db:test:refunds | 0; barreiras, mutante, migração, commits e HTTP real; retestado após correção |
+| npm run db:test:geocode | 0 |
+| npm run generate:db-types | 0; gerado do banco local |
+| npm run verify:app | 0; lint, formato, tipos, **65 arquivos / 773 unitários**, build, PWA, config Auth, scans |
+| npm run build:web:auth-e2e | 0 |
+| npm run build:web:smoke | 0 |
+| npm run scan:docs | 0; hashes reais de 13/25 no manifesto |
+| npm run scan:secrets | 0 |
+| npm run test:audit | 0; 94 testes |
+| npm run test:staging | 0; 102 testes locais, sem acessar staging |
+| npm run audit:high | 0; uma exceção vigente, nenhum high/critical fora dela |
+| git diff --check | 0 |
+| npx playwright test --list | 0; 236 testes descobertos em 22 arquivos |
+| npx playwright test e2e/racha-completo.spec.ts e2e/apagar-grupo.spec.ts --grep 'Pagamento:&#124;the owner deletes the group' --workers=1 | 1; 4 lançamentos bloqueados antes de abrir página |
+
+Rodadas iniciais de db:test reprovaram as allowlists antigas e as expectativas substituídas
+pelos contratos aprovados; o harness de grupo reprovou fixtures com pago antes de apagar.
+Tudo corrigido e retestado acima. verify:app reprovou uma vez a formatação do harness novo,
+depois exit 0. O harness de devolução foi corrigido durante sua construção (assinaturas,
+casts e relógio de teste; datas vêm do relógio do banco para não presumir sincronização de
+milissegundos com a máquina). São falhas resolvidas, distintas do limite do navegador.
+
+**Não validado:** Chromium aborta no sandbox com `FATAL mach_port_rendezvous_mac.cc`,
+`bootstrap_check_in ... Permission denied (1100)` / SIGTRAP, antes da primeira página.
+Não houve tentativa de contornar o sandbox. Não foram executadas as demais suítes web após
+essa confirmação, nem revisão visual/prints, acessibilidade real ou medição nova de CPU.
+CI/revisão independente não foram feitas (sem commit/push/PR, conforme pedido).
+
+Comandos exatos para o orquestrador fora do sandbox, ainda com a pilha local, sem staging:
+
+```sh
+npm run build:web:auth-e2e
+npm run test:auth:web
+npm run test:privacy:web
+npm run test:cors:web
+npm run test:groups:web
+npm run test:matches:web
+npm run test:qr:web
+npm run build:web:smoke
+npm run test:smoke:web
+```
+
+Para capturas da devolução: criar uma pasta temporária e definir
+COLETE_RACHAS_SCREENSHOTS_DIR nessa pasta ao rodar test:matches:web; os arquivos
+mobile-chromium-devolucao-* e wide-chromium-devolucao-* correspondem a 390/1280 px.
+É preciso verificar os PNGs antes de afirmar validação visual. Recriar o build auth antes
+se dist estiver com o build smoke.
+
+Censo final medido: **zero** auth.users, profiles, groups, group_members, matches,
+match_players, match_refunds, idempotency_records, deletion_requests e external_effects.
+As sementes/execuções operacionais da pilha permanecem; nenhum objeto de teste novo ficou.
+Logs locais: /tmp/colete-refunds-validation, /tmp/colete-refunds-final e
+/tmp/colete-refunds-{db,harness,deletion-retest,e2e-new}.log, fora do repositório.
+
+**PERGUNTAS:** nenhuma decisão nova de produto/contrato pendente nesta fatia. Permanecem
+os limites aprovados e registrados no 27: exclusão financeira da conta, ex-membro, retenção
+e desidentificação financeira; 1.4, livro completo, Pix/provas, referência, notificações,
+disputas e Admin não foram antecipados.

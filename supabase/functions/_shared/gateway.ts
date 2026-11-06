@@ -171,6 +171,26 @@ function rpcParameters(
     case 'leave_match':
     case 'cancel_match':
       return { ...common, p_match_id: canonicalInput['match_id'] };
+    case 'record_canceled_match_payment':
+      return {
+        ...common,
+        p_match_id: canonicalInput['match_id'],
+        p_profile_id: canonicalInput['profile_id'],
+      };
+    case 'mark_refunded':
+      return {
+        ...common,
+        p_match_id: canonicalInput['match_id'],
+        p_refund_id: canonicalInput['refund_id'],
+        p_refunded_at: canonicalInput['refunded_at'],
+      };
+    case 'correct_refund':
+      return {
+        ...common,
+        p_match_id: canonicalInput['match_id'],
+        p_refund_id: canonicalInput['refund_id'],
+        p_corrected_at: canonicalInput['corrected_at'],
+      };
     case 'set_match_payment':
       return {
         ...common,

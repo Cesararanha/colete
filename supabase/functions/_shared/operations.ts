@@ -49,6 +49,9 @@ export const GROUP_OPERATIONS = [
   'set_match_payment',
   'update_match',
   'cancel_match',
+  'record_canceled_match_payment',
+  'mark_refunded',
+  'correct_refund',
   'delete_group',
   'set_rating',
   'draw_teams',
@@ -346,6 +349,9 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     set_match_payment: ['request_id', 'match_id', 'profile_id', 'paid'],
     update_match: ['request_id', 'match_id', 'config'],
     cancel_match: ['request_id', 'match_id'],
+    record_canceled_match_payment: ['request_id', 'match_id', 'profile_id'],
+    mark_refunded: ['request_id', 'match_id', 'refund_id', 'refunded_at'],
+    correct_refund: ['request_id', 'match_id', 'refund_id', 'corrected_at'],
     delete_group: ['request_id', 'group_id'],
     set_rating: ['request_id', 'group_id', 'profile_id', 'stars'],
     draw_teams: ['request_id', 'match_id', 'team_count', 'confirm_unequal_sizes'],
@@ -512,6 +518,36 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
           config: { ...normaliseMatchConfig(record['config'], new Date(), { futureStart: false }) },
         },
       };
+    }
+    case 'record_canceled_match_payment':
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          match_id: requiredUuid(record['match_id'], 'match_id'),
+          profile_id: requiredUuid(record['profile_id'], 'profile_id'),
+        },
+      };
+    case 'mark_refunded':
+    case 'correct_refund': {
+      const canonicalInput: Record<string, string> = {
+        match_id: requiredUuid(record['match_id'], 'match_id'),
+        refund_id: requiredUuid(record['refund_id'], 'refund_id'),
+      };
+      {
+        const field = operation === 'mark_refunded' ? 'refunded_at' : 'corrected_at';
+        const value = record[field];
+        if (
+          typeof value !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
+          !Number.isFinite(Date.parse(value)) ||
+          new Date(value).toISOString() !== value
+        ) {
+          throw validation(field, 'must be an ISO UTC instant with milliseconds');
+        }
+        canonicalInput[field] = value;
+      }
+      return { operation, requestId, canonicalInput };
     }
     case 'join_match':
     case 'leave_match':

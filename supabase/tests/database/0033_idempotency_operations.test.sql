@@ -11,11 +11,11 @@ select plan(65);
 -- ---------------------------------------------------------------------------
 -- O registro
 -- ---------------------------------------------------------------------------
-select is((select count(*)::int from private.idempotency_operations), 35, 'the registry has the 35 operations');
-select is((select count(*)::int from private.idempotency_operation_results), 52, 'and the 52 (operation, result) pairs');
+select is((select count(*)::int from private.idempotency_operations), 38, 'the registry has the 38 operations');
+select is((select count(*)::int from private.idempotency_operation_results), 57, 'and the 57 (operation, result) pairs');
 select is((select array_agg(family || ':' || n order by family) from
     (select family, count(*) as n from private.idempotency_operations group by family) as f),
-  array['account:2', 'group:29', 'identity:4'], 'four identity, two account and 29 group operations');
+  array['account:2', 'group:32', 'identity:4'], 'four identity, two account and 32 group operations');
 select is((select array_agg(operation order by operation) from private.idempotency_operations
     where outcome_shape <> 'ids'), array['accept_policies', 'revoke_current_session'],
   'only accept_policies and revoke_current_session have their own shape');

@@ -12,6 +12,20 @@ export function groupErrorMessage(error: unknown, administration = false): strin
   if (error instanceof TransportError) return pt.groups.errors.network;
   if (!(error instanceof AppError)) return pt.groups.errors.generic;
   switch (error.code) {
+    case 'PRICE_LOCKED':
+      return pt.refunds.errors.PRICE_LOCKED;
+    case 'MATCH_NOT_CANCELED':
+      return pt.refunds.errors.MATCH_NOT_CANCELED;
+    case 'PAYMENT_ALREADY_RESOLVED':
+      return pt.refunds.errors.PAYMENT_ALREADY_RESOLVED;
+    case 'PAYMENT_RELATION_NOT_FOUND':
+      return pt.refunds.errors.PAYMENT_RELATION_NOT_FOUND;
+    case 'REFUND_NOT_FOUND':
+      return pt.refunds.errors.REFUND_NOT_FOUND;
+    case 'ACTIVE_PAYMENTS_REMAIN':
+      return pt.refunds.errors.ACTIVE_PAYMENTS_REMAIN;
+    case 'REFUNDS_PENDING':
+      return pt.refunds.errors.REFUNDS_PENDING;
     case 'UNAUTHENTICATED':
       return pt.groups.errors.unauthenticated;
     case 'PROFILE_SUSPENDED':

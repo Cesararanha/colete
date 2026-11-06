@@ -325,6 +325,12 @@ select is((select public.preview_group_by_code(pg_temp.auth('07'), gen_random_uu
 select is((select count(*)::integer from public.list_my_matches(pg_temp.auth('03'), gen_random_uuid())),
   5, 'the Agenda lists the unfinished matches of both groups before the deletion');
 
+-- 0034: prove the new gate, then unmark explicitly for the closure/replay suite.
+select throws_ok($$select pg_temp.del('01')$$,'P0001','ACTIVE_PAYMENTS_REMAIN','marked payment prevents deletion');
+update private.match_players p set paid=false,payment_marked_at=null,payment_marked_by=null
+from private.matches m where m.id=p.match_id and m.group_id='29200000-0000-4000-8000-000000000001'
+ and m.canceled_at is null and m.ends_at>now();
+
 create temporary table ledger_before as
   select operation, request_id, state, outcome, updated_at from private.idempotency_records;
 create temporary table matches_before as
@@ -374,11 +380,11 @@ select is((select count(*)::integer from private.matches m
 select results_eq(
   $$select profile_id::text, status, paid from private.match_players
     where match_id = '29300000-0000-4000-8000-000000000001' order by queue_seq$$,
-  $$values ('29100000-0000-4000-8000-000000000003', 'starter', true),
+  $$values ('29100000-0000-4000-8000-000000000003', 'starter', false),
            ('29100000-0000-4000-8000-000000000007', 'left', false),
            ('29100000-0000-4000-8000-000000000012', 'starter', false),
            ('29100000-0000-4000-8000-000000000008', 'waitlist', false)$$,
-  'the canceled match keeps its lists and paid marks as history');
+  'the canceled match keeps its lists after the paid mark was cleared for deletion');
 
 -- Convites: todos revogados; o já revogado conserva o instante; o vivo de
 -- outro grupo não muda.
@@ -660,11 +666,11 @@ select is((select public.delete_account(pg_temp.auth('03'), gen_random_uuid(), g
 select results_eq(
   $$select profile_id::text, status from private.match_players
     where match_id = '29300000-0000-4000-8000-000000000001' order by queue_seq$$,
-  $$values ('29100000-0000-4000-8000-000000000003', 'removed'),
+  $$values ('29100000-0000-4000-8000-000000000003', 'starter'),
            ('29100000-0000-4000-8000-000000000007', 'left'),
            ('29100000-0000-4000-8000-000000000012', 'starter'),
            ('29100000-0000-4000-8000-000000000008', 'waitlist')$$,
-  'the canceled match frees the spot without promoting the waitlist');
+  'the canceled match preserves history without promoting the waitlist');
 -- O dono exclui a conta: o grupo apagado não pede substituto nem troca de dono.
 select is((select public.delete_account(pg_temp.auth('01'), gen_random_uuid(), gen_random_uuid(),
     repeat('a', 64), 1, 1) -> 'outcome' ->> 'logical_result'), 'deletion_requested',

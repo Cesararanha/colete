@@ -378,6 +378,20 @@ export type Database = {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_export_id: string };
         Returns: Json;
       };
+      correct_refund: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_corrected_at: string;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_refund_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       create_group: {
         Args: {
           p_actor_auth_user_id: string;
@@ -488,6 +502,10 @@ export type Database = {
           starts_at: string;
           timezone: string;
         }[];
+      };
+      get_match_refunds: {
+        Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
+        Returns: Json;
       };
       get_match_roster: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_match_id: string };
@@ -657,6 +675,20 @@ export type Database = {
         Args: { attempt_id: string; p_actor_auth_user_id: string; p_actor_session_id: string };
         Returns: undefined;
       };
+      mark_refunded: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_refund_id: string;
+          p_refunded_at: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       preview_group_by_code: {
         Args: { p_actor_auth_user_id: string; p_actor_session_id: string; p_code_digest: string };
         Returns: Json;
@@ -668,6 +700,19 @@ export type Database = {
           p_invite_id: string;
           p_token_digest: string;
           p_token_version: number;
+        };
+        Returns: Json;
+      };
+      record_canceled_match_payment: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_profile_id: string;
+          p_request_id: string;
         };
         Returns: Json;
       };

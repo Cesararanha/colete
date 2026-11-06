@@ -34,7 +34,7 @@ abaixo, sem substituir contratos existentes por suposição.
 | 4 — Esqueci minha senha | JÁ ENTREGUE | `docs/11-telas-v1.md:106`; D63 `docs/09-pivo-produto.md` §D63. D63.1: recuperação; M1-A, UI-B1 | — |
 | 5 — Rachas — vazio | JÁ ENTREGUE | `docs/11-telas-v1.md:113`; D63 `docs/09-pivo-produto.md` §D63. D63.1: acesso ao primeiro racha. Entregue como a Agenda vazia: `0021`/#70 e #72. | — |
 | 6 — Rachas — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:117`; D63 `docs/09-pivo-produto.md` §D63. D63.1: lista, vaga e fila; omitir estados de comprovante adiado. Entregue como a Agenda (próximos rachas de todos os grupos, filtros "Vou jogar" e "Com vaga"): `0021`/#70, #72, #74, #84. Ressalva: sem estados de comprovante, TP ou T1. | — |
-| 7 — Detalhe do racha | JÁ ENTREGUE | `docs/11-telas-v1.md:137`; D63 `docs/09-pivo-produto.md` §D63. D63.1: ocupação e fila; disputa/apelação e prova ficam fora. Entregue: `0021`/#70, `0022`/#71 (presença, espera e pagamento marcado), `0028`/#79, `0032`/#82, fuso do racha no #88. Ressalva: sem devolução (`record_canceled_match_payment`, `mark_refund_due` e `mark_refunded`, linhas PILOTO abaixo) nem adição/remoção pelo organizador (`add_player`/`remove_player`); claim e T1 são PÓS-PILOTO pela D63-H, e o T2 segue PILOTO em `apply_due_transitions_locked`. | — |
+| 7 — Detalhe do racha | JÁ ENTREGUE | `docs/11-telas-v1.md:137`; D63 `docs/09-pivo-produto.md` §D63. D63.1: ocupação e fila; disputa/apelação e prova ficam fora. Entregue: `0021`/#70, `0022`/#71 (presença, espera e pagamento marcado), `0028`/#79, `0032`/#82, fuso do racha no #88. Devolução entregue no corte da `0034` (`13` §3.3.2); `mark_refund_due` fora desse corte nem adição/remoção pelo organizador (`add_player`/`remove_player`); claim e T1 são PÓS-PILOTO pela D63-H, e o T2 segue PILOTO em `apply_due_transitions_locked`. | — |
 | 8 — Pagamento | PILOTO | `docs/11-telas-v1.md:161`; D63-G: instrução «pague ao organizador»; acerto externo e `mark_paid`, sem Pix no app. Parcial: a marcação manual entrou como `set_match_payment` (`0022`/#71) e o jogador vê o próprio estado; a instrução «pague ao organizador» segue pendente. | — |
 | 9 — Times publicados | JÁ ENTREGUE | `docs/11-telas-v1.md:175`; D63 `docs/09-pivo-produto.md` §D63. D63.1: composição publicada; sem nota pública. Entregue na seção "Times" do detalhe: `0032`/#82. Ressalva: o sorteio já vale como publicado, sem proposta nem ajuste manual (`13` §4.4). | — |
 | 10 — Grupos — lista | JÁ ENTREGUE | `docs/11-telas-v1.md:182`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar/entrar em grupo; UI-A do M2. Entregue: UI-A #50; ícone, cor e foto do grupo #77/#81. | — |
@@ -46,11 +46,11 @@ abaixo, sem substituir contratos existentes por suposição.
 | 16 — Criar grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:247`; D63 `docs/09-pivo-produto.md` §D63. D63.1. Entregue: `create_group` (`0017`/#45) e UI-A #50. | — |
 | 17 — Gestão de membros | JÁ ENTREGUE | `docs/11-telas-v1.md:251`; D63 `docs/09-pivo-produto.md` §D63. D63.1. Entregue: UI-B #54. | — |
 | 18 — Criar/editar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:261`; D63-E: criação e edição segura entram; recorrência é evolução. Entregue: criar `0021`/#70, usabilidade #72, editar `0028`/#79, fuso do racha #88. Ressalva: sem as travas de edição segura de `13` §3.2, recorrência, Pix, goleiros nem horários T0/T1/T2. | — |
-| 19 — Painel do organizador | PILOTO | `docs/11-telas-v1.md:292`; D63-E/F/G: `mark_paid`, adição/remoção manual, «a devolver»/«devolvido»; sem Pix no app. Parcial: pagamento marcado (`0022`/#71), sortear (`0032`/#82), avaliar (`0031`/#83) e cancelar (`0028`/#79) entregues; adição/remoção manual (`add_player`/`remove_player`) e «a devolver»/«devolvido» (`mark_refund_due`/`mark_refunded`) seguem PILOTO. | — |
+| 19 — Painel do organizador | PILOTO | `docs/11-telas-v1.md:292`; D63-E/F/G: `mark_paid`, adição/remoção manual, «a devolver»/«devolvido»; sem Pix no app. Parcial: pagamento marcado (`0022`/#71), sortear (`0032`/#82), avaliar (`0031`/#83) e cancelar (`0028`/#79) entregues; adição/remoção manual (`add_player`/`remove_player`) segue PILOTO; «a devolver»/«devolvido» entregue em corte na `0034`. | — |
 | 20 — Aprovar comprovante | PÓS-PILOTO | `docs/11-telas-v1.md:313`; D63 `docs/09-pivo-produto.md` §D63. D63.2: upload/análise adiados | Evolução (D63-D) |
 | 21 — Avaliar jogadores | JÁ ENTREGUE | `docs/11-telas-v1.md:326`; D63-A: organizador atribui nota a cada jogador de linha para serpentina; detalhes exatos antes de M6. Entregue: `0031`/#83. | — |
 | 22 — Sortear e publicar | JÁ ENTREGUE | `docs/11-telas-v1.md:332`; D63-A: sequência A/B ilustra dois times; resultado guardado/reproduzível, com número de times e formato de persistência a especificar antes de M6. Entregue: `0032`/#82. Ressalva: sortear já publica, sem proposta, ajuste manual nem trilha pública. | — |
-| 23 — Cancelar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:345`; D63-E: cancelar entra no piloto; obrigação/devolução manuais seguem `13` §3.3 e §§2.6.1–2.9. Entregue: `0028`/#79. Ressalva: sem motivo e sem obrigação «a devolver» de quem pagou (`mark_refund_due`, linha PILOTO). | — |
+| 23 — Cancelar racha | JÁ ENTREGUE | `docs/11-telas-v1.md:345`; D63-E: cancelar entra no piloto; obrigação/devolução manuais seguem `13` §3.3 e §§2.6.1–2.9. Entregue: `0028`/#79. `0034`: obrigação «a devolver» e registro manual; sem motivo livre, `mark_refund_due` fora do corte. | — |
 | 24 — Convites do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:351`; D63 `docs/09-pivo-produto.md` §D63. D63.1: link. Entregue: `0017`/#45, UI-A #50, QR #69. | — |
 | 25 — Configurações do grupo | JÁ ENTREGUE | `docs/11-telas-v1.md:369`; D63 `docs/09-pivo-produto.md` §D63. D63.1: arquivar por RPC está em `25` §8.2. Entregue: UI-B #54, renomear (`0018`/#46), ícone e cor (`0027`/#77), foto (`0030`/#81), apagar (`0029`/#80). Ressalva: arquivar segue em `25` §8.2. | — |
 
@@ -77,11 +77,11 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `delete_own_proof` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:329`; D63 `docs/09-pivo-produto.md` §D63. D63.2: ciclo de prova adiado | Evolução (D63-D) |
 | `decide_proof` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:336`; D63 `docs/09-pivo-produto.md` §D63. D63.2: decisão de prova adiada | Evolução (D63-D) |
 | `mark_paid` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:352`; D63 `docs/09-pivo-produto.md` §D63. D63.1: organizador marca pagamento manual. Entregue em corte como `set_match_payment`: `0022`/#71. Ressalva: booleano reversível, sem resolução única, valor nem N9; o livro de pagamentos de `10` (ciclos, resoluções e eventos) segue pendente. | — |
-| `record_canceled_match_payment` | PILOTO | `docs/13-contratos-funcoes.md:361`; D63-E: registra pagamento conhecido após cancelamento e cria obrigação única de devolução (`13` §2.6.1). | — |
-| `mark_refund_due` | PILOTO | `docs/13-contratos-funcoes.md:369`; D63-E: marca manualmente «a devolver» sobre resolução real (`13` §2.7). | — |
-| `mark_refunded` | PILOTO | `docs/13-contratos-funcoes.md:370`; D63-E: organizador declara manualmente «devolvido»; sem confirmação bancária (`13` §2.7). | — |
-| `correct_refund` | PILOTO | `docs/13-contratos-funcoes.md:378`; D63-E: corrige somente horário/referência com auditoria e limites de `13` §2.8. | — |
-| `unlock_price_after_refunds` | PILOTO | `docs/13-contratos-funcoes.md:385`; D63-E: edição de preço apenas após todas as devoluções e sem disputa, com nova versão de cobrança (`13` §§2.9, 3.2). | — |
+| `record_canceled_match_payment` | JÁ ENTREGUE EM CORTE | `0034`, `13` §3.3.2: obrigação por pagamento, declaração de acerto externo; correção só da data, sem referência livre, ledger, notificações ou Admin. | — |
+| `mark_refund_due` | FORA DO CORTE 1.3 | `docs/13-contratos-funcoes.md:369`; D63-E: marca manualmente «a devolver» sobre resolução real (`13` §2.7). | — |
+| `mark_refunded` | JÁ ENTREGUE EM CORTE | `0034`, `13` §3.3.2: obrigação por pagamento, declaração de acerto externo; correção só da data, sem referência livre, ledger, notificações ou Admin. | — |
+| `correct_refund` | JÁ ENTREGUE EM CORTE | `0034`, `13` §3.3.2: obrigação por pagamento, declaração de acerto externo; correção só da data, sem referência livre, ledger, notificações ou Admin. | — |
+| `unlock_price_after_refunds` | FORA DO CORTE 1.3 | `docs/13-contratos-funcoes.md:385`; D63-E: edição de preço apenas após todas as devoluções e sem disputa, com nova versão de cobrança (`13` §§2.9, 3.2). | — |
 | `open_financial_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:395`; D63-D (extensão): primeira instância financeira, parte da apelação financeira. | Obrigatório antes da abertura pública (D63-D, extensão) |
 | `respond_financial_dispute` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:399`; D63-D (extensão): resposta da primeira instância financeira. | Obrigatório antes da abertura pública (D63-D, extensão) |
 | `resolve_financial_dispute_first_instance` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:401`; D63-D (extensão): decisão da primeira instância financeira. | Obrigatório antes da abertura pública (D63-D, extensão) |
@@ -96,7 +96,7 @@ controle de interface ou integração externa ainda pode estar pendente.
 | `admin_mark_refunded` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:444`; D63 `docs/09-pivo-produto.md` §D63. D63.2: caso Admin adiado | Obrigatório antes da abertura pública (D63-D) |
 | `create_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:453`; D63 `docs/09-pivo-produto.md` §D63. D63.1: criar racha. Entregue em corte: `0021`/#70, descrição em `0022`/#71. Ressalva: config sem TP/T1/T2, Pix, goleiros nem recorrência. | — |
 | `update_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:465`; D63-E: edição segura segundo locks de Pix, preço, data, prazos e publicação de `13` §3.2; adaptação do recorte antes de M3. Entregue em corte: `0028`/#79 (`13` §3.3.1). Ressalva: sem as travas de `13` §3.2 (`PRICE_LOCKED`, `DATE_LOCKED` e as demais). | — |
-| `cancel_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:512`; D63-E: cancelamento atômico de claims e obrigações `refund_due`; `13` §3.3; sem recorrência no piloto. Entregue em corte: `0028`/#79 (`13` §3.3.1). Ressalva: sem motivo nem obrigações `refund_due` (`mark_refund_due`, linha PILOTO acima). | — |
+| `cancel_match` | JÁ ENTREGUE | `docs/13-contratos-funcoes.md:512`; D63-E: cancelamento atômico de claims e obrigações `refund_due`; `13` §3.3; sem recorrência no piloto. Entregue em corte: `0028`/#79 (`13` §3.3.1). `0034`: obrigação por pagamento; sem motivo livre, desfecho original preservado. | — |
 | `advance_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:531`; D63-E: recorrência é evolução. | Evolução |
 | `update_recurrence` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:542`; D63-E: edição de série é evolução. | Evolução |
 | `set_recurrence_active` | PÓS-PILOTO | `docs/13-contratos-funcoes.md:543`; D63-E: ativação/desligamento de série é evolução. | Evolução |
@@ -517,8 +517,11 @@ que não existe. Quem estiver com uma tela do grupo aberta, ao atualizar, vê
 limite de 5 grupos ativos. Os dados ficam no banco para a exportação e a
 retenção.
 
-**Depois:** `archive_group` com leitura histórica (`25` §8.2), notificação aos
-membros e estorno de quem já pagou um racha cancelado.
+**0034 / fatia 1.3:** apagar recusa `ACTIVE_PAYMENTS_REMAIN` com pago em racha que
+cancelaria (inclusive em andamento) e `REFUNDS_PENDING` com obrigação pendente em
+qualquer racha do grupo, terminado/cancelado incluído. Tela orienta cancelar os rachas
+e registrar devoluções. Desmarcar pagos continua possível como divergência deliberada.
+**Depois:** `archive_group` com leitura histórica (`25` §8.2) e notificações.
 
 ## Notas dos jogadores — decisão humana de 19/10/2026
 
@@ -585,3 +588,24 @@ padrão, inclusive chamando a Edge direto.
 **Depois:** o algoritmo v3 de `04` (evolução), proposta e ajuste manual
 (`13` §4.3), trilha pública do sorteio, a lista de goleiros (`list_kind`),
 notificação N12 e os times na exportação LGPD.
+
+## Devolução no cancelamento — piloto 1.3, `0034` (06/11/2026)
+
+Decisões de César P1/P3/P4/P10/P13–P17/P19/P20 e §14, recorte de `13` §3.3.2 e
+§5.0.8 autorizado por P10/P16. Cancela e transfere cada marcação paga para obrigação com
+valor congelado; também na saída do grupo em racha futuro não cancelado. Pagamento depois
+do cancelamento só para confirmado sem obrigação `canceled`. Organização vê ex-membros,
+registra devolvido e corrige só a data; jogador vê só a própria obrigação enquanto membro.
+Quem volta entra não pago, com a obrigação anterior preservada: “devolvido” também pode
+significar acertado fora do app antes de marcar de novo (P13, D63-E).
+
+Substitui as lacunas de devolução acima para este recorte, incluindo M3/M5: instrução 1.1
+já entregue e devolução manual agora implementada. O contrato financeiro completo,
+`mark_refund_due`, `unlock_price_after_refunds`, Pix/provas, referência livre, disputas,
+Admin, notificações e adição/remoção da 1.4 continuam fora desta fatia.
+
+Pendências: ex-membro não acessa devolução no app (D63-D); retenção financeira de 24 meses
+e desidentificação dos fatos ainda não implementadas; exclusão de conta sem bloqueio
+financeiro, inclusive dono solo que arquiva grupo com obrigação de terceiros, depende do
+M5/`transfer_financial_authority`. Marcas anteriores podem ter preço histórico perdido:
+backfill usa o atual; todo `removed` pago é tratado, inclusive iniciado/terminado (§14).
