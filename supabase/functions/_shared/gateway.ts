@@ -182,14 +182,18 @@ function rpcParameters(
         ...common,
         p_match_id: canonicalInput['match_id'],
         p_refund_id: canonicalInput['refund_id'],
-        p_refunded_at: canonicalInput['refunded_at'],
+        ...(canonicalInput['refunded_at'] === undefined
+          ? {}
+          : { p_refunded_at: canonicalInput['refunded_at'] }),
       };
     case 'correct_refund':
       return {
         ...common,
         p_match_id: canonicalInput['match_id'],
         p_refund_id: canonicalInput['refund_id'],
-        p_corrected_at: canonicalInput['corrected_at'],
+        ...(canonicalInput['corrected_at'] === undefined
+          ? {}
+          : { p_corrected_at: canonicalInput['corrected_at'] }),
       };
     case 'set_match_payment':
       return {

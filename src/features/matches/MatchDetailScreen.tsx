@@ -468,7 +468,11 @@ function PaymentNoticeBlock({
         testID={notice === null ? 'match-pay-notice' : 'match-own-refunds'}
       >
         {roster.viewer.refunds.map((refund) => (
-          <Text key={refund.id} style={{ color: colors.text }} testID="match-pay-notice-title">
+          <Text
+            key={refund.id}
+            style={{ color: colors.text }}
+            testID={`match-own-refund-${refund.id}`}
+          >
             {refund.status === 'refund_due' ? pt.refunds.due : pt.refunds.refunded} ·{' '}
             {matchPrice(Number(refund.amount))}
           </Text>
@@ -761,11 +765,13 @@ function CancelMatch({
                 {entryName(entry)} · {pt.refunds.due} · {matchPrice(price)}
               </Text>
             ))}
-          <Text style={{ color: colors.text }}>
-            {pt.refunds.total(
-              matchPrice(roster.confirmed.filter((entry) => entry.paid).length * price),
-            )}
-          </Text>
+          {roster.confirmed.some((entry) => entry.paid) ? (
+            <Text style={{ color: colors.text }} testID="match-cancel-refunds-total">
+              {pt.refunds.total(
+                matchPrice(roster.confirmed.filter((entry) => entry.paid).length * price),
+              )}
+            </Text>
+          ) : null}
           <View style={styles.actions}>
             <AppButton
               ariaDisabled={actions.pending}

@@ -887,17 +887,17 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         match_id: matchId,
         profile_id: profileId,
       }),
-    markRefunded: (matchId: string, refundId: string, refundedAt: string) =>
+    markRefunded: (matchId: string, refundId: string, refundedAt?: string) =>
       mutation<MatchRefundOutcome>('mark_refunded', {
         match_id: matchId,
         refund_id: refundId,
-        refunded_at: refundedAt,
+        ...(refundedAt === undefined ? {} : { refunded_at: refundedAt }),
       }),
-    correctRefund: (matchId: string, refundId: string, correctedAt: string) =>
+    correctRefund: (matchId: string, refundId: string, correctedAt?: string) =>
       mutation<MatchRefundOutcome>('correct_refund', {
         match_id: matchId,
         refund_id: refundId,
-        corrected_at: correctedAt,
+        ...(correctedAt === undefined ? {} : { corrected_at: correctedAt }),
       }),
     getMatchRefunds: (matchId: string, signal?: AbortSignal) =>
       groupRead<ManagedMatchRefund[]>('get_match_refunds', { match_id: matchId }, signal),

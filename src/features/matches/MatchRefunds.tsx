@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppTextField } from '@/components/ui/AppTextField';
-import { api, type ManagedMatchRefund, type MatchRoster } from '@/lib/api';
+import { AppError, api, type ManagedMatchRefund, type MatchRoster } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
@@ -13,6 +13,7 @@ import { typography } from '@/theme/typography';
 import { focusGroupControl, GroupConfirmation } from '../groups/GroupConfirmation';
 import { matchErrorMessage } from './match-errors';
 import { matchPrice } from './match-format';
+import { zoneLabel } from './match-zone';
 import { refundInstant } from './refund-date';
 import { useMatchActions } from './useMatchActions';
 
@@ -43,7 +44,15 @@ export function MatchRefunds({
   const [invalid, setInvalid] = useState(false);
   const [saved, setSaved] = useState(false);
   const manage = roster.viewer.can_manage;
-  if (!manage) return null;
+  const paymentsToRecord = roster.canceled
+    ? roster.confirmed.filter(
+        (entry) =>
+          entry.profile_id !== null &&
+          !entry.account_removed &&
+          entry.can_record_canceled_payment === true,
+      )
+    : [];
+  if (!manage || (refunds.length === 0 && paymentsToRecord.length === 0)) return null;
   const confirmationTarget = confirming
     ? confirming.kind === 'payment'
       ? roster.confirmed.find((entry) => entry.profile_id === confirming.id)
@@ -66,29 +75,25 @@ export function MatchRefunds({
     void actions
       .run(`${target.kind}:${target.id}:${date}`, () =>
         target.kind === 'mark'
-          ? api.markRefunded(matchId, target.id, instant!)
+          ? api.markRefunded(matchId, target.id, instant ?? undefined)
           : target.kind === 'correct'
-            ? api.correctRefund(matchId, target.id, instant!)
+            ? api.correctRefund(matchId, target.id, instant ?? undefined)
             : api.recordCanceledMatchPayment(matchId, target.id),
       )
       .then((result) => {
         if (result) {
           setConfirming(null);
           setSaved(true);
-          if (target.kind === 'payment') {
-            // Wait for the confirmation to close and the refreshed row to render.
-            requestAnimationFrame(() => {
-              const control = `refund-${result.outcome.refund_id}`;
-              focusGroupControl(
-                typeof document !== 'undefined' &&
-                  document.querySelector(`[data-testid="${control}"]`)
-                  ? control
-                  : 'match-refresh-button',
-              );
-            });
-          } else {
-            focusGroupControl(`refund-${target.id}`);
-          }
+          // Wait for the confirmation to close and the refreshed row to render.
+          const control = `refund-${target.kind === 'payment' ? result.outcome.refund_id : target.id}`;
+          requestAnimationFrame(() => {
+            focusGroupControl(
+              typeof document !== 'undefined' &&
+                document.querySelector(`[data-testid="${control}"]`)
+                ? control
+                : 'match-refresh-button',
+            );
+          });
         }
       });
   };
@@ -129,7 +134,7 @@ export function MatchRefunds({
             · {matchPrice(Number(refund.amount))}
           </Text>
           <Text testID={`refund-status-${refund.id}`} style={{ color: colors.text }}>
-            {refund.status === 'refund_due' ? pt.refunds.due : pt.refunds.refunded}
+            {refund.status === 'refund_due' ? pt.refunds.due : pt.refunds.recorded}
           </Text>
           {refund.refunded_at ? (
             <Text style={{ color: colors.textMuted }}>
@@ -149,27 +154,26 @@ export function MatchRefunds({
           />
         </View>
       ))}
-      {roster.canceled
-        ? roster.confirmed
-            .filter(
-              (entry) =>
-                entry.profile_id !== null &&
-                !entry.account_removed &&
-                entry.can_record_canceled_payment === true,
-            )
-            .map((entry) => (
-              <AppButton
-                key={entry.profile_id}
-                ariaDisabled={actions.pending}
-                label={`${pt.refunds.recordPayment}: ${entry.nickname ?? entry.name}`}
-                testID={`canceled-payment-${entry.profile_id}`}
-                variant="outline"
-                onPress={() => ask(entry.profile_id!, 'payment')}
-              />
-            ))
-        : null}
+      {paymentsToRecord.map((entry) => (
+        <AppButton
+          key={entry.profile_id}
+          ariaDisabled={actions.pending}
+          label={`${pt.refunds.recordPayment}: ${entry.nickname ?? entry.name}`}
+          testID={`canceled-payment-${entry.profile_id}`}
+          variant="outline"
+          onPress={() => ask(entry.profile_id!, 'payment')}
+        />
+      ))}
       <AppAlert
-        message={actions.error ? matchErrorMessage(actions.error) : ''}
+        message={
+          actions.error instanceof AppError &&
+          actions.error.code === 'VALIDATION' &&
+          confirming?.kind !== 'payment'
+            ? pt.refunds.invalidDate
+            : actions.error
+              ? matchErrorMessage(actions.error)
+              : ''
+        }
         testID="match-refund-error"
       />
       <AppStatus message={saved ? pt.refunds.saved : ''} testID="match-refund-result" />
@@ -204,7 +208,7 @@ export function MatchRefunds({
           {confirming.kind !== 'payment' ? (
             <AppTextField
               label={pt.refunds.date}
-              hint={pt.refunds.dateHint(timezone)}
+              hint={pt.refunds.dateHint(zoneLabel(timezone, new Date()))}
               value={date}
               onChangeText={(value) => {
                 setDate(value);

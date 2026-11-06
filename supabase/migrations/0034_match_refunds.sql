@@ -38,13 +38,13 @@ insert into private.idempotency_operation_results(operation,logical_result) valu
  ('mark_refunded','refund_recorded'), ('mark_refunded','refund_unchanged'),
  ('correct_refund','refund_corrected'), ('correct_refund','refund_correction_unchanged');
 
--- P20 + §14: todo removed pago, inclusive racha em andamento ou terminado.
+-- P20 + §§14–15: todo pago fora de starter, inclusive em andamento ou terminado.
 -- Cancelado prevalece como origem, como no cancelamento daqui para frente.
 insert into private.match_refunds(match_player_id,payment_marked_at,payment_marked_by,amount,origin)
 select p.id,p.payment_marked_at,p.payment_marked_by,m.field_price,
  case when m.canceled_at is not null then 'canceled' else 'left_group' end
 from private.match_players p join private.matches m on m.id=p.match_id
-where p.paid and (p.status='removed' or m.canceled_at is not null);
+where p.paid and (p.status <> 'starter' or m.canceled_at is not null);
 update private.match_players p set paid=false,payment_marked_by=null,payment_marked_at=null
 where p.paid and exists(select 1 from private.match_refunds r where r.match_player_id=p.id);
 alter table private.match_players add constraint match_players_paid_starter_check
@@ -494,16 +494,16 @@ grant execute on function public.record_canceled_match_payment(uuid,uuid,uuid,te
 create function public.mark_refunded(
  p_actor_auth_user_id uuid,p_actor_session_id uuid,p_request_id uuid,
  p_input_hmac text,p_canonical_version integer,p_hash_key_version integer,
- p_match_id uuid,p_refund_id uuid, p_refunded_at timestamptz) returns jsonb language plpgsql volatile security definer
+ p_match_id uuid,p_refund_id uuid, p_refunded_at timestamptz default null) returns jsonb language plpgsql volatile security definer
  set search_path='' as $function$
 declare
  v_actor_id uuid; v_actor_key text; v_acquired record; v_group_id uuid;
  v_authority text; v_match private.matches%rowtype; v_refund private.match_refunds%rowtype;
- v_player private.match_players%rowtype; v_refund_id uuid; v_result text; v_outcome jsonb;
+ v_instant timestamptz; v_recorded_at timestamptz; v_player private.match_players%rowtype; v_refund_id uuid; v_result text; v_outcome jsonb;
 begin
   perform private.require_internal_transport(
     p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
-  if p_match_id is null or p_refund_id is null or p_refunded_at is null then
+  if p_match_id is null or p_refund_id is null then
     raise exception using errcode = '22023', message = 'VALIDATION';
   end if;
   if p_actor_auth_user_id is null or p_actor_session_id is null then
@@ -547,13 +547,15 @@ begin
     where r.id=p_refund_id and p.match_id=p_match_id for no key update of r;
   if not found then raise exception using errcode='P0002',message='REFUND_NOT_FOUND'; end if;
   v_refund_id:=v_refund.id;
-  if p_refunded_at < v_refund.created_at or p_refunded_at > clock_timestamp() then
+  v_recorded_at := clock_timestamp();
+  v_instant := coalesce(p_refunded_at, greatest(v_recorded_at, v_refund.created_at));
+  if p_refunded_at < v_refund.created_at or p_refunded_at > v_recorded_at then
     raise exception using errcode='22023',message='VALIDATION';
   end if;
   if v_refund.status='refunded' then v_result:='refund_unchanged';
   else
-    update private.match_refunds set status='refunded',refunded_at=p_refunded_at,
-      marked_by=v_actor_id,marked_at=clock_timestamp() where id=p_refund_id;
+    update private.match_refunds set status='refunded',refunded_at=v_instant,
+      marked_by=v_actor_id,marked_at=greatest(v_recorded_at,v_instant) where id=p_refund_id;
     v_result:='refund_recorded';
   end if;
   v_outcome:=jsonb_build_object('group_id',v_group_id,'match_id',p_match_id,'refund_id',v_refund_id,'logical_result',v_result);
@@ -568,16 +570,16 @@ grant execute on function public.mark_refunded(uuid,uuid,uuid,text,integer,integ
 create function public.correct_refund(
  p_actor_auth_user_id uuid,p_actor_session_id uuid,p_request_id uuid,
  p_input_hmac text,p_canonical_version integer,p_hash_key_version integer,
- p_match_id uuid,p_refund_id uuid,p_corrected_at timestamptz) returns jsonb language plpgsql volatile security definer
+ p_match_id uuid,p_refund_id uuid,p_corrected_at timestamptz default null) returns jsonb language plpgsql volatile security definer
  set search_path='' as $function$
 declare
  v_actor_id uuid; v_actor_key text; v_acquired record; v_group_id uuid;
  v_authority text; v_match private.matches%rowtype; v_refund private.match_refunds%rowtype;
- v_player private.match_players%rowtype; v_refund_id uuid; v_result text; v_outcome jsonb;
+ v_instant timestamptz; v_recorded_at timestamptz; v_player private.match_players%rowtype; v_refund_id uuid; v_result text; v_outcome jsonb;
 begin
   perform private.require_internal_transport(
     p_request_id, p_input_hmac, p_canonical_version, p_hash_key_version);
-  if p_match_id is null or p_refund_id is null or p_corrected_at is null then
+  if p_match_id is null or p_refund_id is null then
     raise exception using errcode = '22023', message = 'VALIDATION';
   end if;
   if p_actor_auth_user_id is null or p_actor_session_id is null then
@@ -624,13 +626,15 @@ begin
   if v_refund.status <> 'refunded' then
     raise exception using errcode='P0002',message='REFUND_NOT_FOUND';
   end if;
-  if p_corrected_at < v_refund.created_at or p_corrected_at > clock_timestamp() then
+  v_recorded_at := clock_timestamp();
+  v_instant := coalesce(p_corrected_at, greatest(v_recorded_at, v_refund.created_at));
+  if p_corrected_at < v_refund.created_at or p_corrected_at > v_recorded_at then
     raise exception using errcode='22023',message='VALIDATION';
   end if;
-  if v_refund.refunded_at=p_corrected_at then v_result:='refund_correction_unchanged';
+  if v_refund.refunded_at=v_instant then v_result:='refund_correction_unchanged';
   else
-    update private.match_refunds set refunded_at=p_corrected_at,
-      marked_by=v_actor_id,marked_at=clock_timestamp() where id=p_refund_id;
+    update private.match_refunds set refunded_at=v_instant,
+      marked_by=v_actor_id,marked_at=greatest(v_recorded_at,v_instant) where id=p_refund_id;
     v_result:='refund_corrected';
   end if;
   v_outcome:=jsonb_build_object('group_id',v_group_id,'match_id',p_match_id,'refund_id',v_refund_id,'logical_result',v_result);

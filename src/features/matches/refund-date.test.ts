@@ -4,9 +4,15 @@ import { refundInstant } from './refund-date';
 describe('refund date in the match zone', () => {
   const created = '2026-11-01T12:00:00.000Z';
   const now = new Date('2026-11-06T12:00:00.123Z');
-  it('uses the exact current instant by default', () => {
-    expect(refundInstant('', 'America/Maceio', created, now)).toBe(now.toISOString());
-  });
+  it.each([-60_000, 60_000])(
+    'delegates an empty date to the server with device offset %s',
+    (offset) => {
+      expect(
+        refundInstant('', 'America/Maceio', now.toISOString(), new Date(now.getTime() + offset)),
+      ).toBeUndefined();
+      expect(refundInstant('  ', 'America/Maceio', created, now)).toBeUndefined();
+    },
+  );
   it('uses the match zone irrespective of the device', () => {
     expect(refundInstant('05/11/2026 19:00', 'America/Manaus', created, now)).toBe(
       '2026-11-05T23:00:00.000Z',

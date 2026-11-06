@@ -164,6 +164,53 @@ try {
     `update private.match_players set status='removed',paid=true,payment_marked_at=clock_timestamp(),payment_marked_by='34100000-0000-4000-8000-000000000001' where match_id in(select id from private.matches where group_id=$1)`,
     [group],
   );
+  await db.query(
+    "update private.match_players set status='starter' where match_id=$1 and profile_id=$2",
+    [match, target],
+  );
+  const backfillMatch = '34300000-0000-4000-8000-000000000005';
+  await db.query(
+    `insert into private.matches(id,group_id,starts_at,ends_at,timezone,location_name,field_slots,field_price,created_by)
+    select $1,group_id,starts_at,ends_at,timezone,location_name,1,field_price,created_by from private.matches where id=$2`,
+    [backfillMatch, '34300000-0000-4000-8000-000000000004'],
+  );
+  await db.query(
+    `insert into private.match_players(match_id,profile_id,status,queue_seq,paid,payment_marked_at,payment_marked_by) values
+    ($1,$2,'starter',nextval('private.match_queue_seq'),false,null,null),
+    ($1,'34100000-0000-4000-8000-000000000001','removed',nextval('private.match_queue_seq'),true,clock_timestamp(),'34100000-0000-4000-8000-000000000001')`,
+    [backfillMatch, target],
+  );
+  await db.query('set local role service_role');
+  assert.equal(
+    (await rpc(db, 'join_match', [backfillMatch])).outcome.logical_result,
+    'match_waitlisted',
+  );
+  await db.query('reset role');
+  assert.deepEqual(
+    (
+      await db.query(
+        `select status,paid from private.match_players where match_id=$1 and profile_id='34100000-0000-4000-8000-000000000001'`,
+        [backfillMatch],
+      )
+    ).rows,
+    [{ status: 'waitlist', paid: true }],
+  );
+  await db.query('savepoint old_left_check');
+  await assert.rejects(
+    db.query(`update private.match_players set status='left' where match_id=$1 and paid`, [
+      backfillMatch,
+    ]),
+    (error) => error.code === '23514',
+  );
+  await db.query('rollback to savepoint old_left_check');
+  // Uncanceled paid starter must retain the original payment and both metadata fields.
+  await db.query(`insert into private.match_players(match_id,profile_id,status,queue_seq,paid,payment_marked_at,payment_marked_by)
+    values('34300000-0000-4000-8000-000000000002','34100000-0000-4000-8000-000000000007','starter',nextval('private.match_queue_seq'),true,clock_timestamp(),'34100000-0000-4000-8000-000000000001')`);
+  const control = (
+    await db.query(
+      `select * from private.match_players where match_id='34300000-0000-4000-8000-000000000002' and profile_id='34100000-0000-4000-8000-000000000007'`,
+    )
+  ).rows[0];
   const migration = fs.readFileSync('supabase/migrations/0034_match_refunds.sql', 'utf8');
   const backfill = migration.slice(
     migration.indexOf('insert into private.match_refunds(match_player_id'),
@@ -195,22 +242,43 @@ try {
         [group],
       )
     ).rows[0].n,
-    5,
+    6,
   );
   assert.equal(
     (
       await db.query(
-        `select count(*)::int n from private.match_players p join private.matches m on m.id=p.match_id where m.group_id=$1 and (paid or payment_marked_at is not null or payment_marked_by is not null)`,
-        [group],
+        `select count(*)::int n from private.match_players p join private.matches m on m.id=p.match_id where m.group_id=$1 and p.id <> $2 and (paid or payment_marked_at is not null or payment_marked_by is not null)`,
+        [group, control.id],
       )
     ).rows[0].n,
     0,
   );
+  assert.deepEqual(
+    (await db.query('select * from private.match_players where id=$1', [control.id])).rows[0],
+    control,
+  );
+  assert.equal(
+    (
+      await db.query('select count(*)::int n from private.match_refunds where match_player_id=$1', [
+        control.id,
+      ])
+    ).rows[0].n,
+    0,
+  );
+  assert.equal(
+    (
+      await db.query(
+        'select r.origin from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1',
+        [backfillMatch],
+      )
+    ).rows[0].origin,
+    'left_group',
+  );
   await db.query('rollback');
   console.log(
-    'ok - actual migration backfills removed paid registrations, including ended canceled matches',
+    'ok - actual migration backfills removed and real waitlisted paid registrations, keeps paid starter; old CHECK refuses paid left',
   );
-  // Group deletion holds the shared group barrier, then refuses the competing payment.
+  // Rollback barrier proves waiting only; the committing cases below prove the refusals.
   await db.query(
     "update private.match_refunds set status='refunded',refunded_at=clock_timestamp(),marked_at=clock_timestamp(),marked_by=$1 where match_player_id in (select id from private.match_players where match_id=$2)",
     ['34100000-0000-4000-8000-000000000001', match],
@@ -255,6 +323,86 @@ try {
   await db.query(originalLock);
   originalLock = undefined;
   console.log('ok - delete_group/payment barrier, and counterproof with context locks removed');
+  for (const deletionFirst of [true, false]) {
+    const raceGroup = request();
+    const raceMatch = request();
+    await db.query('begin');
+    await db.query(
+      `insert into public.groups(id,name,owner_id) values($1,'Synthetic deletion race','34100000-0000-4000-8000-000000000001')`,
+      [raceGroup],
+    );
+    try {
+      await db.query(
+        `insert into public.group_members(group_id,profile_id,role,status) values($1,'34100000-0000-4000-8000-000000000001','organizer','active'),($1,'34100000-0000-4000-8000-000000000002','organizer','active'),($1,$2,'player','active')`,
+        [raceGroup, target],
+      );
+      await db.query('commit');
+      await db.query(
+        `insert into private.matches(id,group_id,starts_at,ends_at,timezone,location_name,field_slots,field_price,created_by) select $1,$2,starts_at,ends_at,timezone,location_name,field_slots,field_price,created_by from private.matches where id=$3`,
+        [raceMatch, raceGroup, live],
+      );
+      await db.query(
+        `insert into private.match_players(match_id,profile_id,status,queue_seq) values($1,$2,'starter',nextval('private.match_queue_seq'))`,
+        [raceMatch, target],
+      );
+      await first.query('begin');
+      const leading = deletionFirst
+        ? await rpc(first, 'delete_group', [raceGroup])
+        : await rpc(first, 'set_match_payment', [raceMatch, target, true], organizer);
+      assert.equal(
+        leading.outcome.logical_result,
+        deletionFirst ? 'group_deleted' : 'payment_marked_paid',
+      );
+      const trailing = track(
+        deletionFirst
+          ? rpc(second, 'set_match_payment', [raceMatch, target, true], organizer)
+          : rpc(second, 'delete_group', [raceGroup]),
+      );
+      await awaitLockWait(
+        db,
+        trailing,
+        pids.second,
+        pids.first,
+        'committing deletion/payment race',
+        'colete_refunds_',
+      );
+      await first.query('commit');
+      const result = await trailing.settled;
+      assert.equal(result.status, 'rejected');
+      assert.equal(
+        result.reason.message,
+        deletionFirst ? 'GROUP_DELETED' : 'ACTIVE_PAYMENTS_REMAIN',
+      );
+      assert.equal(
+        (await db.query('select paid from private.match_players where match_id=$1', [raceMatch]))
+          .rows[0].paid,
+        !deletionFirst,
+      );
+      assert.equal(
+        (
+          await db.query('select count(*)::int n from private.group_deletions where group_id=$1', [
+            raceGroup,
+          ])
+        ).rows[0].n,
+        deletionFirst ? 1 : 0,
+      );
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      await db.query('rollback');
+      await db.query('begin');
+      await db.query('delete from private.idempotency_records where resource_id=$1', [raceGroup]);
+      await db.query('delete from private.match_players where match_id=$1', [raceMatch]);
+      await db.query('delete from private.matches where id=$1', [raceMatch]);
+      await db.query('delete from private.group_deletions where group_id=$1', [raceGroup]);
+      await db.query('delete from public.group_members where group_id=$1', [raceGroup]);
+      await db.query('delete from public.groups where id=$1', [raceGroup]);
+      await db.query('commit');
+    }
+  }
+  console.log(
+    'ok - deletion/payment in both orders: observed wait, real service_role COMMIT, competing RPC refused',
+  );
   // Real GoTrue session and Edge transport, without a browser or a fabricated JWT.
   const password = 'Synthetic-refunds-local-2026';
   const email = `refunds-http-${Date.now()}@colete.test`;
@@ -276,7 +424,7 @@ try {
   });
   assert.equal(signed.status, 200);
   const token = (await signed.json()).access_token;
-  const call = async (operation, body, id = request()) => {
+  const call = async (operation, body, id = request(), status = 200, code) => {
     const response = await fetch(
       `${functionsUrl}/${operation === 'complete_profile' ? 'identity' : 'groups'}/${operation}`,
       {
@@ -286,7 +434,8 @@ try {
       },
     );
     const envelope = await response.json();
-    assert.equal(response.status, 200, `${operation}: ${envelope.error?.code}`);
+    assert.equal(response.status, status, `${operation}: ${envelope.error?.code}`);
+    if (code) assert.equal(envelope.error?.code, code);
     return envelope.data;
   };
   realProfileId = (
@@ -298,16 +447,59 @@ try {
   );
   const lateBody = { match_id: match, profile_id: '34100000-0000-4000-8000-000000000007' };
   const lateRequest = request();
-  const late = await call('record_canceled_match_payment', lateBody, lateRequest);
+  const refundState = async (id) =>
+    (await db.query('select to_jsonb(r) as state from private.match_refunds r where id=$1', [id]))
+      .rows[0].state;
+  // All three operations roll back a refusal, reuse its request_id, reject a changed
+  // canonical input, and replay the exact outcome after loss of authority.
+  const role = async (value) =>
+    db.query('update public.group_members set role=$3 where group_id=$1 and profile_id=$2', [
+      group,
+      realProfileId,
+      value,
+    ]);
+  const proveIntent = async (operation, body, changed, id) => {
+    await role('player');
+    await call(operation, body, id, 403, 'NOT_ORGANIZER');
+    assert.equal(
+      (
+        await db.query(
+          'select count(*)::int n from private.idempotency_records where actor_id=$1 and operation=$2 and request_id=$3',
+          [realProfileId, operation, id],
+        )
+      ).rows[0].n,
+      0,
+    );
+    await role('organizer');
+    const result = await call(operation, body, id);
+    const frozen = await refundState(result.outcome.refund_id);
+    await call(operation, changed, id, 409, 'IDEMPOTENCY_CONFLICT');
+    await role('player');
+    assert.deepEqual(await call(operation, body, id), result);
+    assert.deepEqual(await refundState(result.outcome.refund_id), frozen);
+    await role('organizer');
+    return result;
+  };
+  const late = await proveIntent(
+    'record_canceled_match_payment',
+    lateBody,
+    { ...lateBody, profile_id: target },
+    lateRequest,
+  );
   assert.deepEqual(await call('record_canceled_match_payment', lateBody, lateRequest), late);
   const refundBody = { match_id: match, refund_id: late.outcome.refund_id };
   const markBody = { ...refundBody, refunded_at: await databaseNow() };
   const markRequest = request();
-  const markedHttp = await call('mark_refunded', markBody, markRequest);
+  const markedHttp = await proveIntent('mark_refunded', markBody, refundBody, markRequest);
   assert.deepEqual(await call('mark_refunded', markBody, markRequest), markedHttp);
   const correctBody = { ...refundBody, corrected_at: await databaseNow() };
   const correctionRequest = request();
-  const correctedHttp = await call('correct_refund', correctBody, correctionRequest);
+  const correctedHttp = await proveIntent(
+    'correct_refund',
+    correctBody,
+    refundBody,
+    correctionRequest,
+  );
   assert.deepEqual(await call('correct_refund', correctBody, correctionRequest), correctedHttp);
   assert.equal(
     (
@@ -317,6 +509,44 @@ try {
     ).rows[0].status,
     'refunded',
   );
+  await call('cancel_match', { match_id: live });
+  const implicitPayment = await call('record_canceled_match_payment', {
+    match_id: live,
+    profile_id: target,
+  });
+  const implicitBody = { match_id: live, refund_id: implicitPayment.outcome.refund_id };
+  for (const [operation, field] of [
+    ['mark_refunded', 'refunded_at'],
+    ['correct_refund', 'corrected_at'],
+  ]) {
+    for (const value of [null, 'invalid', '2026-11-31T12:00:00.000Z']) {
+      await call(operation, { ...implicitBody, [field]: value }, request(), 422, 'VALIDATION');
+    }
+    const id = request();
+    const before = await databaseNow();
+    const absent = await call(operation, implicitBody, id);
+    assert.equal(
+      absent.outcome.logical_result,
+      operation === 'mark_refunded' ? 'refund_recorded' : 'refund_corrected',
+    );
+    const frozen = await refundState(implicitBody.refund_id);
+    assert.deepEqual(await call(operation, implicitBody, id), absent);
+    assert.deepEqual(await refundState(implicitBody.refund_id), frozen);
+    await call(
+      operation,
+      { ...implicitBody, [field]: await databaseNow() },
+      id,
+      409,
+      'IDEMPOTENCY_CONFLICT',
+    );
+    const instant = (
+      await db.query(
+        'select refunded_at >= created_at and refunded_at <= marked_at and refunded_at >= $2::timestamptz as valid from private.match_refunds where id=$1',
+        [implicitBody.refund_id, before],
+      )
+    ).rows[0];
+    assert.equal(instant.valid, true);
+  }
   const read = async (operation) =>
     fetch(`${functionsUrl}/groups/${operation}`, {
       method: 'POST',
@@ -325,10 +555,20 @@ try {
     });
   const projection = await read('get_match_refunds');
   assert.equal(projection.status, 200);
+  const projected = (await projection.json()).data;
+  for (const item of projected)
+    assert.deepEqual(Object.keys(item).sort(), [
+      'account_removed',
+      'amount',
+      'created_at',
+      'id',
+      'name',
+      'nickname',
+      'refunded_at',
+      'status',
+    ]);
   assert.ok(
-    (await projection.json()).data.some(
-      (item) => item.id === late.outcome.refund_id && item.status === 'refunded',
-    ),
+    projected.some((item) => item.id === late.outcome.refund_id && item.status === 'refunded'),
   );
   await db.query(
     "update public.group_members set role='player' where group_id=$1 and profile_id=$2",

@@ -122,6 +122,12 @@ begin
  return public.mark_refunded(p_auth,'34900000-0000-4000-8000-000000000000',p_req,repeat('a',64),1,1,'34300000-0000-4000-8000-000000000001',p_refund,p_at);
 end; $$;
 select throws_ok($$select pg_temp.upd('34000000-0000-4000-8000-000000000001','34300000-0000-4000-8000-000000000001','{"field_price":"19.00"}')$$,'P0001','PRICE_LOCKED','paid locks the price');
+-- P3-6: counterproof for unlocking after unmarking; preserve the paid fixture.
+savepoint unmark_unlock;
+select lives_ok($$select public.set_match_payment('34000000-0000-4000-8000-000000000001',gen_random_uuid(),gen_random_uuid(),repeat('a',64),1,1,'34300000-0000-4000-8000-000000000001','34100000-0000-4000-8000-000000000003',false)$$,'unmarking the last paid registration');
+select lives_ok($$select pg_temp.upd('34000000-0000-4000-8000-000000000001','34300000-0000-4000-8000-000000000001','{"field_price":"19.00"}')$$,'price unlocks after unmarking the last paid registration');
+select is((select field_price::text from private.matches where id='34300000-0000-4000-8000-000000000001'),'19.00','unlocked price actually changes');
+rollback to savepoint unmark_unlock;
 select throws_ok($$select public.delete_group('34000000-0000-4000-8000-000000000001',gen_random_uuid(),gen_random_uuid(),repeat('a',64),1,1,'34200000-0000-4000-8000-000000000001')$$,'P0001','ACTIVE_PAYMENTS_REMAIN','paid future match blocks deletion');
 select throws_ok($$select pg_temp.record_payment('34000000-0000-4000-8000-000000000001','34100000-0000-4000-8000-000000000007')$$,'P0001','MATCH_NOT_CANCELED','late payment needs cancellation');
 create temporary table cancellation as select pg_temp.cancel('34000000-0000-4000-8000-000000000001','34300000-0000-4000-8000-000000000001','34400000-0000-4000-8000-000000000001') r;
@@ -150,6 +156,10 @@ create temporary table late_payment as select pg_temp.record_payment('34000000-0
 select is(pg_temp.record_payment('34000000-0000-4000-8000-000000000002','34100000-0000-4000-8000-000000000007','34400000-0000-4000-8000-000000000002'),(select r from late_payment),'organizer late payment replay');
 select is((select count(*)::int from private.match_refunds),2,'late payment adds exactly one obligation');
 select is(jsonb_array_length(public.get_match_roster('34000000-0000-4000-8000-000000000003',gen_random_uuid(),'34300000-0000-4000-8000-000000000001')->'viewer'->'refunds'),1,'player sees only own refund');
+select is((select array_agg(k order by k) from jsonb_object_keys(item) k),array['amount','created_at','id','refunded_at','status'],'player refund has exactly the allowed keys')
+from jsonb_array_elements(public.get_match_roster('34000000-0000-4000-8000-000000000003',gen_random_uuid(),'34300000-0000-4000-8000-000000000001')->'viewer'->'refunds') item;
+select is((select array_agg(k order by k) from jsonb_object_keys(item) k),array['account_removed','amount','created_at','id','name','nickname','refunded_at','status'],'organization refund has exactly the allowed keys')
+from jsonb_array_elements(public.get_match_refunds('34000000-0000-4000-8000-000000000001',gen_random_uuid(),'34300000-0000-4000-8000-000000000001')) item;
 select throws_ok($$select public.get_match_refunds('34000000-0000-4000-8000-000000000003',gen_random_uuid(),'34300000-0000-4000-8000-000000000001')$$,'42501','NOT_ORGANIZER','player cannot read organization projection');
 select throws_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds limit 1),false,gen_random_uuid(),now()-interval '1 day')$$,'22023','VALIDATION','refund cannot predate obligation');
 select throws_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds limit 1),false,gen_random_uuid(),now()+interval '1 day')$$,'22023','VALIDATION','refund cannot be future');
@@ -157,6 +167,17 @@ create temporary table marked as select pg_temp.refund('34000000-0000-4000-8000-
 select is(pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds order by id limit 1),false,'34400000-0000-4000-8000-000000000003'),(select r from marked),'mark replay keeps outcome');
 select is((select status from private.match_refunds order by id limit 1),'refunded','mark changes state');
 select ok((select marked_by='34100000-0000-4000-8000-000000000001' and marked_at is not null from private.match_refunds order by id limit 1),'mark records actor and time');
+select throws_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds where status='refunded' limit 1),true,gen_random_uuid(),now()-interval '1 day')$$,'22023','VALIDATION','correction cannot predate obligation');
+select throws_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds where status='refunded' limit 1),true,gen_random_uuid(),clock_timestamp()+interval '1 day')$$,'22023','VALIDATION','correction cannot be future');
+-- A backwards server-clock adjustment must not put implicit now before creation.
+savepoint server_clock_floor;
+update private.match_refunds set status='refund_due',refunded_at=null,marked_by=null,marked_at=null,created_at=clock_timestamp()+interval '1 minute' where id=(select id from private.match_refunds order by id limit 1);
+select lives_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds order by id limit 1),false,gen_random_uuid(),null)$$,'implicit mark respects created_at even after clock goes backwards');
+select ok((select refunded_at=created_at and marked_at>=refunded_at from private.match_refunds order by id limit 1),'implicit mark uses creation as its lower bound');
+update private.match_refunds set refunded_at=created_at+interval '1 second',marked_at=created_at+interval '2 seconds' where id=(select id from private.match_refunds order by id limit 1);
+select lives_ok($$select pg_temp.refund('34000000-0000-4000-8000-000000000001',(select id from private.match_refunds order by id limit 1),true,gen_random_uuid(),null)$$,'implicit correction respects created_at even after clock goes backwards');
+select ok((select refunded_at=created_at and marked_at>=refunded_at from private.match_refunds order by id limit 1),'implicit correction uses creation as its lower bound');
+rollback to savepoint server_clock_floor;
 create temporary table frozen_refund_facts as select to_jsonb(r)-array['refunded_at','marked_by','marked_at'] facts from private.match_refunds r order by id limit 1;
 create temporary table corrected as select pg_temp.refund('34000000-0000-4000-8000-000000000002',(select id from private.match_refunds order by id limit 1),true,'34400000-0000-4000-8000-000000000004') r;
 select is(pg_temp.refund('34000000-0000-4000-8000-000000000002',(select id from private.match_refunds order by id limit 1),true,'34400000-0000-4000-8000-000000000004'),(select r from corrected),'correction replay');
@@ -171,6 +192,11 @@ select throws_ok($$select public.delete_group('34000000-0000-4000-8000-000000000
 -- Price locked by obligation without any paid, in an uncanceled match.
 update private.matches set canceled_at=null,canceled_by=null where id='34300000-0000-4000-8000-000000000001';
 select throws_ok($$select pg_temp.upd('34000000-0000-4000-8000-000000000001','34300000-0000-4000-8000-000000000001','{"field_price":"19.00"}')$$,'P0001','PRICE_LOCKED','pending obligation alone locks price');
+savepoint all_refunded_unlock;
+select lives_ok(format('select pg_temp.refund(%L,%L,false,gen_random_uuid(),null)','34000000-0000-4000-8000-000000000001',id),'server clock marks outstanding refund') from private.match_refunds where status='refund_due';
+select lives_ok($$select pg_temp.upd('34000000-0000-4000-8000-000000000001','34300000-0000-4000-8000-000000000001','{"field_price":"19.00"}')$$,'all refunded without paid unlocks the price');
+select is((select field_price::text from private.matches where id='34300000-0000-4000-8000-000000000001'),'19.00','all refunded price actually changes');
+rollback to savepoint all_refunded_unlock;
 -- Two exits with a return and a fresh payment make two obligations (P13).
 update public.group_members set status='active',removed_at=null where group_id='34200000-0000-4000-8000-000000000001' and profile_id='34100000-0000-4000-8000-000000000007';
 update private.match_players set paid=true,payment_marked_at=clock_timestamp(),payment_marked_by='34100000-0000-4000-8000-000000000001' where match_id='34300000-0000-4000-8000-000000000004' and profile_id='34100000-0000-4000-8000-000000000007';

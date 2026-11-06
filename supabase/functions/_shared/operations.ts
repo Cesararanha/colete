@@ -350,6 +350,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     update_match: ['request_id', 'match_id', 'config'],
     cancel_match: ['request_id', 'match_id'],
     record_canceled_match_payment: ['request_id', 'match_id', 'profile_id'],
+    // The date is optional in these Edge signatures (0034 / docs/13 §3.3.2).
     mark_refunded: ['request_id', 'match_id', 'refund_id', 'refunded_at'],
     correct_refund: ['request_id', 'match_id', 'refund_id', 'corrected_at'],
     delete_group: ['request_id', 'group_id'],
@@ -538,14 +539,15 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         const field = operation === 'mark_refunded' ? 'refunded_at' : 'corrected_at';
         const value = record[field];
         if (
-          typeof value !== 'string' ||
-          !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
-          !Number.isFinite(Date.parse(value)) ||
-          new Date(value).toISOString() !== value
+          value !== undefined &&
+          (typeof value !== 'string' ||
+            !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
+            !Number.isFinite(Date.parse(value)) ||
+            new Date(value).toISOString() !== value)
         ) {
           throw validation(field, 'must be an ISO UTC instant with milliseconds');
         }
-        canonicalInput[field] = value;
+        if (value !== undefined) canonicalInput[field] = value;
       }
       return { operation, requestId, canonicalInput };
     }

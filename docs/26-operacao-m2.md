@@ -4117,6 +4117,29 @@ Log da verificação local: `/tmp/colete-refunds-followup-verify.log`. Nenhuma m
 alterada; a suíte de navegador não foi reexecutada no sandbox. Os resultados do orquestrador
 acima precedem estes ajustes de foco e confirmação.
 
+**Validação depois da revisão do #96 — 06/11/2026, fora do sandbox.**
+Correções de `~/dev/colete/noite/rev96.md`, com as decisões do §15 do plano do piloto: backfill de todo
+pago fora de `starter` e campo vazio usando o relógio do servidor. Pilha local recriada por `db:reset`.
+
+| Comando | Exit / resultado |
+|---|---|
+| npm run db:test | 0; 2.464 asserções |
+| npm run db:test:refunds, match-players, group-deletion, membership, deletion | 0 |
+| npm run verify:app | 0; 778 unitários |
+| npm run test:groups:web, test:cors:web, test:privacy:web, test:smoke:web | 0; 121, 4, 5 e 6 passaram |
+| npm run test:qr:web, na rodada completa | 1; 28 passaram e 2 falharam, levando 7,2 min |
+| npm run test:qr:web, repetido sozinho | 0; 30 passaram, em 47 s |
+| npm run test:auth:web, na rodada completa | 1; 10 passaram e 2 falharam em `m1-a-auth.spec.ts:1169` |
+| Esse teste de `m1-a-auth`, repetido sozinho | 0; 2 passaram |
+| npm run test:matches:web, no código final | 0; 50 passaram |
+
+As falhas de QR e autenticação foram tempo limite com a máquina carregada, e não voltaram ao repetir;
+a causa não foi provada, e a suíte de autenticação inteira não foi repetida depois disso. A asserção nova de foco achou um
+defeito: o foco era pedido antes de a confirmação fechar e se perdia. O foco agora espera o quadro
+seguinte nas três operações. O Playwright rodou uma vez com o relógio do aparelho a +2 e a -2 minutos, nos
+dois projetos. Depois da correção do foco, só `test:matches:web` e `verify:app` foram repetidos; o
+ajuste não toca os fluxos das outras suítes.
+
 Censo final da validação original: **zero** auth.users, profiles, groups, group_members, matches,
 match_players, match_refunds, idempotency_records, deletion_requests e external_effects.
 As sementes/execuções operacionais da pilha permanecem; nenhum objeto de teste novo ficou.

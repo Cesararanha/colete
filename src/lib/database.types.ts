@@ -383,7 +383,7 @@ export type Database = {
           p_actor_auth_user_id: string;
           p_actor_session_id: string;
           p_canonical_version: number;
-          p_corrected_at: string;
+          p_corrected_at?: string;
           p_hash_key_version: number;
           p_input_hmac: string;
           p_match_id: string;
@@ -684,7 +684,7 @@ export type Database = {
           p_input_hmac: string;
           p_match_id: string;
           p_refund_id: string;
-          p_refunded_at: string;
+          p_refunded_at?: string;
           p_request_id: string;
         };
         Returns: Json;

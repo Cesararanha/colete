@@ -457,6 +457,7 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     const ownerView = await open(browser, owner, matchId);
     contexts.push(ownerView.context);
     await expect(ownerView.page.getByTestId('match-payment-summary')).toBeVisible();
+    await expect(ownerView.page.getByTestId('match-refunds')).toHaveCount(0);
 
     // The organizer leaves the organisation while Ana's detail is open: "Atualizar"
     // reads who collects again, and the instruction no longer names them (rev91 P2-3).
@@ -491,7 +492,7 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await expect(biaView.page.getByTestId('match-confirmed')).toBeVisible();
     await expect(biaView.page.getByTestId('match-pay-notice')).toHaveCount(0);
     await anaView.page.reload();
-    await expect(anaView.page.getByTestId('match-pay-notice-title')).toContainText('A devolver');
+    await expect(anaView.page.getByTestId(/^match-own-refund-/)).toContainText('A devolver');
 
     // 1.3: organization reads obligations; player sees only their own. UI stays current.
     await ownerView.page.reload();
@@ -509,16 +510,15 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await ownerView.page.getByTestId(`refund-${refundId}`).click();
     await expect(ownerView.page.getByTestId('refund-confirmation-heading')).toBeFocused();
     await expect(ownerView.page.getByTestId('refund-date')).toHaveAccessibleDescription(
-      /America\/Sao_Paulo/,
+      /Brasília.*GMT-3/,
     );
     await assertAccessible(ownerView.page);
     await shot(ownerView.page, testInfo.project.name, 'devolucao-01-a-devolver.png');
     await ownerView.page.getByTestId('refund-confirm').click();
-    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText(
-      'Devolvido, confira no banco',
-    );
+    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText('Devolvido');
+    await expect(ownerView.page.getByTestId(`refund-${refundId}`)).toBeFocused();
     await anaView.page.getByTestId('match-refresh-button').click();
-    await expect(anaView.page.getByTestId('match-pay-notice-title')).toContainText(
+    await expect(anaView.page.getByTestId(`match-own-refund-${refundId}`)).toContainText(
       'Devolvido, confira no banco',
     );
     await shot(ownerView.page, testInfo.project.name, 'devolucao-02-devolvido.png');
@@ -526,16 +526,56 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await ownerView.page.getByTestId('refund-confirm').click();
     // The status reads the same before and after a correction: wait for its answer.
     await expect(ownerView.page.getByTestId('refund-confirmation')).toHaveCount(0);
-    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText(
-      'Devolvido, confira no banco',
-    );
+    await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText('Devolvido');
+    await expect(ownerView.page.getByTestId(`refund-${refundId}`)).toBeFocused();
     await ownerView.page.getByTestId(`canceled-payment-${bia.profileId}`).click();
     await ownerView.page.getByTestId('refund-confirm').click();
     await expect(ownerView.page.getByTestId('match-refunds-total')).toContainText('12,50');
     await expect(ownerView.page.getByTestId(`canceled-payment-${bia.profileId}`)).toHaveCount(0);
+    const lateRefundId = (
+      await db.query(
+        'select r.id from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1 and p.profile_id=$2',
+        [matchId, bia.profileId],
+      )
+    ).rows[0].id as string;
+    await expect(ownerView.page.getByTestId(`refund-${lateRefundId}`)).toBeFocused();
     await biaView.page.getByTestId('match-refresh-button').click();
-    await expect(biaView.page.getByTestId('match-pay-notice-title')).toContainText('A devolver');
+    await expect(biaView.page.getByTestId(/^match-own-refund-/)).toContainText('A devolver');
     await expect(biaView.page.getByTestId('match-refunds')).toHaveCount(0);
+
+    // P3-9: a returned player sees both historical obligations and the current
+    // instruction, each with a unique ID (including more than one refund).
+    const returned = await createMatch(request, owner, groupId);
+    for (let payment = 0; payment < 2; payment += 1) {
+      await gateway(request, ana, 'join_match', { match_id: returned });
+      await gateway(request, owner, 'set_match_payment', {
+        match_id: returned,
+        profile_id: ana.profileId,
+        paid: true,
+      });
+      await gateway(request, ana, 'leave_group', { group_id: groupId });
+      await db.query(
+        "update public.group_members set status='active',removed_at=null where group_id=$1 and profile_id=$2",
+        [groupId, ana.profileId],
+      );
+    }
+    await gateway(request, ana, 'join_match', { match_id: returned });
+    await anaView.page.goto(`/rachas/${returned}`);
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
+    const historical = (
+      await db.query(
+        'select r.id from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1',
+        [returned],
+      )
+    ).rows;
+    expect(historical).toHaveLength(2);
+    await expect(anaView.page.getByTestId(/^match-own-refund-/)).toHaveCount(2);
+    for (const row of historical) {
+      await expect(anaView.page.getByTestId(`match-own-refund-${row.id}`)).toContainText(
+        'A devolver',
+      );
+      await expect(anaView.page.getByTestId(`match-own-refund-${row.id}`)).toContainText('12,50');
+    }
 
     // A match that already started keeps the instruction for who still owes.
     const started = await createMatch(request, owner, groupId);
@@ -566,3 +606,124 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await db.end();
   }
 });
+
+// rev96 P2-1/P3-7: the two clocks diverge from the database in both directions.
+for (const offset of [-120_000, 120_000]) {
+  test(`Devolução: campo vazio usa o relógio do servidor (aparelho ${offset})`, async ({
+    browser,
+    request,
+  }) => {
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const authIds: string[] = [];
+    let context: { close: () => Promise<void> } | undefined;
+    try {
+      const owner = await createActor(request, `clock-owner-${offset}`, authIds);
+      const player = await createActor(request, `clock-player-${offset}`, authIds);
+      const created = await gateway(request, owner, 'create_group', {
+        name: 'Devolução e relógio',
+      });
+      const groupId = (created['outcome'] as { group_id: string }).group_id;
+      await db.query(
+        "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+        [groupId, player.profileId],
+      );
+      const matchId = await createMatch(request, owner, groupId);
+      await gateway(request, player, 'join_match', { match_id: matchId });
+      const opened = await open(browser, owner, matchId);
+      context = opened.context;
+      const page = opened.page;
+      await expect(page.getByTestId('match-confirmed')).toBeVisible();
+      await expect(page.getByTestId('match-refunds')).toHaveCount(0);
+      await page.getByTestId('match-cancel').click();
+      await expect(page.getByTestId('match-cancel-confirmation-heading')).toBeFocused();
+      await expect(page.getByTestId('match-cancel-refunds-total')).toHaveCount(0);
+      await page.getByTestId('match-cancel-keep').click();
+      await gateway(request, owner, 'set_match_payment', {
+        match_id: matchId,
+        profile_id: player.profileId,
+        paid: true,
+      });
+      await page.getByTestId('match-refresh-button').click();
+      await page.getByTestId('match-cancel').click();
+      await expect(page.getByTestId('match-cancel-refunds-total')).toContainText('12,50');
+      const canceled = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith('/groups/cancel_match'),
+      );
+      await page.getByTestId('match-cancel-confirm').click();
+      expect((await canceled).status()).toBe(200);
+      const refund = (
+        await db.query(
+          'select r.id from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1',
+          [matchId],
+        )
+      ).rows[0].id as string;
+      await expect(page.getByTestId(`refund-${refund}`)).toBeVisible();
+      await page.clock.install({ time: new Date(Date.now() + offset) });
+      for (const [operation, field] of [
+        ['mark_refunded', 'refunded_at'],
+        ['correct_refund', 'corrected_at'],
+      ] as const) {
+        await page.getByTestId(`refund-${refund}`).click();
+        await expect(page.getByTestId('refund-confirmation-heading')).toBeFocused();
+        await expect(page.getByTestId('refund-date')).toHaveValue('');
+        const answer = page.waitForResponse((response) =>
+          new URL(response.url()).pathname.endsWith(`/groups/${operation}`),
+        );
+        const before = (await db.query('select clock_timestamp() as t')).rows[0].t as Date;
+        await page.getByTestId('refund-confirm').click();
+        const response = await answer;
+        expect(response.status()).toBe(200);
+        expect(response.request().postDataJSON()).not.toHaveProperty(field);
+        await expect(page.getByTestId('refund-confirmation')).toHaveCount(0);
+        await expect(page.getByTestId(`refund-${refund}`)).toBeFocused();
+        await expect(page.getByTestId(`refund-status-${refund}`)).toHaveText('Devolvido');
+        const stored = (
+          await db.query(
+            'select refunded_at,created_at,clock_timestamp() as now from private.match_refunds where id=$1',
+            [refund],
+          )
+        ).rows[0];
+        expect(stored.refunded_at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+        expect(stored.refunded_at.getTime()).toBeGreaterThanOrEqual(stored.created_at.getTime());
+        expect(stored.refunded_at.getTime()).toBeLessThanOrEqual(stored.now.getTime());
+      }
+      if (offset > 0) {
+        // This typed date passes the device clock but is in the server's future.
+        // VALIDATION must stay visible as a date error and never auto-retry.
+        await page.getByTestId(`refund-${refund}`).click();
+        const future = new Intl.DateTimeFormat('en-GB', {
+          timeZone: ZONE,
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        })
+          .format(new Date(Date.now() + 90_000))
+          .replace(',', '');
+        await page.getByTestId('refund-date').fill(future);
+        let corrections = 0;
+        page.on('request', (item) => {
+          if (new URL(item.url()).pathname.endsWith('/groups/correct_refund')) corrections += 1;
+        });
+        const refused = page.waitForResponse((response) =>
+          new URL(response.url()).pathname.endsWith('/groups/correct_refund'),
+        );
+        await page.getByTestId('refund-confirm').click();
+        expect((await refused).status()).toBe(422);
+        await expect(page.getByTestId('match-refund-error')).toContainText(
+          'Informe uma data válida, entre a obrigação e agora.',
+        );
+        await expect(page.getByTestId('refund-confirmation')).toBeVisible();
+        await page.clock.runFor(2_000);
+        expect(corrections).toBe(1);
+      }
+    } finally {
+      await context?.close();
+      await cleanActors(authIds, db);
+      await db.end();
+    }
+  });
+}

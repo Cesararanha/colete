@@ -229,4 +229,36 @@ describe('gateway internal call', () => {
       },
     });
   });
+  it.each(['mark_refunded', 'correct_refund'] as const)(
+    'omits absent date RPC arguments for %s',
+    async (operation) => {
+      const calls: Record<string, unknown>[] = [];
+      const result = await runOperation(
+        {
+          resolveKey,
+          callRpc: async (_op, parameters) => {
+            calls.push(parameters);
+            return { data: { outcome: {} } };
+          },
+        },
+        operation,
+        { request_id: REQUEST_ID, match_id: MATCH, refund_id: TARGET },
+        ACTOR,
+      );
+      expect(result.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      expect(Object.keys(calls[0]).sort()).toEqual(
+        [
+          'p_actor_auth_user_id',
+          'p_actor_session_id',
+          'p_request_id',
+          'p_input_hmac',
+          'p_canonical_version',
+          'p_hash_key_version',
+          'p_match_id',
+          'p_refund_id',
+        ].sort(),
+      );
+    },
+  );
 });

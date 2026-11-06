@@ -314,6 +314,7 @@ export const pt = {
     title: 'Devoluções',
     due: 'A devolver',
     refunded: 'Devolvido, confira no banco',
+    recorded: 'Devolvido',
     warning: 'O app não devolve dinheiro. O acerto é feito fora do app.',
     mark: 'Registrar como devolvido',
     correct: 'Corrigir devolução',
