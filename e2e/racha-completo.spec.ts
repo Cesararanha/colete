@@ -524,6 +524,8 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     await shot(ownerView.page, testInfo.project.name, 'devolucao-02-devolvido.png');
     await ownerView.page.getByTestId(`refund-${refundId}`).click();
     await ownerView.page.getByTestId('refund-confirm').click();
+    // The status reads the same before and after a correction: wait for its answer.
+    await expect(ownerView.page.getByTestId('refund-confirmation')).toHaveCount(0);
     await expect(ownerView.page.getByTestId(`refund-status-${refundId}`)).toHaveText(
       'Devolvido, confira no banco',
     );

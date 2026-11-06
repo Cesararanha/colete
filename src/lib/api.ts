@@ -655,9 +655,14 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
   ): MutationIntent<T> {
     // Only these signatures enumerate profile_id as a business target.
     if (
-      ['approve_member', 'remove_member', 'set_role', 'set_match_payment', 'set_rating'].includes(
-        operation,
-      )
+      [
+        'approve_member',
+        'remove_member',
+        'set_role',
+        'set_match_payment',
+        'set_rating',
+        'record_canceled_match_payment',
+      ].includes(operation)
     ) {
       const { profile_id: target, ...rest } = businessInput;
       refuseInternalFields(rest);
