@@ -3744,7 +3744,7 @@ Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigat
 usuários reais, `25` §8.1). Pré-plano conferido em duas rodadas (`~/colete-noite/plano-d63-5.md`,
 `rev-plano-d63-5.md` e `rev2-plano-d63-5.md`, fora do repositório); decisões humanas de César de
 28/10/2026, P-A a P-F. Cerimônia cheia: revisão completa e conferência, e o PR para por decisão
-humana por alterar `docs/10` e `docs/13` (AGENTS §4.11).
+humana por alterar `docs/10`, `docs/13` e `docs/25` (AGENTS §4.11).
 
 **O que mudou.** Até a `0032`, cada operação nova redefinia a lista de operações em cinco lugares
 (três CHECKs de `private.idempotency_records`, `acquire_group_idempotency`,
@@ -3783,12 +3783,18 @@ nova (P-D), abortando no primeiro que falhar, com `operation` e `request_id` do 
 nascer); `drop` dos CHECKs; troca dos helpers e do gatilho; `drop` dos 13 elos. Aplicar no staging
 é um gate operacional separado, com autorização própria e janela sem uso.
 
-**Ordem de travas.** As FKs tomam `FOR KEY SHARE` na linha da operação em todo `acquire`, e na linha
-do resultado e da operação em todo `complete_*`. As linhas nunca são atualizadas (imutáveis), então
-não há conflito. Medido no `db:test:idempotency` (25 conexões), com `checkpoint` e
+**Ordem de travas.** As FKs tomam `FOR KEY SHARE` na linha da operação quando o `acquire` insere o
+registro; o replay não insere linha (`on conflict do nothing`) e não toma essa trava. O
+`complete_*` que conclui o registro toma `FOR KEY SHARE` na linha do resultado e da operação depois
+das travas de domínio, fora da sequência literal da ordem global. Não há ciclo de travas de linha
+nos caminhos das RPCs: nenhuma função trava essas linhas de modo conflitante, e os gatilhos
+recusam `UPDATE`, `DELETE` e `TRUNCATE`. O limite não cobre DDL; o padrão da `0033` para migrations
+está registrado no `docs/25` §2, em "Modo de lock (M2-D13)". Medido no `db:test:idempotency`
+(25 conexões), com `checkpoint` e
 `pg_control_checkpoint()` antes e depois: 112 MultiXact por rodada na `0032` e 114 na `0033`, iguais
 nas duas repetições de cada lado. O registro desta ordem no `docs/25` §2 foi autorizado por César em 05/11/2026,
-com a decisão registrada no §8.1; o merge continua sendo decisão dele.
+com a decisão registrada no §8.1 e os ajustes P3-1 a P3-4 autorizados em 05/11/2026; o merge
+continua sendo decisão dele.
 
 **Provas.** As asserções que afirmavam onde a lista morava (os `pg_get_constraintdef` dos CHECKs, os
 privilégios dos elos `validate_through_*`, os `pg_get_functiondef ... like '%draw_teams%'` e o
@@ -3824,8 +3830,9 @@ do ator é recusado, com o controle do recurso igual ao ator); e os helpers de g
 **Mutantes**, cada um numa cópia da `0033` com `db:reset`: validador que ignora os resultados (12
 reprovados); validador que aceita chave a mais (16); regra de conclusão sem o mapeamento de recurso
 (1); regra de conclusão sem a cláusula do ator (1 no `db:test`, mais o commit real);
-`acquire_group_idempotency` sem o filtro de família (1, depois de o teste passar a usar um
-perfil real: com ator inexistente, o `acquire` recusava pelo ator e o mutante sobrevivia); `grant`
+`acquire_group_idempotency` sem o filtro de família (3: `0031` teste 53, `0032` teste 67 e `0033`
+teste 64, medidos em `~/dev/colete/noite/conf92.md` no `8cc54fa`; com ator inexistente, o `acquire`
+recusava pelo ator e o mutante sobrevivia antes de o teste passar a usar um perfil real); `grant`
 do registro para `service_role` (7, com `select` e `insert`; só `select` dá 3); gatilho sem
 `security definer` (1); só a FK simples, sem as compostas (6); gatilho que não chama a regra (1 no
 `0031` e 1 no `0032`, mais o commit real); `complete_group_idempotency` sem o filtro de família (3).
@@ -3851,11 +3858,18 @@ hoje.
 
 **Validação web** (AGENTS §5): `verify:app` exit 0; `build:web:auth-e2e` exit 0; `test:auth:web` 12
 passed + 2 skipped; `test:privacy:web` 5 passed + 5 skipped; `test:cors:web` 4 passed;
-`test:groups:web` 121 passed + 5 skipped; `test:matches:web` 44 passed; `test:qr:web` 30 passed;
+`test:groups:web` 121 passed + 5 skipped; `test:matches:web` 44 passed em 28/10; `test:qr:web` 30 passed;
 `build:web:smoke` e `test:smoke:web` 6 passed; `scan:docs`, `scan:secrets`, `test:audit` e
-`test:staging` exit 0. `audit:high` não roda como gate (a fatia não altera nenhum arquivo da lista
-da AGENTS §5); na `main` ele segue vermelho pelos alertas do vite e do zod. Censo depois:
-zero usuários, perfis, grupos, rachas e registros de idempotência. `package.json` intocado.
+`test:staging` exit 0. Depois do rebase sobre `a9d6092`, `test:matches:web` passou a 46 passed,
+com 2 testes vindos da `main`, conforme `~/dev/colete/noite/pr92-rebase-a9d6092/test:matches:web.log`
+e a [execução 42134844299](https://github.com/Cesararanha/colete/actions/runs/42134844299).
+`audit:high` exit 1 no log `~/dev/colete/noite/pr92-rebase-a9d6092/audit:high.log`:
+exceção órfã GHSA-vfj7-8cjw-p6xm (braces) e alertas high GHSA-mrhx-c7xc-m3w5 (zod),
+GHSA-qr28-fpjm-wq7f (decode-uri-component), GHSA-7wch-p9px-956x, GHSA-jc66-7q78-782g,
+GHSA-8hrf-8g6f-7xwp, GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e
+GHSA-587h-7wmj-h5pm (vite). A fatia não altera arquivos abrangidos pelo gate de dependências
+da AGENTS §5; o resultado é relatado conforme essa seção. Censo depois: zero usuários, perfis,
+grupos, rachas e registros de idempotência. `package.json` intocado.
 
 #### Correções da revisão do #92
 
@@ -3876,6 +3890,30 @@ nenhum desfecho recusado antes que passe a ser aceito. Entram neste PR:
 - **P3-6.** O MultiXact medido está na ordem de travas.
 - **P3-7.** A medição da migration sobre dados está registrada, e o harness fica como dívida
   aberta.
+
+#### Correções da conferência final do #92 (05/11/2026)
+
+Este PR só de documentos corrige os oito P3 de `~/dev/colete/noite/conf92-final.md`:
+P3-1 a P3-4 delimitam e reposicionam a ordem de travas e seu registro no `docs/25`, com a segunda
+autorização de César em 05/11/2026 e checksum recalculado; P3-5 preserva os 44 testes de 28/10 e
+registra os 46 depois do rebase; P3-6 lista todos os alertas do log de auditoria; P3-7 completa o
+motivo da decisão humana; P3-8 registra as 3 reprovações medidas do mutante M4. Os números de
+banco, web e mutantes acima são medições anteriores, com suas fontes; a pilha local não foi
+iniciada neste PR. A correção N1 da conferência do PR #94 (`~/dev/colete/noite/conf94.md`),
+autorizada por César em 05/11/2026, move o parágrafo do registro para depois de "O ciclo não
+precisa de dois perfis alheios", preservando a referência desse ciclo ao `FOR UPDATE` em perfil.
+
+No `36d0a14`, `npm ci` terminou com exit 0 (1.025 pacotes instalados e 1.026 auditados).
+Validação local da correção de posição do #94 (05/11/2026):
+`scan:docs` exit 0 (23 documentos, 24 entradas no manifesto, D1–D62, N1–N28 e 25 telas);
+`verify:app` exit 0 (64 arquivos e 754 testes unitários; fronteiras de segredo em 502 arquivos);
+`git diff --check` exit 0. O diff se limita a `docs/25`, `docs/26` e ao manifesto. O terminal usou
+Node 24.15.0 e npm 11.14.1, dentro de `engines`, diferentes dos 24.20.0/11.19.0 fixados para a CI.
+
+A conferência final também encontrou a mesma falha `57014` (`statement timeout`) de
+`db:test:invites` na [execução 38661901678](https://github.com/Cesararanha/colete/actions/runs/38661901678),
+em 15/10/2026, antes da `0033`. Isso prova que a falha ocorre sem a `0033`; a causa não está
+provada, nem que os dois eventos tenham a mesma causa.
 
 ## Piloto 1.3 — devolução no cancelamento (`0034`, 06/11/2026)
 

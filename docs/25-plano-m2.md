@@ -160,13 +160,6 @@ fecha quando todos os achados estão corrigidos e a suíte completa volta a verd
 
 ### Ordem global de locks do M2 em diante
 
-As FKs de `idempotency_records` tomam `FOR KEY SHARE` na linha da operação em
-todo `acquire`, e na linha do resultado e da operação em todo `complete_*`.
-Essas linhas são imutáveis: gatilhos recusam `UPDATE`, `DELETE` e `TRUNCATE`,
-então não há conflito com essas travas nem ciclo com a ordem global. A medição
-de MultiXact está em `26-operacao-m2.md`, seção "Registro de operações de
-idempotência".
-
 A ordem normativa passa a ser, sem retirar nenhum nível de `09` D37, `10` §1 ou
 `13` §0:
 
@@ -223,6 +216,18 @@ O ciclo não precisa de dois perfis alheios por transação: basta um. Em
 `approve_member`, A aprova o pedido de B no grupo G1 enquanto B aprova o pedido de
 A no grupo G2; cada transação segura o `KEY SHARE` do próprio perfil e pede o
 perfil da outra, e com `FOR UPDATE` isso já produz `40P01`.
+
+As FKs de `idempotency_records` tomam `FOR KEY SHARE` na linha da operação
+quando o `acquire` insere o registro; o replay não insere linha (`on conflict
+do nothing`) e não toma essa trava. O `complete_*` que conclui o registro toma
+`FOR KEY SHARE` na linha do resultado e da operação depois das travas de domínio,
+fora da sequência literal da ordem global. Isso não fecha ciclo para travas de
+linha nos caminhos das RPCs: nenhuma função trava essas linhas de modo
+conflitante, e os gatilhos recusam `UPDATE`, `DELETE` e `TRUNCATE`. Esse limite
+não cobre DDL: uma migration que altere as tabelas do registro com RPC em voo
+pode fechar ciclo e precisa seguir o padrão da `0033`: `lock_timeout` e
+`access exclusive` em `idempotency_records` primeiro. A medição de MultiXact
+está em `26-operacao-m2.md`, seção "Registro de operações de idempotência".
 
 Toda operação cuja ordem de locks (§3.3, §4.1, §5) inclui o perfil de uma pessoa
 diferente do ator prova, pela barreira abaixo, um par cruzado em que cada
@@ -1258,14 +1263,6 @@ código produtivo.
   ex-membro, retenção e desidentificação financeira ficam em `27`; risco alto (§4.12),
   revisão independente a cargo do orquestrador, sem commit/push nesta sessão.
 
-- **D63.5: ordem de travas do registro — decisão humana de César, 05/11/2026, AGENTS §8.**
-  Autorizado registrar no §2 as travas `FOR KEY SHARE` das FKs de
-  `idempotency_records` nas linhas imutáveis de operação e resultado, sem
-  conflito nem ciclo com a ordem global; gatilhos recusam `UPDATE`, `DELETE`
-  e `TRUNCATE`. A medição de MultiXact fica em `26-operacao-m2.md`, seção
-  "Registro de operações de idempotência". Esta autorização cobre somente
-  esse parágrafo e este registro; o merge continua sendo decisão de César.
-
 - **Rachas v1 — decisão humana de César, 12/10/2026, AGENTS §8.**
   Até a entrega de Desenvolvimento Mobile, modo apresentação: racha simples
   integrado ao banco, grupo, gateway idempotente e interface. O contrato maior
@@ -1406,6 +1403,17 @@ código produtivo.
   Racha cancelado e grupo apagado não mostram times e recusam o sorteio,
   inclusive o replay. As travas seguem a correção do P1 do #80. O v3 de `04`
   continua como evolução (D63-A, D63-D). O registro está em `26` e `27`.
+
+- **D63.5: ordem de travas do registro — decisão humana de César, 05/11/2026, AGENTS §8.**
+  Autorizado registrar no §2 as travas `FOR KEY SHARE` das FKs de
+  `idempotency_records` nas linhas imutáveis de operação e resultado, sem
+  conflito nem ciclo de travas de linha nos caminhos das RPCs; gatilhos recusam
+  `UPDATE`, `DELETE` e `TRUNCATE`. A segunda autorização de César, em 05/11/2026,
+  cobre os ajustes P3-1 a P3-4 da conferência final do PR #92. César autorizou
+  também a correção de posição da conferência do PR #94 em 05/11/2026. A medição
+  de MultiXact fica em `26-operacao-m2.md`, seção "Registro de operações de
+  idempotência". A autorização continua restrita a esse parágrafo e este
+  registro; o merge continua sendo decisão de César.
 
 - **Auditoria de dependências — decisão humana de César, 07/10/2026,
   AGENTS §8, substituindo a de 06/10/2026.** Abandonada a política de bloquear
