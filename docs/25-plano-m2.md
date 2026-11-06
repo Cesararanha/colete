@@ -212,6 +212,11 @@ do PR #36 reproduziu em `delete_account`. `FOR NO KEY UPDATE` não conflita com
 `FOR KEY SHARE`, mas conflita consigo mesmo, com `FOR UPDATE` e com `UPDATE`;
 por isso a serialização entre transações de domínio continua.
 
+O ciclo não precisa de dois perfis alheios por transação: basta um. Em
+`approve_member`, A aprova o pedido de B no grupo G1 enquanto B aprova o pedido de
+A no grupo G2; cada transação segura o `KEY SHARE` do próprio perfil e pede o
+perfil da outra, e com `FOR UPDATE` isso já produz `40P01`.
+
 As FKs de `idempotency_records` tomam `FOR KEY SHARE` na linha da operação
 quando o `acquire` insere o registro; o replay não insere linha (`on conflict
 do nothing`) e não toma essa trava. O `complete_*` que conclui o registro toma
@@ -223,11 +228,6 @@ não cobre DDL: uma migration que altere as tabelas do registro com RPC em voo
 pode fechar ciclo e precisa seguir o padrão da `0033`: `lock_timeout` e
 `access exclusive` em `idempotency_records` primeiro. A medição de MultiXact
 está em `26-operacao-m2.md`, seção "Registro de operações de idempotência".
-
-O ciclo não precisa de dois perfis alheios por transação: basta um. Em
-`approve_member`, A aprova o pedido de B no grupo G1 enquanto B aprova o pedido de
-A no grupo G2; cada transação segura o `KEY SHARE` do próprio perfil e pede o
-perfil da outra, e com `FOR UPDATE` isso já produz `40P01`.
 
 Toda operação cuja ordem de locks (§3.3, §4.1, §5) inclui o perfil de uma pessoa
 diferente do ator prova, pela barreira abaixo, um par cruzado em que cada
@@ -1397,7 +1397,8 @@ código produtivo.
   `idempotency_records` nas linhas imutáveis de operação e resultado, sem
   conflito nem ciclo de travas de linha nos caminhos das RPCs; gatilhos recusam
   `UPDATE`, `DELETE` e `TRUNCATE`. A segunda autorização de César, em 05/11/2026,
-  cobre os ajustes P3-1 a P3-4 da conferência final do PR #92. A medição
+  cobre os ajustes P3-1 a P3-4 da conferência final do PR #92. César autorizou
+  também a correção de posição da conferência do PR #94 em 05/11/2026. A medição
   de MultiXact fica em `26-operacao-m2.md`, seção "Registro de operações de
   idempotência". A autorização continua restrita a esse parágrafo e este
   registro; o merge continua sendo decisão de César.

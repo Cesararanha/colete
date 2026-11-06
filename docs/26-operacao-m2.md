@@ -3899,7 +3899,12 @@ autorização de César em 05/11/2026 e checksum recalculado; P3-5 preserva os 4
 registra os 46 depois do rebase; P3-6 lista todos os alertas do log de auditoria; P3-7 completa o
 motivo da decisão humana; P3-8 registra as 3 reprovações medidas do mutante M4. Os números de
 banco, web e mutantes acima são medições anteriores, com suas fontes; a pilha local não foi
-iniciada neste PR. Validação local: `npm ci` exit 0 (1.025 pacotes instalados e 1.026 auditados);
+iniciada neste PR. A correção N1 da conferência do PR #94 (`~/dev/colete/noite/conf94.md`),
+autorizada por César em 05/11/2026, move o parágrafo do registro para depois de "O ciclo não
+precisa de dois perfis alheios", preservando a referência desse ciclo ao `FOR UPDATE` em perfil.
+
+No `36d0a14`, `npm ci` terminou com exit 0 (1.025 pacotes instalados e 1.026 auditados).
+Validação local da correção de posição do #94 (05/11/2026):
 `scan:docs` exit 0 (23 documentos, 24 entradas no manifesto, D1–D62, N1–N28 e 25 telas);
 `verify:app` exit 0 (64 arquivos e 754 testes unitários; fronteiras de segredo em 502 arquivos);
 `git diff --check` exit 0. O diff se limita a `docs/25`, `docs/26` e ao manifesto. O terminal usou
