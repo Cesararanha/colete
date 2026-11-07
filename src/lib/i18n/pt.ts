@@ -313,6 +313,9 @@ export const pt = {
   matchPlayers: {
     add: 'Adicionar jogador',
     choose: 'Escolha um membro ativo',
+    unavailable:
+      'Não foi possível alterar a lista do racha. O acesso ou a participação no grupo pode ter mudado.',
+    dismiss: 'Dispensar aviso',
     queueRule: 'Com vaga, entra confirmado. Sem vaga, entra no fim da espera.',
     empty: 'Todos os membros ativos já estão no racha.',
     added: 'Jogador confirmado no racha.',

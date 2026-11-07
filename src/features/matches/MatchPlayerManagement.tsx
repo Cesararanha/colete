@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppError, api, type MatchRoster, type MatchRosterEntry } from '@/lib/api';
+import { api, type MatchRoster, type MatchRosterEntry } from '@/lib/api';
 import { pt } from '@/lib/i18n/pt';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -20,14 +20,16 @@ export function AddMatchPlayer({
   matchId,
   profileId,
   roster,
+  onFeedback,
 }: {
   groupId: string;
   matchId: string;
   profileId: string;
   roster: MatchRoster;
+  onFeedback: (error: unknown) => void;
 }) {
   const { colors } = useTheme();
-  const actions = useMatchActions(profileId);
+  const actions = useMatchActions(profileId, { groupId, onRefusal: onFeedback });
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
   const restore = useRef(false);
@@ -47,7 +49,9 @@ export function AddMatchPlayer({
   if (!enabled) return null;
   const listed = new Set([...roster.confirmed, ...roster.waitlist].map((p) => p.profile_id));
   const available =
-    members.data?.filter((p) => p.status === 'active' && !listed.has(p.profile_id)) ?? [];
+    (members.isSuccess ? members.data : [])?.filter(
+      (p) => p.status === 'active' && !listed.has(p.profile_id),
+    ) ?? [];
   return (
     <View style={styles.section}>
       <AppButton
@@ -60,6 +64,7 @@ export function AddMatchPlayer({
           actions.clearError();
           actions.discardIntent();
           setMessage('');
+          onFeedback(null);
           setOpen(true);
         }}
       />
@@ -87,10 +92,15 @@ export function AddMatchPlayer({
               testID={`match-add-${member.profile_id}`}
               variant="outline"
               onPress={() => {
+                if (actions.pending) return;
+                onFeedback(null);
                 void actions
                   .run(`add:${member.profile_id}`, () => api.addPlayer(matchId, member.profile_id))
                   .then((result) => {
-                    if (!result) return;
+                    if (!result) {
+                      focusGroupControl('match-refresh-button');
+                      return;
+                    }
                     restore.current = true;
                     setOpen(false);
                     setMessage(
@@ -104,10 +114,6 @@ export function AddMatchPlayer({
               }}
             />
           ))}
-          <AppAlert
-            message={actions.error ? matchErrorMessage(actions.error) : ''}
-            testID="match-add-error"
-          />
           <AppButton
             ariaDisabled={actions.pending}
             label={pt.matches.detail.cancel}
@@ -132,14 +138,18 @@ export function RemoveMatchPlayer({
   matchId,
   profileId,
   hasTeams,
+  groupId,
+  onFeedback,
 }: {
   entry: MatchRosterEntry;
   matchId: string;
   profileId: string;
   hasTeams: boolean;
+  groupId: string;
+  onFeedback: (error: unknown) => void;
 }) {
   const { colors } = useTheme();
-  const actions = useMatchActions(profileId);
+  const actions = useMatchActions(profileId, { groupId, onRefusal: onFeedback });
   const [confirming, setConfirming] = useState(false);
   const restore = useRef(false);
   const removing = useRef(false);
@@ -184,13 +194,14 @@ export function RemoveMatchPlayer({
             variant="destructive"
             onPress={() => {
               if (actions.pending) return;
+              onFeedback(null);
               removing.current = true;
               void actions
                 .run(`remove:${entry.profile_id}`, () =>
                   api.removePlayer(matchId, entry.profile_id!),
                 )
-                .then((result) => {
-                  if (result) focusGroupControl('match-refresh-button');
+                .then(() => {
+                  focusGroupControl('match-refresh-button');
                 });
             }}
           />
@@ -217,20 +228,11 @@ export function RemoveMatchPlayer({
           onPress={() => {
             actions.clearError();
             actions.discardIntent();
+            onFeedback(null);
             setConfirming(true);
           }}
         />
       )}
-      <AppAlert
-        message={
-          actions.error instanceof AppError && actions.error.code === 'FORBIDDEN'
-            ? pt.matchPlayers.self
-            : actions.error
-              ? matchErrorMessage(actions.error)
-              : ''
-        }
-        testID={`${id}-error`}
-      />
     </View>
   );
 }

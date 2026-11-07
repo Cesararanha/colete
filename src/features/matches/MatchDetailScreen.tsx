@@ -14,6 +14,7 @@ import { groupAppearance } from '@/components/ui/group-icon';
 import { OccupancyBar } from '@/components/ui/OccupancyBar';
 import {
   api,
+  AppError,
   type MatchEditOutcome,
   type MatchPaymentResult,
   type MatchPresenceResult,
@@ -548,6 +549,19 @@ function Rosters({
     roster.confirmed.map((entry) => entry.profile_id),
   );
   const [message, setMessage] = useState('');
+  const [playerError, setPlayerError] = useState<unknown>(null);
+  // The lists retain the refusal when its action/row disappears. Cancellation
+  // supersedes an earlier start refusal; new intents and dismissal clear it.
+  const playerErrorMessage =
+    playerError instanceof AppError && playerError.code === 'MATCH_STARTED' && roster.canceled
+      ? ''
+      : playerError instanceof AppError && playerError.code === 'NOT_FOUND'
+        ? pt.matchPlayers.unavailable
+        : playerError instanceof AppError && playerError.code === 'FORBIDDEN'
+          ? pt.matchPlayers.self
+          : playerError
+            ? matchErrorMessage(playerError)
+            : '';
   const [expanded, setExpanded] = useState(false);
   const manage = roster.viewer.can_manage;
   const summary = roster.payment_summary;
@@ -572,7 +586,25 @@ function Rosters({
   const shown = collapsible && !expanded ? roster.confirmed.slice(0, COLLAPSED) : roster.confirmed;
   return (
     <>
-      <AddMatchPlayer groupId={groupId} matchId={matchId} profileId={profileId} roster={roster} />
+      <AppAlert message={playerErrorMessage} testID="match-player-error" />
+      {playerErrorMessage ? (
+        <AppButton
+          label={pt.matchPlayers.dismiss}
+          testID="match-player-error-dismiss"
+          variant="tertiary"
+          onPress={() => {
+            setPlayerError(null);
+            focusGroupControl('match-refresh-button');
+          }}
+        />
+      ) : null}
+      <AddMatchPlayer
+        groupId={groupId}
+        matchId={matchId}
+        profileId={profileId}
+        roster={roster}
+        onFeedback={setPlayerError}
+      />
       <View style={styles.section} testID="match-confirmed">
         <View style={styles.sectionHead}>
           <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
@@ -641,6 +673,8 @@ function Rosters({
                     matchId={matchId}
                     profileId={profileId}
                     hasTeams={hasTeams}
+                    groupId={groupId}
+                    onFeedback={setPlayerError}
                   />
                 ) : null
               }
@@ -709,6 +743,8 @@ function Rosters({
                     matchId={matchId}
                     profileId={profileId}
                     hasTeams={hasTeams}
+                    groupId={groupId}
+                    onFeedback={setPlayerError}
                   />
                 ) : null}
               </View>
@@ -998,6 +1034,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
               <Rosters
+                key={matchId}
                 hasTeams={teamsQuery.data?.team_count != null}
                 ended={ended}
                 groupId={match.group_id}

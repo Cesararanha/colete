@@ -4296,3 +4296,117 @@ Como `e2e/racha-completo.spec.ts` e `scripts/test-match-players.mjs` foram edita
 ou depois da validação do autor, o coordenador repetiu sobre a versão final: `verify:app` exit
 0 (782 unitários), `db:test` exit 0 (33 arquivos, 2.599 asserções), `db:test:match-players`
 exit 0 e `git diff --check` limpo.
+
+### Correção da revisão — PR #97 (`a257b93`, 06/11/2026)
+
+**P2-1.** Adição e remoção agora apresentam o `NOT_FOUND` uniforme como
+“Não foi possível alterar a lista do racha. O acesso ou a participação no grupo pode
+ter mudado.” O cliente não atribui a causa ao ator nem tenta distingui-la pela resposta.
+Depois dessa recusa, relê os membros ativos autorizados; com leitura bem-sucedida,
+atualiza também o racha/roster. A lista não oferece dados antigos quando a releitura
+falha. Se o ator perdeu acesso, conserva a recusa na tela, sem forçar a releitura do
+racha que retiraria sua explicação. Nenhuma alteração no servidor ou código de erro.
+
+**P2-2.** O retorno das duas ações fica em uma região `AppAlert` das listas, acima
+dos componentes condicionais: sobrevive à retirada da adição e das remoções de
+confirmados ou da espera. `role=alert` e anúncio assertivo permanecem; a tentativa
+recusada encaminha o foco para “Atualizar racha”, que sobrevive à atualização. Um novo
+intento ou “Dispensar aviso” limpa o retorno; mudança posterior do estado que invalide
+a recusa também a limpa (por exemplo, aviso de início quando o racha passa a cancelado).
+
+**Provas acrescentadas; provas anteriores preservadas.**
+
+- E2e em `racha-completo.spec.ts`: 12 casos parametrizados (adição, remoção de
+  confirmado e remoção da espera × saída do alvo, saída do ator, início e cancelamento),
+  previstos nos dois projetos Chromium. Leituras autorizadas ficam congeladas até
+  entregar a recusa real da Edge/Postgres; a mudança concorrente usa outra sessão
+  ou relógio da fixture. Conferem código uniforme, texto, região viva, foco sobrevivente,
+  retirada do candidato/linha, manutenção da explicação ao perder acesso e limpeza
+  do aviso. O autor não os executou; execução e contraprova do coordenador na parte
+  de navegador abaixo.
+- Harness: 6 pares novos com barreira observada por `pg_stat_activity` e
+  `pg_blocking_pids`, conexões/atores independentes e COMMIT real como `service_role`.
+  `remove_player` × `set_match_payment` nas duas ordens, inicialmente pago e não pago:
+  marcação posterior à remoção recusa `NOT_STARTER`; pagamento anterior gera exatamente
+  uma obrigação `removed` de 12.50 para o alvo; nenhum `paid` ou marcador residual.
+  `remove_player` × `cancel_match`, nas duas ordens, inicialmente pago: exatamente uma
+  obrigação, origem `removed` ou `canceled` conforme a ordem, sem pagamento sobrando.
+- Replay: matriz HTTP real para as duas operações, incluindo mesmo `request_id`
+  com alvo ou racha diferente (`IDEMPOTENCY_CONFLICT`), perda de papel/saída do grupo
+  (somente desfecho), início (replay conserva desfecho; tentativa nova recusa),
+  cancelamento com autoridade (`MATCH_CANCELED`, registro original intacto) e sem
+  autoridade (somente desfecho). Conflito também conferido após perda de papel,
+  início e cancelamento. Um efeito inverso antes do replay permite detectar repetição;
+  snapshots de inscrição/obrigações permanecem idênticos.
+
+As provas novas de banco passaram com a `0035` original: preenchem lacunas de prova,
+sem demonstrar defeito do banco antigo. Nenhum mutante financeiro novo foi executado;
+por leitura, perda de pagamento, pago removido, obrigação extra/errada ou replay com
+efeito quebram respectivamente as asserções de contagem/valor/beneficiário, marcadores,
+origem e snapshots. As contraprovas executáveis anteriores continuam no harness e
+passaram. **Nenhum defeito novo de banco encontrado; nenhuma migration alterada.**
+
+**Validação desta correção.** Comandos de banco em sequência, sem pgTAP simultâneo
+a harness. Linhas `ok` são itens nominais, não contagem de chamadas a `assert`.
+
+| Comando | Exit | Contagem medida |
+|---|---:|---|
+| `npm run db:reset` | 0 | 34 migrations, até 0035 |
+| `npm run db:test` | 0 | 33 arquivos / 2.599 asserções |
+| `npm run db:test:match-players` — primeira execução | 1 | 33 linhas ok; erro na fixture de reativação da membership |
+| `npm run db:test:match-players` — repetição após corrigir fixture | 0 | 35 linhas ok, incluindo 6 pares novos e 2 matrizes de replay |
+| `npm run db:test:refunds` | 0 | 8 linhas ok |
+| `npm run db:test:matches` | 0 | 15 linhas ok |
+| `npm run verify:app` — primeira execução | 1 | lint: `react-hooks/set-state-in-effect` |
+| `npm run verify:app` — repetição após corrigir a limpeza do aviso | 0 | 65 arquivos / 782 unitários, 43 rotas; lint/formato/tipos/PWA/Auth/scans |
+| `npm run scan:docs` | 0 | 23 arquivos, 24 hashes do manifesto |
+| `npm run scan:secrets` | 0 | 511 arquivos, zero achados |
+| `git diff --check` | 0 | zero erros |
+
+A falha inicial do harness foi `group_members_removed_at_check`: a fixture tentava
+reativar quem havia saído sem limpar `removed_at`. Corrigida a fixture, a repetição
+passou; não foi necessário alterar função ou constraint. O primeiro `verify:app`
+parou no lint por `setState` dentro de efeito; a validade do aviso passou a ser
+derivada do estado exibido, sem suprimir a regra, e a repetição passou. Nas duas
+execuções do harness a limpeza
+passou com zero registros nas **8 tabelas** do censo automático do harness; não foi
+repetido aqui o censo independente de 13 tabelas da primeira rodada.
+Logs locais em `/tmp/rev97-*.log`. Alterações somente no working tree, sem add,
+commit, push, consulta remota ou Playwright. Pilha Colete preservada, sem tocar
+contêineres de outros projetos ou a trava externa. Conferência independente pendente.
+
+**Navegador da correção, executado pelo coordenador fora do sandbox (06 e 07/11/2026).**
+
+- **Rodada 1, com falha.** `test:matches:web`: 74 passed, 2 failed, ambos em `wide-chromium`.
+  `racha-completo.spec.ts:178` estourou 30 s em `context.close`, e a limpeza do `finally` não
+  rodou. Os 4 `auth.users` que sobraram reprovaram `rachas-v1.spec.ts:179`, `db:test` (2
+  subtestes de `0016`) e `db:test:match-players` (`auth.users before proofs`). Essa cadeia está
+  provada pelos logs. A causa do estouro não está: a rodada atravessou o sono do Mac, de tampa
+  fechada e na bateria (`pmset`: sono às 23:34:38, despertar às 23:37:28; o build levou 993 s,
+  contra 9 s acordado). É coincidência de horário, compatível, sem reprodução isolada.
+- **Rodada 2, do zero e com o Mac acordado.** `db:reset` exit 0; `build:web:auth-e2e` exit 0
+  (9 s); `test:matches:web` 76 passed (3,0 min), com os 12 casos novos nos dois projetos;
+  `db:test` 33 arquivos / 2.599 asserções; `db:test:match-players` 35 linhas ok. `verify:app`
+  exit 0 (782 unitários) sobre o mesmo código, ao fim da rodada 1.
+- **Não repetidos localmente depois da correção:** `test:auth:web`, `test:privacy:web`,
+  `test:cors:web`, `test:groups:web`, `test:qr:web` e `test:smoke:web`. A correção só toca a tela
+  do racha; ficam para a CI.
+- **Contraprova em `a257b93`, inconclusiva.** Os 12 casos falham em `mobile-chromium`, mas todos
+  em `racha-completo.spec.ts:1025`, porque `match-player-error` só existe no código novo. Isso
+  prova a ausência do seletor, não o comportamento.
+- **Mutantes de tela no código novo, um comportamento por vez, só em `mobile-chromium`:**
+
+| Mutante | Casos rodados | Falharam | Asserção que pegou |
+|---|---:|---:|---|
+| `NOT_FOUND` volta à mensagem falsa | 6 | 6 | linha 1025, texto |
+| Sem reler membros e racha depois de `NOT_FOUND` | 6 | 2, só adição | linhas 1040 e 1043, candidato fora |
+| Aviso some com os controles | 6 | 6 | linha 1057, aviso continua |
+| Sem foco na recusa da adição | 4 | 4 | linha 1034, foco |
+| Sem foco na recusa da remoção | 8 | 2, só `ACTOR_NOT_FOUND` | linha 1034, foco |
+| Dispensar não limpa o aviso | 3 | 3 | linha 1062, aviso vazio |
+
+Limites: os mutantes rodaram com o Mac dormindo entre as execuções, e o e2e não fixa a releitura
+na remoção, porque os 4 casos de remoção passaram sem ela. O foco da remoção nas outras recusas
+também não caiu com o segundo mutante de foco. A rodada de controle desses mutantes, na worktree
+temporária e durante o sono, deu 10 passed e 2 failed (estouro de 30 s e `leave_group` 401). Ela
+não foi repetida; o controle válido é a rodada 2, que tem os mesmos casos.

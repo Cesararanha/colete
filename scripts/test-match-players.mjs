@@ -1378,9 +1378,22 @@ const ADD_PLAYER = 'public.add_player(uuid,uuid,uuid,text,integer,integer,uuid,u
 const REMOVE_PLAYER = 'public.remove_player(uuid,uuid,uuid,text,integer,integer,uuid,uuid)';
 async function rpcPlayer(connection, actor, op, matchId, target, requestId = crypto.randomUUID()) {
   assert.ok(
-    ['add_player', 'remove_player', 'join_match', 'leave_match', 'leave_group'].includes(op),
+    [
+      'add_player',
+      'remove_player',
+      'join_match',
+      'leave_match',
+      'leave_group',
+      'set_match_payment',
+      'cancel_match',
+    ].includes(op),
   );
-  const args = target ? '$5::uuid,$6::uuid' : '$5::uuid';
+  const args =
+    op === 'set_match_payment'
+      ? '$5::uuid,$6::uuid,true'
+      : target
+        ? '$5::uuid,$6::uuid'
+        : '$5::uuid';
   await connection.query('begin');
   try {
     await connection.query('set local role service_role');
@@ -1779,6 +1792,218 @@ async function proveOrganizerPlayers(status, connections, db, context) {
   );
 }
 
+// Review #97: removal must serialize with money and cancellation, in each order.
+async function proveRemovalBarriers(status, connections, db, context) {
+  const { owner, organizer, groupId } = context;
+  const { first, second, observer, holder } = connections;
+  const pids = await assertDistinctConnections(connections, 'remove financial barriers');
+  for (const other of ['set_match_payment', 'cancel_match']) {
+    for (const initiallyPaid of other === 'cancel_match' ? [true] : [false, true]) {
+      for (const order of [0, 1]) {
+        const m = await createMatch(status, owner, groupId, 1);
+        const [target] = await freshMembers(status, db, groupId, 1, 'rmrace');
+        await rpcPlayer(first, owner, 'add_player', m, target);
+        if (initiallyPaid) await rpcPlayer(first, organizer, 'set_match_payment', m, target);
+        await holder.query('begin');
+        await holder.query('select 1 from public.groups where id=$1 for no key update', [groupId]);
+        const calls = [
+          (c) => rpcPlayer(c, owner, 'remove_player', m, target),
+          (c) => rpcPlayer(c, organizer, other, m, other === 'set_match_payment' ? target : null),
+        ];
+        let one, two;
+        try {
+          one = track(calls[order](first));
+          await awaitLockWait(
+            observer,
+            one,
+            pids.first,
+            pids.holder,
+            'remove financial first',
+            APP_PREFIX,
+          );
+          two = track(calls[1 - order](second));
+          await awaitLockWait(
+            observer,
+            two,
+            pids.second,
+            [pids.holder, pids.first],
+            'remove financial second',
+            APP_PREFIX,
+          );
+        } finally {
+          await holder.query('commit');
+        }
+        const ordered = await Promise.all([one.settled, two.settled]);
+        const results = order === 0 ? ordered : ordered.toReversed();
+        if (other === 'cancel_match') {
+          assert.equal(results[1].status, 'fulfilled');
+          assert.equal(results[0].status, order === 0 ? 'fulfilled' : 'rejected');
+          if (order === 1) assert.equal(results[0].reason.message, 'MATCH_CANCELED');
+        } else {
+          assert.equal(results[0].status, 'fulfilled');
+          assert.equal(results[1].status, order === 0 ? 'rejected' : 'fulfilled');
+          if (order === 0) assert.equal(results[1].reason.message, 'NOT_STARTER');
+        }
+        const rows = await statuses(db, m);
+        assert.equal(rows.length, 1);
+        assert.equal(
+          rows[0].status,
+          other === 'cancel_match' && order === 1 ? 'starter' : 'removed',
+        );
+        assert.equal(rows[0].paid, false, 'no paid participant remains');
+        assert.equal(rows[0].payment_marked_at, null);
+        assert.equal(rows[0].payment_marked_by, null);
+        const refunds = (
+          await db.query(
+            `select r.amount::text, r.origin, r.status, p.profile_id as beneficiary_profile_id
+           from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+            [m],
+          )
+        ).rows;
+        const expected = initiallyPaid || order === 1 ? 1 : 0;
+        assert.equal(refunds.length, expected, 'exactly the obligation for the real payment');
+        if (expected)
+          assert.deepEqual(refunds[0], {
+            amount: '12.50',
+            origin: other === 'cancel_match' && order === 1 ? 'canceled' : 'removed',
+            status: 'refund_due',
+            beneficiary_profile_id: target.profileId,
+          });
+        console.log(
+          `ok - remove × ${other}, ${order === 0 ? 'remove first' : 'other first'}, initially paid=${initiallyPaid}: observed barrier, ${expected} exact obligation, no paid residue`,
+        );
+      }
+    }
+  }
+}
+
+async function proveOrganizerReplayMatrix(status, db, context) {
+  const { owner, groupId } = context;
+  for (const op of ['add_player', 'remove_player']) {
+    const manager = await createActor(status, 'rpreview');
+    await addMembers(db, groupId, [[manager, 'organizer', 'active']]);
+    const [target, different] = await freshMembers(status, db, groupId, 2, 'rptarget');
+    const m = await createMatch(status, owner, groupId, 1);
+    const differentMatch = await createMatch(status, owner, groupId, 1);
+    const body = { match_id: m, profile_id: target.profileId };
+    if (op === 'remove_player') ok(await mutate(status, owner, 'add_player', body), 'replay setup');
+    const requestId = crypto.randomUUID();
+    const original = ok(
+      await mutate(status, manager, op, body, requestId),
+      'original manual operation',
+    );
+    const inverse = op === 'add_player' ? 'remove_player' : 'add_player';
+    ok(await mutate(status, owner, inverse, body), 'change state before replay');
+    const snapshot = async () => ({
+      players: await statuses(db, m),
+      refunds: (
+        await db.query(
+          `select r.* from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1 order by r.id`,
+          [m],
+        )
+      ).rows,
+    });
+    const before = await snapshot();
+    const replay = async (label) => {
+      assert.deepEqual(
+        ok(await mutate(status, manager, op, body, requestId), label),
+        original,
+        'only original IDs outcome',
+      );
+      assert.deepEqual(Object.keys(original), ['outcome']);
+      assert.deepEqual(await snapshot(), before, 'replay has no new effect');
+    };
+    for (const patch of [{ profile_id: different.profileId }, { match_id: differentMatch }])
+      denied(
+        await mutate(status, manager, op, { ...body, ...patch }, requestId),
+        409,
+        'IDEMPOTENCY_CONFLICT',
+        'same request different input',
+      );
+    await replay('same input replay');
+    ok(
+      await mutate(status, owner, 'set_role', {
+        group_id: groupId,
+        profile_id: manager.profileId,
+        role: 'player',
+      }),
+      'demote replay actor',
+    );
+    await replay('replay after authority loss');
+    denied(
+      await mutate(status, manager, op, { ...body, profile_id: different.profileId }, requestId),
+      409,
+      'IDEMPOTENCY_CONFLICT',
+      'changed input after authority loss',
+    );
+    denied(
+      await mutate(status, manager, op, body),
+      404,
+      'NOT_FOUND',
+      'new attempt after authority loss',
+    );
+    ok(await mutate(status, manager, 'leave_group', { group_id: groupId }), 'replay actor leaves');
+    await replay('replay outside group');
+    // Restore fixture authority, then cross the start boundary without touching players.
+    await db.query(
+      "update public.group_members set status='active',role='organizer',removed_at=null where group_id=$1 and profile_id=$2",
+      [groupId, manager.profileId],
+    );
+    await db.query("update private.matches set starts_at=now()-interval '1 minute' where id=$1", [
+      m,
+    ]);
+    await replay('replay after start');
+    denied(
+      await mutate(status, manager, op, { ...body, profile_id: different.profileId }, requestId),
+      409,
+      'IDEMPOTENCY_CONFLICT',
+      'changed input after start',
+    );
+    denied(
+      await mutate(status, manager, op, body),
+      409,
+      'MATCH_STARTED',
+      'new attempt after start',
+    );
+    ok(await mutate(status, owner, 'cancel_match', { match_id: m }), 'cancel replay match');
+    const record = async () =>
+      (
+        await db.query(
+          'select * from private.idempotency_records where actor_id=$1 and operation=$2 and request_id=$3',
+          [manager.profileId, op, requestId],
+        )
+      ).rows;
+    const stored = await record();
+    assert.equal(stored.length, 1);
+    denied(
+      await mutate(status, manager, op, body, requestId),
+      409,
+      'MATCH_CANCELED',
+      'authorized replay after cancellation',
+    );
+    denied(
+      await mutate(status, manager, op, { ...body, profile_id: different.profileId }, requestId),
+      409,
+      'IDEMPOTENCY_CONFLICT',
+      'changed input after cancellation',
+    );
+    assert.deepEqual(await record(), stored, 'canceled refusal preserves original record');
+    assert.deepEqual(await snapshot(), before);
+    ok(
+      await mutate(status, owner, 'set_role', {
+        group_id: groupId,
+        profile_id: manager.profileId,
+        role: 'player',
+      }),
+      'demote after cancellation',
+    );
+    await replay('authority loss retains outcome even on canceled match');
+    console.log(
+      `ok - ${op} replay matrix: changed target/match conflicts, demoted/outside outcome only, start preserves outcome, canceled authorized refusal, canceled demoted outcome, no repeated effect`,
+    );
+  }
+}
+
 async function main() {
   const status = localStatus();
   const db = client(status.dbUrl, 'admin');
@@ -1830,6 +2055,8 @@ async function main() {
     await proveEditJoinBarrier(status, { observer, holder, first, second }, db, context);
     await proveEditLockMutant(status, { first, second }, db, context);
     await proveOrganizerPlayers(status, { observer, holder, first, second }, db, context);
+    await proveRemovalBarriers(status, { observer, holder, first, second }, db, context);
+    await proveOrganizerReplayMatrix(status, db, context);
   } catch (error) {
     failure = error;
   }
