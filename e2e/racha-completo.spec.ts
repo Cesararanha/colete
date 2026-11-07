@@ -912,22 +912,32 @@ async function stalePlayerAttempt(
   page: Page,
   operation: 'add_player' | 'remove_player',
   change: () => Promise<void>,
+  holdMembers?: () => Promise<void>,
 ) {
   let frozen = true;
+  let needsMembers = false;
   const cached = new Map<string, { status: number; body: string; contentType: string }>();
   await page.route('**/groups/*', async (route) => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1);
     if (name === operation) {
       await change();
       const response = await route.fetch();
+      needsMembers = (await response.json()).error?.code === 'NOT_FOUND';
       frozen = false;
       await route.fulfill({ response });
     } else if (name?.startsWith('get_')) {
       const key = `${name}:${route.request().postData()}`;
       const saved = cached.get(key);
-      if (frozen && saved) await route.fulfill(saved);
+      // A periodic roster read cannot stand in for the refusal's immediate
+      // renewal: until members are re-read, it still receives the old snapshot.
+      if ((frozen || (needsMembers && name !== 'get_group_members')) && saved)
+        await route.fulfill(saved);
       else {
         const response = await route.fetch();
+        if (!frozen && name === 'get_group_members') {
+          await holdMembers?.();
+          needsMembers = false;
+        }
         cached.set(key, {
           status: response.status(),
           body: await response.text(),
@@ -1042,7 +1052,14 @@ for (const flow of ['add', 'remove-confirmed', 'remove-waitlist'] as const) {
           if (flow === 'add')
             await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
           else {
-            await expect(page.getByTestId(removeId)).toHaveCount(0);
+            await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+            await expect(
+              page
+                .getByTestId(
+                  flow === 'remove-waitlist' ? /^match-waitlist-\d+$/ : /^match-confirmed-\d+$/,
+                )
+                .filter({ hasText: `rev-${label}-pzinho` }),
+            ).toHaveCount(0);
             await page.getByTestId('match-add-player').click();
             await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
             // Opening a new intent retires the previous refusal.
@@ -1066,6 +1083,106 @@ for (const flow of ['add', 'remove-confirmed', 'remove-waitlist'] as const) {
         await page.unrouteAll({ behavior: 'wait' });
         await cleanActors(authIds, db);
         await db.end();
+      }
+    });
+  }
+}
+
+for (const flow of ['add', 'remove'] as const) {
+  for (const dismiss of [false, true]) {
+    test(`Foco da organização: ${flow} antiga não interrompe outra confirmação${dismiss ? ' após dispensa' : ''}`, async ({
+      page,
+      request,
+    }) => {
+      const db = new Client({ connectionString: env.dbUrl });
+      await db.connect();
+      const authIds: string[] = [];
+      const membersHeld = Promise.withResolvers<void>();
+      const releaseMembers = Promise.withResolvers<void>();
+      try {
+        const label = `c1-${flow === 'add' ? 'a' : 'r'}${dismiss ? 'd' : 'n'}`;
+        const owner = await createActor(request, `${label}-d`, authIds);
+        const target = await createActor(request, `${label}-p`, authIds);
+        const other = await createActor(request, `${label}-o`, authIds);
+        const groupId = (
+          (await gateway(request, owner, 'create_group', { name: 'Foco entre tentativas' }))[
+            'outcome'
+          ] as { group_id: string }
+        ).group_id;
+        await db.query(
+          "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active'),($1,$3,'player','active')",
+          [groupId, target.profileId, other.profileId],
+        );
+        const matchId = await createMatch(request, owner, groupId);
+        await gateway(request, other, 'join_match', { match_id: matchId });
+        if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+        await login(page, owner);
+        await stalePlayerAttempt(
+          page,
+          flow === 'add' ? 'add_player' : 'remove_player',
+          async () => {
+            await gateway(request, target, 'leave_group', { group_id: groupId });
+          },
+          async () => {
+            membersHeld.resolve();
+            await releaseMembers.promise;
+          },
+        );
+        await page.goto(`/rachas/${matchId}`);
+        const oldRemove = `match-remove-${target.profileId}`;
+        await page.getByTestId(flow === 'add' ? 'match-add-player' : oldRemove).click();
+        const response = page.waitForResponse((item) =>
+          item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+        );
+        await page
+          .getByTestId(flow === 'add' ? `match-add-${target.profileId}` : `${oldRemove}-confirm`)
+          .click();
+        const rejected = await response;
+        expect(rejected.status()).toBe(404);
+        expect((await rejected.json()).error.code).toBe('NOT_FOUND');
+        await membersHeld.promise;
+        await expect(page.getByTestId('match-player-error')).not.toBeEmpty();
+        if (dismiss) {
+          await page.getByTestId('match-player-error-dismiss').click();
+          await expect(page.getByTestId('match-player-error')).toBeEmpty();
+        }
+        const current = `match-remove-${other.profileId}`;
+        await page.getByTestId(current).click();
+        const heading = page.getByTestId(`${current}-confirmation-heading`);
+        await expect(heading).toBeFocused();
+        releaseMembers.resolve();
+        if (flow === 'add') {
+          await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
+          // The original run has left finally; the following frame includes its .then.
+          await expect(page.getByTestId('match-add-cancel')).not.toHaveAttribute(
+            'aria-disabled',
+            'true',
+          );
+        } else {
+          await expect(page.getByTestId(`${oldRemove}-confirmation`)).toHaveCount(0);
+          await expect(
+            page.getByTestId(/^match-confirmed-\d+$/).filter({ hasText: `${label}-pzinho` }),
+          ).toHaveCount(0);
+        }
+        await page.waitForLoadState('networkidle');
+        await page.evaluate(
+          () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+        );
+        // All selectors above already exist in 8926d58. That code fails HERE:
+        // the old continuation (and removal cleanup) focuses Atualizar racha.
+        await expect(heading).toBeFocused();
+        await expect(page.getByTestId(`${current}-confirmation`)).toBeVisible();
+      } finally {
+        releaseMembers.resolve();
+        try {
+          await page.unrouteAll({ behavior: 'wait' });
+        } finally {
+          try {
+            await cleanActors(authIds, db);
+          } finally {
+            await db.end();
+          }
+        }
       }
     });
   }

@@ -4410,3 +4410,75 @@ na remoção, porque os 4 casos de remoção passaram sem ela. O foco da remoç�
 também não caiu com o segundo mutante de foco. A rodada de controle desses mutantes, na worktree
 temporária e durante o sono, deu 10 passed e 2 failed (estouro de 30 s e `leave_group` 401). Ela
 não foi repetida; o controle válido é a rodada 2, que tem os mesmos casos.
+
+### Correção da conferência — PR #97 (`8926d58`, 07/11/2026)
+
+**P2-C1.** O encaminhamento de foco das tentativas de adicionar/remover pertence agora
+às listas (`Rosters`), que sobrevivem à retirada de uma linha. Cada tentativa captura
+sua interação, controle focado e confirmação no lugar. Novo intento, cancelamento,
+dispensa do aviso ou desmontagem das listas invalida sua continuação. Ao concluir,
+só encaminha o foco se ele ainda pertence ao controle de origem (inclusive sua troca
+por `AppButton` pendente), ou ficou sem destino, e não existe outra confirmação aberta.
+`GroupConfirmation` identifica suas regiões por atributo de dados, sem bloquear ações.
+A remoção deixa de focar incondicionalmente no cleanup; a conclusão usa a mesma guarda,
+inclusive quando a releitura retirou a linha. Adição bem-sucedida restaura o controle
+somente com essa guarda. Mensagem uniforme, releitura autorizada e aviso persistente
+do P2-1/P2-2 permanecem; nenhum contrato, banco ou migration foi alterado.
+
+**Provas de tela.** Quatro casos parametrizados em
+`e2e/racha-completo.spec.ts` (adição/remoção × com/sem dispensa do aviso), previstos nos
+dois projetos Chromium: o alvo sai pela Edge real, a tentativa recebe `NOT_FOUND`,
+a resposta da releitura de membros fica retida, outra confirmação de remoção recebe
+foco e só então a resposta é liberada. Após terminar a releitura e a continuação,
+a confirmação nova deve conservar o foco. Todos os seletores do cenário já existem
+em `8926d58`; por leitura, esse código deve falhar na última asserção de foco porque
+a continuação antiga (e o cleanup da remoção) foca “Atualizar racha”. Contraprova nesse
+SHA e execução verde da correção: não executadas pelo autor; resultado do coordenador abaixo.
+
+**Lacuna P3 da conferência.** Nos dois casos `NOT_FOUND` de
+remoção (confirmado/espera), a prova agora exige ausência tanto da confirmação quanto
+da linha identificada pelo nome do alvo, antes de abrir o seletor de adição. O helper
+conserva o snapshot anterior nas leituras periódicas até a releitura de membros,
+impedindo que ela substitua a renovação imediata exigida após a recusa. Esses reforços
+não são alegados como falhas de `8926d58`: devem detectar o mutante sem releitura,
+antes mascarado pela ausência do botão já trocado pela confirmação. Não foi demonstrado
+nesta sessão defeito adicional na releitura da remoção; se a versão corrigida falhar
+nessas asserções, a lacuna permanece aberta e exige correção, não relaxamento da prova.
+
+**Limite preservado.** A fragilidade anterior em `racha-completo.spec.ts:315`
+permanece fora do escopo: falha em `context.close` pode impedir `cleanActors`/`db.end`.
+Nenhuma nova atribuição de causa aos timeouts ou ao 401 da rodada anterior.
+
+**Validação desta correção.** Contagens medidas nesta sessão:
+
+| Comando | Exit | Contagem medida |
+|---|---:|---|
+| `npm run verify:app` — primeira execução | 2 | lint/formato aprovados; TypeScript recusou `dataSet` no `View` |
+| `npm run verify:app` — após mover o atributo ao heading web existente | 0 | 65 arquivos / 782 unitários; 43 rotas; lint/formato/tipos/PWA/Auth/scans |
+| `npm run scan:docs` | 0 | 23 documentos, 24 hashes do manifesto |
+| `npm run scan:secrets` | 0 | 511 arquivos, zero achados |
+| `git diff --check` | 0 | zero erros |
+
+Logs locais: `/tmp/conf97-verify-app.log`, `/tmp/conf97-verify-app-final.log`,
+`/tmp/conf97-scan-docs.log` e `/tmp/conf97-scan-secrets.log`. O erro de tipo foi
+corrigido sem cast nem supressão: o atributo fica no elemento HTML que já recebe
+foco em `GroupConfirmation`. Nenhum comando de banco foi executado nesta sessão.
+Navegador, contraprova em `8926d58` e mutante sem releitura: executados pelo
+coordenador, abaixo. Sem Playwright, add, commit, push, consulta remota ou acesso
+a contêineres; pilha Colete e trava externa preservadas. Mudanças somente no working tree.
+
+**Navegador da correção da conferência, executado pelo coordenador (07/11/2026, Mac acordado).**
+Após `db:reset`, primeira rodada, sem repetição:
+
+| Execução | Resultado |
+|---|---|
+| `test:matches:web` | exit 0, 84 passed (3,2 min), com os 4 casos de foco nos dois projetos |
+| `test:groups:web` | exit 0, 121 passed + 5 skipped; `GroupConfirmation` é compartilhado |
+| Contraprova: e2e novo sobre `8926d58` | 8 failed de 8, todos em `racha-completo.spec.ts:1173`, `toBeFocused` do título da confirmação nova |
+| Mutante sem releitura depois de `NOT_FOUND`, sobre o código novo | 2 failed de 2 nos casos de remoção, em `:1055`, confirmação ainda presente |
+| Controle sem mutante, mesmos casos e os de foco, `mobile-chromium` | 6 passed |
+| `verify:app` | exit 0, 782 unitários |
+| `db:test` | exit 0, 33 arquivos / 2.599 asserções |
+
+A contraprova é comportamental: o cenário só usa seletores que já existiam em `8926d58`.
+A lacuna da releitura na remoção fica fechada: o mutante que antes passava agora reprova.

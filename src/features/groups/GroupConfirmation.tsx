@@ -38,6 +38,7 @@ export function GroupConfirmation({
         <Heading
           tabIndex={-1}
           data-testid={`${testID}-heading`}
+          data-group-confirmation={testID}
           style={{
             fontFamily: typography.title.fontFamily,
             fontWeight: 600,

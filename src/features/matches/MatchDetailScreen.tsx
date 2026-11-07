@@ -46,7 +46,11 @@ import { openMatchMap } from './match-map';
 import { deviceDiffers, zoneLabel } from './match-zone';
 import { matchTeamsQueryKey, MatchTeamsSection } from './MatchTeams';
 import { MatchRefunds } from './MatchRefunds';
-import { AddMatchPlayer, RemoveMatchPlayer } from './MatchPlayerManagement';
+import {
+  AddMatchPlayer,
+  RemoveMatchPlayer,
+  usePlayerManagementFeedback,
+} from './MatchPlayerManagement';
 import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
@@ -549,7 +553,11 @@ function Rosters({
     roster.confirmed.map((entry) => entry.profile_id),
   );
   const [message, setMessage] = useState('');
-  const [playerError, setPlayerError] = useState<unknown>(null);
+  const {
+    error: playerError,
+    feedback: setPlayerError,
+    beginAttempt: beginPlayerAttempt,
+  } = usePlayerManagementFeedback();
   // The lists retain the refusal when its action/row disappears. Cancellation
   // supersedes an earlier start refusal; new intents and dismissal clear it.
   const playerErrorMessage =
@@ -604,6 +612,7 @@ function Rosters({
         profileId={profileId}
         roster={roster}
         onFeedback={setPlayerError}
+        onAttempt={beginPlayerAttempt}
       />
       <View style={styles.section} testID="match-confirmed">
         <View style={styles.sectionHead}>
@@ -675,6 +684,7 @@ function Rosters({
                     hasTeams={hasTeams}
                     groupId={groupId}
                     onFeedback={setPlayerError}
+                    onAttempt={beginPlayerAttempt}
                   />
                 ) : null
               }
@@ -745,6 +755,7 @@ function Rosters({
                     hasTeams={hasTeams}
                     groupId={groupId}
                     onFeedback={setPlayerError}
+                    onAttempt={beginPlayerAttempt}
                   />
                 ) : null}
               </View>

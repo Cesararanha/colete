@@ -15,24 +15,67 @@ import { matchErrorMessage } from './match-errors';
 import { entryName } from './roster-entry';
 import { useMatchActions } from './useMatchActions';
 
+type FinishAttempt = (target?: string) => void;
+type BeginAttempt = (confirmationId: string) => FinishAttempt;
+
+// Rosters owns the attempt, so removing a refreshed row does not lose its focus
+// destination. A new intent, dismissal or leaving Rosters invalidates the callback.
+export function usePlayerManagementFeedback() {
+  const [error, setError] = useState<unknown>(null);
+  const interaction = useRef(0);
+  useEffect(
+    () => () => {
+      interaction.current += 1;
+    },
+    [],
+  );
+  const feedback = (value: unknown) => {
+    if (value === null) interaction.current += 1;
+    setError(value);
+  };
+  const beginAttempt: BeginAttempt = (confirmationId) => {
+    const current = ++interaction.current;
+    const origin = typeof document === 'undefined' ? null : document.activeElement;
+    const originId = origin?.getAttribute('data-testid');
+    return (target = 'match-refresh-button') => {
+      if (interaction.current !== current || typeof document === 'undefined') return;
+      const active = document.activeElement;
+      // AppButton replaces its web element while pending. Its replacement with
+      // the same testID still belongs to this attempt; body means focus was lost.
+      const ownsFocus =
+        !active ||
+        active === document.body ||
+        active === origin ||
+        (originId != null && active.getAttribute('data-testid') === originId);
+      const otherConfirmation = Array.from(
+        document.querySelectorAll('[data-group-confirmation]'),
+      ).some((element) => element.getAttribute('data-group-confirmation') !== confirmationId);
+      if (ownsFocus && !otherConfirmation) focusGroupControl(target);
+    };
+  };
+  return { error, feedback, beginAttempt };
+}
+
 export function AddMatchPlayer({
   groupId,
   matchId,
   profileId,
   roster,
   onFeedback,
+  onAttempt,
 }: {
   groupId: string;
   matchId: string;
   profileId: string;
   roster: MatchRoster;
   onFeedback: (error: unknown) => void;
+  onAttempt: BeginAttempt;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId, { groupId, onRefusal: onFeedback });
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
-  const restore = useRef(false);
+  const restore = useRef<FinishAttempt | null>(null);
   const enabled = roster.viewer.can_manage && !roster.started && !roster.canceled;
   const members = useQuery({
     enabled: enabled && open,
@@ -42,8 +85,9 @@ export function AddMatchPlayer({
   });
   useEffect(() => {
     if (!open && restore.current && !actions.pending) {
-      restore.current = false;
-      focusGroupControl('match-add-player');
+      const finish = restore.current;
+      restore.current = null;
+      finish('match-add-player');
     }
   }, [open, actions.pending]);
   if (!enabled) return null;
@@ -94,14 +138,15 @@ export function AddMatchPlayer({
               onPress={() => {
                 if (actions.pending) return;
                 onFeedback(null);
+                const finish = onAttempt('match-add-picker');
                 void actions
                   .run(`add:${member.profile_id}`, () => api.addPlayer(matchId, member.profile_id))
                   .then((result) => {
                     if (!result) {
-                      focusGroupControl('match-refresh-button');
+                      finish();
                       return;
                     }
-                    restore.current = true;
+                    restore.current = finish;
                     setOpen(false);
                     setMessage(
                       result.outcome.logical_result === 'player_waitlisted'
@@ -121,7 +166,8 @@ export function AddMatchPlayer({
             variant="secondary"
             onPress={() => {
               if (actions.pending) return;
-              restore.current = true;
+              onFeedback(null);
+              restore.current = onAttempt('match-add-picker');
               setOpen(false);
               actions.clearError();
               actions.discardIntent();
@@ -140,6 +186,7 @@ export function RemoveMatchPlayer({
   hasTeams,
   groupId,
   onFeedback,
+  onAttempt,
 }: {
   entry: MatchRosterEntry;
   matchId: string;
@@ -147,18 +194,12 @@ export function RemoveMatchPlayer({
   hasTeams: boolean;
   groupId: string;
   onFeedback: (error: unknown) => void;
+  onAttempt: BeginAttempt;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId, { groupId, onRefusal: onFeedback });
   const [confirming, setConfirming] = useState(false);
   const restore = useRef(false);
-  const removing = useRef(false);
-  useEffect(
-    () => () => {
-      if (removing.current) focusGroupControl('match-refresh-button');
-    },
-    [],
-  );
   const id = `match-remove-${entry.profile_id}`;
   useEffect(() => {
     if (!confirming && restore.current && !actions.pending) {
@@ -195,14 +236,12 @@ export function RemoveMatchPlayer({
             onPress={() => {
               if (actions.pending) return;
               onFeedback(null);
-              removing.current = true;
+              const finish = onAttempt(`${id}-confirmation`);
               void actions
                 .run(`remove:${entry.profile_id}`, () =>
                   api.removePlayer(matchId, entry.profile_id!),
                 )
-                .then(() => {
-                  focusGroupControl('match-refresh-button');
-                });
+                .then(() => finish());
             }}
           />
           <AppButton
@@ -212,6 +251,7 @@ export function RemoveMatchPlayer({
             variant="secondary"
             onPress={() => {
               if (actions.pending) return;
+              onFeedback(null);
               restore.current = true;
               setConfirming(false);
               actions.clearError();
