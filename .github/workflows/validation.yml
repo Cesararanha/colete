@@ -1,7 +1,9 @@
 name: Colete validation
 
-# Draft PRs run four validation jobs; Database security waits until ready for
-# review and has a 45-minute limit (human decision, 2026-11-06). Dependency
+# Pull requests run four validation jobs. Database security is paused on pull
+# requests and runs only by manual dispatch (temporary human decision,
+# 2026-11-07, AGENTS §5); the database suites run locally before each slice
+# commit. Its limit stays at 45 minutes (human decision, 2026-11-06). Dependency
 # advisories are checked conditionally here and daily in dependency-audit.yml.
 on:
   pull_request:
@@ -91,8 +93,11 @@ jobs:
 
   database-security:
     name: Database security
-    # Ready pull requests and manual runs; draft PRs wait for ready_for_review.
-    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'workflow_dispatch'
+    # Paused on pull requests (human decision, 2026-11-07): manual runs only.
+    # The required check still reports, as skipped, so merges are not blocked.
+    # To resume, restore the previous condition:
+    # (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
