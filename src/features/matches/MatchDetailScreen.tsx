@@ -557,6 +557,7 @@ function Rosters({
     error: playerError,
     feedback: setPlayerError,
     beginAttempt: beginPlayerAttempt,
+    rosterRef,
   } = usePlayerManagementFeedback();
   // The lists retain the refusal when its action/row disappears. Cancellation
   // supersedes an earlier start refusal; new intents and dismissal clear it.
@@ -614,7 +615,7 @@ function Rosters({
         onFeedback={setPlayerError}
         onAttempt={beginPlayerAttempt}
       />
-      <View style={styles.section} testID="match-confirmed">
+      <View ref={rosterRef} style={styles.section} testID="match-confirmed">
         <View style={styles.sectionHead}>
           <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
             {pt.matches.detail.confirmedTitle}

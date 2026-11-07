@@ -22,6 +22,7 @@ type BeginAttempt = (confirmationId: string) => FinishAttempt;
 // destination. A new intent, dismissal or leaving Rosters invalidates the callback.
 export function usePlayerManagementFeedback() {
   const [error, setError] = useState<unknown>(null);
+  const rosterRef = useRef<View>(null);
   const interaction = useRef(0);
   useEffect(
     () => () => {
@@ -37,9 +38,13 @@ export function usePlayerManagementFeedback() {
     const current = ++interaction.current;
     const origin = typeof document === 'undefined' ? null : document.activeElement;
     const originId = origin?.getAttribute('data-testid');
-    // Capture this screen before the pending button/row can be replaced. Tabs
+    // The roster identifies its screen even when focus starts on body or outside
+    // the screen. Capture it before the pending button/row can be replaced. Tabs
     // retain hidden screens, which must neither veto nor receive this focus.
-    const screen = origin?.closest('[data-testid="authenticated-main"]');
+    const screen =
+      typeof HTMLElement !== 'undefined' && rosterRef.current instanceof HTMLElement
+        ? rosterRef.current.closest('[data-testid="authenticated-main"]')
+        : null;
     return (target = 'match-refresh-button') => {
       if (
         interaction.current !== current ||
@@ -63,7 +68,7 @@ export function usePlayerManagementFeedback() {
       if (ownsFocus && !otherConfirmation) focusGroupControl(target, screen);
     };
   };
-  return { error, feedback, beginAttempt };
+  return { error, feedback, beginAttempt, rosterRef };
 }
 
 export function AddMatchPlayer({

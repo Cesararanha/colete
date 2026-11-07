@@ -4415,8 +4415,9 @@ não foi repetida; o controle válido é a rodada 2, que tem os mesmos casos.
 
 **P2-C1.** O encaminhamento de foco das tentativas de adicionar/remover pertence agora
 às listas (`Rosters`), que sobrevivem à retirada de uma linha. Cada tentativa captura
-sua interação, controle focado e confirmação no lugar. Novo intento, cancelamento,
-dispensa do aviso ou desmontagem das listas invalida sua continuação. Ao concluir,
+sua interação, controle focado, confirmação no lugar e contêiner da tela, obtido
+pela ref das listas independentemente do foco inicial (P2-C3, abaixo). Novo intento,
+cancelamento, dispensa do aviso ou desmontagem das listas invalida sua continuação. Ao concluir,
 só encaminha o foco se ele ainda pertence ao controle de origem (inclusive sua troca
 por `AppButton` pendente), ou ficou sem destino, e não existe outra confirmação aberta
 no contêiner da própria tela do racha (escopo corrigido no P2-C2, abaixo).
@@ -4486,8 +4487,9 @@ A lacuna da releitura na remoção fica fechada: o mutante que antes passava ago
 
 ### Correção da conferência restrita — PR #97 (`41ce0e5`, 07/11/2026)
 
-**P2-C2.** A tentativa captura o ancestral `authenticated-main` do controle de origem,
-antes que o envio substitua o botão ou a releitura retire a linha. A busca de outras
+**P2-C2.** A tentativa captura o ancestral `authenticated-main` das listas pela ref
+do bloco de confirmados (origem corrigida no P2-C3, abaixo), antes que o envio
+substitua o botão ou a releitura retire a linha. A busca de outras
 confirmações fica nesse contêiner, em vez do documento inteiro. Assim, a confirmação
 “Expulsar” conservada em Membros pela aba oculta não veta a restauração no racha.
 O escopo estrutural independe do CSS e da implementação de visibilidade das abas.
@@ -4606,3 +4608,71 @@ Na contraprova, as asserções estruturais anteriores ao foco passaram em `41ce0
 a falha é do veto da confirmação da aba inativa, não de seletor ou premissa. As
 regressões P2-C1, P2-1 e P2-2 estão dentro dos 88 casos de `test:matches:web`.
 Os itens **PENDENTE-PLAYWRIGHT** acima ficam resolvidos por esta tabela.
+
+### Correção da terceira conferência restrita — PR #97 (`8a2f818`)
+
+**P2-C3.** `usePlayerManagementFeedback` passa a devolver uma ref usada no `View`
+já existente de confirmados em `Rosters`. Ao iniciar adição, cancelamento da adição
+ou confirmação da remoção, a tentativa resolve o `authenticated-main` pelo ancestral
+desse elemento das listas, sem depender de `document.activeElement`. O foco inicial
+continua capturado somente para a guarda de propriedade do foco. O contêiner
+capturado delimita tanto o veto por outra confirmação quanto o destino do foco;
+confirmações em outras telas montadas continuam fora desse escopo (P2-C2).
+A geração das listas, a guarda de foco e o veto por outra confirmação na mesma tela
+permanecem (P2-C1). Desmontar as listas invalida a geração; retirar a tela do
+documento impede a continuação por `isConnected`. Nenhum bloqueio global de ações,
+mudança de releitura/avisos do P2-1/P2-2, banco, migration, contrato ou normativo.
+
+**Prova nova — PENDENTE-PLAYWRIGHT.** Três casos parametrizados em
+`e2e/racha-completo.spec.ts`: adição, cancelamento da adição e remoção, previstos
+nos dois projetos Chromium. Após abrir e conferir o foco no título da confirmação,
+o teste aguarda o controle disponível, retira o foco com `blur` e dispara um
+`MouseEvent('click', { bubbles: true, cancelable: true })`, sem pressionar o ponteiro
+nem focar o botão. O `PressResponder` do react-native-web 0.21.2 chama `onPress`
+no clique quando `altKey === false`, valor fornecido por `MouseEvent`; um `Event`
+genérico não fornece essa premissa. A avaliação retorna duas observações exigidas
+como verdadeiras: foco no `body` antes do disparo e durante a captura do clique
+no controle, antes do handler React. Não há outra interação após esse disparo.
+
+Adição/remoção exigem HTTP 200, quadro atualizado e fechamento da confirmação;
+a adição também confere a linha do alvo e o resultado, e a remoção a ausência da
+linha. O cancelamento exige fechamento sem inscrição. Só depois o teste exige
+foco em “Adicionar jogador” (adição/cancelamento) ou “Atualizar racha” (remoção).
+Todos os seletores já existem em `8a2f818`: nesse SHA, por leitura, a origem no
+`body` deixa `screen` nulo e a continuação retorna sem focar; o teste deve chegar
+à asserção final de foco e falhar ali. **Contraprova em `8a2f818` somente com o
+e2e novo, controle na correção e regressões P2-C1/P2-C2/P2-1/P2-2:
+PENDENTE-PLAYWRIGHT.** Nenhuma execução de navegador ou contraprova é alegada aqui.
+
+**Validação local desta correção.** Contagens medidas nesta sessão:
+
+| Comando | Exit | Contagem medida |
+|---|---:|---|
+| `npm run verify:app` | 0 | 65 arquivos / 782 unitários; 43 rotas; lint/formato/tipos/PWA/Auth/scans |
+| `npm run scan:docs` | 0 | 23 documentos; 24 hashes do manifesto |
+| `npm run scan:secrets` | 0 | 511 arquivos; zero achados |
+| `git diff --check` | 0 | zero erros |
+
+Logs locais: `/tmp/conf97d-verify-app.log`, `/tmp/conf97d-scan-docs.log` e
+`/tmp/conf97d-scan-secrets.log`. Sem Playwright, banco, contêineres, add, commit,
+push ou consulta remota; pilha Colete e trava externa preservadas. Mudanças
+somente no working tree, limitadas ao foco, às provas e a este registro operacional.
+
+**Navegador e contraprova pelo coordenador (07/11/2026).** Executados sobre a versão
+final do working tree, com `caffeinate -i`. Logs em `noite/codex-1.4/corr97d/`, com
+`resumo.txt` e o diff aplicado em `00-diff.patch`.
+
+| Execução | Exit | Resultado |
+|---|---:|---|
+| `npm run db:reset` | 0 | migrations até `0035` |
+| `npm run build:web:auth-e2e` | 0 | build Auth |
+| `npm run test:matches:web` | 0 | **94 passed**, sem repetição |
+| `npm run test:groups:web` | 0 | **121 passed, 5 skipped** |
+| Contraprova: árvore `8a2f818` só com o e2e novo (`05-antigo-arvore.txt`), `--grep 'foco inicial no body'` | 1 | **6 failed**, todos em `racha-completo.spec.ts:1175`, `toBeFocused` recebeu `inactive` |
+| Controle na correção, mesmo `--grep` | 0 | **6 passed** |
+| `npm run verify:app` | 0 | 782 unitários |
+
+Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body`
+durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
+estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
+desta subseção ficam resolvidos por esta tabela.

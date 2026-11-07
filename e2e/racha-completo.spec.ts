@@ -1088,6 +1088,101 @@ for (const flow of ['add', 'remove-confirmed', 'remove-waitlist'] as const) {
   }
 }
 
+for (const flow of ['add', 'cancel', 'remove'] as const) {
+  test(`Foco da organização: ${flow} restaura o destino com foco inicial no body`, async ({
+    page,
+    request,
+  }) => {
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const authIds: string[] = [];
+    try {
+      const label = `c3-${flow}`;
+      const owner = await createActor(request, `${label}-d`, authIds);
+      const target = await createActor(request, `${label}-p`, authIds);
+      const groupId = (
+        (await gateway(request, owner, 'create_group', { name: 'Foco inicial no body' }))[
+          'outcome'
+        ] as { group_id: string }
+      ).group_id;
+      await db.query(
+        "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+        [groupId, target.profileId],
+      );
+      const matchId = await createMatch(request, owner, groupId);
+      if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+      await login(page, owner);
+      await page.goto(`/rachas/${matchId}`);
+      const removeId = `match-remove-${target.profileId}`;
+      await page.getByTestId(flow === 'remove' ? removeId : 'match-add-player').click();
+      await expect(
+        page.getByTestId(
+          flow === 'remove' ? `${removeId}-confirmation-heading` : 'match-add-picker-heading',
+        ),
+      ).toBeFocused();
+      const control = page.getByTestId(
+        flow === 'remove'
+          ? `${removeId}-confirm`
+          : flow === 'cancel'
+            ? 'match-add-cancel'
+            : `match-add-${target.profileId}`,
+      );
+      await expect(control).toBeVisible();
+      await expect(control).not.toHaveAttribute('aria-disabled', 'true');
+      const response =
+        flow === 'cancel'
+          ? null
+          : page.waitForResponse((item) =>
+              item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+            );
+      const focusAtPress = await control.evaluate((element) => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        const before = document.activeElement === document.body;
+        let during = false;
+        element.addEventListener(
+          'click',
+          () => {
+            during = document.activeElement === document.body;
+          },
+          { capture: true, once: true },
+        );
+        // RN Web's PressResponder invokes onPress from click when altKey is
+        // false. MouseEvent supplies that value; a plain Event does not. No
+        // pointer-down/default focusing occurs, and capture observes the focus
+        // on the dispatched click before React handles the press.
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return { before, during };
+      });
+      expect(focusAtPress).toEqual({ before: true, during: true });
+      if (response) expect((await response).status()).toBe(200);
+      if (flow === 'add') {
+        await expect(page.getByTestId('match-add-result')).toHaveText(
+          'Jogador confirmado no racha.',
+        );
+        await expect(page.getByTestId('match-confirmed-0')).toContainText(`${label}-pzinho`);
+      }
+      if (flow === 'remove') {
+        await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+        await expect(page.getByTestId('match-confirmed-0')).toHaveCount(0);
+      } else {
+        await expect(page.getByTestId('match-add-picker')).toHaveCount(0);
+      }
+      await board(page, flow === 'add' ? 1 : 0, 2);
+      // All selectors exist on 8a2f818. With body as origin, its screen is null:
+      // mutation/closure succeeds above, but restoration fails only here.
+      await expect(
+        page.getByTestId(flow === 'remove' ? 'match-refresh-button' : 'match-add-player'),
+      ).toBeFocused();
+    } finally {
+      try {
+        await cleanActors(authIds, db);
+      } finally {
+        await db.end();
+      }
+    }
+  });
+}
+
 for (const flow of ['add', 'remove'] as const) {
   test(`Foco da organização: ${flow} restaura o destino com confirmação em outra aba oculta`, async ({
     page,
