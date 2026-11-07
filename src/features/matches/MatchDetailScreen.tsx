@@ -45,6 +45,7 @@ import { openMatchMap } from './match-map';
 import { deviceDiffers, zoneLabel } from './match-zone';
 import { matchTeamsQueryKey, MatchTeamsSection } from './MatchTeams';
 import { MatchRefunds } from './MatchRefunds';
+import { AddMatchPlayer, RemoveMatchPlayer } from './MatchPlayerManagement';
 import { entryDetail, entryName } from './roster-entry';
 import { useDeviceLocation } from './use-device-location';
 import { useMatchActions } from './useMatchActions';
@@ -338,6 +339,7 @@ function Presence({
 
 /** One confirmed player: initials, name and detail, and the payment where it can be seen. */
 function ConfirmedRow({
+  removal,
   entry,
   locked,
   manage,
@@ -347,6 +349,7 @@ function ConfirmedRow({
   testID,
   waiting,
 }: {
+  removal: React.ReactNode;
   entry: MatchRosterEntry;
   /** A canceled match keeps its marks as they are: they show, but do not change. */
   locked: boolean;
@@ -413,6 +416,7 @@ function ConfirmedRow({
           />
         </View>
       ) : null}
+      {removal}
     </View>
   );
 }
@@ -516,6 +520,7 @@ function PaymentNoticeBlock({
 }
 
 function Rosters({
+  hasTeams,
   ended,
   groupId,
   matchId,
@@ -523,6 +528,7 @@ function Rosters({
   profileId,
   roster,
 }: {
+  hasTeams: boolean;
   /** The match is over (passed to the teams, which may no longer be drawn). */
   ended: boolean;
   groupId: string;
@@ -566,6 +572,7 @@ function Rosters({
   const shown = collapsible && !expanded ? roster.confirmed.slice(0, COLLAPSED) : roster.confirmed;
   return (
     <>
+      <AddMatchPlayer groupId={groupId} matchId={matchId} profileId={profileId} roster={roster} />
       <View style={styles.section} testID="match-confirmed">
         <View style={styles.sectionHead}>
           <Text aria-level={2} role="heading" style={[styles.heading, { color: colors.text }]}>
@@ -627,6 +634,16 @@ function Rosters({
           keyExtractor={(entry, index) => entry.profile_id ?? `removed-${index}`}
           renderItem={({ item, index }) => (
             <ConfirmedRow
+              removal={
+                manage && !roster.started && !roster.canceled ? (
+                  <RemoveMatchPlayer
+                    entry={item}
+                    matchId={matchId}
+                    profileId={profileId}
+                    hasTeams={hasTeams}
+                  />
+                ) : null
+              }
               entry={item}
               locked={roster.canceled}
               manage={manage && !roster.canceled}
@@ -686,6 +703,14 @@ function Rosters({
                     <Text style={[styles.rowDetail, { color: colors.textMuted }]}> · {detail}</Text>
                   ) : null}
                 </Text>
+                {manage && !roster.started && !roster.canceled ? (
+                  <RemoveMatchPlayer
+                    entry={item}
+                    matchId={matchId}
+                    profileId={profileId}
+                    hasTeams={hasTeams}
+                  />
+                ) : null}
               </View>
             );
           }}
@@ -973,6 +998,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             <>
               <Presence matchId={matchId} profileId={profile.id} roster={roster} />
               <Rosters
+                hasTeams={teamsQuery.data?.team_count != null}
                 ended={ended}
                 groupId={match.group_id}
                 matchId={matchId}

@@ -739,3 +739,168 @@ for (const offset of [-120_000, 120_000]) {
     }
   });
 }
+
+test('Organização: adiciona sem furar fila e remove pago com confirmação e times desatualizados', async ({
+  page,
+  browser,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  let groupId: string | undefined;
+  try {
+    const owner = await createActor(request, 'manual-dona', authIds);
+    const organizer = await createActor(request, 'manual-org', authIds);
+    const people: Actor[] = [];
+    for (const label of [
+      'manual-ana',
+      'manual-bia',
+      'manual-caio',
+      'manual-dani',
+      'manual-eli',
+      'manual-pendente',
+    ]) {
+      people.push(await createActor(request, label, authIds));
+    }
+    const [ana, bia, caio, dani, eli, pending] = people as [
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+    ];
+    groupId = (
+      (await gateway(request, owner, 'create_group', { name: 'Racha manual' }))['outcome'] as {
+        group_id: string;
+      }
+    ).group_id;
+    for (const member of [organizer, ...people]) {
+      await db.query(
+        `insert into public.group_members(group_id,profile_id,role,status) values($1,$2,$3,$4)`,
+        [
+          groupId,
+          member.profileId,
+          member === organizer ? 'organizer' : 'player',
+          member === pending ? 'pending' : 'active',
+        ],
+      );
+    }
+    const matchId = await createMatch(request, owner, groupId);
+    await db.query('update private.matches set field_slots=4 where id=$1', [matchId]);
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    await page.getByTestId('match-add-player').click();
+    await expect(page.getByTestId('match-add-picker-heading')).toBeFocused();
+    await expect(page.getByTestId(`match-add-${ana.profileId}`)).toBeVisible();
+    await expect(page.getByTestId(`match-add-${pending.profileId}`)).toHaveCount(0);
+    await page.getByTestId(`match-add-${ana.profileId}`).click();
+    await expect(page.getByTestId('match-add-result')).toHaveText('Jogador confirmado no racha.');
+    await expect(page.getByTestId('match-add-player')).toBeFocused();
+    for (const actor of [bia, caio, dani])
+      await gateway(request, actor, 'join_match', { match_id: matchId });
+    for (const actor of [ana, bia, caio, dani])
+      await gateway(request, owner, 'set_rating', {
+        group_id: groupId,
+        profile_id: actor.profileId,
+        stars: 3,
+      });
+    await gateway(request, owner, 'draw_teams', {
+      match_id: matchId,
+      team_count: 2,
+      confirm_unequal_sizes: false,
+    });
+    await gateway(request, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: ana.profileId,
+      paid: true,
+    });
+    await page.reload();
+    await board(page, 4, 4);
+    // A published draw permits adding, but a full list sends Eli to the end.
+    await page.getByTestId('match-add-player').click();
+    await expect(page.getByTestId(`match-add-${ana.profileId}`)).toHaveCount(0);
+    await page.getByTestId(`match-add-${eli.profileId}`).click();
+    await expect(page.getByTestId('match-add-result')).toHaveText(
+      'Jogador adicionado ao fim da espera.',
+    );
+    await expect(page.getByTestId('match-waitlist-0')).toContainText('manual-elizinho');
+    // Owner and organizer share the controls. Cancel restores focus without removing.
+    const orgView = await open(browser, organizer, matchId);
+    contexts.push(orgView.context);
+    await orgView.page.setViewportSize({ width: 390, height: 844 });
+    const removeId = `match-remove-${ana.profileId}`;
+    await orgView.page.getByTestId(removeId).click();
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation-heading`)).toBeFocused();
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation`)).toContainText(
+      'os times ficam desatualizados',
+    );
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation`)).toContainText(
+      'O pagamento ficará a devolver.',
+    );
+    await orgView.page.getByTestId(`${removeId}-cancel`).click();
+    await expect(orgView.page.getByTestId(removeId)).toBeFocused();
+    await expect(orgView.page.getByTestId('match-confirmed-0')).toContainText('manual-anazinho');
+    await orgView.page.getByTestId(removeId).click();
+    await orgView.page.getByTestId(`${removeId}-confirm`).click();
+    await expect(orgView.page.getByTestId(removeId)).toHaveCount(0);
+    await expect(orgView.page.getByTestId('match-refresh-button')).toBeFocused();
+    await expect(orgView.page.getByTestId('match-confirmed')).toContainText('manual-elizinho');
+    await expect(orgView.page.getByTestId('match-refunds')).toContainText('manual-anazinho');
+    await expect(orgView.page.getByTestId('match-refunds')).toContainText('A devolver');
+    await expect(orgView.page.getByText('Times desatualizados', { exact: false })).toBeVisible();
+    await assertAccessible(orgView.page);
+    expect(
+      await orgView.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    // Removed member returns alone, unpaid, behind an existing waitlist member.
+    await gateway(request, bia, 'leave_match', { match_id: matchId });
+    await gateway(request, owner, 'add_player', { match_id: matchId, profile_id: owner.profileId });
+    await gateway(request, owner, 'add_player', {
+      match_id: matchId,
+      profile_id: organizer.profileId,
+    });
+    const anaView = await open(browser, ana, matchId);
+    contexts.push(anaView.context);
+    await expect(anaView.page.getByTestId('match-add-player')).toHaveCount(0);
+    await expect(anaView.page.locator('[data-testid^="match-remove-"]')).toHaveCount(0);
+    await anaView.page.getByTestId('match-join').click();
+    await expect(anaView.page.getByTestId('match-viewer-chip')).toHaveText('2º na espera');
+    const stored = await db.query(
+      'select paid from private.match_players where match_id=$1 and profile_id=$2',
+      [matchId, ana.profileId],
+    );
+    expect(stored.rows[0].paid).toBe(false);
+    // Unpaid removal from waitlist creates no extra financial obligation.
+    await orgView.page.getByTestId('match-refresh-button').click();
+    const waitingId = `match-remove-${organizer.profileId}`;
+    // The organizer's own row directs to Desistir; owner removes that waitlist row.
+    await page.getByTestId('match-refresh-button').click();
+    await page.getByTestId(waitingId).click();
+    await page.getByTestId(`${waitingId}-confirm`).click();
+    await expect(page.getByTestId(waitingId)).toHaveCount(0);
+    expect(
+      (
+        await db.query(
+          `select count(*)::int n from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+          [matchId],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  } finally {
+    for (const context of contexts) await context.close();
+    if (groupId) {
+      await db.query(
+        'delete from private.match_draws where match_id in (select id from private.matches where group_id=$1)',
+        [groupId],
+      );
+      await db.query('delete from private.ratings where group_id=$1', [groupId]);
+      await db.query('delete from private.rating_history where group_id=$1', [groupId]);
+    }
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});

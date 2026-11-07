@@ -1251,6 +1251,17 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Piloto 1.4 — decisões de César de 28/10 e 06/11/2026 (P7/P8/P10/P16/P18).**
+  `0035`: dono/organizador adiciona e remove antes do início, com trava de `join_match`;
+  membership do alvo lida depois da trava. Sem T2; sem vaga entra no fim da espera;
+  depois do sorteio pode adicionar, sem furar fila. Remoção paga cria obrigação
+  `removed` pela transferência da `0034`; volta pelo “Vou jogar” não paga e no fim da
+  fila. Autorremoção paga recusa `PAYMENT_ALREADY_REAL`; não paga, `FORBIDDEN`, usando
+  “Desistir”. Autor da remoção só na idempotência (30 dias), sem trilha nova. Tela
+  confirma no lugar e avisa “os times ficam desatualizados”. Recorte de `13` §1.6.1
+  substitui as pré-condições e o texto da tela 19 de `11`, sem editar aquele normativo.
+  Vaga e dinheiro: revisão completa independente e conferência pelo AGENTS §4.12.
+
 - **Piloto 1.3 — decisões de César de 28/10 e 06/11/2026 (P10/P16, AGENTS §8).**
   Autorizados os recortes de `13` §3.3.2 e §5.0.8, o mapa `27` e seus hashes reais.
   Migration `0034`: obrigação por pagamento, preço congelado, transferência/zeramento

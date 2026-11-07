@@ -171,6 +171,8 @@ function rpcParameters(
     case 'leave_match':
     case 'cancel_match':
       return { ...common, p_match_id: canonicalInput['match_id'] };
+    case 'add_player':
+    case 'remove_player':
     case 'record_canceled_match_payment':
       return {
         ...common,

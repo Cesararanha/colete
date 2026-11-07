@@ -4155,3 +4155,144 @@ Logs locais: /tmp/colete-refunds-validation, /tmp/colete-refunds-final e
 os limites aprovados e registrados no 27: exclusão financeira da conta, ex-membro, retenção
 e desidentificação financeira; 1.4, livro completo, Pix/provas, referência, notificações,
 disputas e Admin não foram antecipados.
+
+
+## Piloto 1.4 — adicionar e remover jogador pela organização (`0035`, 06/11/2026)
+
+Implementação na worktree `adicionar-remover-jogador`, branch
+`feat/adicionar-remover-jogador`, base `88d14dc` (#96, 1.3). Sem commit, push, PR,
+deploy ou acesso a Supabase remoto; publicação e execução de Playwright ficam com o
+coordenador, por instrução expressa. A pilha local Colete permanece de pé. Risco alto:
+vaga, fila, dinheiro e projeção de membros; revisão completa independente e conferência
+continuam exigidas pelo AGENTS §4.12.
+
+**Entrega.** Migration append-only `0035_organizer_match_players.sql`: duas RPCs
+nominais exclusivas de `service_role`, contexto e trava de `join_match`, membership do
+alvo revalidada depois da trava. Dono/organizador ativo adiciona sem furar fila e remove
+confirmado/espera antes do início; jogador, pendente, ex-membro e estranho recebem o
+mesmo `NOT_FOUND`. `removed` entra no CHECK da obrigação; remoção paga transfere o
+pagamento pelo helper da `0034`. Registros da `0033` recebem só INSERT: 40 operações,
+62 pares de resultado. Sem coluna nova: autor da remoção somente na idempotência
+por 30 dias. Autorremoção paga: `PAYMENT_ALREADY_REAL`; não paga: `FORBIDDEN`, já no
+catálogo, e orientação ao “Desistir”. Nenhuma decisão de produto reaberta.
+
+Gateway compartilhado publica as duas operações em `groups`, normaliza UUIDs, recusa
+campos extras e usa os validadores e replay por registro. Cliente inclui operações,
+tipos e testes de fronteira. `generate:db-types` gerou o arquivo do banco local;
+`generate:error-codes` gerou 116 códigos, sem diferença no arquivo de códigos.
+Tela oferece lista de membros ativos ausentes do racha, confirmação de remoção no
+lugar, alerta de devolução e “os times ficam desatualizados”. Confirmação recebe foco;
+cancelamento retorna ao controle; remoção retorna a Atualizar quando a linha desaparece.
+Todos os textos novos estão em `pt`; cenário e2e nos projetos `mobile-chromium` e
+`wide-chromium`, ver a execução de navegador abaixo.
+
+**Contraprovas executadas em `db:test:match-players`.**
+
+| Prova / mutante real | Resultado observado |
+|---|---|
+| `add_player` × `join_match` e × `leave_match` | 4 pares, ambas as ordens, competidores observados na trava do grupo; exatamente 1 confirmado em 1 vaga |
+| Sem travas de grupo/racha e sem defesa final de capacidade, pausa entre contar e gravar | 2 confirmados em 1 vaga; asserção de capacidade falha; mesma pausa com travas mantém 1 |
+| Membership lida antes da trava | alvo sai via `leave_group` enquanto adição espera; original recusa `NOT_FOUND` sem inscrição, mutante adiciona ex-membro como `starter` |
+| Volta preservando `queue_seq` antigo | mutante volta em 1º passando A; asserção de posição 2 falha; original volta em 2º e não pago, com obrigação anterior pendente |
+| Trava de preço olhando só `paid` | zero pagos e obrigação `removed` pendente; original recusa `PRICE_LOCKED`; a mesma asserção de recusa falha no mutante, que grava preço 19.00 |
+| Unicidade antiga por inscrição (índice parcial de teste) | pagar → remover → voltar → pagar → remover: mutante aborta segunda remoção com `23505`; original cria 2 obrigações `removed` |
+| Organizador pago remove a si mesmo, guarda removida | original recusa `PAYMENT_ALREADY_REAL`; mutante cria 1 devolução para si, violando contagem esperada 0 |
+| Replay de adicionar depois de remover; replay de remover depois de voltar | conserva desfecho original, sem repetir adição/remoção |
+| Commit real sob `service_role` | chamadas válidas concluem; 4 commits de registro incompleto/desfecho com campo extra (2 operações × 2 estados) recusados pelo trigger diferido |
+| Saída do grupo depois de segunda remoção manual | preserva as 2 obrigações, sem criar outra |
+
+Definições mutadas de add/remove/join/update e helper de locks restauradas em `finally`;
+o harness compara as quatro RPCs com as definições originais, byte a byte. Censo final
+independente: 13 tabelas de fixture com zero registros (Auth, perfis, grupos,
+memberships, rachas, inscrições, obrigações, sorteios, membros de times, notas,
+histórico de notas, idempotências e pedidos de exclusão). Índice mutante ausente;
+zero pausas `pg_sleep` nas RPCs testadas. Nenhum contêiner de outro projeto foi
+inspecionado ou parado; a trava externa da pilha não foi tocada.
+
+**Censo de `removed`.** Busca textual em todas as migrations, cliente e export e
+censo no banco vivo das 22 rotinas que referenciam `match_players`. Versões vigentes:
+`join_match`/`leave_match` (`0028`) reaproveitam/ignoram a linha fora da lista;
+`match_player_current`, resumo, promoção e ocupação (`0022`/`0027`) filtram
+`starter|waitlist`, sem inferir saída do grupo. `get_match_roster` e obrigações (`0034`)
+ocultam a linha removida e continuam projetando as obrigações. Sorteio (`0032`,
+`draw_match_teams`, `draw_teams`, `get_match_teams`) filtra confirmados, esconde removido
+e marca desatualizado por diferença de composição. Gatilho de saída (`0034`) só percorre
+`starter|waitlist` futuros não cancelados: não duplica obrigação de remoção manual.
+Notas/retenção (`0031`) dependem de `group_members`, que a remoção do racha preserva;
+`changed_by_removed`/`account_removed` tratam exclusão de conta, não inscrição. Export
+(`worker_get_data_export_build_target` vigente da `0030`, `data-export.ts`) exporta
+memberships, sem ramo por status de inscrição e ainda sem export financeiro de rachas,
+pendência já registrada na 1.3. Exclusão de conta passa memberships a removidas e
+aciona o mesmo gatilho; não precisa distinguir a origem da inscrição já removida.
+Cliente mantém `out` para ausência/left/removed, reentrada por “Vou jogar” e notas
+baseadas na membership. Não foi necessário alterar esses leitores nem migrations
+entregues; só nova origem, RPCs e suas fronteiras. Comentários antigos da `0022` são
+históricos e permanecem imutáveis.
+
+**Validação medida.** Todos os comandos abaixo terminaram com exit 0 na execução
+sequencial final. Nos harnesses, a contagem é de linhas nominais `ok` emitidas,
+incluindo censos, **não** a quantidade de chamadas a `assert`. Tempo e logs desta
+sessão ficam em `/tmp/colete14-validation.json` e `/tmp/colete14-final-*.log`, fora do
+repositório e sem conteúdo copiado de notas pessoais.
+
+| Comando | Exit | Contagem medida |
+|---|---|---|
+| `npm run db:reset` | 0 | 34 migrations, até 0035 |
+| `npm run db:test` | 0 | 33 arquivos / 2.599 asserções |
+| `npm run db:test:idempotency` | 0 | 7 linhas ok |
+| `npm run db:test:gateway` | 0 | 9 linhas ok |
+| `npm run db:test:cors` | 0 | 6 linhas ok |
+| `npm run db:test:worker` | 0 | 8 linhas ok |
+| `npm run db:test:deletion` | 0 | 10 linhas ok |
+| `npm run db:test:export` | 0 | 32 linhas ok |
+| `npm run db:test:invites` | 0 | 68 linhas ok |
+| `npm run db:test:groups` | 0 | 29 linhas ok |
+| `npm run db:test:membership` | 0 | 77 linhas ok |
+| `npm run db:test:rename` | 0 | 11 linhas ok |
+| `npm run db:test:group-deletion` | 0 | 13 linhas ok |
+| `npm run db:test:photos` | 0 | 21 linhas ok |
+| `npm run db:test:members` | 0 | 6 linhas ok |
+| `npm run db:test:matches` | 0 | 15 linhas ok |
+| `npm run db:test:match-players` | 0 | 27 linhas ok |
+| `npm run db:test:ratings` | 0 | 8 linhas ok |
+| `npm run db:test:teams` | 0 | 9 linhas ok |
+| `npm run db:test:refunds` | 0 | 8 linhas ok |
+| `npm run db:test:geocode` | 0 | 7 linhas ok |
+| `npm run build:web:auth-e2e` | 0 | 43 rotas estáticas |
+| `npm run build:web:smoke` | 0 | 43 rotas estáticas |
+| `npm run verify:app` | 0 | 65 arquivos / 782 unitários; lint, formato, tipos, build/PWA/Auth e scans |
+| `npm run scan:docs` | 0 | 23 arquivos; hashes reais de 13/25 no manifesto |
+| `npm run scan:secrets` | 0 | 511 arquivos, zero achados |
+| `npm run test:audit` | 0 | 94 testes |
+| `npm run test:staging` | 0 | 102 testes locais, sem staging remoto |
+| `npm run audit:high` | 0 | 1 exceção vigente; zero high/critical fora dela |
+| `npm run generate:db-types` | 0 | 2 RPCs novas geradas do banco local |
+| `npm run generate:error-codes` | 0 | 116 códigos; sem diff |
+| `git diff --check` | 0 | zero erros |
+
+**Falhas anteriores, preservadas no relato.** Primeiro `db:start`: exit 1 porque o
+banco ainda estava `starting`; repetição: exit 0. Primeiro `db:test` sem a variável de
+telemetria: exit 1 por EPERM ao tentar gravar fora das raízes; execuções seguintes com
+`SUPABASE_TELEMETRY_DISABLED=1`. Primeiro pgTAP efetivo reprovou allowlists antigas e a
+permissão do helper temporário de teste, ajustados. Uma rodada de `db:test` executada
+simultaneamente ao harness reprovou 3 contagens globais da `0029`; a repetição isolada
+passou. É uma falha que passou ao repetir, relatada sem chamá-la de resolvida; os números
+extras são compatíveis com interferência entre suítes. Primeiro harness estendido
+reprovou o nickname sintético longo de uma fixture; nomes encurtados, depois exit 0.
+Não houve falha de CI nesta sessão: CI não foi acionada, e não houve commit/push.
+
+**Navegador, executado pelo coordenador fora do sandbox do autor (06/11/2026).** O Chromium
+não abre no sandbox do autor, que escreveu o e2e sem poder rodá-lo. Após `db:reset`, primeira
+rodada, sem repetição, todas com exit 0: `test:matches:web` 52 passed (2,6 min);
+`test:auth:web` 12 passed + 2 skipped (1,3 min); `test:privacy:web` 5 passed + 5 skipped;
+`test:cors:web` 4 passed; `test:groups:web` 121 passed + 5 skipped (5,6 min); `test:qr:web`
+30 passed; `test:smoke:web` 6 passed. Novo cenário em `e2e/racha-completo.spec.ts:743`, nos
+dois projetos: adicionar com vaga e sem vaga após sorteio; ocultar pendente e já listado;
+organizador confirma/cancela remoção paga e restaura foco; promove fila, mostra devolução e
+times desatualizados; jogador removido volta não pago ao fim da fila; remoção de espera não
+cria obrigação; jogador não vê ações; 390 px e axe.
+
+Como `e2e/racha-completo.spec.ts` e `scripts/test-match-players.mjs` foram editados durante
+ou depois da validação do autor, o coordenador repetiu sobre a versão final: `verify:app` exit
+0 (782 unitários), `db:test` exit 0 (33 arquivos, 2.599 asserções), `db:test:match-players`
+exit 0 e `git diff --check` limpo.

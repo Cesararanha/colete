@@ -1373,6 +1373,412 @@ async function proveEditLockMutant(status, connections, db, context) {
   );
 }
 
+// 0035: organizer management. All RPC calls below COMMIT as service_role.
+const ADD_PLAYER = 'public.add_player(uuid,uuid,uuid,text,integer,integer,uuid,uuid)';
+const REMOVE_PLAYER = 'public.remove_player(uuid,uuid,uuid,text,integer,integer,uuid,uuid)';
+async function rpcPlayer(connection, actor, op, matchId, target, requestId = crypto.randomUUID()) {
+  assert.ok(
+    ['add_player', 'remove_player', 'join_match', 'leave_match', 'leave_group'].includes(op),
+  );
+  const args = target ? '$5::uuid,$6::uuid' : '$5::uuid';
+  await connection.query('begin');
+  try {
+    await connection.query('set local role service_role');
+    const result = await connection.query(
+      `select public.${op}($1::uuid,$2::uuid,$3::uuid,$4::text,1,1,${args}) as r`,
+      [
+        actor.authId,
+        actor.sessionId,
+        requestId,
+        'b'.repeat(64),
+        matchId,
+        ...(target ? [target.profileId] : []),
+      ],
+    );
+    await connection.query('commit');
+    return result.rows[0].r;
+  } catch (error) {
+    await connection.query('rollback');
+    throw error;
+  }
+}
+async function definition(db, signature) {
+  return (await db.query('select pg_get_functiondef($1::regprocedure) as d', [signature])).rows[0]
+    .d;
+}
+async function proveOrganizerPlayers(status, connections, db, context) {
+  const { first, second, observer, holder } = connections;
+  const { owner, organizer, groupId } = context;
+  const actors = await freshMembers(status, db, groupId, 5, 'manual');
+  const [a, b, c, d] = actors;
+  const matchId = await createMatch(status, owner, groupId, 2);
+  const add = async (actor, target, req) =>
+    ok(
+      await mutate(
+        status,
+        actor,
+        'add_player',
+        { match_id: matchId, profile_id: target.profileId },
+        req,
+      ),
+      'manual add',
+    );
+  const remove = async (actor, target, req) =>
+    ok(
+      await mutate(
+        status,
+        actor,
+        'remove_player',
+        { match_id: matchId, profile_id: target.profileId },
+        req,
+      ),
+      'manual remove',
+    );
+  const addReq = crypto.randomUUID();
+  const added = await add(owner, a, addReq);
+  assert.equal(added.outcome.logical_result, 'player_added');
+  await add(organizer, b);
+  await add(owner, c);
+  assert.equal((await add(owner, d)).outcome.logical_result, 'player_waitlisted');
+  await remove(organizer, a);
+  assert.deepEqual((await add(owner, a, addReq)).outcome, added.outcome);
+  assert.equal(statusOf(await statuses(db, matchId), a), 'removed', 'add replay never re-adds');
+  const removeReq = crypto.randomUUID();
+  const removed = await remove(owner, d, removeReq);
+  await add(owner, d);
+  assert.deepEqual((await remove(owner, d, removeReq)).outcome, removed.outcome);
+  assert.equal(
+    statusOf(await statuses(db, matchId), d),
+    'waitlist',
+    'remove replay never removes twice',
+  );
+  // Player is deliberately indistinguishable from a stranger, even on a real match.
+  for (const op of ['add_player', 'remove_player']) {
+    denied(
+      await mutate(status, a, op, { match_id: matchId, profile_id: b.profileId }),
+      404,
+      'NOT_FOUND',
+      'manual player',
+    );
+  }
+  // A paid removal transfers the payment; returning goes behind the existing waitlist.
+  await mutate(status, owner, 'set_match_payment', {
+    match_id: matchId,
+    profile_id: b.profileId,
+    paid: true,
+  }).then((x) => ok(x, 'mark B'));
+  await remove(organizer, b);
+  const back = ok(await mutate(status, b, 'join_match', { match_id: matchId }), 'removed back');
+  assert.equal(back.current.waitlist_position, 1); // D was promoted into B's slot.
+  await add(owner, a);
+  // Re-enter A behind B; the join mutant that preserves the old queue loses this proof.
+  await remove(owner, b);
+  const joinDef = await definition(db, JOIN);
+  const queueUpdate = "set status = v_status, queue_seq = nextval('private.match_queue_seq'),";
+  assert.ok(joinDef.includes(queueUpdate));
+  try {
+    await db.query(joinDef.replace(queueUpdate, 'set status = v_status, queue_seq = queue_seq,'));
+    const broken = await rpcJoin(first, b, matchId);
+    assert.equal(broken.current.waitlist_position, 1, 'queue mutant jumps A');
+    assert.throws(
+      () => assert.equal(broken.current.waitlist_position, 2),
+      'queue counterproof turns red',
+    );
+    await remove(owner, b);
+  } finally {
+    await db.query(joinDef);
+  }
+  const guarded = await rpcJoin(first, b, matchId);
+  assert.equal(guarded.current.waitlist_position, 2, 'return goes behind A');
+  let rows = await statuses(db, matchId);
+  assert.equal(rows.find((p) => p.profile_id === b.profileId).paid, false);
+  const refunds = async () =>
+    (
+      await db.query(
+        `select r.* from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+        [matchId],
+      )
+    ).rows;
+  assert.equal((await refunds()).length, 1);
+  assert.equal((await refunds())[0].origin, 'removed');
+  // Price remains locked by a pending removed obligation with no active payment.
+  assert.equal(rows.filter((p) => p.paid).length, 0);
+  const config = await canonicalConfig(db, matchId, { field_price: '19.00' });
+  await assert.rejects(rpcUpdate(first, owner, matchId, config), { message: 'PRICE_LOCKED' });
+  const updateDef = await definition(db, UPDATE);
+  const refundPredicate =
+    /or exists\(select 1 from private\.match_refunds r join private\.match_players p\s+on p\.id=r\.match_player_id where p\.match_id=p_match_id and r\.status='refund_due'\)/;
+  assert.match(updateDef, refundPredicate);
+  try {
+    await db.query(updateDef.replace(refundPredicate, ''));
+    await assert.rejects(
+      assert.rejects(rpcUpdate(first, owner, matchId, config), { message: 'PRICE_LOCKED' }),
+      { code: 'ERR_ASSERTION' },
+      'the same PRICE_LOCKED refusal assertion fails with the paid-only mutant',
+    );
+    assert.equal(
+      (
+        await db.query('select field_price::text as price from private.matches where id=$1', [
+          matchId,
+        ])
+      ).rows[0].price,
+      '19.00',
+    );
+  } finally {
+    await db.query(updateDef);
+  }
+  // Free the first two slots; B can now pay again on the SAME registration.
+  await remove(owner, c);
+  await remove(owner, d);
+  ok(
+    await mutate(status, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: b.profileId,
+      paid: true,
+    }),
+    'B pays again',
+  );
+  const bId = (
+    await db.query('select id from private.match_players where match_id=$1 and profile_id=$2', [
+      matchId,
+      b.profileId,
+    ])
+  ).rows[0].id;
+  await db.query(
+    `create unique index colete_14_old_unique_mutant on private.match_refunds(match_player_id) where match_player_id='${bId}'::uuid`,
+  );
+  try {
+    await assert.rejects(
+      rpcPlayer(first, owner, 'remove_player', matchId, b),
+      { code: '23505' },
+      'old one-refund-per-player mutant loses second removal',
+    );
+  } finally {
+    await db.query('drop index private.colete_14_old_unique_mutant');
+  }
+  await remove(owner, b);
+  assert.equal((await refunds()).length, 2, 'second payment and removal produce two obligations');
+  assert.ok((await refunds()).every((r) => r.origin === 'removed'));
+  ok(await mutate(status, b, 'leave_group', { group_id: groupId }), 'removed player leaves group');
+  assert.equal(
+    (await refunds()).length,
+    2,
+    'membership exit never duplicates a manual removal obligation',
+  );
+  assert.equal(statusOf(await statuses(db, matchId), b), 'removed');
+  console.log(
+    'ok - manual HTTP add/remove, both replays, unpaid return at tail, queue mutant, PRICE_LOCKED with removed obligation and price mutant, second removal and old unique mutant',
+  );
+  // P18: organizer paid cannot refund themself; mutant really creates one.
+  const selfMatch = await createMatch(status, owner, groupId, 2);
+  await rpcPlayer(first, owner, 'add_player', selfMatch, organizer);
+  ok(
+    await mutate(status, owner, 'set_match_payment', {
+      match_id: selfMatch,
+      profile_id: organizer.profileId,
+      paid: true,
+    }),
+    'paid organizer',
+  );
+  await assert.rejects(rpcPlayer(first, organizer, 'remove_player', selfMatch, organizer), {
+    message: 'PAYMENT_ALREADY_REAL',
+  });
+  const removeDef = await definition(db, REMOVE_PLAYER);
+  const selfGuard = /  if p_profile_id = v_actor_id then[\s\S]*?message = 'FORBIDDEN';\n  end if;/;
+  assert.match(removeDef, selfGuard);
+  try {
+    await db.query(removeDef.replace(selfGuard, ''));
+    await rpcPlayer(first, organizer, 'remove_player', selfMatch, organizer);
+    const count = (
+      await db.query(
+        `select count(*)::int n from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+        [selfMatch],
+      )
+    ).rows[0].n;
+    assert.equal(count, 1, 'self-removal mutant creates refund to the actor');
+    assert.throws(() => assert.equal(count, 0), 'self-removal refusal counterproof turns red');
+  } finally {
+    await db.query(removeDef);
+  }
+  console.log('ok - P18 paid self-removal refuses; accepting mutant creates a refund to self');
+  // COMMIT trigger: valid calls already committed above under service_role.
+  for (const op of ['add_player', 'remove_player'])
+    for (const completed of [false, true]) {
+      await first.query('begin');
+      await first.query(
+        `insert into private.idempotency_records(actor_key,actor_id,operation,request_id,request_hash,hash_key_version) values($1,$2,$3,$4,repeat('a',64),1)`,
+        [`profile:${owner.profileId}`, owner.profileId, op, crypto.randomUUID()],
+      );
+      if (completed)
+        await first.query(
+          `update private.idempotency_records set state='completed',completed_at=now(),resource_type='group',resource_id=$1,outcome_code=$2,outcome=jsonb_build_object('group_id',$1::uuid::text,'match_id',$3::uuid::text,'profile_id',$4::uuid::text,'logical_result',$2::text,'extra','invalid') where operation=$5 and state='executing_uncommitted'`,
+          [
+            groupId,
+            op === 'add_player' ? 'player_added' : 'player_removed',
+            matchId,
+            a.profileId,
+            op,
+          ],
+        );
+      await first.query('set local role service_role');
+      await assert.rejects(first.query('commit'), (e) => ['23514', '22023'].includes(e.code));
+      await first.query('rollback');
+    }
+  console.log(
+    'ok - add/remove valid service_role commits; deferred trigger rejects unfinished and malformed records at real COMMIT',
+  );
+  const pids = await assertDistinctConnections(connections, 'manual barriers');
+  // Both orders, add × join and add × leave: holder proves the contested group lock.
+  for (const other of ['join_match', 'leave_match'])
+    for (const order of [0, 1]) {
+      const m = await createMatch(status, owner, groupId, 1);
+      const [x, y] = await freshMembers(
+        status,
+        db,
+        groupId,
+        2,
+        `mr${other === 'join_match' ? 'j' : 'l'}${order}`,
+      );
+      if (other === 'leave_match') await rpcJoin(first, y, m);
+      await holder.query('begin');
+      await holder.query('select 1 from public.groups where id=$1 for no key update', [groupId]);
+      const calls = [
+        (c) => rpcPlayer(c, owner, 'add_player', m, x),
+        (c) => rpcPlayer(c, y, other, m),
+      ];
+      let one, two;
+      try {
+        one = track(calls[order](first));
+        await awaitLockWait(observer, one, pids.first, pids.holder, 'manual first', APP_PREFIX);
+        two = track(calls[1 - order](second));
+        await awaitLockWait(
+          observer,
+          two,
+          pids.second,
+          [pids.holder, pids.first],
+          'manual second',
+          APP_PREFIX,
+        );
+      } finally {
+        await holder.query('commit');
+      }
+      const results = await Promise.all([one.settled, two.settled]);
+      assert.ok(
+        results.every((r) => r.status === 'fulfilled'),
+        JSON.stringify(results),
+      );
+      const state = await statuses(db, m);
+      assert.equal(state.filter((r) => r.status === 'starter').length, 1);
+      if (other === 'leave_match') assert.equal(statusOf(state, x), 'starter');
+      else assert.equal(statusOf(state, order === 0 ? x : y), 'starter');
+    }
+  console.log(
+    'ok - add × join and add × leave: observed group barrier, both orders, one slot and ordered promotion',
+  );
+  // Membership read AFTER lock; target leaves while add is queued.
+  const addDef = await definition(db, ADD_PLAYER);
+  const targetGuard =
+    /  if not exists \(select 1 from public\.group_members\s+where group_id = v_group_id and profile_id = p_profile_id and status = 'active'\) then/;
+  assert.match(addDef, targetGuard);
+  const preRead = `  select exists(select 1 from public.group_members gm join private.matches m on m.group_id=gm.group_id where m.id=p_match_id and gm.profile_id=p_profile_id and gm.status='active') into v_target_active;\n`;
+  const early = addDef
+    .replace('  v_actor_id uuid;', '  v_target_active boolean;\n  v_actor_id uuid;')
+    .replace(
+      '  v_group_id := private.lock_match_context(',
+      preRead + '  v_group_id := private.lock_match_context(',
+    )
+    .replace(targetGuard, '  if not v_target_active then');
+  try {
+    for (const mutant of [false, true]) {
+      if (mutant) await db.query(early);
+      const m = await createMatch(status, owner, groupId, 1);
+      const [x] = await freshMembers(status, db, groupId, 1, `manualexit${mutant}`);
+      await holder.query('begin');
+      await holder.query('select 1 from public.groups where id=$1 for no key update', [groupId]);
+      const pending = track(rpcPlayer(first, owner, 'add_player', m, x));
+      try {
+        await awaitLockWait(observer, pending, pids.first, pids.holder, 'target exit', APP_PREFIX);
+        await holder.query('set local role service_role');
+        await holder.query(`select public.leave_group($1,$2,$3,$4,1,1,$5)`, [
+          x.authId,
+          x.sessionId,
+          crypto.randomUUID(),
+          'b'.repeat(64),
+          groupId,
+        ]);
+      } finally {
+        await holder.query('commit');
+      }
+      const result = await pending.settled;
+      if (!mutant) {
+        assert.equal(result.status, 'rejected');
+        assert.equal(result.reason.message, 'NOT_FOUND');
+        assert.equal((await statuses(db, m)).length, 0);
+      } else {
+        assert.equal(result.status, 'fulfilled', String(result.reason));
+        assert.equal(statusOf(await statuses(db, m), x), 'starter');
+        assert.throws(
+          () => assert.equal(result.status, 'rejected'),
+          'pre-lock membership mutant turns refusal red',
+        );
+      }
+    }
+  } finally {
+    await db.query(addDef);
+  }
+  console.log(
+    'ok - target leaves while add waits: NOT_FOUND; pre-lock membership mutant adds an ex-member',
+  );
+  // Capacity mutant: same pause on add, group/match locks removed only in bad case.
+  const lockDef = await definition(db, LOCKS);
+  const decision =
+    "    v_status := case when v_starters < v_match.field_slots then 'starter' else 'waitlist' end;";
+  assert.ok(addDef.includes(decision));
+  const defense =
+    /  if \(select count\(\*\) from private\.match_players\s+where match_id = p_match_id and status = 'starter'\) > v_match\.field_slots then[\s\S]*?  end if;/;
+  assert.match(addDef, defense);
+  const paused = addDef
+    .replace(decision, `    perform pg_sleep(0.8);\n${decision}`)
+    .replace(defense, '');
+  const unlocked = lockDef
+    .replace('perform 1 from public.groups where id = v_group_id for no key update;', '')
+    .replace('perform 1 from private.matches where id = p_match_id for no key update;', '');
+  try {
+    await db.query(paused);
+    for (const mutant of [true, false]) {
+      await db.query(mutant ? unlocked : lockDef);
+      const m = await createMatch(status, owner, groupId, 1);
+      const [x, y] = await freshMembers(status, db, groupId, 2, `manualcapacity${mutant}`);
+      const pending = track(rpcPlayer(first, owner, 'add_player', m, x));
+      // Observe pg_sleep, not an assumed scheduler delay, before racing the join.
+      for (let n = 0; n < 100; n++) {
+        const r = await observer.query('select wait_event from pg_stat_activity where pid=$1', [
+          pids.first,
+        ]);
+        if (r.rows[0]?.wait_event === 'PgSleep') break;
+        assert.ok(n < 99, 'add reaches count/write pause');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await rpcJoin(second, y, m);
+      assert.equal((await pending.settled).status, 'fulfilled');
+      const starters = (await statuses(db, m)).filter((r) => r.status === 'starter').length;
+      assert.equal(starters, mutant ? 2 : 1);
+      if (mutant)
+        assert.throws(() => assert.equal(starters, 1), 'lock mutant turns capacity assertion red');
+    }
+  } finally {
+    await db.query(lockDef);
+    await db.query(addDef);
+  }
+  assert.equal(await definition(db, ADD_PLAYER), addDef);
+  assert.equal(await definition(db, REMOVE_PLAYER), removeDef);
+  assert.equal(await definition(db, JOIN), joinDef);
+  assert.equal(await definition(db, UPDATE), updateDef);
+  console.log(
+    'ok - add lock mutant confirms two in one slot; same pause with real locks keeps one; every definition restored byte for byte',
+  );
+}
+
 async function main() {
   const status = localStatus();
   const db = client(status.dbUrl, 'admin');
@@ -1389,6 +1795,7 @@ async function main() {
     const residue = {
       'auth.users': await count('auth.users'),
       'private.match_players': await count('private.match_players'),
+      'private.match_refunds': await count('private.match_refunds'),
       'private.matches': await count('private.matches'),
       'public.groups': await count('public.groups'),
       'public.profiles': await count('public.profiles'),
@@ -1422,6 +1829,7 @@ async function main() {
     await proveEditCancel(status, db, context);
     await proveEditJoinBarrier(status, { observer, holder, first, second }, db, context);
     await proveEditLockMutant(status, { first, second }, db, context);
+    await proveOrganizerPlayers(status, { observer, holder, first, second }, db, context);
   } catch (error) {
     failure = error;
   }

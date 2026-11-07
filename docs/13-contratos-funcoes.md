@@ -341,6 +341,47 @@ Reserva uma vaga **antes** de abrir o banco.
   como histórico, limpa o ponteiro, volta a fase para `closed`, incrementa a revisão,
   grava `publication_invalidated` e envia N14 aos afetados; será preciso novo sorteio.
 
+#### 1.6.1 Adicionar e remover no piloto — `0035` (fatia 1.4)
+
+Recorte autorizado por César em 28/10 e 06/11/2026 (P7/P8/P10/P16/P18 e
+§§11.3/13.2 do plano do piloto). Substitui §1.6 e a habilitação/confirmação da tela
+19 de `11` nestes pontos: não há T2, `list_kind`, claim, motivo livre ou trilha pública;
+adição sem vaga vai ao fim da espera, em vez de `NO_OPEN_SLOT`; adição depois do sorteio
+é permitida, em vez de `TEAMS_ALREADY_PUBLISHED`. A confirmação de remoção avisa que
+“os times ficam desatualizados”, conforme a leitura do sorteio da `0032`; não apaga
+sorteio nem publicação histórica. Os demais contratos de evolução permanecem.
+
+`add_player(match_id, profile_id, request_id)` e
+`remove_player(match_id, profile_id, request_id)` entram pelo gateway `groups`, só para
+dono ou organizador ativo. Jogador, pendente, ex-membro e estranho recebem o mesmo
+`NOT_FOUND` (404) de um racha inexistente. O alvo precisa ter membership `active`,
+verificada **depois** de `lock_match_context`, sob a trava do grupo; caso contrário,
+o mesmo `NOT_FOUND`, sem revelar mais. Locks: idempotência → perfil do ator → grupo →
+membership do ator → racha → inscrição/obrigação, os mesmos de `join_match`.
+
+As duas operações recusam `MATCH_CANCELED` (inclusive replay com autoridade atual) e
+`MATCH_STARTED` antes do primeiro efeito; replay de sucesso conserva o desfecho, sem
+repetir efeito, inclusive depois do início. Perda de autoridade no grupo preserva só
+o desfecho gravado; autenticação perdida recebe o erro normal. Grupo suspenso recusa
+chamada nova, conforme `join_match`.
+
+Adição respeita a fila: promove primeiro a espera preexistente, confirma se restar
+vaga e, senão, entra no fim da espera. Alvo já confirmado ou esperando conclui sem
+efeito e conserva `queue_seq`. Remoção aceita confirmado ou espera, muda para
+`removed` e promove a espera por `queue_seq`. Alvo já fora conclui sem efeito. Se pago,
+transfere o pagamento por `move_match_payment_to_refund`, com origem `removed`, valor
+congelado e zeramento da marcação (§3.3.2). Remover a si mesmo pago recusa
+`PAYMENT_ALREADY_REAL`; sem pagamento recusa `FORBIDDEN` (403), código já no §8, e a
+tela direciona ao “Desistir”. Quem foi removido pode voltar sozinho com “Vou jogar”,
+não pago e no fim da fila; membership, notas e obrigações anteriores permanecem.
+
+Desfecho fechado: `{outcome:{group_id,match_id,profile_id,logical_result}}`, sem
+`current`. Resultados de adição: `player_added|player_waitlisted|player_add_unchanged`;
+de remoção: `player_removed|player_remove_unchanged`. Validador e replay usam somente
+INSERT nos dois registros da `0033`: agora 40 operações e 62 pares de resultado.
+Sem coluna de autoria nova: o autor da remoção fica **somente na idempotência por
+30 dias**, corte explícito da trilha `manual_add/manual_remove` do §1.6.
+
 ## 2. Comprovante e financeiro
 
 Nas mutações desta seção, IDs/`logical_result` formam `outcome`; `payment_status`, deadline,
@@ -631,9 +672,9 @@ O restante do §3.3.1, inclusive fuso e desfecho de `cancel_match`, permanece.
 
 `private.match_refunds`, sem RLS nem grants, guarda obrigação por pagamento identificado
 por `(match_player_id, payment_marked_at)`, valor congelado do `field_price`, autor e instante
-da marcação original, origem `canceled|left_group`, estado `refund_due|refunded`, criação,
+da marcação original, origem `canceled|left_group|removed`, estado `refund_due|refunded`, criação,
 `refunded_at` e autor/instante do último registro ou correção. Não há referência, Pix,
-comprovante, nota nem motivo livre. A origem `removed` é da fatia 1.4. Ao transferir o
+comprovante, nota nem motivo livre. A origem `removed` é entregue na `0035` (fatia 1.4), pela remoção manual da organização. Ao transferir o
 pagamento para a obrigação, limpa `paid`, `payment_marked_at` e `payment_marked_by` juntos.
 O CHECK exige `not (paid and status <> 'starter')`. Quem volta entra não pago; uma nova
 marcação e outra saída criam outra obrigação, sem perder a anterior. Uma inscrição tem no

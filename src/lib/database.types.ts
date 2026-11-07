@@ -319,6 +319,19 @@ export type Database = {
         };
         Returns: Json;
       };
+      add_player: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_profile_id: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       approve_member: {
         Args: {
           p_actor_auth_user_id: string;
@@ -754,6 +767,19 @@ export type Database = {
           p_input_hmac: string;
           p_profile_id: string;
           p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
+      remove_player: {
+        Args: {
+          p_actor_auth_user_id: string;
+          p_actor_session_id: string;
+          p_canonical_version: number;
+          p_hash_key_version: number;
+          p_input_hmac: string;
+          p_match_id: string;
+          p_profile_id: string;
           p_request_id: string;
         };
         Returns: Json;
