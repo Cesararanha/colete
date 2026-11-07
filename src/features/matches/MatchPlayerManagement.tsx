@@ -37,8 +37,16 @@ export function usePlayerManagementFeedback() {
     const current = ++interaction.current;
     const origin = typeof document === 'undefined' ? null : document.activeElement;
     const originId = origin?.getAttribute('data-testid');
+    // Capture this screen before the pending button/row can be replaced. Tabs
+    // retain hidden screens, which must neither veto nor receive this focus.
+    const screen = origin?.closest('[data-testid="authenticated-main"]');
     return (target = 'match-refresh-button') => {
-      if (interaction.current !== current || typeof document === 'undefined') return;
+      if (
+        interaction.current !== current ||
+        typeof document === 'undefined' ||
+        !screen?.isConnected
+      )
+        return;
       const active = document.activeElement;
       // AppButton replaces its web element while pending. Its replacement with
       // the same testID still belongs to this attempt; body means focus was lost.
@@ -46,11 +54,13 @@ export function usePlayerManagementFeedback() {
         !active ||
         active === document.body ||
         active === origin ||
-        (originId != null && active.getAttribute('data-testid') === originId);
+        (screen.contains(active) &&
+          originId != null &&
+          active.getAttribute('data-testid') === originId);
       const otherConfirmation = Array.from(
-        document.querySelectorAll('[data-group-confirmation]'),
+        screen.querySelectorAll('[data-group-confirmation]'),
       ).some((element) => element.getAttribute('data-group-confirmation') !== confirmationId);
-      if (ownsFocus && !otherConfirmation) focusGroupControl(target);
+      if (ownsFocus && !otherConfirmation) focusGroupControl(target, screen);
     };
   };
   return { error, feedback, beginAttempt };

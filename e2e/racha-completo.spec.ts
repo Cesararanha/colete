@@ -1089,6 +1089,107 @@ for (const flow of ['add', 'remove-confirmed', 'remove-waitlist'] as const) {
 }
 
 for (const flow of ['add', 'remove'] as const) {
+  test(`Foco da organização: ${flow} restaura o destino com confirmação em outra aba oculta`, async ({
+    page,
+    request,
+  }) => {
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const authIds: string[] = [];
+    try {
+      const label = `c2-${flow === 'add' ? 'a' : 'r'}`;
+      const owner = await createActor(request, `${label}-d`, authIds);
+      const target = await createActor(request, `${label}-p`, authIds);
+      const groupId = (
+        (await gateway(request, owner, 'create_group', { name: 'Foco entre abas' }))['outcome'] as {
+          group_id: string;
+        }
+      ).group_id;
+      await db.query(
+        "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+        [groupId, target.profileId],
+      );
+      const matchId = await createMatch(request, owner, groupId);
+      if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+      await login(page, owner);
+      await page.getByTestId('group-list-card').click();
+      await page.getByTestId('group-members-link').click();
+      await page.getByTestId(`member-menu-${target.profileId}`).click();
+      await page.getByTestId(`remove-${target.profileId}`).click();
+      const membersScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByTestId('remove-confirmation') });
+      await expect(
+        membersScreen.getByRole('heading', { level: 1, name: 'Membros', exact: true }),
+      ).toBeVisible();
+      const retainedConfirmation = membersScreen.getByTestId('remove-confirmation');
+      await expect(retainedConfirmation).toBeVisible();
+      await expect(page.getByTestId('remove-confirmation-heading')).toBeFocused();
+      // Navigate inside the app: goto/reload would discard the other tab and
+      // mask C2. These selectors all exist on 41ce0e5, including the final focus.
+      const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
+      const agendaLink = navigation.getByRole('link', { name: 'Agenda', exact: true });
+      await agendaLink.click();
+      await expect(page).toHaveURL(/\/rachas$/);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(
+        navigation.getByRole('link', { name: 'Grupos', exact: true }),
+      ).not.toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      const agendaScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByRole('heading', { level: 1, name: 'Agenda', exact: true }) });
+      await expect(agendaScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      await agendaScreen.getByTestId('match-list-card').click();
+      await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+      const matchScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByTestId('match-refresh-button') });
+      // Web tabs keep the inactive scene behind the active one, still visible
+      // to Playwright. Prove the navigation state and separate mains instead
+      // of depending on the navigator's stacking styles or toBeHidden().
+      await expect(matchScreen).toHaveCount(1);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      await expect(matchScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      const removeId = `match-remove-${target.profileId}`;
+      await matchScreen.getByTestId(flow === 'add' ? 'match-add-player' : removeId).click();
+      const response = page.waitForResponse((item) =>
+        item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+      );
+      await matchScreen
+        .getByTestId(flow === 'add' ? `match-add-${target.profileId}` : `${removeId}-confirm`)
+        .click();
+      expect((await response).status()).toBe(200);
+      if (flow === 'add') {
+        await expect(page.getByTestId('match-add-result')).toHaveText(
+          'Jogador confirmado no racha.',
+        );
+        await expect(page.getByTestId('match-add-picker')).toHaveCount(0);
+      } else {
+        await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+        await expect(page.getByTestId(removeId)).toHaveCount(0);
+      }
+      await board(page, flow === 'add' ? 1 : 0, 2);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      await expect(matchScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      // On 41ce0e5 the retained Expulsar heading vetoes restoration here, after
+      // the successful mutation and the disappearance of the focused control.
+      await expect(
+        matchScreen.getByTestId(flow === 'add' ? 'match-add-player' : 'match-refresh-button'),
+      ).toBeFocused();
+    } finally {
+      try {
+        await cleanActors(authIds, db);
+      } finally {
+        await db.end();
+      }
+    }
+  });
+}
+
+for (const flow of ['add', 'remove'] as const) {
   for (const dismiss of [false, true]) {
     test(`Foco da organização: ${flow} antiga não interrompe outra confirmação${dismiss ? ' após dispensa' : ''}`, async ({
       page,

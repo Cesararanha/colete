@@ -4418,7 +4418,8 @@ não foi repetida; o controle válido é a rodada 2, que tem os mesmos casos.
 sua interação, controle focado e confirmação no lugar. Novo intento, cancelamento,
 dispensa do aviso ou desmontagem das listas invalida sua continuação. Ao concluir,
 só encaminha o foco se ele ainda pertence ao controle de origem (inclusive sua troca
-por `AppButton` pendente), ou ficou sem destino, e não existe outra confirmação aberta.
+por `AppButton` pendente), ou ficou sem destino, e não existe outra confirmação aberta
+no contêiner da própria tela do racha (escopo corrigido no P2-C2, abaixo).
 `GroupConfirmation` identifica suas regiões por atributo de dados, sem bloquear ações.
 A remoção deixa de focar incondicionalmente no cleanup; a conclusão usa a mesma guarda,
 inclusive quando a releitura retirou a linha. Adição bem-sucedida restaura o controle
@@ -4482,3 +4483,126 @@ Após `db:reset`, primeira rodada, sem repetição:
 
 A contraprova é comportamental: o cenário só usa seletores que já existiam em `8926d58`.
 A lacuna da releitura na remoção fica fechada: o mutante que antes passava agora reprova.
+
+### Correção da conferência restrita — PR #97 (`41ce0e5`, 07/11/2026)
+
+**P2-C2.** A tentativa captura o ancestral `authenticated-main` do controle de origem,
+antes que o envio substitua o botão ou a releitura retire a linha. A busca de outras
+confirmações fica nesse contêiner, em vez do documento inteiro. Assim, a confirmação
+“Expulsar” conservada em Membros pela aba oculta não veta a restauração no racha.
+O escopo estrutural independe do CSS e da implementação de visibilidade das abas.
+Se o contêiner foi retirado do documento, a continuação não encaminha foco.
+
+`focusGroupControl` aceitava somente o testID e podia escolher o primeiro homônimo
+de outra tela montada. Agora aceita um contêiner opcional; a conclusão da tentativa
+passa o mesmo contêiner capturado, sem fallback global quando ele não existe.
+A substituição do controle com o mesmo testID também precisa pertencer a esse contêiner.
+As gerações de interação, a guarda do controle focado e o veto de outra confirmação
+na própria tela permanecem, preservando a proteção do P2-C1. Nenhum bloqueio global
+de ações foi criado; P2-1/P2-2, releitura, avisos e provas anteriores não foram alterados.
+
+**Prova nova.** Dois casos parametrizados em
+`e2e/racha-completo.spec.ts`, adição e remoção, previstos nos dois projetos Chromium:
+abrem Grupos → Membros → “Expulsar”, deixam a confirmação aberta, mudam para Agenda
+pela navegação do app e abrem o racha pelo cartão. Exigem que a confirmação de Membros
+continue montada no `authenticated-main` de Membros e ausente do `authenticated-main`
+do racha, antes e depois da mutação bem-sucedida. O link Agenda precisa ter
+`aria-current="page"`; Grupos perde esse estado ao trocar de aba, e a URL acompanha
+a navegação. Não se exige `toBeHidden` nem um valor de CSS. Adição exige o foco
+em “Adicionar jogador”; remoção exige o foco em “Atualizar racha”. Não há `goto` nem
+reload entre a confirmação e a mutação. Todos os seletores já existem em `41ce0e5`.
+Por leitura, nesse SHA a consulta global encontra a confirmação da aba inativa e veta o foco;
+o teste deve falhar no `toBeFocused` final, após comprovar o sucesso da mutação e a
+retirada do controle de origem. A execução da versão final, com as asserções estruturais,
+fica **PENDENTE-PLAYWRIGHT**, sem alegação de reprodução em navegador pelo autor.
+
+**Diagnóstico do navegador recebido nesta continuação (07/11/2026).** Em
+`noite/codex-1.4/corr97c/resumo.txt`, o coordenador registrou `test:matches:web`
+exit 1, 84 passed / 4 failed, e `test:groups:web` exit 0, 121 passed / 5 skipped.
+Os quatro casos novos pararam em `toBeHidden` tanto na correção (`08-controle.log`)
+quanto em `41ce0e5` (`06-antigo-aba-oculta.log`): essa contraprova era inválida,
+pois não chegou ao foco. O snapshot `error-context-mobile-add.md` mostra os dois
+`main`, Membros com a confirmação e Agenda com o cartão do racha.
+
+Há também uma rodada diagnóstica em `corr97c/diag/`, executada por uma segunda sessão
+de coordenação que rodava em paralelo na mesma worktree, já encerrada:
+`00-spec-diag.diff` remove somente as duas asserções `toBeHidden`;
+`02-correcao.log` registra exit 0, **4 passed**, e `04-antigo.log` registra exit 1,
+**4 failed**, todos no `toBeFocused` final, nos dois projetos Chromium. Essa rodada
+prova a diferença comportamental de foco; não executa as novas asserções estruturais
+acrescentadas nesta continuação. O autor apenas leu esses logs, sem rodar Playwright.
+
+**Mecanismo web e escopo confirmado por leitura local.** No Expo Router 57.0.17,
+`build/react-navigation/bottom-tabs/views/BottomTabView.js:173–202` conserva as abas
+visitadas e posiciona suas cenas com preenchimento absoluto e `zIndex` 0 (ativa) ou
+−1 (inativa). `ScreenFallback.js:21–25` usa um `View` quando `screensEnabled()` é
+falso. No react-native-screens 4.26.0, `src/core.ts:5–10,36–37` inicia essa flag
+desligada na web; o app não chama `enableScreens`. Portanto o caminho de
+`src/components/Screen.web.tsx:24–33`, que aplicaria `hidden` e `display: none`, não
+é usado pelas abas. A cena inativa fica atrás da ativa e continua montada;
+`toBeHidden` não mede essa sobreposição. `AuthenticatedShell.tsx:216–232` cria um
+`authenticated-main` por tela; Membros e racha o usam separadamente. A confirmação
+de expulsão está no primeiro, fora do segundo, como exige a correção. Não foi
+necessário alterar novamente `MatchPlayerManagement.tsx` nem `GroupConfirmation.tsx`.
+
+**Observação fora do escopo — acessibilidade da aba inativa.** O snapshot recebido
+continua incluindo o `main` de Membros e sua confirmação na árvore de acessibilidade
+depois que Agenda se torna ativa. A ausência efetiva de `aria-hidden` foi inferida
+desse snapshot de acessibilidade, sem inspeção dos atributos do DOM. O componente `elements/Screen.js:62` do Expo Router
+declara `aria-hidden={!focused}`, mas essa declaração não substitui a evidência do
+navegador sobre a árvore efetivamente exposta. A exposição da tela inativa fica
+registrada para investigação própria, sem correção de navegação ou acessibilidade
+nesta fatia, conforme o limite desta rodada.
+
+**Validação local da primeira correção, antes desta continuação.** Contagens
+preservadas da sessão anterior:
+
+| Comando | Exit | Contagem medida |
+|---|---:|---|
+| `npm run verify:app` — primeira execução | 1 | lint aprovado; formato recusou somente o e2e novo |
+| `npm run verify:app` — após Prettier no e2e | 0 | 65 arquivos / 782 unitários; 43 rotas; lint/formato/tipos/PWA/Auth/scans |
+| `npm run scan:docs` | 0 | 23 documentos, 24 hashes do manifesto |
+| `npm run scan:secrets` | 0 | 511 arquivos, zero achados |
+| `git diff --check` | 0 | zero erros |
+
+Logs locais: `/tmp/conf97c-verify-app.log`, `/tmp/conf97c-verify-app-final.log`,
+`/tmp/conf97c-scan-docs.log` e `/tmp/conf97c-scan-secrets.log`.
+Navegador da versão final e regressões P2-C1/P2-1/P2-2: **PENDENTE-PLAYWRIGHT**;
+o diagnóstico e a contraprova recebidos estão discriminados acima.
+Sem execução de Playwright, banco, contêineres ou consulta remota; pilha Colete e
+trava externa preservadas. Sem add, commit ou push; mudanças somente no working tree.
+Nenhum contrato, documento normativo, dependência ou migration foi alterado.
+
+**Validação desta continuação — asserções estruturais (07/11/2026).**
+
+| Comando | Exit | Contagem medida |
+|---|---:|---|
+| `npm run verify:app` | 0 | 65 arquivos / 782 unitários; 43 rotas; lint/formato/tipos/PWA/Auth/scans; scanner de segredos: 511 arquivos |
+| `npm run scan:docs` | 0 | 23 documentos; 24 entradas no manifesto |
+| `git diff --check` | 0 | zero erros |
+
+Logs: `/tmp/conf97c-structural-verify-app.log` e
+`/tmp/conf97c-structural-scan-docs.log`. Nenhum Playwright, comando de banco ou
+contêiner foi executado nesta continuação; sem add, commit ou push. Houve uma
+consulta inicial `gh pr list` ao GitHub pelo protocolo de descoberta, um desvio
+do limite desta rodada de não acessar remotos. Não houve outra consulta remota,
+acesso a Supabase remoto, deploy ou serviço de produção.
+
+**Navegador e contraprova pelo coordenador (07/11/2026).** Executados sobre a versão
+final do working tree, com o Mac acordado (`caffeinate -i`). Logs em
+`noite/codex-1.4/corr97c2/`, com `resumo.txt` e o diff aplicado em `00-diff.patch`.
+
+| Execução | Exit | Resultado |
+|---|---:|---|
+| `npm run db:reset` | 0 | migrations até `0035` |
+| `npm run build:web:auth-e2e` | 0 | build Auth |
+| `npm run test:matches:web` | 0 | **88 passed**, sem repetição |
+| `npm run test:groups:web` | 0 | **121 passed, 5 skipped** |
+| Contraprova: árvore `41ce0e5` só com o e2e novo (`05-antigo-arvore.txt`), `--grep 'outra aba oculta'` | 1 | **4 failed**, todos em `racha-completo.spec.ts:1181`, `toBeFocused` recebeu `inactive` |
+| Controle na correção, mesmo `--grep` | 0 | **4 passed** |
+| `npm run verify:app` | 0 | 782 unitários |
+
+Na contraprova, as asserções estruturais anteriores ao foco passaram em `41ce0e5`:
+a falha é do veto da confirmação da aba inativa, não de seletor ou premissa. As
+regressões P2-C1, P2-1 e P2-2 estão dentro dos 88 casos de `test:matches:web`.
+Os itens **PENDENTE-PLAYWRIGHT** acima ficam resolvidos por esta tabela.

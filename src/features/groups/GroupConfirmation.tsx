@@ -6,9 +6,9 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
-export function focusGroupControl(testId: string) {
+export function focusGroupControl(testId: string, scope?: ParentNode) {
   if (typeof document !== 'undefined')
-    document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
+    (scope ?? document).querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
 }
 
 export function GroupConfirmation({
