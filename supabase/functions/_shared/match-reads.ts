@@ -22,6 +22,7 @@ export const MATCH_READ_OPERATIONS = [
   'get_match_roster',
   'get_matches_occupancy',
   'get_match_teams',
+  'get_match_refunds',
 ] as const;
 export type MatchReadOperation = (typeof MATCH_READ_OPERATIONS)[number];
 export function isMatchReadOperation(value: string): value is MatchReadOperation {
@@ -46,6 +47,7 @@ const ALLOWED: Record<MatchReadOperation, readonly string[]> = {
   get_match_roster: ['match_id'],
   get_matches_occupancy: [],
   get_match_teams: ['match_id'],
+  get_match_refunds: ['match_id'],
 };
 
 function failure(code: ErrorCode, requestId: string, fields?: Record<string, string>) {
@@ -79,7 +81,8 @@ export async function dispatchMatchRead(
     if (
       operation === 'get_match' ||
       operation === 'get_match_roster' ||
-      operation === 'get_match_teams'
+      operation === 'get_match_teams' ||
+      operation === 'get_match_refunds'
     ) {
       const matchId = input['match_id'];
       if (typeof matchId !== 'string' || !UUID.test(matchId)) {

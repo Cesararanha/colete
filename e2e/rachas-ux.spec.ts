@@ -869,6 +869,7 @@ test('Atualização: only the screen in front reads, the teams with the detail',
       match: countReads(page, 'get_match', matchId),
       roster: countReads(page, 'get_match_roster', matchId),
       teams: countReads(page, 'get_match_teams', matchId),
+      refunds: countReads(page, 'get_match_refunds', matchId),
     };
     const counts = () => Object.fromEntries(Object.entries(reads).map(([k, v]) => [k, v.count]));
     const after30s = async () => {
@@ -887,18 +888,39 @@ test('Atualização: only the screen in front reads, the teams with the detail',
     const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
     await navigation.getByRole('link', { name: 'Agenda' }).click();
     await expect(page.getByTestId('matches-refresh-time')).toHaveText(/^Atualizado às/u);
-    expect(await after30s()).toEqual({ pending: 0, agenda: 1, match: 0, roster: 0, teams: 0 });
+    expect(await after30s()).toEqual({
+      pending: 0,
+      agenda: 1,
+      match: 0,
+      roster: 0,
+      teams: 0,
+      refunds: 0,
+    });
     await page.getByTestId('match-list-card').click();
     await expect(page.getByTestId('match-refresh-time')).toHaveText(/^Atualizado às/u);
     await page.clock.runFor(2_000);
 
-    // The detail in front: only its three reads, Grupos and Agenda stay quiet.
-    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1 });
+    // The detail in front: only its four reads, Grupos and Agenda stay quiet.
+    expect(await after30s()).toEqual({
+      pending: 0,
+      agenda: 0,
+      match: 1,
+      roster: 1,
+      teams: 1,
+      refunds: 1,
+    });
 
     // Editar on top: nothing reads under it.
     await page.getByTestId('match-edit').click();
     await expect(page.getByRole('heading', { name: 'Editar racha', level: 1 })).toBeVisible();
-    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 0, roster: 0, teams: 0 });
+    expect(await after30s()).toEqual({
+      pending: 0,
+      agenda: 0,
+      match: 0,
+      roster: 0,
+      teams: 0,
+      refunds: 0,
+    });
 
     // Back to the detail: what went stale is read at once, and the rhythm returns.
     const beforeBack = counts();
@@ -930,8 +952,15 @@ test('Atualização: only the screen in front reads, the teams with the detail',
       Object.fromEntries(
         Object.keys(afterBack).map((key) => [key, afterBack[key]! - beforeBack[key]!]),
       ),
-    ).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1 });
-    expect(await after30s()).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1 });
+    ).toEqual({ pending: 0, agenda: 0, match: 1, roster: 1, teams: 1, refunds: 1 });
+    expect(await after30s()).toEqual({
+      pending: 0,
+      agenda: 0,
+      match: 1,
+      roster: 1,
+      teams: 1,
+      refunds: 1,
+    });
   } finally {
     await cleanActors(authIds, db);
     await db.end();

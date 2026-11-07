@@ -58,6 +58,7 @@
     "db:test:matches": "node scripts/test-matches.mjs",
     "db:test:match-players": "node scripts/test-match-players.mjs",
     "db:test:ratings": "node scripts/test-ratings.mjs",
+    "db:test:refunds": "node scripts/test-match-refunds.mjs",
     "db:test:teams": "node scripts/test-match-teams.mjs",
     "db:test:geocode": "node scripts/test-geocode-gate.mjs",
     "db:stop": "supabase stop --no-backup",

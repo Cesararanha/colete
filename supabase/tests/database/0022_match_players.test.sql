@@ -210,7 +210,7 @@ select is((select r -> 'payment_summary' from roster_player), 'null'::jsonb,
 select is((select jsonb_path_query_array(r, '$.confirmed[*].paid') from roster_player),
   '[null, null]'::jsonb, 'a player sees nobody else''s payment');
 select is((select r -> 'viewer' from roster_player),
-  '{"paid": null, "status": "waitlist", "can_manage": false, "waitlist_position": 1}'::jsonb,
+  '{"paid": null, "status": "waitlist", "refunds": [], "can_manage": false, "waitlist_position": 1}'::jsonb,
   'a waiting player sees only the own place');
 -- Revisão do #71, P1-2: fora do grupo, ID existente e inexistente dão o
 -- mesmo NOT_FOUND; sessão revogada dá UNAUTHENTICATED nos dois.
@@ -310,8 +310,8 @@ where group_id = '22200000-0000-4000-8000-000000000001'
   and profile_id = '22100000-0000-4000-8000-000000000003';
 select is((select status || ':' || paid from private.match_players
   where match_id = '22300000-0000-4000-8000-000000000001'
-    and profile_id = '22100000-0000-4000-8000-000000000003'), 'removed:true',
-  'a paid registration released by group exit keeps the payment fact');
+    and profile_id = '22100000-0000-4000-8000-000000000003'), 'removed:false',
+  'group exit transfers the payment into a refund obligation');
 
 -- Contraprova: sem o trigger, a saída do grupo deixa um confirmado sem
 -- membership; a asserção acima cairia.

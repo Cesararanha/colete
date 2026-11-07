@@ -58,6 +58,13 @@ export const ERROR_CODES = [
   'TEAM_SIZE_INVALID',
   'RATINGS_MISSING',
   'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED',
+  'PRICE_LOCKED',
+  'MATCH_NOT_CANCELED',
+  'PAYMENT_ALREADY_RESOLVED',
+  'PAYMENT_RELATION_NOT_FOUND',
+  'REFUND_NOT_FOUND',
+  'ACTIVE_PAYMENTS_REMAIN',
+  'REFUNDS_PENDING',
   'INTERNAL',
 ] as const;
 
@@ -144,6 +151,13 @@ const MESSAGES: Record<ErrorCode, string> = {
   RATINGS_MISSING: 'Every confirmed player needs a rating before the draw.',
   UNEQUAL_TEAMS_CONFIRMATION_REQUIRED:
     'The teams would have different sizes; the draw needs that confirmation.',
+  PRICE_LOCKED: 'The price is locked by a payment or pending refund.',
+  MATCH_NOT_CANCELED: 'The match is not canceled.',
+  PAYMENT_ALREADY_RESOLVED: 'This canceled payment was already recorded.',
+  PAYMENT_RELATION_NOT_FOUND: 'No confirmed participation matches this payment.',
+  REFUND_NOT_FOUND: 'The refund does not exist in this match.',
+  ACTIVE_PAYMENTS_REMAIN: 'Payments remain in matches that would be canceled.',
+  REFUNDS_PENDING: 'Pending refunds remain in this group.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -170,8 +184,15 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'OWNER_ONLY':
     case 'GROUP_SUSPENDED':
       return 403;
+    case 'REFUND_NOT_FOUND':
+    case 'PAYMENT_RELATION_NOT_FOUND':
     case 'NOT_FOUND':
       return 404;
+    case 'PRICE_LOCKED':
+    case 'MATCH_NOT_CANCELED':
+    case 'PAYMENT_ALREADY_RESOLVED':
+    case 'ACTIVE_PAYMENTS_REMAIN':
+    case 'REFUNDS_PENDING':
     case 'IDEMPOTENCY_CONFLICT':
     case 'DELETION_ALREADY_PENDING':
     case 'EXPORT_ALREADY_PENDING':

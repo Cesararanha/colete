@@ -717,6 +717,16 @@ async function proveNoLockWaitReplays(status, db, holder) {
     )
   ).outcome.match_id;
   await record(owner, 'cancel_match', { match_id: other });
+  // 0034: retain the paid replay intent, explicitly clear its current mark
+  // before the deletion success that this test replays under held locks.
+  ok(
+    await mutate(status, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: m1.profileId,
+      paid: false,
+    }),
+    'clear payment before deletion',
+  );
   const deleted = await record(owner, 'delete_group', { group_id: groupId });
 
   const judged = [];
@@ -1158,6 +1168,15 @@ async function proveDeletionDuringWait(status, db, { observer, first }) {
     if (operation !== 'create_group')
       ok(await mutate(status, actor, operation, body, requestId), `record ${operation}`);
     f.after?.();
+    if (operation === 'set_match_payment')
+      ok(
+        await mutate(status, owner, 'set_match_payment', {
+          match_id: f.matchId,
+          profile_id: m2.profileId,
+          paid: false,
+        }),
+        'clear mark for deletion without changing replay intent',
+      );
     await race(
       `replay ${operation}`,
       f,

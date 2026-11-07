@@ -54,6 +54,19 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   leave_match: { request_id: REQUEST_ID, match_id: MATCH },
   set_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET, paid: true },
   update_match: { request_id: REQUEST_ID, match_id: MATCH, config: MATCH_CONFIG },
+  record_canceled_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET },
+  mark_refunded: {
+    request_id: REQUEST_ID,
+    match_id: MATCH,
+    refund_id: TARGET,
+    refunded_at: '2026-11-06T12:00:00.000Z',
+  },
+  correct_refund: {
+    request_id: REQUEST_ID,
+    match_id: MATCH,
+    refund_id: TARGET,
+    corrected_at: '2026-11-06T12:00:00.000Z',
+  },
   cancel_match: { request_id: REQUEST_ID, match_id: MATCH },
   delete_group: { request_id: REQUEST_ID, group_id: GROUP },
   set_rating: { request_id: REQUEST_ID, group_id: GROUP, profile_id: TARGET, stars: 4 },
@@ -103,6 +116,17 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
       field_price: '25.00',
       description: null,
     },
+  },
+  record_canceled_match_payment: { p_match_id: MATCH, p_profile_id: TARGET },
+  mark_refunded: {
+    p_match_id: MATCH,
+    p_refund_id: TARGET,
+    p_refunded_at: '2026-11-06T12:00:00.000Z',
+  },
+  correct_refund: {
+    p_match_id: MATCH,
+    p_refund_id: TARGET,
+    p_corrected_at: '2026-11-06T12:00:00.000Z',
   },
   cancel_match: { p_match_id: MATCH },
   delete_group: { p_group_id: GROUP },
@@ -205,4 +229,36 @@ describe('gateway internal call', () => {
       },
     });
   });
+  it.each(['mark_refunded', 'correct_refund'] as const)(
+    'omits absent date RPC arguments for %s',
+    async (operation) => {
+      const calls: Record<string, unknown>[] = [];
+      const result = await runOperation(
+        {
+          resolveKey,
+          callRpc: async (_op, parameters) => {
+            calls.push(parameters);
+            return { data: { outcome: {} } };
+          },
+        },
+        operation,
+        { request_id: REQUEST_ID, match_id: MATCH, refund_id: TARGET },
+        ACTOR,
+      );
+      expect(result.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      expect(Object.keys(calls[0]).sort()).toEqual(
+        [
+          'p_actor_auth_user_id',
+          'p_actor_session_id',
+          'p_request_id',
+          'p_input_hmac',
+          'p_canonical_version',
+          'p_hash_key_version',
+          'p_match_id',
+          'p_refund_id',
+        ].sort(),
+      );
+    },
+  );
 });

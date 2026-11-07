@@ -645,3 +645,70 @@ describe('draw_teams (docs/13 section 4.4, 0032)', () => {
     }
   });
 });
+
+describe('refund transport (0034)', () => {
+  const match_id = '01890f7e-e948-4c53-b13a-4a36e4b7d21e';
+  const refund_id = '01890f7e-e948-4c53-b13a-4a36e4b7d21f';
+  it('omits an absent date from the signed input', () => {
+    expect(
+      normaliseRequest('mark_refunded', { request_id: REQUEST_ID, match_id, refund_id })
+        .canonicalInput,
+    ).toEqual({ match_id, refund_id });
+  });
+  it('signs the exact date and lowercased resource IDs', () => {
+    expect(
+      normaliseRequest('mark_refunded', {
+        request_id: REQUEST_ID,
+        match_id: match_id.toUpperCase(),
+        refund_id,
+        refunded_at: '2026-11-06T12:00:00.123Z',
+      }).canonicalInput,
+    ).toEqual({ match_id, refund_id, refunded_at: '2026-11-06T12:00:00.123Z' });
+  });
+  it.each(['2026-11-31T12:00:00.000Z', '2026-11-06', 'invalid', null])(
+    'rejects malformed refund instants: %s',
+    (refunded_at) => {
+      for (const operation of ['mark_refunded', 'correct_refund'] as const) {
+        expect(() =>
+          normaliseRequest(operation, {
+            request_id: REQUEST_ID,
+            match_id,
+            refund_id,
+            [operation === 'mark_refunded' ? 'refunded_at' : 'corrected_at']: refunded_at,
+          }),
+        ).toThrow();
+      }
+    },
+  );
+  it.each(['reference', 'amount', 'actor_id'])('rejects fields outside the cut: %s', (field) => {
+    expect(() =>
+      normaliseRequest('mark_refunded', {
+        request_id: REQUEST_ID,
+        match_id,
+        refund_id,
+        refunded_at: '2026-11-06T12:00:00.123Z',
+        [field]: 'private',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('refund correction preserves its own signed date', () => {
+  const match_id = '01890f7e-e948-4c53-b13a-4a36e4b7d21e';
+  const refund_id = '01890f7e-e948-4c53-b13a-4a36e4b7d21f';
+  it('omits an absent corrected_at and rejects an attempt to change the amount', () => {
+    expect(
+      normaliseRequest('correct_refund', { request_id: REQUEST_ID, match_id, refund_id })
+        .canonicalInput,
+    ).toEqual({ match_id, refund_id });
+    expect(() =>
+      normaliseRequest('correct_refund', {
+        request_id: REQUEST_ID,
+        match_id,
+        refund_id,
+        corrected_at: '2026-11-06T12:00:00.000Z',
+        amount: '100.00',
+      }),
+    ).toThrow();
+  });
+});

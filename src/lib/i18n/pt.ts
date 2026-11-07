@@ -310,6 +310,39 @@ export const pt = {
       notOrganizer: 'Só o dono ou um organizador ativo do grupo dá notas.',
     },
   },
+  refunds: {
+    title: 'Devoluções',
+    due: 'A devolver',
+    refunded: 'Devolvido, confira no banco',
+    recorded: 'Devolvido',
+    warning: 'O app não devolve dinheiro. O acerto é feito fora do app.',
+    mark: 'Registrar como devolvido',
+    correct: 'Corrigir devolução',
+    confirm: 'Confirmar registro',
+    date: 'Data e hora da devolução (no fuso do racha)',
+    dateHint: (timezone: string) =>
+      `DD/MM/AAAA HH:mm · ${timezone}. Deixe vazio para registrar agora.`,
+    confirmLate: 'Confirme que recebeu o pagamento fora do app. Será registrado como a devolver.',
+    invalidDate: 'Informe uma data válida, entre a obrigação e agora.',
+    recordPayment: 'Registrar pagamento após cancelamento',
+    confirmPayment: 'Confirmar pagamento recebido',
+    confirmMark: 'Confirme somente depois de acertar a devolução fora do app.',
+    confirmCorrect:
+      'A correção altera somente a data da devolução. O pagamento continua devolvido.',
+    total: (value: string) => `Total a devolver: ${value}`,
+    saved: 'Registro atualizado.',
+    errors: {
+      PRICE_LOCKED: 'O preço está travado por pagamento marcado ou devolução pendente.',
+      MATCH_NOT_CANCELED: 'Este racha ainda não foi cancelado.',
+      PAYMENT_ALREADY_RESOLVED: 'Este pagamento já tem uma devolução registrada.',
+      PAYMENT_RELATION_NOT_FOUND: 'Não há inscrição confirmada para registrar este pagamento.',
+      REFUND_NOT_FOUND: 'Devolução não encontrada neste racha.',
+      ACTIVE_PAYMENTS_REMAIN:
+        'Há pagamentos marcados ou devoluções pendentes. Cancele os rachas e registre as devoluções antes de apagar.',
+      REFUNDS_PENDING:
+        'Há pagamentos marcados ou devoluções pendentes. Cancele os rachas e registre as devoluções antes de apagar.',
+    },
+  },
   matches: {
     /** Under the times, only where this device shows other times than the match's zone (HX-005). */
     zone: (label: string) => `Horário do racha: ${label}`,

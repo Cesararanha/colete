@@ -619,6 +619,81 @@ perdeu a autoridade segue §5.0.1), e a saída do grupo não promove a espera de
 `get_match`, `list_my_matches`, `get_matches_occupancy` e `get_match_roster` devolvem
 `canceled`, nunca quem cancelou nem quando.
 
+#### 3.3.2 Devolução no piloto — `0034` (fatia 1.3)
+
+Decisões de César de 28/10 e 06/11/2026 (P1/P3/P4/P10/P13–P17/P19/P20 e §14 do plano do
+piloto) e decisões da orquestradora sobre a revisão do #96 (§15), a confirmar por César no
+merge, todas registradas em `25` §8.1. Este recorte substitui três pontos do §3.3.1:
+preço trava com qualquer inscrição `paid = true` ou obrigação `refund_due` no racha
+(`PRICE_LOCKED`, 409); cancelamento cria obrigações na mesma transação; saída do grupo
+não altera nenhuma inscrição de racha cancelado, preservando lista e obrigações históricas.
+O restante do §3.3.1, inclusive fuso e desfecho de `cancel_match`, permanece.
+
+`private.match_refunds`, sem RLS nem grants, guarda obrigação por pagamento identificado
+por `(match_player_id, payment_marked_at)`, valor congelado do `field_price`, autor e instante
+da marcação original, origem `canceled|left_group`, estado `refund_due|refunded`, criação,
+`refunded_at` e autor/instante do último registro ou correção. Não há referência, Pix,
+comprovante, nota nem motivo livre. A origem `removed` é da fatia 1.4. Ao transferir o
+pagamento para a obrigação, limpa `paid`, `payment_marked_at` e `payment_marked_by` juntos.
+O CHECK exige `not (paid and status <> 'starter')`. Quem volta entra não pago; uma nova
+marcação e outra saída criam outra obrigação, sem perder a anterior. Uma inscrição tem no
+máximo uma obrigação `canceled`; cancelar de novo não cria nada. A migration cobre todo
+pago com `status <> 'starter'` em qualquer racha, inclusive iniciado/terminado, e todo
+pago em racha cancelado. A origem é `canceled` no cancelado e `left_group` nos demais;
+`starter` pago em racha não cancelado permanece pago. Usa o preço atual: não existe
+histórico do preço marcado antes desta fatia.
+
+As três mutações no gateway `groups`, só dono ou organizador ativo, usam autenticação,
+replay de §5.0.1 e locks perfil → grupo → membership → racha → obrigação. Jogador recebe
+`NOT_ORGANIZER` (403); pendente, ex-membro e estranho, `NOT_FOUND` (404).
+
+- `record_canceled_match_payment(match_id, profile_id, request_id)`: só inscrição `starter`
+  congelada no cancelamento, não paga e sem obrigação `canceled`, mesmo que já devolvida.
+  Não recebe valor: congela `field_price`; momento da marcação é o instante do registro.
+  Cria somente obrigação, sem reativar `paid`. Erros: `MATCH_NOT_CANCELED` (409),
+  `PAYMENT_RELATION_NOT_FOUND` (404), `PAYMENT_ALREADY_RESOLVED` (409).
+- `mark_refunded(match_id, refund_id, refunded_at?, request_id)`: declara acerto externo,
+  sem confirmação bancária. Campo ausente usa `clock_timestamp()` do servidor, no mínimo
+  `created_at`; data informada entre criação da obrigação e agora, senão `VALIDATION` (422).
+  Já devolvido conclui sem novo efeito (`refund_unchanged`).
+- `correct_refund(match_id, refund_id, corrected_at?, request_id)`: somente data de devolução
+  existente, com o mesmo intervalo; preserva valor, beneficiário, origem e estado `refunded`
+  de §2.8. Sem referência nem razão livre neste corte. Data igual conclui sem efeito
+  (`refund_correction_unchanged`). `corrected_at` ausente usa o relógio do servidor,
+  no mínimo `created_at`, como em `mark_refunded`. Obrigação ausente ou ainda não devolvida
+  recebe `REFUND_NOT_FOUND` (404).
+
+Na Edge, as duas datas opcionais, quando presentes, exigem instante ISO UTC com
+milissegundos. Ausência é canonicalizada sem a chave: ausente e presente com o mesmo
+`request_id` são intenções distintas (`IDEMPOTENCY_CONFLICT`). A tela omite a data com
+campo vazio e mostra `pt.refunds.invalidDate` para `VALIDATION`, sem repetição automática.
+
+Desfechos novos: `{group_id, match_id, refund_id, logical_result}`; resultados
+`canceled_payment_recorded`, `refund_recorded|refund_unchanged` e
+`refund_corrected|refund_correction_unchanged`. Registro de idempotência conserva autor e
+intenção por 30 dias. As duas tabelas da `0033` recebem somente INSERT: 38 operações e 57
+pares de resultado no total. `cancel_match` mantém exatamente
+`{group_id, match_id, logical_result}`: sem `refund_count` nem `refund_total` (§14).
+
+`get_match_refunds(match_id)` projeta para organização todas as obrigações, inclusive de
+quem saiu da lista/grupo: id, valor, estado, criação, data de devolução e nome/apelido.
+Conta em exclusão ou excluída é desidentificada (`account_removed`, nomes nulos, tela
+“Conta excluída”). Jogador não acessa essa projeção; `get_match_roster.viewer.refunds`
+contém somente suas obrigações. Em racha cancelado, organização recebe por confirmado
+`can_record_canceled_payment`. Tela calcula pessoas e total da projeção autorizada,
+mostra confirmação antes de registrar, e o bloco da instrução passa a “A devolver” ou
+“Devolvido, confira no banco” para quem joga; organização lê “Devolvido”. Painel de
+devoluções fica oculto sem obrigação e sem pagamento a registrar, e a confirmação do
+cancelamento só exibe total quando alguém pagou. O detalhe integra a projeção ao intervalo
+de 30 s, ao botão Atualizar e à hora da leitura mais antiga, preservando o fuso do racha.
+
+Divergências deliberadas de §§2.6/2.9: desmarcar pagos ainda permite destravar preço (ou
+apagar grupo, §5.0.8) quando não resta obrigação pendente; não há ledger completo,
+`mark_refund_due` nem `unlock_price_after_refunds`. Retenção financeira de 24 meses,
+desidentificação dos fatos, acesso do ex-membro e bloqueio financeiro de exclusão da conta
+(inclusive dono solo que arquiva grupo com obrigação de terceiros) permanecem pendências
+pré-público do M5/D63-D. Esta fatia não cria notificações, disputas ou Admin.
+
 ### 3.4 `advance_recurrence(recurrence_id, terminal_match_id)` — sistema
 
 Trava grupo→recorrência→racha terminal, revalida série `active`, versão e segredo Pix ativo.
@@ -1325,6 +1400,14 @@ outcome gravado, sem `current`. Trava perfil próprio → grupo → membership p
 sob o grupo, os pedidos pendentes, os rachas a cancelar e os convites, cada conjunto em
 ordem crescente: quem entra, cria racha ou confirma presença trava o grupo antes e, depois
 do encerramento, recebe a recusa abaixo.
+
+A `0034` acrescenta, sob a trava do grupo, depois do replay, `OWNER_ONLY` e
+`GROUP_SUSPENDED` e antes de qualquer update: `ACTIVE_PAYMENTS_REMAIN` (409) se há
+inscrição paga em racha que seria cancelado (`canceled_at is null and ends_at > now()`,
+inclusive em andamento); depois, `REFUNDS_PENDING` (409) se há obrigação pendente em
+qualquer racha do grupo, inclusive terminado/cancelado. Desmarcar pagos é a divergência
+do corte de §3.3.2; a tela orienta cancelar e registrar devoluções antes de apagar.
+Replay do próprio encerramento já concluído continua devolvendo o desfecho.
 
 Numa única transação: os rachas que não terminaram nem foram cancelados passam a
 cancelados (`canceled_at`/`canceled_by` de §3.3.1, inclusive o em andamento); o terminado e

@@ -223,6 +223,13 @@ test('the owner deletes the group; members lose it; the organizer has no way to 
     });
     const matchId = (match['outcome'] as { match_id: string }).match_id;
 
+    await gateway(request, player, 'join_match', { match_id: matchId });
+    await gateway(request, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: player.profileId,
+      paid: true,
+    });
+
     // Forced calls through the Edge: organizer and player get the standard
     // refusal; nothing is closed.
     for (const actor of [organizer, player]) {
@@ -311,11 +318,45 @@ test('the owner deletes the group; members lose it; the organizer has no way to 
     await assertAccessible(page);
     await shot(page, testInfo.project.name, 'apagar-confirmacao.png');
     const deleted = handledObserver(
-      page.waitForResponse((item) => item.url().endsWith('/groups/delete_group')),
+      page.waitForResponse(
+        (item) => item.url().endsWith('/groups/delete_group') && item.status() === 200,
+      ),
+    );
+    const blockedPayment = handledObserver(
+      page.waitForResponse(
+        (item) => item.url().endsWith('/groups/delete_group') && item.status() === 409,
+      ),
     );
     await confirm.click();
+    expect((await (await blockedPayment).json()).error.code).toBe('ACTIVE_PAYMENTS_REMAIN');
+    await expect(page.getByTestId('group-delete-error')).toContainText(
+      'Há pagamentos marcados ou devoluções pendentes. Cancele os rachas e registre as devoluções antes de apagar.',
+    );
+    await gateway(request, owner, 'cancel_match', { match_id: matchId });
+    const blockedRefund = handledObserver(
+      page.waitForResponse(
+        (item) => item.url().endsWith('/groups/delete_group') && item.status() === 409,
+      ),
+    );
+    await confirm.click();
+    expect((await (await blockedRefund).json()).error.code).toBe('REFUNDS_PENDING');
+    await expect(page.getByTestId('group-delete-error')).toContainText(
+      'Há pagamentos marcados ou devoluções pendentes.',
+    );
+    const refundId = (
+      await db.query(
+        `select r.id from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+        [matchId],
+      )
+    ).rows[0].id as string;
+    await gateway(request, owner, 'mark_refunded', {
+      match_id: matchId,
+      refund_id: refundId,
+      refunded_at: new Date().toISOString(),
+    });
+    await confirm.click();
     expect((await deleted).status()).toBe(200);
-    expect(sent).toBe(1);
+    expect(sent).toBe(3);
     await expect(page).toHaveURL(/\/grupos\?deleted=1$/u);
     await expect(page.getByTestId('group-deleted-status')).toHaveText('Grupo apagado.');
     await expect(page.getByRole('heading', { level: 2, name: 'Pelada de Terça' })).toHaveCount(0);
