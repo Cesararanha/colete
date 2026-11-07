@@ -1972,3 +1972,27 @@ Não foram executadas as suítes de banco/navegador nem a CI do GitHub; a tarefa
 limita a validação aos checks locais relacionados. `actionlint` não está
 instalado. Nenhum projeto Supabase remoto, deploy ou serviço de produção foi
 acessado; sem push ou abertura de PR, por instrução de César nesta tarefa.
+
+## Pausa do banco na CI — decisão humana de César, 07/11/2026
+
+Temporária, até César decidir reativar (previsto para o fim do piloto).
+`Database security` deixa de rodar em PR e fica só com `workflow_dispatch`.
+Os outros quatro jobs não mudam. O check obrigatório da `main` continua
+listado: o job pulado conta como aprovado para o GitHub.
+
+Motivo, medido nas execuções de 28/10 a 07/11/2026: cada rodada concluída
+levou de 30 a 39 minutos (#93 30m10s, #92 30m14s, #95 31m57s, #96 31m59s,
+#94 38m59s). Várias foram perdidas por causa externa: duas do #94 canceladas
+no limite antigo de 35 minutos, uma do #92 cancelada depois de cerca de 1 h,
+a instalação de Chromium e WebKit travada por 41 minutos no #96 e, de 28/10 a
+01/11, todas as execuções paradas em segundos pelo bloqueio de cobrança.
+
+Enquanto a pausa vigorar, a proteção do banco vem da validação local de
+AGENTS §5, rodada no SHA final, com o resultado de cada suíte de banco e de
+navegador relatado no PR. A revisão independente (AGENTS §4.11) não muda.
+Para reativar, restaurar a condição anterior, guardada em comentário no job:
+PR pronto para revisão ou `workflow_dispatch`.
+
+`scripts/test-audit-needed.mjs` não verifica a condição de `Database security`
+e não precisa de ajuste. `docs/25` §8.1 descreve a regra de 06/11 e não foi
+alterado: a pausa é temporária e fica registrada aqui e em AGENTS §5.

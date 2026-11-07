@@ -99,17 +99,20 @@ Se você alterar um arquivo que está no manifesto, recalcule o checksum dele.
    nunca estimados nem copiados de execução anterior.
 8. Um único commit, mensagem no imperativo, sem escopo além da fatia.
 9. `git push -u origin <branch>` e abra um **Pull Request draft**.
-10. Espere os quatro jobs da CI que rodam em draft e reporte o status de cada
-    um; `Database security` fica pulado. Depois da revisão em rascunho, o autor
-    ou a sessão orquestradora marca o PR como pronto. Espere também esse job:
-    os cinco precisam aparecer como `SUCCESS` no SHA final antes do merge;
-    `SKIPPED` não conta como verde (§5, decisão humana de 06/11/2026).
+10. Espere os quatro jobs da CI e reporte o status de cada um;
+    `Database security` fica pulado em todo PR enquanto vigorar a pausa de
+    07/11/2026 (§5). Depois da revisão em rascunho, o autor ou a sessão orquestradora marca
+    o PR como pronto. No SHA final, os quatro jobs precisam aparecer como
+    `SUCCESS` e `Database security` como `SKIPPED`; o resultado de cada suíte
+    de banco e de navegador da validação local do §5, rodada no SHA final, vai
+    no PR. Qualquer outro `SKIPPED` não conta como verde.
     Correção após falha do banco volta para conferência (§4.12).
     A separação autor/revisor do §4.11 permanece.
 11. **Política de merge.**
     - Você pode mergear um Pull Request produzido por outra sessão depois de revisá-lo
-      criticamente contra os documentos normativos e confirmar os cinco jobs da CI
-      como `SUCCESS` no SHA final; `SKIPPED` não conta como verde.
+      criticamente contra os documentos normativos e confirmar os jobs da CI no
+      SHA final como descrito no passo 10; fora a pausa de `Database security`,
+      `SKIPPED` não conta como verde.
       Pull Requests do Dependabot contam como trabalho de outra parte.
     - Você nunca mergeia um Pull Request que escreveu nesta mesma sessão: deixe-o em draft
       para revisão independente.
@@ -213,6 +216,19 @@ novo depois disso (`synchronize`), além de abertura/reabertura de PR pronto.
 Seu timeout sobe de 35 para 45 minutos. Os outros quatro jobs continuam em
 todo PR. Push, schedule e workflow_dispatch conservam o comportamento anterior.
 O merge continua exigindo os cinco jobs verdes e a revisão independente (§4.11).
+
+**Pausa do banco na CI — decisão humana de César, 07/11/2026, temporária.**
+Até César decidir reativar (previsto para o fim do piloto), `Database security`
+não roda em PR: só por `workflow_dispatch`. Motivo: cada rodada levava de 30 a
+39 minutos e várias foram canceladas por falha externa (limite, instalação do
+navegador travada, bloqueio de cobrança), o que segurava PRs prontos por horas.
+Para o GitHub, o job pulado conta como aprovado, então o check obrigatório da
+`main` não trava. A proteção do banco passa a vir da validação local deste §5,
+que já era obrigatória antes de cada commit de fatia: no SHA final, o autor
+roda todas as suítes de banco e de navegador e relata o resultado de cada uma
+no PR. A revisão independente (§4.11) não muda. Para reativar, restaurar a
+condição anterior do job, registrada em comentário no workflow, e este
+parágrafo deixa de valer. Registro operacional em `docs/23`.
 
 Todo harness novo de fatia entra no `package.json`, neste bloco e no job
 `database-security` do workflow no mesmo commit que o cria.
