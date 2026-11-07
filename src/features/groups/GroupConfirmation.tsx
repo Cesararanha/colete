@@ -6,9 +6,9 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/spacing';
 import { typography } from '@/theme/typography';
 
-export function focusGroupControl(testId: string) {
+export function focusGroupControl(testId: string, scope?: ParentNode) {
   if (typeof document !== 'undefined')
-    document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
+    (scope ?? document).querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
 }
 
 export function GroupConfirmation({
@@ -38,6 +38,7 @@ export function GroupConfirmation({
         <Heading
           tabIndex={-1}
           data-testid={`${testID}-heading`}
+          data-group-confirmation={testID}
           style={{
             fontFamily: typography.title.fontFamily,
             fontWeight: 600,

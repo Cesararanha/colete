@@ -47,6 +47,8 @@ export const GROUP_OPERATIONS = [
   'join_match',
   'leave_match',
   'set_match_payment',
+  'add_player',
+  'remove_player',
   'update_match',
   'cancel_match',
   'record_canceled_match_payment',
@@ -346,6 +348,8 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     create_match: ['request_id', 'group_id', 'config'],
     join_match: ['request_id', 'match_id'],
     leave_match: ['request_id', 'match_id'],
+    add_player: ['request_id', 'match_id', 'profile_id'],
+    remove_player: ['request_id', 'match_id', 'profile_id'],
     set_match_payment: ['request_id', 'match_id', 'profile_id', 'paid'],
     update_match: ['request_id', 'match_id', 'config'],
     cancel_match: ['request_id', 'match_id'],
@@ -520,6 +524,8 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
         },
       };
     }
+    case 'add_player':
+    case 'remove_player':
     case 'record_canceled_match_payment':
       return {
         operation,

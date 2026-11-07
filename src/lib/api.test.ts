@@ -727,3 +727,45 @@ describe('lib/api Edge reads', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('organizer player mutations', () => {
+  it('uses groups with a business target and preserves request_id on replay', async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const client = createApiClient({
+      fetch: (async (url, init) => {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), body });
+        return success({
+          data: {
+            outcome: {
+              group_id: 'group',
+              match_id: 'match',
+              profile_id: 'target',
+              logical_result: 'player_added',
+            },
+          },
+          request_id: body.request_id,
+        });
+      }) as typeof fetch,
+      supabase: authenticatedSupabase(),
+      supabaseConfig: { url: 'http://local.test', publishableKey: 'sb_publishable_test' },
+      uuid: () => REQUEST_ID,
+    });
+    const add = client.addPlayer('match', 'target');
+    await add.execute();
+    await add.execute();
+    await client.removePlayer('match', 'target').execute();
+    expect(calls.map((c) => c.url)).toEqual(
+      ['add_player', 'add_player', 'remove_player'].map(
+        (op) => `http://local.test/functions/v1/groups/${op}`,
+      ),
+    );
+    expect(calls.map((c) => c.body)).toEqual(
+      Array.from({ length: 3 }, () => ({
+        request_id: REQUEST_ID,
+        match_id: 'match',
+        profile_id: 'target',
+      })),
+    );
+  });
+});

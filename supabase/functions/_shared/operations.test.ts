@@ -712,3 +712,31 @@ describe('refund correction preserves its own signed date', () => {
     ).toThrow();
   });
 });
+
+describe('pilot organizer player management', () => {
+  for (const operation of ['add_player', 'remove_player'] as const) {
+    it(`${operation} signs only the canonical match and target; refuses obsolete or internal fields`, () => {
+      const match = '01890f7e-e948-7c53-b13a-4a36e4b7d21e';
+      const target = '01890f7e-e948-7c53-b13a-4a36e4b7d21f';
+      const body = {
+        request_id: REQUEST_ID,
+        match_id: match.toUpperCase(),
+        profile_id: target.toUpperCase(),
+      };
+      expect(normaliseRequest(operation, body).canonicalInput).toEqual({
+        match_id: match,
+        profile_id: target,
+      });
+      for (const key of ['reason', 'list_kind', 'paid', 'actor_auth_user_id', 'input_hmac']) {
+        expect(
+          refusal(() => normaliseRequest(operation, { ...body, [key]: 'injected' })).code,
+        ).toBe('VALIDATION');
+      }
+      for (const key of ['match_id', 'profile_id']) {
+        expect(refusal(() => normaliseRequest(operation, { ...body, [key]: null })).code).toBe(
+          'VALIDATION',
+        );
+      }
+    });
+  }
+});

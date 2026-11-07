@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
-import { AppError, TransportError, type MutationIntent } from '@/lib/api';
+import { api, AppError, TransportError, type MutationIntent } from '@/lib/api';
 import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
 
 /**
@@ -9,7 +9,10 @@ import { PRIVATE_QUERY_ROOT } from '@/lib/private-queries';
  * a second press resends the same request_id instead of starting a new one;
  * any other answer discards it. Success and refusal both re-read the match.
  */
-export function useMatchActions(profileId: string) {
+export function useMatchActions(
+  profileId: string,
+  options?: { onRefusal: (error: unknown) => void; groupId: string },
+) {
   const client = useQueryClient();
   const alive = useRef(true);
   const busy = useRef(false);
@@ -44,6 +47,23 @@ export function useMatchActions(profileId: string) {
       if (!retryable) intent.current = null;
       if (alive.current) {
         setError(caught);
+        options?.onRefusal(caught);
+        // Manual player management cannot distinguish an ineligible target
+        // from lost actor access. Refresh members first; only a successful
+        // authorized read permits refreshing the match. Failed reads hide the
+        // stale candidates without unmounting the lost-access explanation.
+        if (options && caught instanceof AppError && caught.code === 'NOT_FOUND') {
+          try {
+            await client.fetchQuery({
+              queryKey: [PRIVATE_QUERY_ROOT, 'group-members', profileId, options.groupId],
+              queryFn: ({ signal }) => api.getGroupMembers(options.groupId, signal),
+              staleTime: 0,
+            });
+            await refresh();
+          } catch {
+            // Keep the original uniform refusal when access cannot be renewed.
+          }
+        }
         // NOT_FOUND/NOT_MEMBER: a re-read would unmount the match (get_match
         // now answers NOT_FOUND too) and take the explanation with it.
         if (

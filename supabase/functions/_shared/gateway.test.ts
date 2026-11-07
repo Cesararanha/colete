@@ -54,6 +54,8 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
   leave_match: { request_id: REQUEST_ID, match_id: MATCH },
   set_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET, paid: true },
   update_match: { request_id: REQUEST_ID, match_id: MATCH, config: MATCH_CONFIG },
+  add_player: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET },
+  remove_player: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET },
   record_canceled_match_payment: { request_id: REQUEST_ID, match_id: MATCH, profile_id: TARGET },
   mark_refunded: {
     request_id: REQUEST_ID,
@@ -117,6 +119,8 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
       description: null,
     },
   },
+  add_player: { p_match_id: MATCH, p_profile_id: TARGET },
+  remove_player: { p_match_id: MATCH, p_profile_id: TARGET },
   record_canceled_match_payment: { p_match_id: MATCH, p_profile_id: TARGET },
   mark_refunded: {
     p_match_id: MATCH,

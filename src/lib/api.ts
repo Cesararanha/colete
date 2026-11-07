@@ -68,6 +68,8 @@ export type GroupOperation =
   | 'create_match'
   | 'join_match'
   | 'leave_match'
+  | 'add_player'
+  | 'remove_player'
   | 'set_match_payment'
   | 'update_match'
   | 'cancel_match'
@@ -196,6 +198,19 @@ export type ManagedMatchRefund = MatchRefund & {
   name: string | null;
   nickname: string | null;
   account_removed: boolean;
+};
+export type MatchPlayerOutcome = {
+  outcome: {
+    group_id: string;
+    match_id: string;
+    profile_id: string;
+    logical_result:
+      | 'player_added'
+      | 'player_waitlisted'
+      | 'player_add_unchanged'
+      | 'player_removed'
+      | 'player_remove_unchanged';
+  };
 };
 export type MatchRefundOutcome = {
   outcome: { group_id: string; match_id: string; refund_id: string; logical_result: string };
@@ -486,6 +501,8 @@ const groupOperations = new Set<string>([
   'create_match',
   'join_match',
   'leave_match',
+  'add_player',
+  'remove_player',
   'set_match_payment',
   'update_match',
   'cancel_match',
@@ -659,6 +676,8 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         'approve_member',
         'remove_member',
         'set_role',
+        'add_player',
+        'remove_player',
         'set_match_payment',
         'set_rating',
         'record_canceled_match_payment',
@@ -882,6 +901,10 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         profile_id: targetId,
         paid,
       }),
+    addPlayer: (matchId: string, profileId: string) =>
+      mutation<MatchPlayerOutcome>('add_player', { match_id: matchId, profile_id: profileId }),
+    removePlayer: (matchId: string, profileId: string) =>
+      mutation<MatchPlayerOutcome>('remove_player', { match_id: matchId, profile_id: profileId }),
     recordCanceledMatchPayment: (matchId: string, profileId: string) =>
       mutation<MatchRefundOutcome>('record_canceled_match_payment', {
         match_id: matchId,

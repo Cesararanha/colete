@@ -739,3 +739,647 @@ for (const offset of [-120_000, 120_000]) {
     }
   });
 }
+
+test('Organização: adiciona sem furar fila e remove pago com confirmação e times desatualizados', async ({
+  page,
+  browser,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  const contexts: { close: () => Promise<void> }[] = [];
+  let groupId: string | undefined;
+  try {
+    const owner = await createActor(request, 'manual-dona', authIds);
+    const organizer = await createActor(request, 'manual-org', authIds);
+    const people: Actor[] = [];
+    for (const label of [
+      'manual-ana',
+      'manual-bia',
+      'manual-caio',
+      'manual-dani',
+      'manual-eli',
+      'manual-pendente',
+    ]) {
+      people.push(await createActor(request, label, authIds));
+    }
+    const [ana, bia, caio, dani, eli, pending] = people as [
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+      Actor,
+    ];
+    groupId = (
+      (await gateway(request, owner, 'create_group', { name: 'Racha manual' }))['outcome'] as {
+        group_id: string;
+      }
+    ).group_id;
+    for (const member of [organizer, ...people]) {
+      await db.query(
+        `insert into public.group_members(group_id,profile_id,role,status) values($1,$2,$3,$4)`,
+        [
+          groupId,
+          member.profileId,
+          member === organizer ? 'organizer' : 'player',
+          member === pending ? 'pending' : 'active',
+        ],
+      );
+    }
+    const matchId = await createMatch(request, owner, groupId);
+    await db.query('update private.matches set field_slots=4 where id=$1', [matchId]);
+    await login(page, owner);
+    await page.goto(`/rachas/${matchId}`);
+    await page.getByTestId('match-add-player').click();
+    await expect(page.getByTestId('match-add-picker-heading')).toBeFocused();
+    await expect(page.getByTestId(`match-add-${ana.profileId}`)).toBeVisible();
+    await expect(page.getByTestId(`match-add-${pending.profileId}`)).toHaveCount(0);
+    await page.getByTestId(`match-add-${ana.profileId}`).click();
+    await expect(page.getByTestId('match-add-result')).toHaveText('Jogador confirmado no racha.');
+    await expect(page.getByTestId('match-add-player')).toBeFocused();
+    for (const actor of [bia, caio, dani])
+      await gateway(request, actor, 'join_match', { match_id: matchId });
+    for (const actor of [ana, bia, caio, dani])
+      await gateway(request, owner, 'set_rating', {
+        group_id: groupId,
+        profile_id: actor.profileId,
+        stars: 3,
+      });
+    await gateway(request, owner, 'draw_teams', {
+      match_id: matchId,
+      team_count: 2,
+      confirm_unequal_sizes: false,
+    });
+    await gateway(request, owner, 'set_match_payment', {
+      match_id: matchId,
+      profile_id: ana.profileId,
+      paid: true,
+    });
+    await page.reload();
+    await board(page, 4, 4);
+    // A published draw permits adding, but a full list sends Eli to the end.
+    await page.getByTestId('match-add-player').click();
+    await expect(page.getByTestId(`match-add-${ana.profileId}`)).toHaveCount(0);
+    await page.getByTestId(`match-add-${eli.profileId}`).click();
+    await expect(page.getByTestId('match-add-result')).toHaveText(
+      'Jogador adicionado ao fim da espera.',
+    );
+    await expect(page.getByTestId('match-waitlist-0')).toContainText('manual-elizinho');
+    // Owner and organizer share the controls. Cancel restores focus without removing.
+    const orgView = await open(browser, organizer, matchId);
+    contexts.push(orgView.context);
+    await orgView.page.setViewportSize({ width: 390, height: 844 });
+    const removeId = `match-remove-${ana.profileId}`;
+    await orgView.page.getByTestId(removeId).click();
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation-heading`)).toBeFocused();
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation`)).toContainText(
+      'os times ficam desatualizados',
+    );
+    await expect(orgView.page.getByTestId(`${removeId}-confirmation`)).toContainText(
+      'O pagamento ficará a devolver.',
+    );
+    await orgView.page.getByTestId(`${removeId}-cancel`).click();
+    await expect(orgView.page.getByTestId(removeId)).toBeFocused();
+    await expect(orgView.page.getByTestId('match-confirmed-0')).toContainText('manual-anazinho');
+    await orgView.page.getByTestId(removeId).click();
+    await orgView.page.getByTestId(`${removeId}-confirm`).click();
+    await expect(orgView.page.getByTestId(removeId)).toHaveCount(0);
+    await expect(orgView.page.getByTestId('match-refresh-button')).toBeFocused();
+    await expect(orgView.page.getByTestId('match-confirmed')).toContainText('manual-elizinho');
+    await expect(orgView.page.getByTestId('match-refunds')).toContainText('manual-anazinho');
+    await expect(orgView.page.getByTestId('match-refunds')).toContainText('A devolver');
+    await expect(orgView.page.getByText('Times desatualizados', { exact: false })).toBeVisible();
+    await assertAccessible(orgView.page);
+    expect(
+      await orgView.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    // Removed member returns alone, unpaid, behind an existing waitlist member.
+    await gateway(request, bia, 'leave_match', { match_id: matchId });
+    await gateway(request, owner, 'add_player', { match_id: matchId, profile_id: owner.profileId });
+    await gateway(request, owner, 'add_player', {
+      match_id: matchId,
+      profile_id: organizer.profileId,
+    });
+    const anaView = await open(browser, ana, matchId);
+    contexts.push(anaView.context);
+    await expect(anaView.page.getByTestId('match-add-player')).toHaveCount(0);
+    await expect(anaView.page.locator('[data-testid^="match-remove-"]')).toHaveCount(0);
+    await anaView.page.getByTestId('match-join').click();
+    await expect(anaView.page.getByTestId('match-viewer-chip')).toHaveText('2º na espera');
+    const stored = await db.query(
+      'select paid from private.match_players where match_id=$1 and profile_id=$2',
+      [matchId, ana.profileId],
+    );
+    expect(stored.rows[0].paid).toBe(false);
+    // Unpaid removal from waitlist creates no extra financial obligation.
+    await orgView.page.getByTestId('match-refresh-button').click();
+    const waitingId = `match-remove-${organizer.profileId}`;
+    // The organizer's own row directs to Desistir; owner removes that waitlist row.
+    await page.getByTestId('match-refresh-button').click();
+    await page.getByTestId(waitingId).click();
+    await page.getByTestId(`${waitingId}-confirm`).click();
+    await expect(page.getByTestId(waitingId)).toHaveCount(0);
+    expect(
+      (
+        await db.query(
+          `select count(*)::int n from private.match_refunds r join private.match_players p on p.id=r.match_player_id where p.match_id=$1`,
+          [matchId],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  } finally {
+    for (const context of contexts) await context.close();
+    if (groupId) {
+      await db.query(
+        'delete from private.match_draws where match_id in (select id from private.matches where group_id=$1)',
+        [groupId],
+      );
+      await db.query('delete from private.ratings where group_id=$1', [groupId]);
+      await db.query('delete from private.rating_history where group_id=$1', [groupId]);
+    }
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
+// Freeze only authorized read responses while another session changes the state.
+// The mutation itself always reaches the real Edge/Postgres. Release reads just
+// before delivering its refusal, so the UI's refresh must discover the change.
+async function stalePlayerAttempt(
+  page: Page,
+  operation: 'add_player' | 'remove_player',
+  change: () => Promise<void>,
+  holdMembers?: () => Promise<void>,
+) {
+  let frozen = true;
+  let needsMembers = false;
+  const cached = new Map<string, { status: number; body: string; contentType: string }>();
+  await page.route('**/groups/*', async (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (name === operation) {
+      await change();
+      const response = await route.fetch();
+      needsMembers = (await response.json()).error?.code === 'NOT_FOUND';
+      frozen = false;
+      await route.fulfill({ response });
+    } else if (name?.startsWith('get_')) {
+      const key = `${name}:${route.request().postData()}`;
+      const saved = cached.get(key);
+      // A periodic roster read cannot stand in for the refusal's immediate
+      // renewal: until members are re-read, it still receives the old snapshot.
+      if ((frozen || (needsMembers && name !== 'get_group_members')) && saved)
+        await route.fulfill(saved);
+      else {
+        const response = await route.fetch();
+        if (!frozen && name === 'get_group_members') {
+          await holdMembers?.();
+          needsMembers = false;
+        }
+        cached.set(key, {
+          status: response.status(),
+          body: await response.text(),
+          contentType: 'application/json',
+        });
+        await route.fulfill({ response });
+      }
+    } else await route.continue();
+  });
+}
+
+for (const flow of ['add', 'remove-confirmed', 'remove-waitlist'] as const) {
+  for (const refusal of [
+    'NOT_FOUND',
+    'ACTOR_NOT_FOUND',
+    'MATCH_STARTED',
+    'MATCH_CANCELED',
+  ] as const) {
+    test(`Organização desatualizada: ${flow} conserva ${refusal}, renova lista e preserva foco`, async ({
+      page,
+      request,
+    }) => {
+      const db = new Client({ connectionString: env.dbUrl });
+      await db.connect();
+      const authIds: string[] = [];
+      try {
+        const label = `${flow === 'add' ? 'a' : flow === 'remove-confirmed' ? 'c' : 'w'}${refusal === 'NOT_FOUND' ? 'n' : refusal === 'ACTOR_NOT_FOUND' ? 'a' : refusal === 'MATCH_STARTED' ? 's' : 'x'}`;
+        const owner = await createActor(request, `rev-${label}-d`, authIds);
+        const target = await createActor(request, `rev-${label}-p`, authIds);
+        const groupId = (
+          (await gateway(request, owner, 'create_group', { name: 'Recusa manual' }))['outcome'] as {
+            group_id: string;
+          }
+        ).group_id;
+        await db.query(
+          "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+          [groupId, target.profileId],
+        );
+        const actor =
+          refusal === 'ACTOR_NOT_FOUND'
+            ? await createActor(request, `rev-${label}-o`, authIds)
+            : owner;
+        if (actor !== owner)
+          await db.query(
+            "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'organizer','active')",
+            [groupId, actor.profileId],
+          );
+        const matchId = await createMatch(request, owner, groupId);
+        if (flow === 'remove-waitlist') {
+          await db.query('update private.matches set field_slots=1 where id=$1', [matchId]);
+          await gateway(request, owner, 'join_match', { match_id: matchId });
+        }
+        if (flow !== 'add') await gateway(request, target, 'join_match', { match_id: matchId });
+        await login(page, actor);
+        await stalePlayerAttempt(
+          page,
+          flow === 'add' ? 'add_player' : 'remove_player',
+          async () => {
+            if (refusal === 'ACTOR_NOT_FOUND')
+              await gateway(request, actor, 'leave_group', { group_id: groupId });
+            else if (refusal === 'NOT_FOUND')
+              await gateway(request, target, 'leave_group', { group_id: groupId });
+            else if (refusal === 'MATCH_CANCELED')
+              await gateway(request, owner, 'cancel_match', { match_id: matchId });
+            else
+              await db.query(
+                "update private.matches set starts_at=now()-interval '1 minute' where id=$1",
+                [matchId],
+              );
+          },
+        );
+        await page.goto(`/rachas/${matchId}`);
+        const removeId = `match-remove-${target.profileId}`;
+        if (flow === 'add') {
+          await page.getByTestId('match-add-player').click();
+          await expect(page.getByTestId(`match-add-${target.profileId}`)).toBeVisible();
+        } else {
+          await expect(
+            page.getByTestId(flow === 'remove-waitlist' ? 'match-waitlist' : 'match-confirmed'),
+          ).toContainText(`rev-${label}-pzinho`);
+          await page.getByTestId(removeId).click();
+        }
+        const response = page.waitForResponse((item) =>
+          item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+        );
+        await page
+          .getByTestId(flow === 'add' ? `match-add-${target.profileId}` : `${removeId}-confirm`)
+          .click();
+        const rejected = await response;
+        expect(rejected.status()).toBe(refusal.includes('NOT_FOUND') ? 404 : 409);
+        expect((await rejected.json()).error.code).toBe(
+          refusal === 'ACTOR_NOT_FOUND' ? 'NOT_FOUND' : refusal,
+        );
+        const alert = page.getByTestId('match-player-error');
+        await expect(alert).toHaveText(
+          refusal.includes('NOT_FOUND')
+            ? 'Não foi possível alterar a lista do racha. O acesso ou a participação no grupo pode ter mudado.'
+            : refusal === 'MATCH_STARTED'
+              ? 'O racha já começou. Não é mais possível confirmar presença nem desistir.'
+              : 'Este racha foi cancelado.',
+        );
+        await expect(alert).toHaveAttribute('role', 'alert');
+        await expect(alert).toHaveAttribute('aria-live', 'assertive');
+        await expect(page.getByTestId('match-refresh-button')).toBeFocused();
+        if (refusal === 'ACTOR_NOT_FOUND') {
+          // Failed authorized re-read hides old candidates, keeps the refusal on this screen.
+          await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+          await expect(alert).not.toBeEmpty();
+          if (flow === 'add')
+            await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
+        } else if (refusal === 'NOT_FOUND') {
+          if (flow === 'add')
+            await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
+          else {
+            await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+            await expect(
+              page
+                .getByTestId(
+                  flow === 'remove-waitlist' ? /^match-waitlist-\d+$/ : /^match-confirmed-\d+$/,
+                )
+                .filter({ hasText: `rev-${label}-pzinho` }),
+            ).toHaveCount(0);
+            await page.getByTestId('match-add-player').click();
+            await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
+            // Opening a new intent retires the previous refusal.
+            await expect(alert).toBeEmpty();
+          }
+          // The actor still has access: no instruction to abandon the match.
+          await expect(page.getByTestId('match-add-player')).toBeVisible();
+        } else {
+          await expect(page.getByTestId('match-add-player')).toHaveCount(0);
+          await expect(page.getByTestId(removeId)).toHaveCount(0);
+          // Check again after the controls have actually disappeared.
+          await expect(alert).not.toBeEmpty();
+          if (refusal === 'MATCH_STARTED') {
+            await gateway(request, owner, 'cancel_match', { match_id: matchId });
+            await page.getByTestId('match-refresh-button').click();
+          } else await page.getByTestId('match-player-error-dismiss').click();
+          await expect(alert).toBeEmpty();
+          await expect(page.getByTestId('match-refresh-button')).toBeFocused();
+        }
+      } finally {
+        await page.unrouteAll({ behavior: 'wait' });
+        await cleanActors(authIds, db);
+        await db.end();
+      }
+    });
+  }
+}
+
+for (const flow of ['add', 'cancel', 'remove'] as const) {
+  test(`Foco da organização: ${flow} restaura o destino com foco inicial no body`, async ({
+    page,
+    request,
+  }) => {
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const authIds: string[] = [];
+    try {
+      const label = `c3-${flow}`;
+      const owner = await createActor(request, `${label}-d`, authIds);
+      const target = await createActor(request, `${label}-p`, authIds);
+      const groupId = (
+        (await gateway(request, owner, 'create_group', { name: 'Foco inicial no body' }))[
+          'outcome'
+        ] as { group_id: string }
+      ).group_id;
+      await db.query(
+        "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+        [groupId, target.profileId],
+      );
+      const matchId = await createMatch(request, owner, groupId);
+      if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+      await login(page, owner);
+      await page.goto(`/rachas/${matchId}`);
+      const removeId = `match-remove-${target.profileId}`;
+      await page.getByTestId(flow === 'remove' ? removeId : 'match-add-player').click();
+      await expect(
+        page.getByTestId(
+          flow === 'remove' ? `${removeId}-confirmation-heading` : 'match-add-picker-heading',
+        ),
+      ).toBeFocused();
+      const control = page.getByTestId(
+        flow === 'remove'
+          ? `${removeId}-confirm`
+          : flow === 'cancel'
+            ? 'match-add-cancel'
+            : `match-add-${target.profileId}`,
+      );
+      await expect(control).toBeVisible();
+      await expect(control).not.toHaveAttribute('aria-disabled', 'true');
+      const response =
+        flow === 'cancel'
+          ? null
+          : page.waitForResponse((item) =>
+              item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+            );
+      const focusAtPress = await control.evaluate((element) => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        const before = document.activeElement === document.body;
+        let during = false;
+        element.addEventListener(
+          'click',
+          () => {
+            during = document.activeElement === document.body;
+          },
+          { capture: true, once: true },
+        );
+        // RN Web's PressResponder invokes onPress from click when altKey is
+        // false. MouseEvent supplies that value; a plain Event does not. No
+        // pointer-down/default focusing occurs, and capture observes the focus
+        // on the dispatched click before React handles the press.
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return { before, during };
+      });
+      expect(focusAtPress).toEqual({ before: true, during: true });
+      if (response) expect((await response).status()).toBe(200);
+      if (flow === 'add') {
+        await expect(page.getByTestId('match-add-result')).toHaveText(
+          'Jogador confirmado no racha.',
+        );
+        await expect(page.getByTestId('match-confirmed-0')).toContainText(`${label}-pzinho`);
+      }
+      if (flow === 'remove') {
+        await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+        await expect(page.getByTestId('match-confirmed-0')).toHaveCount(0);
+      } else {
+        await expect(page.getByTestId('match-add-picker')).toHaveCount(0);
+      }
+      await board(page, flow === 'add' ? 1 : 0, 2);
+      // All selectors exist on 8a2f818. With body as origin, its screen is null:
+      // mutation/closure succeeds above, but restoration fails only here.
+      await expect(
+        page.getByTestId(flow === 'remove' ? 'match-refresh-button' : 'match-add-player'),
+      ).toBeFocused();
+    } finally {
+      try {
+        await cleanActors(authIds, db);
+      } finally {
+        await db.end();
+      }
+    }
+  });
+}
+
+for (const flow of ['add', 'remove'] as const) {
+  test(`Foco da organização: ${flow} restaura o destino com confirmação em outra aba oculta`, async ({
+    page,
+    request,
+  }) => {
+    const db = new Client({ connectionString: env.dbUrl });
+    await db.connect();
+    const authIds: string[] = [];
+    try {
+      const label = `c2-${flow === 'add' ? 'a' : 'r'}`;
+      const owner = await createActor(request, `${label}-d`, authIds);
+      const target = await createActor(request, `${label}-p`, authIds);
+      const groupId = (
+        (await gateway(request, owner, 'create_group', { name: 'Foco entre abas' }))['outcome'] as {
+          group_id: string;
+        }
+      ).group_id;
+      await db.query(
+        "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active')",
+        [groupId, target.profileId],
+      );
+      const matchId = await createMatch(request, owner, groupId);
+      if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+      await login(page, owner);
+      await page.getByTestId('group-list-card').click();
+      await page.getByTestId('group-members-link').click();
+      await page.getByTestId(`member-menu-${target.profileId}`).click();
+      await page.getByTestId(`remove-${target.profileId}`).click();
+      const membersScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByTestId('remove-confirmation') });
+      await expect(
+        membersScreen.getByRole('heading', { level: 1, name: 'Membros', exact: true }),
+      ).toBeVisible();
+      const retainedConfirmation = membersScreen.getByTestId('remove-confirmation');
+      await expect(retainedConfirmation).toBeVisible();
+      await expect(page.getByTestId('remove-confirmation-heading')).toBeFocused();
+      // Navigate inside the app: goto/reload would discard the other tab and
+      // mask C2. These selectors all exist on 41ce0e5, including the final focus.
+      const navigation = page.getByRole('navigation', { name: 'Navegação principal' });
+      const agendaLink = navigation.getByRole('link', { name: 'Agenda', exact: true });
+      await agendaLink.click();
+      await expect(page).toHaveURL(/\/rachas$/);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(
+        navigation.getByRole('link', { name: 'Grupos', exact: true }),
+      ).not.toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      const agendaScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByRole('heading', { level: 1, name: 'Agenda', exact: true }) });
+      await expect(agendaScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      await agendaScreen.getByTestId('match-list-card').click();
+      await expect(page).toHaveURL(new RegExp(`/rachas/${matchId}$`));
+      const matchScreen = page
+        .getByTestId('authenticated-main')
+        .filter({ has: page.getByTestId('match-refresh-button') });
+      // Web tabs keep the inactive scene behind the active one, still visible
+      // to Playwright. Prove the navigation state and separate mains instead
+      // of depending on the navigator's stacking styles or toBeHidden().
+      await expect(matchScreen).toHaveCount(1);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      await expect(matchScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      const removeId = `match-remove-${target.profileId}`;
+      await matchScreen.getByTestId(flow === 'add' ? 'match-add-player' : removeId).click();
+      const response = page.waitForResponse((item) =>
+        item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+      );
+      await matchScreen
+        .getByTestId(flow === 'add' ? `match-add-${target.profileId}` : `${removeId}-confirm`)
+        .click();
+      expect((await response).status()).toBe(200);
+      if (flow === 'add') {
+        await expect(page.getByTestId('match-add-result')).toHaveText(
+          'Jogador confirmado no racha.',
+        );
+        await expect(page.getByTestId('match-add-picker')).toHaveCount(0);
+      } else {
+        await expect(page.getByTestId(`${removeId}-confirmation`)).toHaveCount(0);
+        await expect(page.getByTestId(removeId)).toHaveCount(0);
+      }
+      await board(page, flow === 'add' ? 1 : 0, 2);
+      await expect(agendaLink).toHaveAttribute('aria-current', 'page');
+      await expect(retainedConfirmation).toHaveCount(1);
+      await expect(matchScreen.getByTestId('remove-confirmation')).toHaveCount(0);
+      // On 41ce0e5 the retained Expulsar heading vetoes restoration here, after
+      // the successful mutation and the disappearance of the focused control.
+      await expect(
+        matchScreen.getByTestId(flow === 'add' ? 'match-add-player' : 'match-refresh-button'),
+      ).toBeFocused();
+    } finally {
+      try {
+        await cleanActors(authIds, db);
+      } finally {
+        await db.end();
+      }
+    }
+  });
+}
+
+for (const flow of ['add', 'remove'] as const) {
+  for (const dismiss of [false, true]) {
+    test(`Foco da organização: ${flow} antiga não interrompe outra confirmação${dismiss ? ' após dispensa' : ''}`, async ({
+      page,
+      request,
+    }) => {
+      const db = new Client({ connectionString: env.dbUrl });
+      await db.connect();
+      const authIds: string[] = [];
+      const membersHeld = Promise.withResolvers<void>();
+      const releaseMembers = Promise.withResolvers<void>();
+      try {
+        const label = `c1-${flow === 'add' ? 'a' : 'r'}${dismiss ? 'd' : 'n'}`;
+        const owner = await createActor(request, `${label}-d`, authIds);
+        const target = await createActor(request, `${label}-p`, authIds);
+        const other = await createActor(request, `${label}-o`, authIds);
+        const groupId = (
+          (await gateway(request, owner, 'create_group', { name: 'Foco entre tentativas' }))[
+            'outcome'
+          ] as { group_id: string }
+        ).group_id;
+        await db.query(
+          "insert into public.group_members(group_id,profile_id,role,status) values($1,$2,'player','active'),($1,$3,'player','active')",
+          [groupId, target.profileId, other.profileId],
+        );
+        const matchId = await createMatch(request, owner, groupId);
+        await gateway(request, other, 'join_match', { match_id: matchId });
+        if (flow === 'remove') await gateway(request, target, 'join_match', { match_id: matchId });
+        await login(page, owner);
+        await stalePlayerAttempt(
+          page,
+          flow === 'add' ? 'add_player' : 'remove_player',
+          async () => {
+            await gateway(request, target, 'leave_group', { group_id: groupId });
+          },
+          async () => {
+            membersHeld.resolve();
+            await releaseMembers.promise;
+          },
+        );
+        await page.goto(`/rachas/${matchId}`);
+        const oldRemove = `match-remove-${target.profileId}`;
+        await page.getByTestId(flow === 'add' ? 'match-add-player' : oldRemove).click();
+        const response = page.waitForResponse((item) =>
+          item.url().endsWith(`/groups/${flow === 'add' ? 'add_player' : 'remove_player'}`),
+        );
+        await page
+          .getByTestId(flow === 'add' ? `match-add-${target.profileId}` : `${oldRemove}-confirm`)
+          .click();
+        const rejected = await response;
+        expect(rejected.status()).toBe(404);
+        expect((await rejected.json()).error.code).toBe('NOT_FOUND');
+        await membersHeld.promise;
+        await expect(page.getByTestId('match-player-error')).not.toBeEmpty();
+        if (dismiss) {
+          await page.getByTestId('match-player-error-dismiss').click();
+          await expect(page.getByTestId('match-player-error')).toBeEmpty();
+        }
+        const current = `match-remove-${other.profileId}`;
+        await page.getByTestId(current).click();
+        const heading = page.getByTestId(`${current}-confirmation-heading`);
+        await expect(heading).toBeFocused();
+        releaseMembers.resolve();
+        if (flow === 'add') {
+          await expect(page.getByTestId(`match-add-${target.profileId}`)).toHaveCount(0);
+          // The original run has left finally; the following frame includes its .then.
+          await expect(page.getByTestId('match-add-cancel')).not.toHaveAttribute(
+            'aria-disabled',
+            'true',
+          );
+        } else {
+          await expect(page.getByTestId(`${oldRemove}-confirmation`)).toHaveCount(0);
+          await expect(
+            page.getByTestId(/^match-confirmed-\d+$/).filter({ hasText: `${label}-pzinho` }),
+          ).toHaveCount(0);
+        }
+        await page.waitForLoadState('networkidle');
+        await page.evaluate(
+          () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+        );
+        // All selectors above already exist in 8926d58. That code fails HERE:
+        // the old continuation (and removal cleanup) focuses Atualizar racha.
+        await expect(heading).toBeFocused();
+        await expect(page.getByTestId(`${current}-confirmation`)).toBeVisible();
+      } finally {
+        releaseMembers.resolve();
+        try {
+          await page.unrouteAll({ behavior: 'wait' });
+        } finally {
+          try {
+            await cleanActors(authIds, db);
+          } finally {
+            await db.end();
+          }
+        }
+      }
+    });
+  }
+}
