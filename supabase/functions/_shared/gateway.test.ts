@@ -78,6 +78,7 @@ const BODIES: Record<(typeof OPERATIONS)[number], Record<string, unknown>> = {
     team_count: 3,
     confirm_unequal_sizes: false,
   },
+  set_match_pix: { request_id: REQUEST_ID, match_id: MATCH, pix: null },
 };
 
 // The exact RPC arguments of each group operation, beyond the common internal
@@ -136,6 +137,7 @@ const GROUP_PARAMETERS: Record<string, Record<string, unknown>> = {
   delete_group: { p_group_id: GROUP },
   set_rating: { p_group_id: GROUP, p_profile_id: TARGET, p_stars: 4 },
   draw_teams: { p_match_id: MATCH, p_team_count: 3, p_confirm_unequal_sizes: false },
+  set_match_pix: { p_match_id: MATCH, p_pix: null },
 };
 
 describe('gateway internal call', () => {

@@ -1251,6 +1251,21 @@ código produtivo.
 
 ### 8.1 Decisões humanas e técnicas registradas
 
+- **Pix manual do piloto — decisões de César de 06/11 e 07/11/2026 (P1–P7, N1–N7).**
+  `0036`: revisa a D63-G de `09` (o Pix manual entra no piloto; comprovante continua
+  evolução) e corta a D30 só no piloto: o Pix trava com pagamento marcado ou devolução
+  pendente, não em T0. Operação própria `set_match_pix` e leitura `get_payment_instructions`
+  no gateway `groups` (`13` §1.3.2); chave cifrada no Edge com AES-256-GCM sob
+  `PIX_KEY_ENC_KEY_V1`, HMAC sobre a forma aberta normalizada; nome e cidade em claro; expurgo
+  na saída do papel, no `delete_group`, no pedido de exclusão de conta e 60 dias depois do fim
+  ou do cancelamento. O recorte substitui a tabela e o CHECK de `match_payment_secrets` de
+  `10` §4 (`10:464-479`), a tela 8 (`11:162-170`) e o formulário (`11:305-306, 315-316`),
+  sem editar aqueles normativos. **Decisões por delegação de 07/11, a confirmar por César
+  na revisão do PR:** com pago, só inclui Pix em racha que nunca teve (CN1 a), e remover
+  marca `purged`; `get_match` não ganha `has_pix`; quem não é dono nem organizador recebe
+  `NOT_FOUND`, como na 1.4. Registros da `0033` só recebem INSERT (41 operações, 65 pares).
+  Risco alto (§4.12): dado pessoal sensível e dinheiro, revisão independente.
+
 - **Piloto 1.4 — decisões de César de 28/10 e 06/11/2026 (P7/P8/P10/P16/P18).**
   `0035`: dono/organizador adiciona e remove antes do início, com trava de `join_match`;
   membership do alvo lida depois da trava. Sem T2; sem vaga entra no fim da espera;

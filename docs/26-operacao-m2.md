@@ -4676,3 +4676,41 @@ Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body
 durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
+
+## Piloto — Pix manual, banco e Edge (`0036`, 07/11/2026)
+
+Implementação na worktree `pix-manual-a`, branch `feat/pix-manual-a`, base `f5756e6`
+(#97, 1.4), por pedido do César de 07/11 às 20:05 (fazer tudo, decidindo por delegação,
+para revisão no dia seguinte). Plano em `noite/plano-pix-manual.md` (versão 3, §13
+prevalece); conferências em `noite/rev-plano-pix.md`, `noite/conf-plano-pix.md` e
+`noite/conf2-plano-pix.md`; decisões por delegação em `noite/progresso-pix.md`. Sem
+deploy nem Supabase remoto. Risco alto (AGENTS §4.12): dado pessoal sensível e dinheiro.
+
+**Entrega.** Migration append-only `0036_match_pix.sql`: tabela
+`private.match_payment_secrets` sem RLS nem grant; `set_match_pix` e
+`get_payment_instructions` exclusivas de `service_role`; registros da `0033` só com INSERT
+(41 operações, 65 pares); quatro helpers privados, três gatilhos de expurgo e o job
+`purge_match_pix` no slot diário 03:53 UTC, com `worker_job_slot` e
+`worker_execute_database_job` redefinidos a partir dos corpos da `0031`. Edge: `pix.ts`
+(validação, normalização, AES-256-GCM com dado associado por versão, tipo e racha) e
+`pix-reads.ts` (leitura que decifra), HMAC sobre a forma aberta normalizada antes da cifra;
+quatro códigos de erro, `PIX_NOT_CONFIGURED` novo no catálogo do `13` §8 e
+`generate-error-codes` com 117 códigos. Chave de teste local pública
+(`PIX_KEY_ENC_KEY_V1` = bytes `0x20..0x3f`) em `start-local-supabase.mjs`, diferente das
+outras.
+
+**Provas.**
+
+| Prova | Resultado observado |
+|---|---|
+| `0036_match_pix.test.sql` | 191 asserções: privilégios (quatro papéis, inclusive um papel de prova), validação, autoridade com `NOT_FOUND` igual, ciclo incluir/trocar/remover/reincluir, trava por pago e por devolução pendente (inclusive e-mail com o mesmo last4), CN1 (a), 59 e 61 dias, matriz de leitura com `FORBIDDEN` igual com e sem Pix, worker, gatilhos por UPDATE direto e pelas seis RPCs reais de saída |
+| `db:test:pix` | 10 blocos `ok`: validação no Edge sem eco; mesma chave em duas grafias faz replay e outra chave dá `IDEMPOTENCY_CONFLICT`; a cifra e a idempotência não contêm a chave em texto, hex ou bytes; jogador não pago lê a chave aberta; trava por pagamento; sem `PIX_KEY_ENC_KEY_V1`, gravar e ler dão `INTERNAL` antes da RPC e remover funciona; worker real; corrida `leave_group` × `set_match_pix` nas duas ordens com espera observada e COMMIT real; nenhum log de `edge_runtime`, `rest`, `db`, `kong` e `auth` contém a chave |
+| Testes do Edge | 18 testes novos em `pix.test.ts`; `gateway.test.ts` cobre a nova operação |
+
+**Validação AGENTS §5 no SHA final.** Pilha local iniciada desta worktree, 35 comandos em sequência, todos com exit 0:
+`db:reset`; `db:test` (34 arquivos, 2790 asserções); os 21 harnesses `db:test:*`
+(inclusive `db:test:pix`); `test:auth:web` + `test:privacy:web` (12), `test:cors:web` (5),
+`test:groups:web` (121), `test:matches:web` (94), `test:qr:web` (30), `test:smoke:web`
+(6); `verify:app` (vitest 801); `scan:docs`, `scan:secrets`, `test:audit`,
+`test:staging`, `audit:high` e `git diff --check`. Os quatro jobs de CI rodam no PR;
+`Database security` segue pausado (decisão de 06/11).

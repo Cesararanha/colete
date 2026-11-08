@@ -299,6 +299,61 @@ Reserva uma vaga **antes** de abrir o banco.
 - **Erros:** `PAYMENT_CYCLE_NOT_FOUND` · `CLAIM_REQUIRED` · `CLAIM_EXPIRED` · `FORBIDDEN`.
   Claim já expirada continua negada mesmo quando `claim_open_slot` é repetida com a chave antiga.
 
+#### 1.3.2 Pix manual no piloto — `0036`
+
+Recorte autorizado por César em 06/11 e 07/11/2026 (respostas P1–P7 e N1–N7 do plano
+do Pix manual), que revisa a D63-G de `09` e corta a D30 só no piloto. Substitui, nestes
+pontos, §1.3.1, o Pix no `config` de §3.1, o `PIX_LOCKED` depois de T0 de §3.2, a tabela
+`match_payment_secrets` de `10` §4 e a tela 8 e o formulário de `11`: não há ciclo, claim,
+comprovante, T0, T1 nem série recorrente. O registro da decisão está em `25` §8.1.
+
+`set_match_pix(match_id, pix, request_id)` entra pelo gateway `groups`, só para dono ou
+organizador ativo. Jogador, pendente, ex-membro e estranho recebem o mesmo `NOT_FOUND`
+(404) de um racha inexistente, como em §1.6.1. `pix` é `null` (remover) ou
+`{ type, key, receiver_name, receiver_city }`, com `type` em
+`cpf|cnpj|email|phone|random`. O Edge valida e normaliza: CPF e CNPJ (inclusive o
+alfanumérico) com dígitos verificadores; telefone em `+55` com DDD; e-mail em minúsculas até
+77 caracteres; chave aleatória UUID; nome até 25 e cidade até 15 caracteres, sem acento, em
+maiúsculas, só `A-Z`, `0-9` e espaço. Erro de validação sai como `VALIDATION` (422) com
+`fields` e motivo fixo, sem ecoar a chave. O HMAC de idempotência é calculado sobre a forma
+aberta normalizada; só depois o Edge cifra a chave com AES-256-GCM sob
+`PIX_KEY_ENC_KEY_V1` (nonce de 12 bytes no início, dado associado
+`colete:pix:v1|<type>|<match_id>`). O banco recebe a cifra, a versão, os quatro últimos
+caracteres, o nome e a cidade, e nunca a chave aberta. Forma inválida que chegue ao banco
+recusa `PIX_INVALID` (422). Sem o segredo, gravar e ler respondem `INTERNAL` antes da RPC;
+remover funciona sem ele.
+
+Locks: idempotência → perfil do ator → grupo → membership do ator → racha → linha do Pix,
+os mesmos de §1.6.1. Racha cancelado recusa `MATCH_CANCELED` (409), inclusive no replay com
+autoridade atual. Racha terminado há menos de 60 dias aceita; depois, `PIX_PURGED` (410).
+**Trava:** com algum jogador marcado pago ou alguma devolução `refund_due` pendente, trocar e
+remover recusam `PIX_LOCKED` (409), e incluir só é aceito se o racha **nunca** teve Pix.
+Remover marca a linha `purged` e apaga a cifra, o nome, a cidade e o autor; a linha fica para
+lembrar que o racha já teve Pix. Cada gravação guarda `set_by` e `set_at`, e `replaced`
+quando já existia linha anterior. Auditoria: o registro de idempotência mais essas duas
+colunas, como em §1.6.1. Desfecho fechado: `{outcome:{group_id,logical_result,match_id}}`,
+com `pix_set|pix_removed|pix_remove_unchanged`; agora 41 operações e 65 pares na `0033`.
+
+`get_payment_instructions(match_id)` também entra pelo gateway `groups` e lê: dono,
+organizador ativo, ou jogador confirmado e não pago, inclusive com o racha iniciado ou
+terminado. Membro que não pode ler e racha cancelado recebem `FORBIDDEN` (403), igual com ou
+sem Pix. Ex-membro, pendente e estranho recebem `NOT_FOUND` (404). Para quem pode ler, racha
+sem Pix, com Pix removido ou além dos 60 dias responde `PIX_NOT_CONFIGURED` (404): a leitura
+aplica o prazo sozinha, sem esperar o worker. Saída não persistida, decifrada pelo Edge:
+`{ type, key, receiver_name, receiver_city, amount, set_by_name, set_at, replaced }`, com
+`amount` em texto com duas casas e `set_by_name` nulo quando o autor está em exclusão. Nunca
+sai a cifra, os quatro últimos caracteres nem o ID do autor. `get_match` não ganha campo de
+Pix: o cliente chama esta leitura só quando a pessoa pode ler.
+
+**Expurgo:** gatilhos marcam `purged`, na mesma transação, o Pix de quem deixa de ser dono
+ou organizador ativo do grupo (`leave_group`, `remove_member`, `set_role`,
+`transfer_ownership` de um dono com papel de jogador e a saída dentro de `delete_account`),
+todo Pix do grupo arquivado (`delete_group`) e todo Pix gravado por quem pede exclusão de
+conta. O job diário `purge_match_pix` (03:53 UTC) marca `purged` o Pix 60 dias depois do fim
+ou do cancelamento, mesmo com devolução pendente, e grava só contagens em
+`retention_runs`. A condição dos gatilhos é direta (`owner_id` ou membership `active` com
+`role = 'organizer'`), sem lançar exceção, para que as saídas sempre concluam.
+
 ### 1.4 `apply_payment_deadline(match_id)` — sistema
 
 - **Pré:** `now() >= payment_due_at`.
@@ -570,10 +625,13 @@ cifrada própria fica em `recurrence_payment_secrets`, fora do JSON do template.
 - **Erros:** `TIME_ORDER` · `PRICE_INVALID` · `PIX_INVALID` · `MONTHLY_DISABLED` ·
   `RECURRENCE_INVALID`.
 - `TP <= T0 < T1 < T2 < starts_at`; T0 é sempre a abertura geral.
+- **Piloto (`0036`):** `create_match` e `update_match` não levam Pix; o Pix do racha é
+  gravado por `set_match_pix` (§1.3.2).
 
 ### 3.2 `update_match(match_id, patch, request_id)`
 
 - Após T0, tipo/chave/nome/cidade Pix são imutáveis (`PIX_LOCKED`).
+  No piloto, a trava do Pix é a de §1.3.2 (pagamento marcado ou devolução pendente).
 - Depois de TP, TP/T0 são imutáveis (`OPENING_LOCKED`); não se reabre nem se reescreve
   quem teve prioridade. Correção material exige cancelamento e novo racha.
 - Preço com pagamento real fica imutável (`PRICE_LOCKED`) até o contrato 2.9. Sem essa
@@ -659,6 +717,8 @@ perdeu a autoridade segue §5.0.1), e a saída do grupo não promove a espera de
 → racha, a mesma de `join_match`. O outcome é `{group_id, logical_result, match_id}`;
 `get_match`, `list_my_matches`, `get_matches_occupancy` e `get_match_roster` devolvem
 `canceled`, nunca quem cancelou nem quando.
+
+As dez chaves do config não incluem Pix; o Pix do piloto segue §1.3.2.
 
 #### 3.3.2 Devolução no piloto — `0034` (fatia 1.3)
 
@@ -1110,6 +1170,7 @@ Sucesso é HTTP 200. Aplicam-se a todos os contratos, quando cabíveis:
 | `NOT_MEMBER`, `NOT_ORGANIZER`, `OWNER_ONLY`, `FORBIDDEN` | 403 | falta de autoridade atual da ação; nunca expor informação de terceiro |
 | `NOT_ACTIVE_MEMBER` | 409 | alvo da operação sem membership `active`; não designa o ator |
 | `NOT_FOUND` | 404 | alvo não encontrado em chamada administrativa autorizada |
+| `PIX_NOT_CONFIGURED` | 404 | racha sem Pix para quem pode ler (§1.3.2); quem não pode ler recebe `FORBIDDEN` |
 | `CODE_INVALID` | 400 | código inexistente ou material malformado; não confirma convite. No preview, também convite revogado, expirado ou esgotado (página do convite, 18/10/2026) |
 | `INVITE_REVOKED`, `INVITE_EXPIRED`, `INVITE_USED` | 409 | convite existente revogado, expirado ou esgotado, respectivamente; o resgate informa a causa (M2-D42), sem consumir uso; o preview responde `CODE_INVALID` |
 | `INVITE_ALREADY_ACTIVE` | 409 | já existe convite vivo no grupo; usar ou encerrar o atual antes de emitir outro |
@@ -1817,7 +1878,7 @@ NOTIFICATION_PAYLOAD_INVALID · NO_OPEN_SLOT · OPENING_LOCKED · OTHER_LIST ·
 OWNER_MUST_TRANSFER · OWNER_ONLY · PAYMENTS_PENDING · PAYMENT_ALREADY_REAL ·
 PAYMENT_ALREADY_RESOLVED · PAYMENT_CYCLE_CONFLICT · PAYMENT_CYCLE_NOT_FOUND ·
 PAYMENT_INTENT_ACTIVE · PAYMENT_IN_REVIEW · PAYMENT_RELATION_NOT_FOUND · PIX_INVALID ·
-PIX_LOCKED · PIX_PURGED · PLAYER_MISMATCH · PREFERENCE_REQUIRED · PRICE_INVALID · PRICE_LOCKED ·
+PIX_LOCKED · PIX_NOT_CONFIGURED · PIX_PURGED · PLAYER_MISMATCH · PREFERENCE_REQUIRED · PRICE_INVALID · PRICE_LOCKED ·
 PROFILE_SUSPENDED · PROOFS_PENDING · PROOF_EVIDENCE_PURGED · PROOF_RESOLVED_ELSEWHERE ·
 RATE_LIMITED · RATE_LIMIT_UNAVAILABLE ·
 RATINGS_MISSING · RATING_DISPUTE_ALREADY_OPEN · RATING_DISPUTE_AUTHORITY_REQUIRED ·

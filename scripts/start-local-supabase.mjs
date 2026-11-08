@@ -29,6 +29,11 @@ const result = spawnSync(supabaseBinary, ['start'], {
     INVITE_HMAC_KEY_V1: Buffer.from(Array.from({ length: 32 }, (_, byte) => byte)).toString(
       'base64url',
     ),
+    // Synthetic public Pix sealing key (bytes 0x20..0x3f), distinct from the
+    // two vectors above; never used by a remote project (0036).
+    PIX_KEY_ENC_KEY_V1: Buffer.from(Array.from({ length: 32 }, (_, byte) => byte + 32)).toString(
+      'base64url',
+    ),
     // The local web export serves the real join route on this loopback origin.
     INVITE_SHARE_URL_BASE: 'http://127.0.0.1:4173/join',
     COLETE_LOCAL_STACK: 'true',

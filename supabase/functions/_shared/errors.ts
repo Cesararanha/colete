@@ -65,6 +65,11 @@ export const ERROR_CODES = [
   'REFUND_NOT_FOUND',
   'ACTIVE_PAYMENTS_REMAIN',
   'REFUNDS_PENDING',
+  // Pix manual (0036, the pilot cut of docs/13 section 1.3.1).
+  'PIX_INVALID',
+  'PIX_LOCKED',
+  'PIX_PURGED',
+  'PIX_NOT_CONFIGURED',
   'INTERNAL',
 ] as const;
 
@@ -158,6 +163,10 @@ const MESSAGES: Record<ErrorCode, string> = {
   REFUND_NOT_FOUND: 'The refund does not exist in this match.',
   ACTIVE_PAYMENTS_REMAIN: 'Payments remain in matches that would be canceled.',
   REFUNDS_PENDING: 'Pending refunds remain in this group.',
+  PIX_INVALID: 'The Pix details did not pass validation.',
+  PIX_LOCKED: 'The Pix is locked by a payment or pending refund.',
+  PIX_PURGED: 'The Pix of this match was purged after its retention period.',
+  PIX_NOT_CONFIGURED: 'This match has no Pix.',
   INTERNAL: 'The request could not be completed.',
 };
 
@@ -186,9 +195,11 @@ export function httpStatusFor(code: ErrorCode): number {
       return 403;
     case 'REFUND_NOT_FOUND':
     case 'PAYMENT_RELATION_NOT_FOUND':
+    case 'PIX_NOT_CONFIGURED':
     case 'NOT_FOUND':
       return 404;
     case 'PRICE_LOCKED':
+    case 'PIX_LOCKED':
     case 'MATCH_NOT_CANCELED':
     case 'PAYMENT_ALREADY_RESOLVED':
     case 'ACTIVE_PAYMENTS_REMAIN':
@@ -219,6 +230,7 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'RATINGS_MISSING':
       return 409;
     case 'IDEMPOTENCY_EXPIRED':
+    case 'PIX_PURGED':
     case 'EXPORT_EXPIRED':
     case 'GROUP_ARCHIVED':
       return 410;
@@ -235,6 +247,7 @@ export function httpStatusFor(code: ErrorCode): number {
     case 'VISIBILITY_CONFIRMATION_REQUIRED':
     case 'TIME_ORDER':
     case 'PRICE_INVALID':
+    case 'PIX_INVALID':
     case 'STARS_RANGE':
     case 'UNEQUAL_TEAMS_CONFIRMATION_REQUIRED':
       return 422;
