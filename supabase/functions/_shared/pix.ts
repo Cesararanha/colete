@@ -87,12 +87,12 @@ export function normalisePixKey(type: PixKeyType, raw: string): string {
       const withoutPlus = digits.startsWith('+') ? digits.slice(1) : digits;
       if (!/^\d+$/.test(withoutPlus)) throw validation('pix.key', 'invalid phone');
       const national =
-        withoutPlus.startsWith('55') && (withoutPlus.length === 12 || withoutPlus.length === 13)
+        withoutPlus.startsWith('55') && withoutPlus.length === 13
           ? withoutPlus.slice(2)
           : withoutPlus;
-      // DDD 11 to 99, then 8 digits (landline) or 9 starting with 9 (mobile).
-      if (!/^[1-9][1-9](\d{8}|9\d{8})$/.test(national))
-        throw validation('pix.key', 'invalid phone');
+      // A Pix phone key is a mobile number: DDD 11 to 99, then 9 digits
+      // starting with 9. A landline would be a key no payer's bank finds.
+      if (!/^[1-9][1-9]9\d{8}$/.test(national)) throw validation('pix.key', 'invalid phone');
       return `+55${national}`;
     }
     case 'email': {

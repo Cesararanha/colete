@@ -1263,7 +1263,10 @@ código produtivo.
   sem editar aqueles normativos. **Decisões por delegação de 07/11, a confirmar por César
   na revisão do PR:** com pago, só inclui Pix em racha que nunca teve (CN1 a), e remover
   marca `purged`; `get_match` não ganha `has_pix`; quem não é dono nem organizador recebe
-  `NOT_FOUND`, como na 1.4. Registros da `0033` só recebem INSERT (41 operações, 65 pares).
+  `NOT_FOUND`, como na 1.4; na leitura `get_payment_instructions`, ex-membro, pendente,
+  estranho e outro grupo recebem `NOT_FOUND` (o plano previa `FORBIDDEN`), membro sem
+  direito recebe `FORBIDDEN`, e as duas respostas vêm antes de olhar o Pix; telefone só como
+  celular. Registros da `0033` só recebem INSERT (41 operações, 65 pares).
   Risco alto (§4.12): dado pessoal sensível e dinheiro, revisão independente.
 
 - **Piloto 1.4 — decisões de César de 28/10 e 06/11/2026 (P7/P8/P10/P16/P18).**

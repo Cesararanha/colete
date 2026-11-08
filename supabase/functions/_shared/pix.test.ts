@@ -55,9 +55,11 @@ describe('Pix key validation', () => {
     expect(() => normalisePixKey('cnpj', '12.ABC.345/01DE-36')).toThrow();
   });
 
-  it('normalises phones to +55 and refuses short or foreign numbers', () => {
+  it('normalises mobile phones to +55 and refuses landlines, short or foreign numbers', () => {
     expect(normalisePixKey('phone', '(82) 99876-5432')).toBe('+5582998765432');
-    expect(normalisePixKey('phone', '+55 82 3214-5678')).toBe('+558232145678');
+    expect(normalisePixKey('phone', '+55 82 99876-5432')).toBe('+5582998765432');
+    expect(() => normalisePixKey('phone', '+55 82 3214-5678')).toThrow();
+    expect(() => normalisePixKey('phone', '(82) 3214-5678')).toThrow();
     expect(() => normalisePixKey('phone', '99876-5432')).toThrow();
     expect(() => normalisePixKey('phone', '+1 415 555 0100')).toThrow();
   });

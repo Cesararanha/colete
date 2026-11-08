@@ -272,6 +272,15 @@ from (values(4),(5),(6),(10)) actors(a), (values(10),(99)) matches(m);
 select throws_ok($$select pg_temp.read(1,11)$$,'P0002','PIX_NOT_CONFIGURED','organizer: match without Pix');
 select throws_ok($$select pg_temp.read(3,11)$$,'P0002','PIX_NOT_CONFIGURED','starter: match without Pix');
 select throws_ok($$select pg_temp.read(1,3)$$,'P0002','PIX_NOT_CONFIGURED','purged Pix reads as not configured');
+-- Sessão revogada pela RPC real: a leitura recusa, embora o perfil possa ler
+-- (o terceiro argumento de require_actor_context é p_allow_suspended).
+select lives_ok($$select public.revoke_current_session('36000000-0000-4000-8000-000000000003'::uuid,
+  '36900000-0000-4000-8000-000000000903'::uuid, gen_random_uuid(), repeat('a',64), 1, 1)$$,
+  'starter 3 revokes a session of their own');
+select throws_ok($$select public.get_payment_instructions('36000000-0000-4000-8000-000000000003'::uuid,
+  '36900000-0000-4000-8000-000000000903'::uuid, pg_temp.mp(10))$$,'28000','UNAUTHENTICATED',
+  'a revoked session cannot read the Pix');
+select is(pg_temp.read(3,10)->>'amount','15.00','another session of the same starter still reads');
 reset role;
 insert into private.match_payment_secrets (match_id, state, pix_key_type, pix_key_ciphertext, pix_key_key_version,
   pix_key_last4, pix_receiver_name, pix_receiver_city, set_by, set_at)

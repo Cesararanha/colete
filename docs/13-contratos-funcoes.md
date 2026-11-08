@@ -312,7 +312,7 @@ organizador ativo. Jogador, pendente, ex-membro e estranho recebem o mesmo `NOT_
 (404) de um racha inexistente, como em §1.6.1. `pix` é `null` (remover) ou
 `{ type, key, receiver_name, receiver_city }`, com `type` em
 `cpf|cnpj|email|phone|random`. O Edge valida e normaliza: CPF e CNPJ (inclusive o
-alfanumérico) com dígitos verificadores; telefone em `+55` com DDD; e-mail em minúsculas até
+alfanumérico) com dígitos verificadores; celular em `+55` com DDD (telefone fixo não é chave Pix e é recusado); e-mail em minúsculas até
 77 caracteres; chave aleatória UUID; nome até 25 e cidade até 15 caracteres, sem acento, em
 maiúsculas, só `A-Z`, `0-9` e espaço. Erro de validação sai como `VALIDATION` (422) com
 `fields` e motivo fixo, sem ecoar a chave. O HMAC de idempotência é calculado sobre a forma
@@ -320,8 +320,9 @@ aberta normalizada; só depois o Edge cifra a chave com AES-256-GCM sob
 `PIX_KEY_ENC_KEY_V1` (nonce de 12 bytes no início, dado associado
 `colete:pix:v1|<type>|<match_id>`). O banco recebe a cifra, a versão, os quatro últimos
 caracteres, o nome e a cidade, e nunca a chave aberta. Forma inválida que chegue ao banco
-recusa `PIX_INVALID` (422). Sem o segredo, gravar e ler respondem `INTERNAL` antes da RPC;
-remover funciona sem ele.
+recusa `PIX_INVALID` (422). Sem o segredo, gravar responde `INTERNAL` antes da RPC; ler
+responde `INTERNAL` só a quem pode ler, depois da autorização da RPC, e quem não pode continua
+recebendo `FORBIDDEN` ou `NOT_FOUND`; remover funciona sem ele.
 
 Locks: idempotência → perfil do ator → grupo → membership do ator → racha → linha do Pix,
 os mesmos de §1.6.1. Racha cancelado recusa `MATCH_CANCELED` (409), inclusive no replay com

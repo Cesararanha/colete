@@ -314,6 +314,13 @@ set search_path = ''
 as $function$
 declare v_count integer;
 begin
+  -- Every purge path (job, deletion request, membership and group triggers)
+  -- comes through here and locks in match_id order first, so two of them that
+  -- share rows wait instead of deadlocking.
+  perform 1 from private.match_payment_secrets
+  where match_id = any(p_match_ids) and state = 'active'
+  order by match_id
+  for update;
   update private.match_payment_secrets
   set state = 'purged', pix_key_ciphertext = null, pix_key_key_version = null,
       pix_key_last4 = null, pix_receiver_name = null, pix_receiver_city = null,
