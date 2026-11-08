@@ -3738,6 +3738,27 @@ GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
 (vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
 o resultado é relatado conforme essa seção.
 
+### Relógio do host no teste de apagar grupo (08/11/2026)
+
+`e2e/apagar-grupo.spec.ts` chamava `mark_refunded` com `refunded_at` gerado pelo relógio
+do host. A `0034` recusa com `VALIDATION` um instante posterior a `clock_timestamp()` do
+Postgres ou anterior a `created_at` da devolução. Assim, bastava o relógio da VM do Docker
+atrasar em relação ao host para o teste falhar. Isso ocorreu em 08/11/2026, com 53 ms de
+atraso, nos dois projetos do Playwright, durante a validação dos PRs #99 e #100. O teste
+agora omite `refunded_at`, campo opcional no Edge (docs/13 §3.3.2), e o servidor grava
+`greatest(clock_timestamp(), created_at)`. O cenário só precisa da devolução registrada
+antes de apagar o grupo, então a data não é objeto da prova. A data enviada pelo
+navegador continua coberta por `e2e/racha-completo.spec.ts`, que mede o relógio pelo
+próprio Postgres. Nenhum outro spec ou harness envia `refunded_at` ou `corrected_at`
+gerado pelo relógio do host.
+
+**Validação**, sob a trava `noite/pilha.lock`, com a pilha iniciada desta branch:
+`db:reset` exit 0; `build:web:auth-e2e` exit 0; o spec isolado teve 4 passed (mobile e
+wide); `test:groups:web` teve 121 passed + 5 skipped. A deriva medida nesta rodada foi de
+cerca de 0 ms, então a versão anterior também passaria aqui; a prova da correção é que o
+servidor deixa de comparar qualquer instante vindo do host. A validação completa da
+AGENTS §5 não foi rodada: a mudança se limita a um spec de navegador.
+
 ## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
 
 Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigatória antes do piloto com
