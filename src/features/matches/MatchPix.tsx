@@ -60,18 +60,23 @@ export function useMatchPix(profileId: string, matchId: string, enabled: boolean
 export function MatchPixPayment({ pix, timezone }: { pix: PaymentInstructions; timezone: string }) {
   const { colors } = useTheme();
   const [copyMessage, setCopyMessage] = useState('');
-  const code = useMemo(
-    () =>
-      pixBrCode({
+  // Data the gateway normalised never throws here; anything else must not take
+  // the whole match screen down. Nothing of the input is logged.
+  const code = useMemo(() => {
+    try {
+      return pixBrCode({
         key: pix.key,
         receiverName: pix.receiver_name,
         receiverCity: pix.receiver_city,
         amount: pix.amount,
-      }),
-    [pix],
-  );
+      });
+    } catch {
+      return null;
+    }
+  }, [pix]);
   const changed = pixChangedAt(pix, timezone);
   const copy = async () => {
+    if (code === null) return;
     try {
       await navigator.clipboard.writeText(code);
       setCopyMessage(pt.pix.copied);
@@ -92,14 +97,22 @@ export function MatchPixPayment({ pix, timezone }: { pix: PaymentInstructions; t
       <Text style={[styles.body, { color: colors.text }]} testID="match-pix-check-name">
         {pt.pix.checkName(pix.receiver_name)}
       </Text>
-      <AppButton
-        icon="copy"
-        label={pt.pix.copy}
-        onPress={() => void copy()}
-        testID="match-pix-copy"
-      />
-      <AppStatus message={copyMessage} testID="match-pix-copy-result" />
-      <InviteQrCode label={pt.pix.qr} testID="match-pix-qr" value={code} />
+      {code === null ? (
+        <Text style={[styles.body, { color: colors.text }]} testID="match-pix-code-unavailable">
+          {pt.pix.codeUnavailable}
+        </Text>
+      ) : (
+        <>
+          <AppButton
+            icon="copy"
+            label={pt.pix.copy}
+            onPress={() => void copy()}
+            testID="match-pix-copy"
+          />
+          <AppStatus message={copyMessage} testID="match-pix-copy-result" />
+          <InviteQrCode label={pt.pix.qr} testID="match-pix-qr" value={code} />
+        </>
+      )}
       <Text selectable style={[styles.small, { color: colors.textMuted }]} testID="match-pix-key">
         {pt.pix.keyLine(pt.pix.types[pix.type], pix.key)}
       </Text>
@@ -123,11 +136,14 @@ export function MatchPixManager({
   profileId,
   roster,
   pix,
+  pendingRefund,
 }: {
   matchId: string;
   profileId: string;
   roster: MatchRoster;
   pix: PaymentInstructions | null;
+  /** A refund_due line locks the Pix as a payment does (0036). */
+  pendingRefund: boolean;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId);
@@ -143,7 +159,11 @@ export function MatchPixManager({
   if (!roster.viewer.can_manage || roster.canceled) return null;
   const summary = roster.payment_summary;
   // The server decides; this only explains why the buttons would be refused.
-  const lockedHint = summary !== null && summary.paid_count > 0 && pix !== null;
+  // Without a Pix the client cannot know whether the match ever had one, so the
+  // hint for adding states the rule instead of a refusal.
+  const realPayment = (summary !== null && summary.paid_count > 0) || pendingRefund;
+  const lockedHint = realPayment && pix !== null;
+  const lockedAddHint = realPayment && pix === null;
   const run = (key: string, value: MatchPixInput | null) => {
     void actions
       .run(key, () => api.setMatchPix(matchId, value))
@@ -198,6 +218,11 @@ export function MatchPixManager({
           {pt.pix.lockedNote}
         </Text>
       ) : null}
+      {lockedAddHint ? (
+        <Text style={[styles.small, { color: colors.textMuted }]} testID="match-pix-locked-add">
+          {pt.pix.lockedAddNote}
+        </Text>
+      ) : null}
       <AppStatus message={message} testID="match-pix-result" />
       <AppAlert
         message={generalError ? matchErrorMessage(generalError, 'manage') : ''}
@@ -237,7 +262,7 @@ export function MatchPixManager({
             error={fieldError(error, 'pix.receiver_name')}
             hint={pt.pix.receiverNameHint}
             label={pt.pix.receiverName}
-            maxLength={40}
+            maxLength={25}
             onChangeText={(receiver_name) => setForm((current) => ({ ...current, receiver_name }))}
             testID="match-pix-name-input"
             value={form.receiver_name}
@@ -247,7 +272,7 @@ export function MatchPixManager({
             error={fieldError(error, 'pix.receiver_city')}
             hint={pt.pix.receiverCityHint}
             label={pt.pix.receiverCity}
-            maxLength={30}
+            maxLength={15}
             onChangeText={(receiver_city) => setForm((current) => ({ ...current, receiver_city }))}
             testID="match-pix-city-input"
             value={form.receiver_city}

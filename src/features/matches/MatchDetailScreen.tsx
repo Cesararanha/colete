@@ -497,6 +497,9 @@ function PaymentNoticeBlock({
       </View>
     ) : null;
   if (notice === null) return ownRefundNotice;
+  // While the Pix is read, show neither block: the generic instruction would
+  // be replaced a moment later.
+  if (notice.kind === 'pay' && pix.isLoading) return ownRefundNotice;
   if (notice.kind === 'pay' && pix.data) {
     return (
       <>
@@ -508,6 +511,7 @@ function PaymentNoticeBlock({
   return (
     <>
       {ownRefundNotice}
+      {notice.kind === 'pay' ? <ReadNotice query={pix} /> : null}
       <View
         style={[styles.payNotice, { backgroundColor: colors.surface }]}
         testID="match-pay-notice"
@@ -1092,6 +1096,9 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                   {pixQuery.isSuccess ? (
                     <MatchPixManager
                       matchId={matchId}
+                      pendingRefund={
+                        refundsQuery.data?.some((refund) => refund.status === 'refund_due') ?? false
+                      }
                       pix={pixQuery.data}
                       profileId={profile.id}
                       roster={roster}

@@ -4752,8 +4752,12 @@ enviar nada. `setMatchPix` e `getPaymentInstructions` em `api.ts`; `PIX_NOT_CONF
 **Provas.** `pix-brcode.test.ts` (vetor `123456789` → `29B1`; exemplo do manual do Banco
 Central → `1D3D`; campo 54; valor zero omitido; recusas) e `pix-changed.test.ts`;
 `e2e/pix-manual.spec.ts` nos dois projetos, na pilha real: chave inválida explicada,
-cadastro normalizado, código copiado conferido na área de transferência, QR, troca avisada,
-trava por pagamento recusada na tela, pago sem Pix, axe nas duas telas.
+cadastro normalizado, código copiado conferido na área de transferência (campos e CRC
+recalculado no teste), nada da chave em `localStorage`, `sessionStorage` ou na URL dos dois
+contextos, QR, troca avisada, remoção com confirmação e volta do jogador a «pague ao
+organizador», novo cadastro, trava por pagamento recusada na tela ao trocar e ao remover,
+pago sem Pix; axe com o formulário aberto (erro de campo), com a confirmação de remoção e nas
+duas telas.
 
 **Validação AGENTS §5 no SHA final.** Pilha reiniciada desta worktree, 35 comandos em
 sequência: 34 com exit 0 — `db:reset`; `db:test` (34 arquivos, 2793 asserções); os 21
@@ -4771,3 +4775,19 @@ Na primeira rodada (`73c734b`), o `node_modules` desta worktree era um link para
 fontes saíram em `assets/_pix-manual-a/...`, e o smoke recusou o cache de URL com «pix»: o
 service worker só exclui `/pix`, e o teste procura «pix» na URL inteira. Não é defeito do
 produto. Com `npm ci` próprio, o smoke passou.
+
+**Correções da revisão independente (08/11, `noite/rev-pr100-pix.md`: 0 P1, 1 P2, 6 P3).**
+P2-1 e P3-6: as provas acima de remoção, axe nos estados novos, armazenamento, URL e CRC.
+P3-1: a dica de trava considera devolução pendente (lida de `get_match_refunds`). P3-2: sem
+Pix e com pagamento, a tela explica que só cadastra se o racha nunca teve Pix, e o
+`PIX_LOCKED` diz o mesmo. P3-3: nome e cidade limitados a 25 e 15 no campo, com a dica de que
+os acentos são removidos. P3-4: enquanto a leitura do Pix carrega, o jogador não vê a
+instrução genérica; em erro, vê o aviso de leitura com «Tentar de novo» junto dela. P3-5:
+falha ao montar o BR Code esconde cópia e QR e mantém a chave legível, sem derrubar o
+detalhe. A mudança é só de cliente; a validação desta correção está abaixo.
+
+Validação da correção (só cliente): `verify:app` (vitest 808), `test:privacy:web` (5),
+`test:qr:web` (30), `test:smoke:web` (6), `scan:docs`, `scan:secrets`, `test:audit` e
+`git diff --check` com exit 0; `test:matches:web` 95/96 num lote de 21 min, com timeout em
+`racha-completo` (remoção de jogador da 1.4, fora do Pix); esse spec isolado passou 54/54, e
+`pix-manual` passou 2/2 nos dois projetos. Banco e Edge não mudaram desde a rodada §5 acima.

@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 
+import { crc16 } from '../src/features/matches/pix-brcode';
 import { assertAccessible, createVerifiedUser, localEnvironment } from './support/local-stack';
 import { handledObserver } from './support/observers';
 
@@ -86,6 +87,20 @@ async function open(browser: Browser, actor: Actor, matchId: string) {
   await page.goto(`/rachas/${matchId}`);
   await expect(page.getByTestId('match-presence')).toBeVisible();
   return { context, page };
+}
+
+// Nothing of the open key may stay in the browser: storage or URL.
+async function assertNoKeyInBrowser(page: Page, label: string) {
+  const kept = await page.evaluate(() =>
+    [
+      window.location.href,
+      ...Object.keys(localStorage).map((key) => `${key}=${localStorage.getItem(key)}`),
+      ...Object.keys(sessionStorage).map((key) => `${key}=${sessionStorage.getItem(key)}`),
+    ].join('\n'),
+  );
+  for (const form of ['52998224725', '529.982.247-25', 'dona.racha']) {
+    expect(kept.toLowerCase(), `${label}: ${form}`).not.toContain(form);
+  }
 }
 
 async function cleanActors(authIds: string[], db: pg.Client) {
@@ -188,6 +203,8 @@ test('Pix manual: cadastro, copia-e-cola, QR e trava por pagamento', async ({
     await expect(page.getByTestId('match-pix-form')).toContainText(
       'Confira a chave: ela não vale para o tipo escolhido.',
     );
+    // The open form: type group, fields with hints and a field error.
+    await assertAccessible(page);
     await page.getByTestId('match-pix-key-input').fill('529.982.247-25');
     await page.getByTestId('match-pix-save').click();
     await expect(page.getByTestId('match-pix-result')).toHaveText('Pix salvo.');
@@ -221,6 +238,10 @@ test('Pix manual: cadastro, copia-e-cola, QR e trava por pagamento', async ({
     expect(copied).toContain('br.gov.bcb.pix011152998224725');
     expect(copied).toContain('540512.50');
     expect(copied).toContain('5913DONA DO RACHA6009SAO PAULO');
+    expect(copied.slice(-8, -4)).toBe('6304');
+    expect(copied.slice(-4)).toBe(crc16(copied.slice(0, -4)));
+    await assertNoKeyInBrowser(anaView.page, 'player');
+    await assertNoKeyInBrowser(page, 'organizer');
     await assertAccessible(anaView.page);
     await shot(anaView.page, testInfo.project.name, 'pix-jogador.png');
 
@@ -236,6 +257,27 @@ test('Pix manual: cadastro, copia-e-cola, QR e trava por pagamento', async ({
       'Chave E-mail: dona.racha@example.com',
     );
 
+    // Removing before any payment: confirmation, then the player is back to
+    // the generic instruction; registering again continues the flow.
+    await page.getByTestId('match-pix-remove').click();
+    await expect(page.getByTestId('match-pix-remove-confirmation')).toBeVisible();
+    await assertAccessible(page);
+    await page.getByTestId('match-pix-remove-confirm').click();
+    await expect(page.getByTestId('match-pix-result')).toHaveText('Pix removido.');
+    await expect(page.getByTestId('match-pix-none')).toBeVisible();
+    await anaView.page.reload();
+    await expect(anaView.page.getByTestId('match-pay-notice-title')).toContainText(
+      'Pague ao organizador',
+    );
+    await expect(anaView.page.getByTestId('match-pix-payment')).toHaveCount(0);
+    await page.getByTestId('match-pix-open').click();
+    await page.getByTestId('match-pix-type-email').click();
+    await page.getByTestId('match-pix-key-input').fill('Dona.Racha@Example.com');
+    await page.getByTestId('match-pix-name-input').fill('Dona do Racha');
+    await page.getByTestId('match-pix-city-input').fill('São Paulo');
+    await page.getByTestId('match-pix-save').click();
+    await expect(page.getByTestId('match-pix-result')).toHaveText('Pix salvo.');
+
     // A payment locks it: the screen says why, and the server refuses.
     await gateway(request, owner, 'set_match_payment', {
       match_id: matchId,
@@ -249,7 +291,14 @@ test('Pix manual: cadastro, copia-e-cola, QR e trava por pagamento', async ({
     await page.getByTestId('match-pix-key-input').fill('529.982.247-25');
     await page.getByTestId('match-pix-save').click();
     await expect(page.getByTestId('match-pix-error')).toContainText(
-      'O Pix não pode mudar: este racha já tem pagamento marcado ou devolução pendente.',
+      'O Pix não pode mudar: este racha já tem pagamento marcado ou devolução pendente',
+    );
+    await page.getByTestId('match-pix-back').click();
+    await page.getByTestId('match-pix-remove').click();
+    await page.getByTestId('match-pix-remove-confirm').click();
+    await expect(page.getByTestId('match-pix-error')).toContainText('O Pix não pode mudar');
+    await expect(page.getByTestId('match-pix-current')).toContainText(
+      'E-mail: dona.racha@example.com',
     );
 
     // Bia, paid, sees her mark and no Pix.

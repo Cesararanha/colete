@@ -349,13 +349,16 @@ export const pt = {
     } as Record<'cpf' | 'cnpj' | 'email' | 'phone' | 'random', string>,
     key: 'Chave Pix',
     receiverName: 'Nome do recebedor',
-    receiverNameHint: 'Como aparece no banco. Sem acento, até 25 letras.',
+    receiverNameHint: 'Como aparece no banco, até 25 letras. Acentos são removidos.',
     receiverCity: 'Cidade do recebedor',
-    receiverCityHint: 'Sem acento, até 15 letras.',
+    receiverCityHint: 'Até 15 letras. Acentos são removidos.',
     current: (type: string, key: string) => `${type}: ${key}`,
     receiver: (name: string, city: string) => `Recebedor: ${name}, ${city}`,
     lockedNote:
       'Com pagamento marcado ou devolução pendente, o Pix não pode ser trocado nem removido.',
+    lockedAddNote:
+      'Com pagamento marcado ou devolução pendente, só dá para cadastrar Pix se este racha nunca teve um.',
+    codeUnavailable: 'Não foi possível montar o código Pix. Use a chave abaixo no app do banco.',
     saved: 'Pix salvo.',
     removed: 'Pix removido.',
     removeTitle: 'Remover o Pix?',
@@ -373,7 +376,7 @@ export const pt = {
     qr: 'QR Code do Pix',
     errors: {
       PIX_LOCKED:
-        'O Pix não pode mudar: este racha já tem pagamento marcado ou devolução pendente.',
+        'O Pix não pode mudar: este racha já tem pagamento marcado ou devolução pendente, e com isso só recebe Pix se nunca teve um.',
       PIX_PURGED: 'Este racha terminou há mais de 60 dias. O Pix não fica mais guardado.',
       PIX_INVALID: 'Os dados do Pix não foram aceitos. Confira e tente de novo.',
       key: 'Confira a chave: ela não vale para o tipo escolhido.',
