@@ -3747,10 +3747,13 @@ atrasar em relação ao host para o teste falhar. Isso ocorreu em 08/11/2026, co
 atraso, nos dois projetos do Playwright, durante a validação dos PRs #99 e #100. O teste
 agora omite `refunded_at`, campo opcional no Edge (docs/13 §3.3.2), e o servidor grava
 `greatest(clock_timestamp(), created_at)`. O cenário só precisa da devolução registrada
-antes de apagar o grupo, então a data não é objeto da prova. A data enviada pelo
-navegador continua coberta por `e2e/racha-completo.spec.ts`, que mede o relógio pelo
-próprio Postgres. Nenhum outro spec ou harness envia `refunded_at` ou `corrected_at`
-gerado pelo relógio do host.
+antes de apagar o grupo, então a data não é objeto da prova. A data omitida segue
+coberta por `e2e/racha-completo.spec.ts`, que confere o valor gravado pelo relógio do
+próprio Postgres. A data explícita válida segue coberta por `scripts/test-match-refunds.mjs`,
+que a lê do Postgres (`databaseNow()`). Nenhum outro spec ou harness envia `refunded_at`
+ou `corrected_at` válido gerado pelo relógio do host. O único caso é intencional:
+`e2e/racha-completo.spec.ts` digita uma data 90 s à frente do host para exigir a recusa.
+Uma deriva de milissegundos não muda o resultado esperado.
 
 **Validação**, sob a trava `noite/pilha.lock`, com a pilha iniciada desta branch:
 `db:reset` exit 0; `build:web:auth-e2e` exit 0; o spec isolado teve 4 passed (mobile e
