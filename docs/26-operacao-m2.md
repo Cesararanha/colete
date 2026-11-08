@@ -3759,8 +3759,28 @@ Uma deriva de milissegundos não muda o resultado esperado.
 `db:reset` exit 0; `build:web:auth-e2e` exit 0; o spec isolado teve 4 passed (mobile e
 wide); `test:groups:web` teve 121 passed + 5 skipped. A deriva medida nesta rodada foi de
 cerca de 0 ms, então a versão anterior também passaria aqui; a prova da correção é que o
-servidor deixa de comparar qualquer instante vindo do host. A validação completa da
-AGENTS §5 não foi rodada: a mudança se limita a um spec de navegador.
+servidor deixa de comparar qualquer instante vindo do host.
+
+**Validação completa da AGENTS §5**, pedida pela revisão do Codex (P2), em `214b30a`, sob a
+mesma trava, com a pilha iniciada desta branch: `db:reset` exit 0, recriando somente pelas
+migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599 testes. Todos os harnesses
+`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`, `export`, `invites`,
+`groups`, `membership`, `rename`, `group-deletion`, `photos`, `members`, `matches`,
+`match-players`, `ratings`, `teams`, `refunds` e `geocode` terminaram com exit 0.
+`build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped; privacidade 5 passed + 5 skipped;
+CORS 4 passed; grupos 121 passed + 5 skipped; QR 30 passed; build smoke exit 0 e smoke 6
+passed. `verify:app` exit 0, com 65 arquivos e 782 testes unitários; `scan:docs` e
+`scan:secrets` exit 0 (511 arquivos); `test:audit` 94/94; `test:staging` 102/102;
+`audit:high` exit 0, com uma exceção ativa; `git diff --check` limpo.
+
+`test:matches:web` falhou na primeira rodada, com 92 passed e 2 failed, em testes que este PR
+não toca. Em `racha-completo.spec.ts:1092` (wide), a limpeza do próprio teste deu
+`deadlock detected` ao apagar `public.profiles`. Os dois usuários que sobraram derrubaram o
+censo inicial de `rachas-v1.spec.ts:179`. Depois de `db:reset` e de refazer
+`build:web:auth-e2e`, a repetição no mesmo SHA teve 94 passed. Uma tentativa intermediária
+rodou por engano sobre a build de smoke e não conta. Censo final: zero usuários, perfis,
+grupos e rachas. Pilha local parada e trava removida ao fim. Nenhum projeto Supabase remoto
+ou serviço de produção foi acessado.
 
 ## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
 
