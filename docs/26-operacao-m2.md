@@ -4756,5 +4756,24 @@ Foram 5 rodadas por caso, todas iguais:
 Em todos os casos, o censo terminou sem os perfis da prova. O prazo de 15 s não foi exercido
 pela prova.
 
+**Validação completa da AGENTS §5** em `706b7eb`, sob a trava `noite/pilha.lock`, com a
+pilha iniciada desta worktree (logs em `noite/racha-limpeza-evidencias/`): `db:reset` exit
+0, recriando somente pelas migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599
+testes. Todos os harnesses (`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`,
+`export`, `invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`,
+`members`, `matches`, `match-players`, `ratings`, `teams`, `refunds` e `geocode`)
+terminaram com exit 0. `build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped;
+privacidade 5 passed + 5 skipped; CORS 4 passed; grupos 121 passed + 5 skipped.
+`test:matches:web` rodou cinco vezes seguidas, sem `db:reset` entre elas, e teve 94 passed em
+todas: um usuário deixado pela limpeza derrubaria o censo inicial de `rachas-v1.spec.ts` na
+rodada seguinte. QR 30 passed; build smoke exit 0 e smoke 6 passed. `verify:app` exit 0,
+com 65 arquivos e 782 testes unitários; `scan:docs` e `scan:secrets` exit 0 (511 arquivos);
+`test:audit` 94/94; `test:staging` 102/102; `audit:high` exit 0, com uma exceção ativa;
+`git diff --check` limpo. Censo final: zero usuários, perfis, grupos, rachas e registros de
+idempotência. As rodadas anteriores, em `17c43c9`, `5c9c840` e `a652ba4`, ficaram nas pastas
+`noite/racha-limpeza-evidencias-<sha>`. A de `17c43c9` foi completa e verde, salvo um
+`db:test:cors` cuja repetição passou. As outras duas foram interrompidas pelas correções
+seguintes. Nenhum projeto Supabase remoto ou serviço de produção foi acessado.
+
 `rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
 transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.
