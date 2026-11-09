@@ -4698,42 +4698,61 @@ da limpeza no `cancel`, contra 150 a 265 ms em `add` e 116 a 176 ms em `remove`,
 `add_player` ou `remove_player`. Basta a máquina estar mais lenta, como na suíte inteira, para a leitura
 cair dentro da limpeza.
 
-**Correção.** Depois da idempotência, primeiro nível da ordem global, a limpeza trava todos
-os perfis e depois todos os grupos dos atores, `order by id for update nowait`, e só então
-apaga. Se alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes de
-apagar qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Como não espera segurando
-lock, a limpeza não entra em ciclo nenhum. Toda mutação começa pelo perfil do ator (a FK da
-idempotência) e toda leitura que trava linha trava esse perfil, então, quando a limpeza
-obtém todos os perfis, nenhuma transação desses atores está mais em voo. Só o `55P03` da fase
-de travas é esperado. `40P01` e qualquer outro erro continuam reprovando o teste: retry de
-deadlock só esconderia a causa.
+**Correção.** A limpeza trava todos os perfis e depois todos os grupos dos atores,
+`order by id for update nowait`. Só então apaga os registros de idempotência e o resto. Se
+alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes de apagar
+qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Depois disso, relança o
+`55P03`. Na fase de travas, portanto, a limpeza nunca espera segurando lock. Toda mutação
+começa pelo perfil do ator (a FK da idempotência) e toda leitura que trava linha trava esse
+perfil. Por isso, quando a limpeza obtém todos os perfis, nenhuma transação desses atores
+está em voo e nenhum registro de idempotência novo pode surgir. Os deletes seguintes ainda
+podem esperar, mas por transação alheia a esses atores, que não tem como fechar ciclo com a
+limpeza. Só o `55P03` da fase de travas é esperado. `40P01` e qualquer outro erro continuam
+reprovando o teste: retry de deadlock só esconderia a causa.
 
-A primeira versão (`17c43c9`) travava perfis e grupos com `for update` comum, esperando.
-Isso fecha o ciclo da leitura, mas a revisão do Codex (`noite/rev102.md`, P2) mostrou outro
-ciclo, só com perfis, quando há uma mutação em voo. Isso acontece se uma asserção falha antes
-da resposta e o teste cai no `finally`. `add_player` (`0035`) segura o perfil do dono B e o
-grupo e, no insert do participante, pede `FOR KEY SHARE` no perfil do jogador A pela FK. Se
-A tem id menor que B, a limpeza trava A e espera B, e a mutação espera A: `40P01`. A revisão
-também apontou `get_group_members` (`0019`), que trava perfil → grupo como
-`get_group_ratings` e, por isso, entra no mesmo caso da leitura.
+Houve duas versões antes desta, ambas apontadas pelo Codex. A primeira (`17c43c9`) travava
+perfis e grupos com `for update` comum, esperando. Isso fecha o ciclo da leitura, mas a
+revisão (`noite/rev102.md`, P2) mostrou outro ciclo, só com perfis, quando há uma mutação em
+voo. Isso acontece se uma asserção falha antes da resposta e o teste cai no `finally`.
+`add_player` (`0035`) segura o perfil do dono B e o grupo e, no insert do participante, pede
+`FOR KEY SHARE` no perfil do jogador A pela FK. Se A tem id menor que B, a limpeza trava A e
+espera B, e a mutação espera A: `40P01`. A revisão também apontou `get_group_members`
+(`0019`), que trava perfil → grupo como `get_group_ratings` e entra no mesmo caso da
+leitura. A segunda versão (`5c9c840`) trouxe o `nowait`, mas ainda apagava a idempotência
+antes das travas. A conferência (`noite/conf102.md`, P2) mostrou que uma mutação que commita
+entre esse delete e as travas deixa um registro cuja FK (`0004`:28, `on delete restrict`)
+recusa o delete do perfil: `23503`, rollback e usuários Auth deixados no banco.
 
 **Contraprova determinística** (spec temporário, não commitado, guardado em
 `noite/racha-limpeza-evidencias/zz-prova-limpeza.spec.ts`, três conexões e dois atores com
-grupo). A outra transação toma o primeiro lock. A limpeza começa, e o observador espera que
-ela entre em espera de lock (`pg_stat_activity`) ou receba a primeira recusa `NOWAIT`. Então
-a outra transação pede o segundo lock. Na leitura, o dono trava o próprio perfil (`0031`:635)
-e depois o grupo (`0031`:642). Na mutação, o dono de id maior trava perfil e grupo e depois
-pede `FOR KEY SHARE` no perfil de id menor. Foram 5 rodadas por caso, todas iguais:
+grupo). As variantes da limpeza são cópias fiéis de cada versão. A outra transação toma o
+primeiro lock. A limpeza começa, e o observador espera que ela entre em espera de lock
+(`pg_stat_activity`) ou receba a primeira recusa `NOWAIT`. Então a outra transação pede o
+segundo lock. Os cenários são três:
+
+- **Leitura:** o dono trava o próprio perfil (`0031`:635) e depois o grupo (`0031`:642).
+- **Mutação:** o dono de id maior trava perfil e grupo e depois pede `FOR KEY SHARE` no
+  perfil de id menor.
+- **Idempotência:** um registro passa pelas transições reais (insert `executing_uncommitted`,
+  update para `completed`). Na versão `5c9c840`, ele commita entre o delete da idempotência e
+  as travas; na versão final, a limpeza recebe a recusa `NOWAIT` enquanto ele está em voo.
+
+Foram 5 rodadas por caso, todas iguais:
 
 | Em voo | Limpeza | Resultado |
 |---|---|---|
 | leitura | antiga (`origin/main`) | `40P01` na limpeza, parada em `delete from public.profiles`, como em 08/11 |
 | leitura | `for update` (`17c43c9`) | as duas commitam |
 | mutação | `for update` (`17c43c9`) | `40P01` na limpeza, parada na trava de perfis: o P2 da revisão |
-| leitura | `for update nowait` | uma recusa, uma nova tentativa, as duas commitam |
-| mutação | `for update nowait` | uma recusa, uma nova tentativa, as duas commitam |
+| leitura | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| mutação | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| idempotência | `nowait` (`5c9c840`) | `23503` no delete do perfil: o P2 da conferência |
+| leitura | final | recusa, nova tentativa, as duas commitam |
+| mutação | final | recusa, nova tentativa, as duas commitam |
+| idempotência | final | recusa, nova tentativa, as duas commitam |
 
-Em todos os casos, o censo terminou sem os perfis da prova.
+Em todos os casos, o censo terminou sem os perfis da prova. O prazo de 15 s não foi exercido
+pela prova.
 
 `rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
 transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.

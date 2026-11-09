@@ -124,18 +124,18 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   // FOR KEY SHARE on the player through the match_players FK. So the cleanup
   // takes every profile and then every group, by id, without waiting
   // (NOWAIT). If any of them is busy, it rolls back before deleting anything
-  // and tries again once that transaction is gone. Holding nothing while it
-  // waits, it can never be part of a cycle. A mutation starts on its actor's
-  // profile (the idempotency FK) and a locking read locks it, so once the
-  // cleanup holds every profile, none of them is left in flight. Only 55P03
-  // is waited out here: 40P01 and every other error still fail the test.
+  // and tries again once that transaction is gone, so it never waits for a
+  // lock while holding one. A mutation starts on its actor's profile (the
+  // idempotency FK) and a locking read locks it, so once the cleanup holds
+  // every profile, none of them is left in flight and no new idempotency
+  // record can appear. That is why the records go only after the locks: one
+  // deleted before them could miss a mutation that commits in between and
+  // leave a record whose FK refuses the profile delete (23503). Only 55P03 is
+  // waited out here: 40P01 and every other error still fail the test.
   const deadline = Date.now() + 15_000;
   for (;;) {
     await db.query('begin');
     try {
-      await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
-        ids,
-      ]);
       await db.query(
         'select 1 from public.profiles where id = any($1::uuid[]) order by id for update nowait',
         [ids],
@@ -144,6 +144,9 @@ async function cleanActors(authIds: string[], db: pg.Client) {
         `select 1 from public.groups where id in (${groups}) order by id for update nowait`,
         [ids],
       );
+      await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
+        ids,
+      ]);
       break;
     } catch (error) {
       await db.query('rollback');
