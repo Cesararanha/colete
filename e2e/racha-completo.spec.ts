@@ -120,6 +120,19 @@ async function cleanActors(authIds: string[], db: pg.Client) {
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
+    // The organization's screen reads the rating count (get_group_ratings,
+    // 0031), which locks the actor's profile and then the group: the global
+    // order of docs/25. A read still in flight would hold the profile and wait
+    // for a group this cleanup already deleted, while the cleanup waits for
+    // that profile: 40P01. Locking every profile and then every group first,
+    // in that order and by id, makes such a read finish first or wait for us.
+    await db.query(
+      'select 1 from public.profiles where id = any($1::uuid[]) order by id for update',
+      [ids],
+    );
+    await db.query(`select 1 from public.groups where id in (${groups}) order by id for update`, [
+      ids,
+    ]);
     await db.query(
       `delete from private.match_players where profile_id = any($1::uuid[]) or match_id in
          (select id from private.matches where group_id in (${groups}))`,

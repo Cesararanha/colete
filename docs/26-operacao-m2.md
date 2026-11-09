@@ -4676,3 +4676,39 @@ Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body
 durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
+
+### Deadlock na limpeza de `racha-completo.spec.ts` (09/11/2026)
+
+Na validação do PR #101, em 08/11/2026, o teste `Foco da organização: cancel restaura o
+destino com foco inicial no body` (wide) falhou com `deadlock detected` na limpeza do próprio
+teste, ao apagar `public.profiles`. O rollback deixou dois usuários no banco, e eles
+derrubaram o censo inicial de `rachas-v1.spec.ts:179`.
+
+**Causa.** A tela do racha, para a organização, lê a contagem de notas
+(`get_group_ratings`, `0031`, linhas 635 e 642). A leitura trava o perfil do ator
+`for no key update` e depois o grupo `for no key update`, na ordem global do
+`docs/25` (perfis → grupos). A limpeza (`cleanActors`) apagava participantes, rachas,
+convites, memberships e grupos antes dos perfis. Quando essa leitura ainda estava em voo, ela
+segurava o perfil e esperava pelo grupo que a limpeza já tinha apagado, e a limpeza esperava
+por esse perfil para apagá-lo. O Postgres escolhia a limpeza como vítima. Fechar a página não
+basta: a requisição que já saiu do navegador segue até o banco. O fluxo `cancel` é o único
+dos três que termina sem esperar resposta de rede. Instrumentado em 10 rodadas de cada
+fluxo (5 por projeto), o último `get_group_ratings` respondeu de 20 a 47 ms antes do início
+da limpeza no `cancel`, contra 150 a 265 ms em `add` e 116 a 176 ms em `remove`, que esperam
+`add_player` ou `remove_player`. Basta a máquina estar mais lenta, como na suíte inteira, para a leitura
+cair dentro da limpeza.
+
+**Correção.** Depois da idempotência, primeiro nível da ordem global, a limpeza trava todos
+os perfis e depois todos os grupos dos atores, `order by id for update`, e só então apaga.
+Uma leitura em voo termina antes (a limpeza espera o perfil, a leitura pega o grupo livre e
+commita) ou espera a limpeza. A limpeza não repete a transação em `40P01`: a ordem dos locks
+fecha o ciclo, e um retry só esconderia a causa.
+
+**Contraprova determinística** (spec temporário, não commitado, três conexões): o leitor
+trava o perfil como a linha 635; a limpeza começa; o observador espera a limpeza entrar em
+espera de lock (`pg_stat_activity`); o leitor pede o grupo como a linha 642. Com a ordem
+antiga, 3 de 3 rodadas terminaram com `40P01` na limpeza e o leitor commitado, o mesmo
+quadro de 08/11. Com a ordem nova, 3 de 3 terminaram com as duas transações commitadas.
+
+`rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
+transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.
