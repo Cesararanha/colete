@@ -4704,10 +4704,12 @@ alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes d
 qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Depois disso, relança o
 `55P03`. Na fase de travas, portanto, a limpeza nunca espera segurando lock. Toda mutação
 começa pelo perfil do ator (a FK da idempotência) e toda leitura que trava linha trava esse
-perfil. Por isso, quando a limpeza obtém todos os perfis, nenhuma transação desses atores
-está em voo e nenhum registro de idempotência novo pode surgir. Os deletes seguintes ainda
-podem esperar, mas por transação alheia a esses atores, que não tem como fechar ciclo com a
-limpeza. Só o `55P03` da fase de travas é esperado. `40P01` e qualquer outro erro continuam
+perfil. Por isso, enquanto a limpeza segura todos os perfis, nenhuma gravação ligada a eles
+pode concluir e nenhum registro de idempotência novo pode surgir. Um replay
+(`on conflict do nothing`) ainda pode ler o próprio registro, mas sem trava de linha que
+bloqueie a limpeza. Os deletes seguintes ainda podem esperar, mas nenhuma transação que
+espere por esses perfis tem como fechar ciclo com a limpeza (conferência restrita,
+`noite/conf102-2.md`, P3). Só o `55P03` da fase de travas é esperado. `40P01` e qualquer outro erro continuam
 reprovando o teste: retry de deadlock só esconderia a causa.
 
 Houve duas versões antes desta, ambas apontadas pelo Codex. A primeira (`17c43c9`) travava

@@ -126,12 +126,14 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   // (NOWAIT). If any of them is busy, it rolls back before deleting anything
   // and tries again once that transaction is gone, so it never waits for a
   // lock while holding one. A mutation starts on its actor's profile (the
-  // idempotency FK) and a locking read locks it, so once the cleanup holds
-  // every profile, none of them is left in flight and no new idempotency
-  // record can appear. That is why the records go only after the locks: one
-  // deleted before them could miss a mutation that commits in between and
-  // leave a record whose FK refuses the profile delete (23503). Only 55P03 is
-  // waited out here: 40P01 and every other error still fail the test.
+  // idempotency FK) and a locking read locks it, so while the cleanup holds
+  // every profile, no write tied to them can finish and no new idempotency
+  // record can appear (a replay may still read its record, without a row
+  // lock that could block us). That is why the records go only after the
+  // locks: deleted before them, they could miss a mutation that commits in
+  // between and leave a record whose FK refuses the profile delete (23503).
+  // Only 55P03 is waited out here: 40P01 and every other error still fail
+  // the test.
   const deadline = Date.now() + 15_000;
   for (;;) {
     await db.query('begin');
