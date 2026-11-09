@@ -115,24 +115,43 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   );
   const ids = profiles.rows.map((row: { id: string }) => row.id);
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
-  await db.query('begin');
+  // The organization's screen reads the rating count (get_group_ratings, 0031)
+  // and the members (0019): each locks the actor's profile, then the group.
+  // A read still in flight held the profile and waited for a group this
+  // cleanup had already deleted, while the cleanup waited for that profile:
+  // 40P01. A mutation still in flight, after a failed assertion, closes the
+  // same cycle with profiles alone: add_player holds the owner and asks
+  // FOR KEY SHARE on the player through the match_players FK. So the cleanup
+  // takes every profile and then every group, by id, without waiting
+  // (NOWAIT). If any of them is busy, it rolls back before deleting anything
+  // and tries again once that transaction is gone. Holding nothing while it
+  // waits, it can never be part of a cycle. A mutation starts on its actor's
+  // profile (the idempotency FK) and a locking read locks it, so once the
+  // cleanup holds every profile, none of them is left in flight. Only 55P03
+  // is waited out here: 40P01 and every other error still fail the test.
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    await db.query('begin');
+    try {
+      await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
+        ids,
+      ]);
+      await db.query(
+        'select 1 from public.profiles where id = any($1::uuid[]) order by id for update nowait',
+        [ids],
+      );
+      await db.query(
+        `select 1 from public.groups where id in (${groups}) order by id for update nowait`,
+        [ids],
+      );
+      break;
+    } catch (error) {
+      await db.query('rollback');
+      if ((error as { code?: string }).code !== '55P03' || Date.now() > deadline) throw error;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+  }
   try {
-    await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
-      ids,
-    ]);
-    // The organization's screen reads the rating count (get_group_ratings,
-    // 0031), which locks the actor's profile and then the group: the global
-    // order of docs/25. A read still in flight would hold the profile and wait
-    // for a group this cleanup already deleted, while the cleanup waits for
-    // that profile: 40P01. Locking every profile and then every group first,
-    // in that order and by id, makes such a read finish first or wait for us.
-    await db.query(
-      'select 1 from public.profiles where id = any($1::uuid[]) order by id for update',
-      [ids],
-    );
-    await db.query(`select 1 from public.groups where id in (${groups}) order by id for update`, [
-      ids,
-    ]);
     await db.query(
       `delete from private.match_players where profile_id = any($1::uuid[]) or match_id in
          (select id from private.matches where group_id in (${groups}))`,

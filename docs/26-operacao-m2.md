@@ -4699,39 +4699,41 @@ da limpeza no `cancel`, contra 150 a 265 ms em `add` e 116 a 176 ms em `remove`,
 cair dentro da limpeza.
 
 **Correção.** Depois da idempotência, primeiro nível da ordem global, a limpeza trava todos
-os perfis e depois todos os grupos dos atores, `order by id for update`, e só então apaga.
-Uma leitura em voo termina antes (a limpeza espera o perfil, a leitura pega o grupo livre e
-commita) ou espera a limpeza. A limpeza não repete a transação em `40P01`: a ordem dos locks
-fecha o ciclo, e um retry só esconderia a causa.
+os perfis e depois todos os grupos dos atores, `order by id for update nowait`, e só então
+apaga. Se alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes de
+apagar qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Como não espera segurando
+lock, a limpeza não entra em ciclo nenhum. Toda mutação começa pelo perfil do ator (a FK da
+idempotência) e toda leitura que trava linha trava esse perfil, então, quando a limpeza
+obtém todos os perfis, nenhuma transação desses atores está mais em voo. Só o `55P03` da fase
+de travas é esperado. `40P01` e qualquer outro erro continuam reprovando o teste: retry de
+deadlock só esconderia a causa.
+
+A primeira versão (`17c43c9`) travava perfis e grupos com `for update` comum, esperando.
+Isso fecha o ciclo da leitura, mas a revisão do Codex (`noite/rev102.md`, P2) mostrou outro
+ciclo, só com perfis, quando há uma mutação em voo. Isso acontece se uma asserção falha antes
+da resposta e o teste cai no `finally`. `add_player` (`0035`) segura o perfil do dono B e o
+grupo e, no insert do participante, pede `FOR KEY SHARE` no perfil do jogador A pela FK. Se
+A tem id menor que B, a limpeza trava A e espera B, e a mutação espera A: `40P01`. A revisão
+também apontou `get_group_members` (`0019`), que trava perfil → grupo como
+`get_group_ratings` e, por isso, entra no mesmo caso da leitura.
 
 **Contraprova determinística** (spec temporário, não commitado, guardado em
-`noite/racha-limpeza-evidencias/zz-prova-limpeza.spec.ts`, três conexões): o leitor
-trava o perfil como a linha 635; a limpeza começa; o observador espera a limpeza entrar em
-espera de lock (`pg_stat_activity`); o leitor pede o grupo como a linha 642. Com a ordem
-antiga, 3 de 3 rodadas terminaram com `40P01` na limpeza e o leitor commitado, o mesmo
-quadro de 08/11. Com a ordem nova, 3 de 3 terminaram com as duas transações commitadas.
+`noite/racha-limpeza-evidencias/zz-prova-limpeza.spec.ts`, três conexões e dois atores com
+grupo). A outra transação toma o primeiro lock. A limpeza começa, e o observador espera que
+ela entre em espera de lock (`pg_stat_activity`) ou receba a primeira recusa `NOWAIT`. Então
+a outra transação pede o segundo lock. Na leitura, o dono trava o próprio perfil (`0031`:635)
+e depois o grupo (`0031`:642). Na mutação, o dono de id maior trava perfil e grupo e depois
+pede `FOR KEY SHARE` no perfil de id menor. Foram 5 rodadas por caso, todas iguais:
 
-**Validação completa da AGENTS §5** em `17c43c9`, sob a trava `noite/pilha.lock`, com a
-pilha iniciada desta worktree (logs em `noite/racha-limpeza-evidencias/`): `db:reset` exit
-0, recriando somente pelas migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599
-testes. Os harnesses `db:test:idempotency`, `gateway`, `worker`, `deletion`, `export`,
-`invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`, `members`,
-`matches`, `match-players`, `ratings`, `teams`, `refunds` e `geocode` terminaram com exit
-0. `db:test:cors` caiu na primeira rodada com `fetch failed` (`other side closed`): o Edge
-local fechou uma conexão depois das cinco primeiras verificações, num harness que não lê
-este spec. A repetição isolada, no mesmo SHA, terminou com exit 0 e as 89 verificações HTTP
-do bloco final. `build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped; privacidade 5
-passed + 5 skipped; CORS 4 passed; grupos 121 passed + 5 skipped. `test:matches:web` rodou
-cinco vezes seguidas, sem `db:reset` entre elas, e teve 94 passed em todas: um usuário
-deixado pela limpeza derrubaria o censo inicial de `rachas-v1.spec.ts` na rodada seguinte.
-QR 30 passed; build smoke exit 0 e smoke 6 passed. `verify:app` exit 0, com 65 arquivos e
-782 testes unitários; `scan:docs` e `scan:secrets` exit 0 (511 arquivos); `test:audit`
-94/94; `test:staging` 102/102; `audit:high` exit 0, com uma exceção ativa; `git diff
---check` limpo. A contraprova, repetida depois do §5, teve 5 de 5 rodadas com `40P01` na
-ordem antiga, sempre com a limpeza parada em `delete from public.profiles`, e 5 de 5 com as
-duas transações commitadas na ordem nova. Censo final: zero usuários, perfis, grupos,
-rachas e registros de idempotência. Nenhum projeto Supabase remoto ou serviço de produção
-foi acessado.
+| Em voo | Limpeza | Resultado |
+|---|---|---|
+| leitura | antiga (`origin/main`) | `40P01` na limpeza, parada em `delete from public.profiles`, como em 08/11 |
+| leitura | `for update` (`17c43c9`) | as duas commitam |
+| mutação | `for update` (`17c43c9`) | `40P01` na limpeza, parada na trava de perfis: o P2 da revisão |
+| leitura | `for update nowait` | uma recusa, uma nova tentativa, as duas commitam |
+| mutação | `for update nowait` | uma recusa, uma nova tentativa, as duas commitam |
+
+Em todos os casos, o censo terminou sem os perfis da prova.
 
 `rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
 transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.
