@@ -1,5 +1,10 @@
 # Design system "Placar premium"
 
+**A referência atual de design é o [`DESIGN.md`](../DESIGN.md) da raiz (11/11/2026).** Este
+documento fica como histórico das decisões do "Placar premium" e não é mais atualizado. Onde
+ele e o `DESIGN.md` divergirem, vale o `DESIGN.md`; as divergências com o código estão listadas
+no fim dele.
+
 **Documento não normativo.** Registra o design system aplicado ao app em 13/10/2026.
 Não está em `docs/spec-manifest.sha256`. Requisitos, contratos e decisões continuam nos
 documentos normativos (`docs/01`–`docs/18`, `docs/22`, `docs/25`); onde este texto e um
