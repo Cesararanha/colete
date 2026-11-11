@@ -168,6 +168,60 @@ test('Ajustes: the first access takes the whole profile, with the edit rules', a
   }
 });
 
+test('Ajustes: invalid-profile focus does not redirect typing after the person changes fields', async ({
+  page,
+  request,
+}) => {
+  const db = new Client({ connectionString: env.dbUrl });
+  await db.connect();
+  const authIds: string[] = [];
+  try {
+    await page.clock.install();
+    const email = `${prefix}-foco@colete.test`;
+    const { id } = await createVerifiedUser(request, env, { email, name: 'Ana Souza', password });
+    authIds.push(id);
+    await login(page, email);
+    const shirt = page.getByTestId('complete-profile-shirt-number');
+    const nickname = page.getByTestId('complete-profile-nickname');
+    await expect(shirt).toBeVisible();
+    // Keep timers pending while real DOM input events and form validation run.
+    // This exercises a delayed focus, without replacing the form or its resolver.
+    // Pick a future instant before submitting, so the browser/driver round
+    // trip cannot turn the pause target into an already elapsed instant.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
+    await shirt.fill('100');
+    await page.getByTestId('complete-profile-submit').focus();
+    await page.getByTestId('complete-profile-submit').dispatchEvent('click');
+    await expect(page.getByText('Escolha um número de 0 a 99.')).toBeVisible();
+    const invalidFieldWasFocused = await shirt.evaluate(
+      (input) => input === document.activeElement,
+    );
+    await shirt.fill('10');
+    await nickname.fill('Aninha');
+    await expect(nickname).toBeFocused();
+    // Deliver the pending zero-delay callbacks after the person chose a field.
+    await page.clock.runFor(1);
+    await page.keyboard.type(' Silva');
+    // DOM input and the queued callback have both completed: read the actual
+    // typing destination, rather than polling until a later focus could hide it.
+    expect({
+      nickname: await nickname.inputValue(),
+      shirt: await shirt.inputValue(),
+      focused: await nickname.evaluate((input) => input === document.activeElement),
+      invalidFieldWasFocused,
+    }).toEqual({
+      nickname: 'Aninha Silva',
+      shirt: '10',
+      focused: true,
+      invalidFieldWasFocused: true,
+    });
+    await page.clock.resume();
+  } finally {
+    await cleanActors(authIds, db);
+    await db.end();
+  }
+});
+
 test('Ajustes: titles stand alone, hints are gone, and signing out is last and confirmed', async ({
   page,
   request,

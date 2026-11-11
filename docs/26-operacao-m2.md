@@ -4676,3 +4676,84 @@ Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body
 durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
+
+## Foco do primeiro acesso ao perfil (10/11/2026)
+
+Correção local sobre `f5756e6`, sem Pix, migration, contrato ou dependência nova.
+Na validação integrada dos PRs #99–#102, o primeiro caso de `ajustes-teste.spec.ts`
+ficou esperando `complete_profile`: o apelido estava vazio e a camisa continha
+`10Aninha`. A validação corretamente recusou o número; nenhuma chamada foi enviada.
+
+**Causa comprovada.** `ProfileCompletionForm` já tinha `shouldFocusError: false`,
+mas chamava `setFocus` pelo helper `focusFirstInvalid`. No React Hook Form 7.87.0
+instalado, o próprio `setFocus` agenda `fieldRef.focus()` em `setTimeout` sem atraso
+explícito. Portanto, desativar o refoco automático não removia esse segundo timer.
+O registro temporário de chamadas de foco, eventos de input e alertas, sem alterar
+o comportamento, acompanhou 30 execuções do caso original: todas passaram, mas em
+27 o timer tirou o foco do Apelido depois de `Aninha` já ter sido digitado. O trace
+da falha original pegou a janela anterior, entre focar o Apelido e inserir o texto.
+
+**Correção.** O formulário mantém refs dos três campos de texto, continua repassando
+as refs ao React Hook Form e foca diretamente o primeiro campo inválido no callback
+de validação. A ordem do primeiro erro e `shouldFocusError: false` são preservados;
+a ref é removida ao desmontar o campo. Não existe timer de foco nessa chamada.
+A edição do perfil usa outro caminho de foco e não foi alterada.
+
+**Prova de navegador.** Um caso novo em `e2e/ajustes-teste.spec.ts`, já incluído em
+`test:groups:web`, congela os timers antes do envio inválido, troca a camisa de 100
+para 10, preenche Apelido, libera os callbacks pendentes e continua digitando. Lê o
+conteúdo real dos dois inputs e o foco: `Aninha Silva` deve ficar no Apelido, camisa
+10 e Apelido focado. Também exige que o campo inválido tenha recebido foco antes da
+correção. Login, formulário, resolver e eventos de input são reais; somente o relógio
+do navegador é controlado. Não usa retry, sleep, aumento de timeout ou asserção menor.
+
+| Execução da prova final | Resultado medido |
+|---|---|
+| App antigo, mesmo e2e novo, 30 repetições por projeto Chromium | 60/60 falhas na asserção esperada: Apelido `Aninha`, camisa `10 Silva`, foco fora do Apelido |
+| App corrigido, mesmo e2e, 30 repetições por projeto | 60/60 aprovadas |
+| Caso original instrumentado no app corrigido, celular | 30/30 aprovadas; zero chamadas de foco da camisa vindas do Apelido |
+
+Uma primeira versão da prova usava `pauseAt(Date.now())` entre duas chamadas ao
+navegador. O IPC às vezes tornava o instante passado: a primeira contraprova teve
+43 desvios de digitação e 17 erros de relógio; a primeira rodada corrigida teve
+39 aprovados e 21 erros de relógio. Essas contagens não são a prova final. A preparação
+passou a congelar num instante futuro, antes do envio; a comparação da tabela foi
+refeita integralmente e não teve erro de relógio. O avanço ocorre antes do envio,
+não é espera por estado da aplicação.
+
+Instrumentação temporária removida do repositório. Evidências locais em
+`noite/perfil-foco-evidencias/`: `baseline-30.log`, `focus-before-*.json`,
+`prova-antigo-final-30.log`, `prova-corrigido-final-v2-30.log`,
+`original-corrigido-final-v2-30.log`, `focus-after-final-*.json` e traces. A instrumentação e os logs
+das builds comparadas estão preservados fora da árvore versionada.
+
+**Ajuste após a primeira validação completa.** Banco/API e todas as suítes de
+navegador passaram; `verify:app` parou no lint `react-hooks/refs`, que não aceita
+o acesso à ref no callback passado a `handleSubmit` durante o render. A criação
+do handler foi movida para o clique (`submit` chama `handleSubmit`), como já ocorre
+na edição do Perfil. Lint e tipos passaram. A versão final repetiu a prova: 60/60
+aprovadas e caso original 30/30, sem foco vindo do Apelido em nenhuma. Logs da
+primeira sequência em `noite/perfil-foco-evidencias/precommit/`; prova final em
+`proof-final-v2-results.jsonl`.
+
+**Validação antes do commit, versão final do callback.** Os 39 passos do runner
+AGENTS §5 terminaram com exit 0 na última execução de cada passo: reset até `0035`;
+pgTAP 33 arquivos / 2.599 asserções; os 19 harnesses de API/banco; build Auth;
+auth 12 aprovados + 2 pulados, privacidade 5 + 5, CORS 4, grupos 123 + 5, rachas 94,
+QR 30 e smoke 6. `verify:app` aprovado: lint, formato, tipos, 65 arquivos / 782
+unitários, build, PWA, Auth e scans. Testes de auditoria 94/94, staging 102/102,
+`audit:high` exit 0 com uma exceção ativa, diff limpo. Censo final: zero usuários,
+perfis, grupos, rachas e idempotências.
+
+A rodada não foi contínua sem falha: `test:matches:web` deu 92 aprovados + 2 falhas.
+O primeiro erro foi o deadlock já conhecido da `main`, no delete de perfis da
+limpeza de `racha-completo` (tratado no PR #102, ainda fora desta base). Os dois
+usuários residuais causaram a segunda falha, no censo de `rachas-v1`. Após reset e
+build Auth, a suíte inteira foi repetida uma vez no mesmo código: 94/94. Os passos
+1–26 aprovados foram preservados pelo journal, e 27–39 concluíram na retomada.
+Não foi importada a correção do #102 nem acrescentado retry. Logs e traces da
+falha estão em `precommit-v2/27-test-matches-web-first.log` e
+`deadlock-precommit-v2/`, sob a pasta de evidências; resultados por comando em
+`precommit-v2/results.jsonl`. A rodada anterior, antes do ajuste de lint, está
+separada em `precommit/` e parou nessa verificação. A validação no SHA publicado
+é registrada no corpo do PR. Sem acesso a ambiente remoto, segredo real ou deploy.

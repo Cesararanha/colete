@@ -12,8 +12,7 @@ import { privateQueryKeys } from '@/lib/private-queries';
 import { profilePatchSchema } from '@/lib/profile-schema';
 import { spacing } from '@/theme/spacing';
 
-import { ProfileFields } from '../profile/ProfileFields';
-import { focusFirstInvalid } from './form-utils';
+import { ProfileFields, type ProfileTextField } from '../profile/ProfileFields';
 import { FormAlert } from './FormAlert';
 import { authErrorMessage } from './messages';
 import { completionInput } from './profile-completion';
@@ -33,12 +32,12 @@ export function ProfileCompletionForm({
   onCompleted: () => void;
 }) {
   const queryClient = useQueryClient();
+  const inputRefs = useRef<Partial<Record<ProfileTextField, TextInput>>>({});
   const intent = useRef<MutationIntent<unknown> | null>(null);
   const [lastValues, setLastValues] = useState<ProfilePatch | null>(null);
   const {
     control,
     handleSubmit,
-    setFocus,
     formState: { errors },
   } = useForm<ProfilePatch>({
     defaultValues: {
@@ -51,8 +50,8 @@ export function ProfileCompletionForm({
     mode: 'onBlur',
     reValidateMode: 'onChange',
     resolver: zodResolver(completionSchema),
-    // focusFirstInvalid moves the focus; React Hook Form's own later refocus
-    // would take it back from a radio the person already moved to.
+    // The form focuses its own input ref. Both React Hook Form's automatic
+    // refocus and setFocus defer to a timer, which can redirect later typing.
     shouldFocusError: false,
   });
 
@@ -68,18 +67,24 @@ export function ProfileCompletionForm({
     },
   });
 
-  const submit = handleSubmit(
-    (values) => completion.mutate(values),
-    (invalid) => focusFirstInvalid(invalid, setFocus),
-  );
+  const submit = () =>
+    handleSubmit(
+      (values) => completion.mutate(values),
+      (invalid) => {
+        const first = Object.keys(invalid)[0] as ProfileTextField | undefined;
+        if (first !== undefined) inputRefs.current[first]?.focus();
+      },
+    )();
   const canRetry =
     completion.error instanceof TransportError ||
     (completion.error instanceof AppError && completion.error.retryable);
-  // react-hook-form keeps its own refs for setFocus; nothing else to track.
   const registerInput =
-    (_name: string, formRef: (instance: TextInput | null) => void) =>
-    (instance: TextInput | null) =>
+    (name: ProfileTextField, formRef: (instance: TextInput | null) => void) =>
+    (instance: TextInput | null) => {
       formRef(instance);
+      if (instance === null) delete inputRefs.current[name];
+      else inputRefs.current[name] = instance;
+    };
 
   return (
     <View style={styles.form}>
