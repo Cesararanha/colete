@@ -1,3 +1,4 @@
+import { beginCleanup } from './support/cleanup';
 import { expect, test, type APIRequestContext, type Page } from './support/csp';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -68,32 +69,25 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   );
   const ids = profiles.rows.map((row: { id: string }) => row.id);
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
-  // A read still in flight from the closed page (the organization's rating
-  // count, 0031) locks profile then group, the app's order; this cleanup
-  // deletes groups before profiles. When Postgres picks the cleanup as the
-  // deadlock victim (40P01), the whole transaction runs again.
-  for (let attempt = 1; ; attempt += 1) {
-    await db.query('begin');
-    try {
-      await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
-        ids,
-      ]);
-      await db.query(
-        `delete from private.match_players where match_id in
-             (select id from private.matches where group_id in (${groups}))`,
-        [ids],
-      );
-      await db.query(`delete from private.matches where group_id in (${groups})`, [ids]);
-      await db.query(`delete from public.group_invites where group_id in (${groups})`, [ids]);
-      await db.query(`delete from public.group_members where group_id in (${groups})`, [ids]);
-      await db.query('delete from public.groups where owner_id = any($1::uuid[])', [ids]);
-      await db.query('delete from public.profiles where id = any($1::uuid[])', [ids]);
-      await db.query('commit');
-      break;
-    } catch (error) {
-      await db.query('rollback');
-      if ((error as { code?: string }).code !== '40P01' || attempt === 3) throw error;
-    }
+  await beginCleanup(db, ids);
+  try {
+    await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
+      ids,
+    ]);
+    await db.query(
+      `delete from private.match_players where match_id in
+           (select id from private.matches where group_id in (${groups}))`,
+      [ids],
+    );
+    await db.query(`delete from private.matches where group_id in (${groups})`, [ids]);
+    await db.query(`delete from public.group_invites where group_id in (${groups})`, [ids]);
+    await db.query(`delete from public.group_members where group_id in (${groups})`, [ids]);
+    await db.query('delete from public.groups where owner_id = any($1::uuid[])', [ids]);
+    await db.query('delete from public.profiles where id = any($1::uuid[])', [ids]);
+    await db.query('commit');
+  } catch (error) {
+    await db.query('rollback');
+    throw error;
   }
   for (const id of authIds) {
     const response = await fetch(`${env.apiUrl}/auth/v1/admin/users/${id}`, {

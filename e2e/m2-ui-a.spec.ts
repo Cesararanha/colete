@@ -1,3 +1,4 @@
+import { beginCleanup } from './support/cleanup';
 import {
   expect,
   request as apiRequest,
@@ -177,7 +178,7 @@ async function cleanActors(authIds: string[], db: pg.Client) {
     [authIds],
   );
   const ids = profiles.rows.map((row: { id: string }) => row.id);
-  await db.query('begin');
+  await beginCleanup(db, ids);
   try {
     await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
       ids,
