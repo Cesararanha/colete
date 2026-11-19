@@ -32,7 +32,7 @@ Studio/OAuth/SMS/S3 no config local não são secrets exigidos pelo app.
 | `SUPABASE_PUBLISHABLE_KEY` / fallback `SUPABASE_ANON_KEY` | `_shared/edge-gateway.ts:55`, `data-exports/index.ts:16` | Edge, variáveis da plataforma | Supabase; César confere | Chave publicável ou anon legada da plataforma; sem ambas o handler não inicia. Não setar nomes reservados manualmente. |
 | `SUPABASE_SECRET_KEY` / fallback `SUPABASE_SERVICE_ROLE_KEY` | `_shared/edge-gateway.ts:58`, `data-exports/index.ts:17`, `worker/index.ts:149–150` | Somente Edge, variáveis da plataforma | Supabase; César confere | Credencial backend; nunca Vercel/app. Worker prefere JWT service_role para provedores Auth/Storage se disponível. Sem ambas não executa RPCs. |
 | `IDEMPOTENCY_HMAC_KEY_V1` | `_shared/hmac.ts:87`, `_shared/edge-gateway.ts:60` | Edge secrets | César, custódia privada | Chave própria de 32 bytes em 64 caracteres hex; resolução por versão. Falta impede operações idempotentes. Não colocar no Vault/banco. |
-| `PIX_KEY_ENC_KEY_V1` | `_shared/pix.ts:193`, `_shared/edge-gateway.ts:239` | Edge secrets | César, custódia privada | Exatamente 32 bytes aleatórios em base64url (43 caracteres, sem padding); cifra a chave Pix do racha (AES-256-GCM, `0036`). Falta ou forma inválida: gravar responde `INTERNAL` antes da RPC; ler responde `INTERNAL` só a quem pode ler, depois da autorização; remover continua funcionando. A versão está fixa em 1 no CHECK e na RPC: girar para V2 exige migration que aceite a versão 2 e um resolvedor por versão no Edge. Chave distinta das outras; nunca no banco, no Vault ou no app. Perdê-la torna ilegíveis os Pix gravados (o organizador grava de novo). Ainda fora do arquivo de 4.4: César inclui antes de usar o Pix no staging. |
+| `PIX_KEY_ENC_KEY_V1` | `_shared/pix.ts:193`, `_shared/edge-gateway.ts:239` | Edge secrets | César, custódia privada | Exatamente 32 bytes aleatórios em base64url (43 caracteres, sem padding); cifra a chave Pix do racha (AES-256-GCM, `0036`). Falta ou forma inválida: gravar responde `INTERNAL` antes da RPC; ler responde `INTERNAL` só a quem pode ler, depois da autorização; remover continua funcionando. A versão está fixa em 1 no CHECK e na RPC: girar para V2 exige migration que aceite a versão 2 e um resolvedor por versão no Edge. Chave distinta das outras; nunca no banco, no Vault ou no app. Perdê-la torna ilegíveis os Pix gravados (o organizador grava de novo). Gerada uma única vez em §3 (`pix-enc`) e enviada pelo arquivo de 4.4. |
 | `INVITE_HMAC_KEY_V1` | `_shared/invite-gateway.ts:452` | Edge secrets | César; dono da custódia aprovado antes do deploy | Exatamente 32 bytes, base64url canônico sem padding (43 caracteres); falta/forma inválida impede convites. Chave distinta da idempotência; nunca no banco. |
 | `INVITE_SHARE_URL_BASE` | `_shared/edge-gateway.ts:205` | Edge secrets, depois do domínio final e antes de usar o app | César | Origem estável HTTPS `https://example.com`, sem barra final/path/query/fragmento/credenciais; falta/erro impede emitir convite. |
 | `APP_ALLOWED_ORIGINS` | `_shared/browser-cors.ts:25` | Edge secrets, depois do domínio final e antes de usar o app | César | Lista por vírgula de origens HTTPS exatas. Espaços em volta de cada item removidos; vazio, espaço interno ou item inválido invalidam tudo. No staging: o endereço estável do app `*.vercel.app`, sem barra final. Ausente: app abre, mas ações do navegador nas Edge não funcionam. Sem wildcard nem origem automática de previews. |
@@ -123,6 +123,14 @@ openssl rand -hex 32 > "$PRIVATE_CONFIG_DIR/worker-cron"
 ```
 
 Resultado: secret independente; César transfere privadamente para Edge e Vault.
+
+```sh
+test -e "$PRIVATE_CONFIG_DIR/pix-enc" || openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n' > "$PRIVATE_CONFIG_DIR/pix-enc"
+```
+
+Resultado: 43 caracteres base64url sem padding, chave distinta das outras. O
+`test -e` impede gerar uma segunda chave por cima da primeira: com chave nova,
+todo Pix já gravado fica ilegível e cada organizador precisa gravar o seu de novo.
 Não executar antes de definir diretório privado existente e custódia.
 
 ## 4. Supabase manual e PWA automático, de cima para baixo
@@ -176,13 +184,15 @@ de seguir; senha do banco só no prompt privado. Não passar segredo em argument
 npx supabase migration list --linked
 ```
 
-Esperado: projeto novo, migrations locais 0001–0020 e nenhuma história divergente.
+Esperado: projeto novo, migrations locais da 0001 até a última do commit revisado e
+nenhuma história divergente.
 
 ```sh
 npx supabase db push --linked --dry-run
 ```
 
-Esperado: somente 0001–0020, sem seed nem SQL adicional. Se divergir, parar.
+Esperado: somente as migrations locais, da 0001 até a última do commit revisado, sem
+seed nem SQL adicional. Se divergir, parar.
 
 ```sh
 npx supabase db push --linked
@@ -206,7 +216,7 @@ restrito a César e dados fictícios. Antes de convidar, resolver a seção 6.
 ### 4.4 Secrets privados e publicação manual das funções
 
 César exporta PRIVATE_CONFIG_DIR e STAGING_EDGE_ENV_FILE, conforme seção 3, fora
-do checkout. Os três arquivos da seção 3 já existem e têm cópia cifrada de recuperação.
+do checkout. Os quatro arquivos da seção 3 já existem e têm cópia cifrada de recuperação.
 Somente César monta o arquivo 0600, sem imprimir valores ou incluí-los no histórico:
 
 ```sh
@@ -216,7 +226,8 @@ import os
 from pathlib import Path
 root = Path(os.environ['PRIVATE_CONFIG_DIR'])
 names = {'IDEMPOTENCY_HMAC_KEY_V1': 'idempotency-hmac',
-         'INVITE_HMAC_KEY_V1': 'invite-hmac', 'WORKER_CRON_SECRET': 'worker-cron'}
+         'INVITE_HMAC_KEY_V1': 'invite-hmac', 'WORKER_CRON_SECRET': 'worker-cron',
+         'PIX_KEY_ENC_KEY_V1': 'pix-enc'}
 lines = []
 for name, filename in names.items():
     value = (root / filename).read_text().strip()
@@ -229,7 +240,7 @@ PYTHON
 npx supabase secrets set --env-file "$STAGING_EDGE_ENV_FILE" --project-ref "$STAGING_PROJECT_REF" && rm -- "$STAGING_EDGE_ENV_FILE"
 ```
 
-Esperado: somente os três nomes privados configurados. Não incluir
+Esperado: somente os quatro nomes privados configurados. Não incluir
 COLETE_LOCAL_STACK nem variáveis reservadas SUPABASE_. Conferir fallbacks da plataforma.
 APP_ALLOWED_ORIGINS e INVITE_SHARE_URL_BASE entram em 4.6, **depois** que existir
 endereço final e **antes** de usar o app. Até lá o CORS falha fechado: app pode
@@ -278,8 +289,10 @@ Esperado, agendas ativas (UTC): process_external_effects cada minuto;
 health_check_jobs a cada 5 minutos; purge_expired_revoked_sessions minuto 17 de
 cada hora; purge_expired_idempotency_outcomes 03:23; purge_completed_deletion_requests
 03:43; expire_data_exports minuto 7 de cada hora; purge_removed_memberships e
-purge_terminal_group_invites 03:53; purge_invite_rate_limits cada minuto.
-Nomes prefixados `colete_v1_`. Fontes: 0011,0012,0013,0016,0017; 0014 atualiza o
+purge_terminal_group_invites 03:53; purge_invite_rate_limits cada minuto;
+reclaim_photo_uploads a cada 5 minutos; purge_ratings e purge_match_pix 03:53.
+São 12 agendas, prefixadas `colete_v1_`. Fontes: 0011, 0012, 0013, 0016, 0017,
+0030, 0031 e 0036; 0014 atualiza o
 despacho e os três secrets. Conferir contagens/status de job_runs sem payload,
 credencial ou mensagem livre; ausência de execução/efeitos dead bloqueia smoke.
 
@@ -326,11 +339,12 @@ Antes de importar, conferir que main contém esta preparação revisada.
    npx supabase secrets set --env-file "$STAGING_EDGE_ENV_FILE" --project-ref "$STAGING_PROJECT_REF" && rm -- "$STAGING_EDGE_ENV_FILE"
    ```
 
-   secrets set acrescenta esses nomes sem remover os três anteriores.
+   secrets set acrescenta esses nomes sem remover os quatro anteriores.
    Ordem obrigatória: **domínio existe → duas origens na Edge → Site URL/redirects
    exatos em Auth → checker → usar app**. Nunca wildcard, barra final ou preview.
 7. Rodar 4.7 e smoke no celular. Próximos merges publicam PWA automaticamente;
-   César aplica backend manualmente antes do merge que depender dele. Sem workflow
+   César aplica backend manualmente antes do merge que depender dele, pelo
+   roteiro de 4.8. Sem workflow
    GitHub de deploy, token Vercel ou deploy pelo agente.
 
 O build recusa URL não exata, wildcard, path, query, fragmento, credenciais e HTTP
@@ -375,6 +389,70 @@ sessão devem ser recusados antes de atingir domínio. CSP inteira comparada dir
 diferença mais frouxa ou mais restrita reprova. Share base é **entrada do operador**,
 não leitura do secret publicado: conferir o endereço do convite real no smoke.
 O operador confere também os gates abaixo. Provas locais não atestam o ambiente hospedado.
+
+### 4.8 Backend antes de cada merge que depende dele
+
+O merge na `main` publica o PWA sozinho, em poucos minutos (4.6). Migrations,
+funções e secrets não acompanham: se o PR traz qualquer um deles e o backend não
+foi aplicado antes, a versão nova do app chama RPC, coluna ou rota que ainda não
+existe. Foi o que aconteceu com a `0033`, a `0034` e a `0035` (#92, #96 e #97):
+entraram na `main` sem backend e só foram aplicadas em 17/11/2026, junto com a
+`0036` do Pix, quando a lista de migrations mostrou as quatro pendentes.
+
+**Quando vale:** o PR altera `supabase/migrations/**` ou `supabase/functions/**`,
+ou acrescenta um nome à tabela da seção 2. PR só de app, teste ou documento
+não precisa deste roteiro.
+
+**Compatibilidade:** até o deploy da Vercel terminar, quem já está com o app
+aberto continua na versão anterior. Migration que só acrescenta é compatível.
+Se o PR remove, renomeia ou muda o contrato de algo que a versão em produção
+ainda usa, **PERGUNTA:** parar antes do merge e combinar a ordem.
+
+César roda, num checkout limpo do SHA final revisado do PR, depois de `npm ci`
+e do `link` de 4.2:
+
+1. **Secret novo, se houver.** Gerar em §3 e enviar só o nome novo, no formato
+   do arquivo de 4.4. `npx supabase secrets list --project-ref "$STAGING_PROJECT_REF"`
+   mostra só nomes e resumos, nunca valores.
+2. **O que falta no banco.**
+
+   ```sh
+   npx supabase migration list --linked
+   ```
+
+   Esperado: pendentes só as migrations do PR. Se aparecer outra pendente, o
+   backend já estava atrasado em relação à `main`: parar e descobrir de qual PR
+   ela veio antes de aplicar qualquer coisa.
+3. **Backup, se houver migration.** Precisa do Docker aberto. Os arquivos
+   contêm dados pessoais: ficam só no diretório privado, nunca no repositório,
+   em chat ou em nuvem pública.
+
+   ```sh
+   umask 077
+   npx supabase db dump --linked -f "$PRIVATE_CONFIG_DIR/backup-$(date +%F)-estrutura.sql"
+   npx supabase db dump --linked --data-only -f "$PRIVATE_CONFIG_DIR/backup-$(date +%F)-dados.sql"
+   ```
+
+   Esperado: dois arquivos não vazios. Uma queda de conexão no meio (`SSL SYSCALL
+   error: EOF`) não deixa estado parcial no projeto: repetir o comando.
+4. **Aplicar as migrations.**
+
+   ```sh
+   npx supabase db push --linked --dry-run
+   npx supabase db push --linked
+   ```
+
+   Esperado: o ensaio lista exatamente as migrations do passo 2, e a aplicação
+   termina sem erro.
+5. **Publicar as funções** que o PR altera, com os comandos de 4.4. Na dúvida,
+   publicar as quatro: o deploy é idempotente.
+6. **Agendas, se a migration criar alguma.** Rodar a consulta de 4.5 e conferir
+   a agenda nova ativa.
+7. **Merge** do PR e, com o deploy da Vercel aprovado, smoke curto da função nova
+   no celular, só com contas fictícias.
+
+Agentes não executam nenhum passo deste roteiro (AGENTS §8): no PR, só apontam
+que ele precisa de backend e quais migrations, funções e secrets entram.
 
 ## 5. Smoke manual em celular (só contas fictícias)
 
