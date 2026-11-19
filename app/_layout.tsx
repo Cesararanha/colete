@@ -4,10 +4,10 @@ import { Barlow_700Bold } from '@expo-google-fonts/barlow/700Bold';
 import { BarlowCondensed_700Bold } from '@expo-google-fonts/barlow-condensed/700Bold';
 import { FontDisplay, useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
+import { Platform } from 'react-native';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SessionLifecycle } from '@/features/auth/SessionLifecycle';
 import '@/lib/app-focus';
@@ -35,6 +35,7 @@ function ThemedRoutes() {
       </Head>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack
+        {...(Platform.OS === 'web' ? { activityEnabled: false } : {})}
         screenOptions={{ contentStyle: { backgroundColor: colors.background }, headerShown: false }}
       >
         <Stack.Screen name="criar-racha" options={{ presentation: 'modal' }} />
@@ -50,11 +51,9 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionLifecycle />
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <ThemedRoutes />
-        </ThemeProvider>
-      </SafeAreaProvider>
+      <ThemeProvider>
+        <ThemedRoutes />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

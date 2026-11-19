@@ -1,5 +1,5 @@
 import { useId, useRef } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { AppIcon } from '@/components/ui/AppIcon';
 import { useSurfaceLayer } from '@/components/ui/SurfaceContext';
@@ -37,7 +37,7 @@ export function ProfileChoiceField<T extends string>({
   const fieldId = useId().replace(/[^A-Za-z0-9_-]/gu, '');
   const labelId = `profile-choice-${fieldId}-label`;
   const hintId = `profile-choice-${fieldId}-hint`;
-  const radios = useRef<(View | null)[]>([]);
+  const radios = useRef<(ViewInstance | null)[]>([]);
   const choices: Option<T>[] = [...options, { label: noneLabel, value: null }];
   const current = value ?? null;
   const checkedIndex = Math.max(

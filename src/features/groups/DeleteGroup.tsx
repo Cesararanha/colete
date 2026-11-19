@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, type TextInputInstance, View } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -42,7 +42,7 @@ export function DeleteGroup({
   // Polimento final (BB-005): the field says what to type, and a press with a
   // wrong name says why nothing happened, instead of a silent locked button.
   const [mismatch, setMismatch] = useState(false);
-  const field = useRef<TextInput>(null);
+  const field = useRef<TextInputInstance>(null);
   const confirmed = deleteConfirmed(typed, name);
   const removal = useMutation({
     mutationFn: () => {

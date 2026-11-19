@@ -1996,3 +1996,212 @@ PR pronto para revisão ou `workflow_dispatch`.
 `scripts/test-audit-needed.mjs` não verifica a condição de `Database security`
 e não precisa de ajuste. `docs/25` §8.1 descreve a regra de 06/11 e não foi
 alterado: a pausa é temporária e fica registrada aqui e em AGENTS §5.
+
+## Expo 58 e fim da exceção de decode-uri-component
+
+Atualização de 19/11/2026 na branch `chore/expo-58`, preservando o WIP
+publicado `e34db1b`. `origin/main` (`dda7476`) foi integrado pelo merge
+`cc7dc22`, incluindo o foco próprio do formulário de conclusão do perfil
+(#103), o `DESIGN.md` (#104), react-hook-form 7.92.0 (#48) e Actions (#64).
+Os refs novos do #103 usam `TextInputInstance`, como exige React Native 0.88;
+não houve mudança da regra de foco.
+
+O SDK é Expo 58.0.26, expo-router 58.0.32, React 19.3.0 e React Native 0.88.1,
+com versões exatas. `expo install --check` aprovou o alinhamento, e
+`expo-doctor` aprovou **20/20** verificações. Supabase CLI permanece em
+**2.118.0**. Ambiente medido: Node **24.15.0**, npm **11.14.1**, macOS.
+A pilha local foi parada e iniciada por esta worktree para montar suas funções.
+
+### Árvore e auditoria
+
+Antes, na cópia descartável de `origin/main`, `npm ls decode-uri-component`
+retornou exit 0:
+
+```text
+colete@0.0.1
+└─┬ expo-router@57.0.17
+  └─┬ query-string@7.1.3
+    └── decode-uri-component@0.2.2
+```
+
+Depois, na worktree Expo 58, o mesmo comando retornou exit 1, esperado para
+pacote ausente:
+
+```text
+colete@0.0.1
+└── (empty)
+```
+
+`audit-exceptions.json` fica em `[]`: o WIP já removeu a exceção órfã de
+GHSA-qr28-fpjm-wq7f. `audit:high` aprovou com **zero exceções ativas**.
+Isso encerra a exceção decidida em 06/11/2026, antes do vencimento de
+05/12/2026 às 21h de Brasília, sem renovação, override ou mudança do limiar.
+`yaml` 2.9.0 continua declarado diretamente para os testes do seletor de auditoria.
+
+### Aplicação do guia e contraprovas
+
+Referências: [migração do Router 57→58](https://docs.expo.dev/router/migrate/sdk-57-to-58/),
+[Root HTML e metadados estáticos](https://docs.expo.dev/router/web/static-rendering/)
+e [safe areas na web](https://docs.expo.dev/develop/user-interface/safe-areas/).
+
+- **Documento e hidratação.** `app/+html.tsx` usa
+  `useServerDocumentContext()`, espalha os atributos do documento e renderiza
+  `headNodes` no head e `bodyNodes` depois de children. Conserva idioma,
+  tema, metas, ícones, manifest, captura do fragmento do convite, registro do
+  service worker e rolagem interna. Antes da correção, o export 58 de
+  criar-conta tinha **zero títulos e zero scripts externos**: o cadastro
+  aparentava funcionar, mas não tinha hidratação para enviar o formulário.
+  A suíte Auth reproduziu **12 falhas e 2 skips previstos**, inclusive a URL
+  presa em `/criar-conta`, `aria-describedby` e alertas sem atualização.
+  A correção restaura os scripts, eventos e validação; nenhum teste existente
+  de cadastro, alerta ou associação de erro foi relaxado.
+- **Metadados.** As **24 rotas do app** exportam `generateMetadata()` com os
+  títulos anteriores. `Head` continua nos shells e na vitrine para as mudanças
+  no cliente e títulos que dependem do estado, como a data do racha, conclusão
+  do perfil e exclusão. No 57, criar-conta exportava
+  `<title data-rh="true">Criar conta · Colete</title>`; no 58 corrigido exporta
+  `<title>Criar conta · Colete</title>`. O novo caso em `test:auth:web` lê os
+  HTMLs sem executar JavaScript e exige título, script, idioma e tema para
+  todas as 24 rotas. Para detalhe de grupo, lê o arquivo `.html` exportado:
+  existe também um diretório de filhos, sem `index.html`; o servidor local
+  já usa o fallback do app para a URL dinâmica limpa.
+- **Cadastro antes/depois.** O mesmo e2e existente foi executado na main com
+  SDK 57: **12 aprovados e 2 skips previstos**, incluindo cadastro real,
+  OTP do Mailpit, conclusão do perfil, sessão, foco e acessibilidade. A cópia
+  ficou somente em `.expo/sdk57-baseline`, sem modificar a main. No 58,
+  a prova final abaixo inclui os mesmos casos e a prova nova de HTML.
+- **Rotas assíncronas.** Prova em contextos novos, após carregar Entrar,
+  instalar o service worker, recarregar e desligar a rede: o 57 abriu Criar
+  conta ainda não visitada; o 58 com o padrão assíncrono falhou ao buscar
+  `/_expo/static/js/web/criar-conta-<hash>.js`. O worker só guarda assets já
+  pedidos e não faz precache. César autorizou explicitamente, nesta sessão,
+  **`asyncRoutes.web: false` para preservar a navegação offline atual**.
+  `app.json` fixa essa opção; não se ampliou o cache para HTML, dados privados
+  ou precache. O novo caso do smoke exige a rota não visitada offline, título
+  atualizado e campo interativo. Exportações usam `--clear`. Os hashes CSP
+  continuam derivados de todos os scripts inline do export por
+  `scripts/staging-headers.mjs`; não foi necessário relaxar a política nem
+  mudar o service worker ou `verify:pwa`.
+- **Safe areas.** `AppSafeArea` mantém a biblioteca no nativo e usa `View`
+  com CSS `env(safe-area-inset-*)` na web. O seletor `html [data-safe-area]`
+  prevalece sobre o reset `padding: 0` do React Native Web emitido depois
+  pelo Router; o smoke injeta quatro insets não nulos na mesma regra para
+  provar a cascata. Os cinco consumidores anteriores
+  usam esse componente. Removido o provider adicional da raiz: Expo Router
+  já fornece o provider e o 58 evita medições web que descartem conteúdo
+  durante a hidratação em streaming. Nenhum token ou valor visual foi alterado.
+  Comparação de capturas de Criar conta no 57 e no 58 corrigido: **0 pixels
+  diferentes** em **390×844** (329.160 pixels) e **1280×800** (1.024.000 pixels).
+  `DESIGN.md` permanece igual ao de `origin/main`.
+- **Ciclo de vida da navegação.** O SDK 58 ativa Activities por padrão
+  (limiar 2 nos Stacks e 1 nas Tabs). A prova de exclusão expôs dois títulos
+  e dois conjuntos de controles de “Exclusão em andamento”; a contraprova
+  isolada no 57 passou. A prova de foto também encontrou o avatar da tela
+  anterior sem a atualização, pois seus efeitos estavam suspensos. Os cinco
+  Stacks e as Tabs passam `activityEnabled: false` somente na web para
+  conservar a montagem e os efeitos das telas do 57. Além disso, o 57 aplicava
+  `aria-hidden` às cenas inativas; o 58 usa `inert` e z-index, mas os seletores
+  acessíveis ainda encontravam os títulos da aba anterior (também o título
+  de grupo antes da semana na Agenda). `FocusedScreen`, no shell autenticado,
+  restaura `aria-hidden` sem caixa de layout (`display: contents`). Não se
+  mudou o display das cenas. No nativo conserva-se o padrão do SDK. Os testes
+  existentes de exclusão, foto e prévia não foram alterados.
+- **Fragmento de convite.** No 58, o adaptador de histórico lê a URL no
+  `popstate` e aplica a navegação em fila. Na navegação de fragmento dentro
+  de `/join`, ele podia capturar o token antes do `hashchange` limpá-lo e
+  reintroduzi-lo depois. Os casos existentes de convite detectaram o hash
+  residual. O script antecipado do `+html.tsx` captura também `popstate`,
+  antes de o Router assinar esse evento: o token fica somente nos destinos
+  de memória e sessionStorage já existentes. Nenhum teste de vazamento foi
+  relaxado, e os hashes CSP continuam gerados a partir do script real.
+- **Navegação e APIs restantes.** Todos os destinos já usam hrefs completos,
+  incluindo IDs de grupo/racha e parâmetros de modal. As três abas já estão
+  declaradas. Perfil é omitido pela barra personalizada; no expo-router
+  58.0.32, adicionar `href: null` o torna `hidden` e redireciona quando focado
+  (`useVisibleTabsWithRedirect`). A prova de Auth flagrou o avatar voltando a
+  Grupos. Por isso conserva-se a declaração anterior, com comentário, sem
+  `href: null`: o comportamento e a barra permanecem iguais. A busca em `app`
+  e `src` não encontrou `initialRouteName`, `initialParams`, `Screen.redirect`,
+  `navigation.dispatch`, `navigationKey`, `freezeOnBlur`, `useNavigation`,
+  prevent-remove, APIs de Router testing-library ou flags experimentais de
+  servidor a migrar. Os headers nativos continuam ocultos; não há NativeTabs
+  nem integração customizada de estado de navegação.
+
+### Validação do §5
+
+| Comando | Resultado medido |
+| --- | --- |
+| `npm run db:reset` | exit 0 |
+| `npm run db:test` | 2.793 testes em 34 arquivos; exit 0 |
+| `npm run db:test:idempotency` | 7 blocos `ok`; exit 0; 25 conexões independentes |
+| `npm run db:test:gateway` | 9 blocos `ok`; exit 0 |
+| `npm run db:test:cors` | 6 blocos `ok`; exit 0; 89 verificações HTTP |
+| `npm run db:test:worker` | 8 blocos `ok`; exit 0 |
+| `npm run db:test:deletion` | 10 blocos `ok`; exit 0 |
+| `npm run db:test:export` | 32 blocos `ok`; exit 0 |
+| `npm run db:test:invites` | 68 blocos `ok`; exit 0 |
+| `npm run db:test:groups` | 29 blocos `ok`; exit 0 |
+| `npm run db:test:membership` | 77 blocos `ok`; exit 0 |
+| `npm run db:test:rename` | 11 blocos `ok`; exit 0 |
+| `npm run db:test:group-deletion` | 13 blocos `ok`; exit 0 |
+| `npm run db:test:photos` | 21 blocos `ok`; exit 0 |
+| `npm run db:test:members` | 6 blocos `ok`; exit 0 |
+| `npm run db:test:matches` | 15 blocos `ok`; exit 0 |
+| `npm run db:test:match-players` | 35 blocos `ok`; exit 0 |
+| `npm run db:test:ratings` | 8 blocos `ok`; exit 0 |
+| `npm run db:test:teams` | 9 blocos `ok`; exit 0 |
+| `npm run db:test:refunds` | 8 blocos `ok`; exit 0 |
+| `npm run db:test:pix` | 13 blocos `ok`; exit 0 |
+| `npm run db:test:geocode` | 7 blocos `ok`; exit 0 |
+
+| Comando | Resultado medido |
+| --- | --- |
+| `npm run build:web:auth-e2e` | exit 0; export local com CSP real |
+| `npm run test:auth:web` | 14 aprovados; 2 skips previstos; exit 0 |
+| `npm run test:privacy:web` | 5 aprovados; 5 skips previstos; exit 0 |
+| `npm run test:cors:web` | 4 aprovados; exit 0 |
+| `npm run test:groups:web` | 125 aprovados; 5 skips previstos; exit 0 |
+| `npm run test:matches:web` | 96 aprovados; exit 0 |
+| `npm run test:qr:web` | 30 aprovados em Chromium e WebKit; exit 0 |
+| `npm run build:web:smoke` | exit 0; export e headers gerados |
+| `npm run test:smoke:web` | 10 aprovados; exit 0 |
+| `npm run verify:app` | exit 0: lint, formato, tipos, 808 testes em 68 arquivos, export, PWA, Auth e scans |
+| `npm run scan:docs` | 23 arquivos; exit 0 |
+| `npm run scan:secrets` | 527 arquivos; exit 0 |
+| `npm run test:audit` | 94 aprovados; zero falhas ou skips; exit 0 |
+| `npm run test:staging` | 102 aprovados; zero falhas ou skips; exit 0 |
+| `npm run audit:high` | exit 0; zero exceções ativas |
+| `git diff --check` | exit 0 |
+
+Os skips são os casos já limitados ao projeto móvel nas suítes existentes;
+nenhum skip novo, retry automático, timeout ou asserção relaxada. Os casos
+novos entram nas suítes Auth e smoke já registradas no §5 e na CI. Todos os
+casos de navegador usam a guarda de CSP, sem exceção nova de script/style.
+`expo install --check` e `expo-doctor` foram conferidos novamente após as
+correções: dependências alinhadas e **20/20** verificações aprovadas.
+
+A tabela registra a execução sequencial de preparação da árvore entregue.
+A repetição integral no SHA entregue fica em
+`.expo/expo58-evidence/section5-final/results.json`, junto do SHA em `sha.txt`;
+as provas de investigação, preparação, HTML e capturas ficam em
+`.expo/expo58-evidence/`. Não se contam resultados do 57 como validação do 58.
+Na investigação, um `test:staging` exploratório falhou porque a porta 4173
+estava ocupada pelo servidor de Auth: 101/102. Depois de `db:reset`, a rodada
+sequencial aprovou 102/102, sem alterar o teste ou o servidor. As outras falhas
+da investigação são as regressões de hidratação, aba oculta, Activities,
+acessibilidade das abas e fragmento descritas acima, corrigidas no código.
+
+Censo local após as suítes, **sem reset para esconder resíduos**:
+`auth.users=0`, `public.profiles=0`, `public.groups=0`, `private.matches=0` e
+`private.idempotency_records=0`. Também zerados `public.group_members`,
+`public.group_invites`, `private.match_players` e
+`private.match_payment_secrets`. O banco foi recriado somente pelas migrations.
+Os logs de auditoria do GoTrue preservados pelos harnesses seguem a exceção
+histórica documentada nas respectivas provas; não representam usuários ou
+registros de domínio residuais.
+
+Fatia de **risco alto**, por framework de login, sessão, dados pessoais e Pix:
+a revisão completa por sessão independente (§4.12) permanece para depois da
+entrega da sessão autora. Não houve push, abertura de PR, CI remota, build
+nativo, alteração de migration/Edge/contrato, acesso a projeto Supabase remoto,
+deploy ou serviço de produção. Nenhuma decisão técnica ficou pendente.

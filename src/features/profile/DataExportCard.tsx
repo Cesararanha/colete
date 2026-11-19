@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, type TextInputInstance, View, type ViewInstance } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -82,8 +82,8 @@ function stateCopy(view: DataExportView): { body: string; extra?: string; title:
 export function DataExportCard({ email }: { email: string | null }) {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
-  const stateRef = useRef<View>(null);
-  const passwordRef = useRef<TextInput>(null);
+  const stateRef = useRef<ViewInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
   const [password, setPassword] = useState('');
   const [passwordValidated, setPasswordValidated] = useState(false);
   const [download, setDownload] = useState<DownloadPhase>({ phase: 'idle' });

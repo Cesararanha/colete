@@ -1,3 +1,4 @@
+import type { Metadata } from 'expo-router/server';
 import { useLayoutEffect, useState } from 'react';
 
 import { AuthGateScreen } from '@/features/auth/AuthGateScreen';
@@ -24,4 +25,8 @@ export default function JoinGroupRoute() {
   return (
     <AuthGateScreen page={pt.groups.join} renderAuthenticated={() => <AuthenticatedJoinRoute />} />
   );
+}
+
+export function generateMetadata(): Metadata {
+  return { title: pt.app.pageTitle(pt.groups.join.title) };
 }

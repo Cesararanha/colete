@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type ViewInstance } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -42,7 +42,7 @@ export function ChangePasswordScreen({ session }: { session: Session }) {
   const { colors } = useTheme();
   const email = session.user.email ?? null;
   const [stage, setStage] = useState<Stage>('start');
-  const completeRef = useRef<View>(null);
+  const completeRef = useRef<ViewInstance>(null);
   const otpForm = useForm<OtpValues>({
     defaultValues: { code: '' },
     mode: 'onBlur',

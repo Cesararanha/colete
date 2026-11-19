@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppSafeArea } from '@/components/ui/AppSafeArea';
 
 import {
   MainNavigation,
@@ -25,9 +25,10 @@ export default function TabsLayout() {
   const wide = width >= 768;
   return (
     <ShellChromeContext.Provider value>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <AppSafeArea style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <View style={[styles.body, wide ? styles.bodyWide : undefined]}>
           <Tabs
+            {...(Platform.OS === 'web' ? { activityEnabled: false } : {})}
             backBehavior="history"
             screenOptions={{
               headerShown: false,
@@ -42,10 +43,12 @@ export default function TabsLayout() {
           >
             <Tabs.Screen name="grupos" options={{ title: pt.navigation.groups }} />
             <Tabs.Screen name="rachas" options={{ title: pt.navigation.matches }} />
+            {/* The custom bar omits Perfil. In SDK 58, href: null also redirects
+                a focused tab, preventing the avatar from opening this route. */}
             <Tabs.Screen name="perfil" options={{ title: pt.navigation.profile }} />
           </Tabs>
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
     </ShellChromeContext.Provider>
   );
 }

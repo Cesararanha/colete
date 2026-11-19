@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { Platform } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -9,6 +10,7 @@ export default function TabStackLayout() {
   const { colors } = useTheme();
   return (
     <Stack
+      {...(Platform.OS === 'web' ? { activityEnabled: false } : {})}
       screenOptions={{ contentStyle: { backgroundColor: colors.background }, headerShown: false }}
     />
   );

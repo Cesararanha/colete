@@ -1,3 +1,4 @@
+import type { Metadata } from 'expo-router/server';
 import { useLocalSearchParams } from 'expo-router';
 
 import { AuthGateScreen } from '@/features/auth/AuthGateScreen';
@@ -12,4 +13,8 @@ export default function GroupRatingsRoute() {
       renderAuthenticated={(profile) => <GroupRatingsScreen groupId={groupId} profile={profile} />}
     />
   );
+}
+
+export function generateMetadata(): Metadata {
+  return { title: pt.app.pageTitle(pt.ratings.title) };
 }

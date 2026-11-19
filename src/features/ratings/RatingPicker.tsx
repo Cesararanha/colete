@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { AppIcon } from '@/components/ui/AppIcon';
 import { pt } from '@/lib/i18n/pt';
@@ -28,7 +28,7 @@ export function RatingPicker({
   value: number | null;
 }) {
   const { colors } = useTheme();
-  const radios = useRef<(View | null)[]>([]);
+  const radios = useRef<(ViewInstance | null)[]>([]);
   const focusIndex = value === null ? 0 : value - 1;
   const select = (index: number) => {
     const next = ((index % STARS.length) + STARS.length) % STARS.length;

@@ -6,7 +6,6 @@
     "orientation": "default",
     "scheme": "colete",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
@@ -17,7 +16,12 @@
       "output": "static"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": { "web": false }
+        }
+      ],
       "expo-document-picker",
       [
         "expo-camera",

@@ -105,3 +105,48 @@ test('reduced motion preference is respected by the web shell', async ({ page })
     : Number.parseFloat(transitionDuration);
   expect(seconds).toBeLessThanOrEqual(0.00001);
 });
+
+// A public route not yet visited must remain available in the cached app bundle.
+// Async web routes need an uncached chunk here, regressing SDK 57 behavior.
+test('cached app opens an unvisited route while offline', async ({ page, context }) => {
+  await page.goto('/entrar');
+  await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toBeVisible();
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+    .toBe(true);
+  await context.setOffline(true);
+  await page.getByRole('link', { name: 'Criar conta', exact: true }).click();
+  await expect(page).toHaveURL(/\/criar-conta$/u);
+  await expect(page.getByRole('heading', { name: 'Criar conta', exact: true })).toBeVisible();
+  await expect(page).toHaveTitle('Criar conta · Colete');
+  await page.getByTestId('signup-name').fill('Nome offline');
+  await expect(page.getByTestId('signup-name')).toHaveValue('Nome offline');
+});
+
+// Substitute browser insets in the emitted rule, retaining its selector and
+// cascade order: the later React Native Web padding reset must not erase them.
+test('web safe areas win over the React Native Web padding reset', async ({ page }) => {
+  await page.goto('/entrar');
+  await expect(page.getByRole('button', { name: 'Entrar', exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const style = [...document.querySelectorAll('style')].find((node) =>
+      node.textContent?.includes('[data-safe-area]'),
+    );
+    if (!style?.textContent) throw new Error('Missing web safe-area CSS');
+    const insets = { top: 11, right: 13, bottom: 17, left: 19 };
+    for (const [edge, value] of Object.entries(insets)) {
+      style.textContent = style.textContent.replace(
+        `env(safe-area-inset-${edge}, 0px)`,
+        `${value}px`,
+      );
+    }
+  });
+  const frame = page.locator('[data-safe-area]').first();
+  await expect(frame).toHaveCSS('padding-top', '11px');
+  await expect(frame).toHaveCSS('padding-right', '13px');
+  await expect(frame).toHaveCSS('padding-bottom', '17px');
+  await expect(frame).toHaveCSS('padding-left', '19px');
+});

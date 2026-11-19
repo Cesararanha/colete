@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -22,7 +22,7 @@ type BeginAttempt = (confirmationId: string) => FinishAttempt;
 // destination. A new intent, dismissal or leaving Rosters invalidates the callback.
 export function usePlayerManagementFeedback() {
   const [error, setError] = useState<unknown>(null);
-  const rosterRef = useRef<View>(null);
+  const rosterRef = useRef<ViewInstance>(null);
   const interaction = useRef(0);
   useEffect(
     () => () => {

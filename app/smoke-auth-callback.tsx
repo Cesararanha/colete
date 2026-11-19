@@ -1,6 +1,7 @@
+import type { Metadata } from 'expo-router/server';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppSafeArea } from '@/components/ui/AppSafeArea';
 
 import { pt } from '@/lib/i18n/pt';
 import { isSmokeMode, SYNTHETIC_IDENTITY } from '@/lib/runtime';
@@ -18,7 +19,7 @@ export default function SmokeAuthCallback() {
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <AppSafeArea style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <View accessibilityLiveRegion="polite" role="main" style={styles.content}>
         <Text aria-level={1} role="heading" style={[styles.title, { color: colors.text }]}>
           {pt.smoke.authCallbackTitle}
@@ -26,7 +27,7 @@ export default function SmokeAuthCallback() {
         <Text style={[styles.body, { color: colors.textMuted }]}>{pt.smoke.authCallbackBody}</Text>
         <Redirect href={{ pathname: '/', params: { smoke_identity: safeIdentity } }} />
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -49,3 +50,7 @@ const styles = StyleSheet.create({
     ...typography.display,
   },
 });
+
+export function generateMetadata(): Metadata {
+  return { title: pt.app.name };
+}

@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { StyleSheet, View, type TextInput } from 'react-native';
+import { StyleSheet, type TextInputInstance, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
@@ -32,7 +32,7 @@ export function ProfileCompletionForm({
   onCompleted: () => void;
 }) {
   const queryClient = useQueryClient();
-  const inputRefs = useRef<Partial<Record<ProfileTextField, TextInput>>>({});
+  const inputRefs = useRef<Partial<Record<ProfileTextField, TextInputInstance>>>({});
   const intent = useRef<MutationIntent<unknown> | null>(null);
   const [lastValues, setLastValues] = useState<ProfilePatch | null>(null);
   const {
@@ -79,8 +79,8 @@ export function ProfileCompletionForm({
     completion.error instanceof TransportError ||
     (completion.error instanceof AppError && completion.error.retryable);
   const registerInput =
-    (name: ProfileTextField, formRef: (instance: TextInput | null) => void) =>
-    (instance: TextInput | null) => {
+    (name: ProfileTextField, formRef: (instance: TextInputInstance | null) => void) =>
+    (instance: TextInputInstance | null) => {
       formRef(instance);
       if (instance === null) delete inputRefs.current[name];
       else inputRefs.current[name] = instance;

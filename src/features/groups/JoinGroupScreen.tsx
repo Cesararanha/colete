@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { View } from 'react-native';
+import { View, type ViewInstance } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -43,13 +43,13 @@ export function JoinGroupScreen({ initialToken }: { initialToken: string | null 
   const [token, setToken] = useState(initialToken);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const cameraErrorRef = useRef<View>(null);
+  const cameraErrorRef = useRef<ViewInstance>(null);
   useLayoutEffect(() => {
     if (cameraError) cameraErrorRef.current?.focus();
   }, [cameraError]);
   useFocusEffect(useCallback(() => () => setScanning(false), []));
   const [preview, setPreview] = useState<InvitePage | null>(null);
-  const pageRef = useRef<View>(null);
+  const pageRef = useRef<ViewInstance>(null);
   // The page replaces the form: the focus moves to the group's name.
   useLayoutEffect(() => {
     if (preview) pageRef.current?.focus();

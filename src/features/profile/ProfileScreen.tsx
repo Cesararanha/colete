@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View, type ViewInstance } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
@@ -51,7 +51,7 @@ export function ProfileScreen({ profile, session }: { profile: OwnProfile; sessi
   const { colors } = useTheme();
   const [mode, setMode] = useState<'read' | 'edit'>('read');
   const [saved, setSaved] = useState(false);
-  const readRef = useRef<View>(null);
+  const readRef = useRef<ViewInstance>(null);
   const returnFocus = useRef(false);
   const logout = useLogout();
   const [confirmingLogout, setConfirmingLogout] = useState(false);

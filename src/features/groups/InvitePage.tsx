@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -22,25 +22,24 @@ import { roleName, roleTone } from './group-roles';
  * as on the group's own screen (prévia aprovada). The wrapper takes the focus
  * when the page replaces the form, so a screen reader starts at the name.
  */
-export const InvitePageIntro = forwardRef<View, { page: InvitePage }>(function InvitePageIntro(
-  { page },
-  ref,
-) {
-  const { colors } = useTheme();
-  return (
-    <View ref={ref} style={styles.intro} tabIndex={-1} testID="invite-page-header">
-      <GroupIcon appearance={groupAppearance(page.group_icon, page.group_color)} size={56} tile />
-      <View style={styles.introText}>
-        <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
-          {page.group_name}
-        </Text>
-        <Text style={[styles.support, { color: colors.textMuted }]} testID="invite-page-members">
-          {pt.groups.join.members(page.member_count)}
-        </Text>
+export const InvitePageIntro = forwardRef<ViewInstance, { page: InvitePage }>(
+  function InvitePageIntro({ page }, ref) {
+    const { colors } = useTheme();
+    return (
+      <View ref={ref} style={styles.intro} tabIndex={-1} testID="invite-page-header">
+        <GroupIcon appearance={groupAppearance(page.group_icon, page.group_color)} size={56} tile />
+        <View style={styles.introText}>
+          <Text aria-level={1} role="heading" style={[styles.name, { color: colors.text }]}>
+            {page.group_name}
+          </Text>
+          <Text style={[styles.support, { color: colors.textMuted }]} testID="invite-page-members">
+            {pt.groups.join.members(page.member_count)}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
-});
+    );
+  },
+);
 
 type InvitePageBodyProps = {
   page: InvitePage;

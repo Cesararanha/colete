@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppSafeArea } from '@/components/ui/AppSafeArea';
 
 import { pt } from '@/lib/i18n/pt';
 import { getLayoutMode } from '@/theme/layout';
@@ -52,7 +52,7 @@ export function AppShell({ activeRoute, children }: AppShellProps) {
   );
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <AppSafeArea style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <View style={[styles.frame, wide ? styles.frameWide : styles.frameNarrow]}>
         <BrandBand style={wide ? styles.headerWideBand : undefined}>
           <View style={[styles.header, wide ? styles.headerWide : styles.headerNarrow]}>
@@ -71,7 +71,7 @@ export function AppShell({ activeRoute, children }: AppShellProps) {
           </View>
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
