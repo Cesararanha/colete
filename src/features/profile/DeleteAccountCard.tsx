@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -31,9 +31,9 @@ export function DeleteAccountCard() {
   const [step, setStep] = useState<'intro' | 'summary'>('intro');
   const [confirmed, setConfirmed] = useState(false);
   const [checkboxError, setCheckboxError] = useState<string | undefined>(undefined);
-  const summaryRef = useRef<View>(null);
+  const summaryRef = useRef<ViewInstance>(null);
   const requirementId = `deletion-requirement-${useId().replace(/[^A-Za-z0-9_-]/gu, '')}`;
-  const checkboxRef = useRef<View>(null);
+  const checkboxRef = useRef<ViewInstance>(null);
   const [intent, setIntent] = useState<MutationIntent<AccountDeletionResult> | null>(null);
 
   const deletion = useMutation({

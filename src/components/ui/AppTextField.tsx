@@ -1,5 +1,13 @@
 import { forwardRef, useId, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputInstance,
+  type TextInputProps,
+  View,
+} from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, size, spacing } from '@/theme/spacing';
@@ -17,7 +25,7 @@ type AppTextFieldProps = Omit<TextInputProps, 'style'> & {
   testID?: string | undefined;
 };
 
-export const AppTextField = forwardRef<TextInput, AppTextFieldProps>(function AppTextField(
+export const AppTextField = forwardRef<TextInputInstance, AppTextFieldProps>(function AppTextField(
   {
     describedByExtra,
     error,

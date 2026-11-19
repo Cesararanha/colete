@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { StyleSheet, View, type TextInput } from 'react-native';
+import { StyleSheet, type TextInputInstance, View } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSkeleton } from '@/components/ui/AppSkeleton';
@@ -77,8 +77,8 @@ export function ProfileCompletionForm({
     (completion.error instanceof AppError && completion.error.retryable);
   // react-hook-form keeps its own refs for setFocus; nothing else to track.
   const registerInput =
-    (_name: string, formRef: (instance: TextInput | null) => void) =>
-    (instance: TextInput | null) =>
+    (_name: string, formRef: (instance: TextInputInstance | null) => void) =>
+    (instance: TextInputInstance | null) =>
       formRef(instance);
 
   return (

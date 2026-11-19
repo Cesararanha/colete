@@ -1,5 +1,5 @@
 import { forwardRef, useId } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type ViewInstance } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 import { size, spacing } from '@/theme/spacing';
@@ -16,7 +16,7 @@ type AppCheckboxProps = {
   testID?: string;
 };
 
-export const AppCheckbox = forwardRef<View, AppCheckboxProps>(function AppCheckbox(
+export const AppCheckbox = forwardRef<ViewInstance, AppCheckboxProps>(function AppCheckbox(
   { checked, describedBy, error, label, onChange, testID },
   ref,
 ) {

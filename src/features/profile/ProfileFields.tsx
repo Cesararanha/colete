@@ -1,5 +1,5 @@
 import { Controller, type Control, type FieldErrors } from 'react-hook-form';
-import type { TextInput } from 'react-native';
+import type { TextInputInstance } from 'react-native';
 
 import { AppTextField } from '@/components/ui/AppTextField';
 import type { ProfilePatch } from '@/lib/api';
@@ -28,8 +28,8 @@ export function ProfileFields({
   onChanged: () => void;
   registerInput: (
     name: ProfileTextField,
-    formRef: (instance: TextInput | null) => void,
-  ) => (instance: TextInput | null) => void;
+    formRef: (instance: TextInputInstance | null) => void,
+  ) => (instance: TextInputInstance | null) => void;
   testIDPrefix: 'profile' | 'complete-profile';
 }) {
   return (

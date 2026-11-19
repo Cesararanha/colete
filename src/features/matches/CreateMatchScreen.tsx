@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, type TextInputInstance, View } from 'react-native';
 
 import { AppAlert, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -82,7 +82,7 @@ const MASKS: Partial<Record<keyof MatchFormValues, (value: string) => string>> =
 };
 
 /** Brings a control into view and gives it the focus: a field, or the notice at the top. */
-function focusControl(input: TextInput | null | undefined, testId: string) {
+function focusControl(input: TextInputInstance | null | undefined, testId: string) {
   if (Platform.OS === 'web' && typeof document !== 'undefined') {
     const element = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
     element?.scrollIntoView({ block: 'center' });
@@ -245,7 +245,7 @@ export function CreateMatchScreen({
   const editing = editMatchId !== undefined;
   const intent = useRef<MutationIntent<MatchOutcome> | null>(null);
   const editIntent = useRef<MutationIntent<MatchEditOutcome> | null>(null);
-  const inputs = useRef<Partial<Record<keyof MatchFormValues, TextInput | null>>>({});
+  const inputs = useRef<Partial<Record<keyof MatchFormValues, TextInputInstance | null>>>({});
   const [values, setValues] = useState<MatchFormValues>(EMPTY);
   const [errors, setErrors] = useState<MatchFormErrors>({});
   const [formError, setFormError] = useState('');

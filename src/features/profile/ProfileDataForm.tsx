@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { type FieldErrors, useForm } from 'react-hook-form';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, type TextInputInstance, View } from 'react-native';
 
 import { AppAlert } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -62,7 +62,9 @@ export function ProfileDataForm({
   profile: OwnProfile;
 }) {
   const queryClient = useQueryClient();
-  const inputRefs = useRef<Partial<Record<'name' | 'nickname' | 'shirt_number', TextInput>>>({});
+  const inputRefs = useRef<
+    Partial<Record<'name' | 'nickname' | 'shirt_number', TextInputInstance>>
+  >({});
   const [focusRequest, setFocusRequest] = useState<{
     sequence: number;
     target: 'name' | 'nickname' | 'shirt_number';
@@ -127,8 +129,11 @@ export function ProfileDataForm({
     if (!update.isPending) update.reset();
   };
   const registerInput =
-    (name: 'name' | 'nickname' | 'shirt_number', formRef: (instance: TextInput | null) => void) =>
-    (instance: TextInput | null) => {
+    (
+      name: 'name' | 'nickname' | 'shirt_number',
+      formRef: (instance: TextInputInstance | null) => void,
+    ) =>
+    (instance: TextInputInstance | null) => {
       formRef(instance);
       if (instance === null) delete inputRefs.current[name];
       else inputRefs.current[name] = instance;

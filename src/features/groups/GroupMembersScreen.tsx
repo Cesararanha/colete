@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, type TextInputInstance, View } from 'react-native';
 
 import { AppAlert, AppProgress, AppStatus } from '@/components/ui/AppAlert';
 import { AppButton } from '@/components/ui/AppButton';
@@ -37,7 +37,7 @@ export function GroupMembersScreen({ groupId, profile }: { groupId: string; prof
       result?.focus();
     }
   }, [message]);
-  const reasonRef = useRef<TextInput>(null);
+  const reasonRef = useRef<TextInputInstance>(null);
   const data = listing.isSuccess ? listing.data : undefined;
   const allowed = data?.group;
   useLeaveMissingGroup(data?.missing === true);

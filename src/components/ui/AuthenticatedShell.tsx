@@ -264,7 +264,7 @@ export function AuthenticatedListShell<T>({
         <TopBar {...band} />
         <FlatList
           ItemSeparatorComponent={RowSeparator}
-          ListFooterComponent={footer ? <View style={styles.footer}>{footer}</View> : null}
+          ListFooterComponent={footer ? <View style={styles.footer}>{footer}</View> : undefined}
           ListHeaderComponent={
             <>
               <ShellBand {...band} />
