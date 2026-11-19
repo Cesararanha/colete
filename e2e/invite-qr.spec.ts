@@ -1,3 +1,4 @@
+import { beginCleanup } from './support/cleanup';
 import { test, expect, type Page } from './support/csp';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -85,7 +86,7 @@ test.afterAll(async () => {
     const profiles = (
       await db.query('select id from public.profiles where auth_user_id=any($1::uuid[])', [ids])
     ).rows.map((row: { id: string }) => row.id);
-    await db.query('begin');
+    await beginCleanup(db, profiles);
     for (const table of ['private.invite_rate_limits', 'private.revoked_auth_sessions'])
       await db.query(`delete from ${table} where profile_id=any($1::uuid[])`, [profiles]);
     await db.query('delete from private.idempotency_records where actor_id=any($1::uuid[])', [

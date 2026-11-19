@@ -1,3 +1,4 @@
+import { beginCleanup } from './support/cleanup';
 import { expect, test, type APIRequestContext, type Browser, type Page } from './support/csp';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -118,7 +119,7 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   );
   const ids = profiles.rows.map((row: { id: string }) => row.id);
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
-  await db.query('begin');
+  await beginCleanup(db, ids);
   try {
     await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
       ids,
