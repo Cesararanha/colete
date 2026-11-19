@@ -68,6 +68,9 @@ uma conversa anterior.
 - **Nenhum segredo no repositório.** Nenhuma chave HMAC no banco. Nenhuma PII,
   token, URL, path, Pix, nota ou motivo livre em coluna operacional, mensagem
   de erro ou log.
+- **Interface segue o `DESIGN.md`.** Antes de qualquer mudança de interface,
+  leia o `DESIGN.md` da raiz, a fonte única das regras de design, e mantenha-o
+  em dia no mesmo PR da mudança. Os documentos normativos valem acima dele.
 
 ## 3. O manifesto de especificação
 
