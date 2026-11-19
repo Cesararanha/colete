@@ -12,6 +12,7 @@ import { computeIdempotencyHmac } from './hmac.ts';
 import type { KeyResolver } from './hmac.ts';
 import { normaliseRequest } from './operations.ts';
 import type { Operation } from './operations.ts';
+import type { OpenPix, PixSealer } from './pix.ts';
 
 // docs/13 section 0.1. Both are persisted, and both are sent explicitly rather
 // than defaulted inside the database, so that a future version is a change here
@@ -38,6 +39,11 @@ export type RpcCaller = (
 export interface GatewayDependencies {
   readonly resolveKey: KeyResolver;
   readonly callRpc: RpcCaller;
+  /**
+   * Seals the Pix key of set_match_pix (0036). Absent or failing, the call
+   * collapses to INTERNAL before the RPC, so no idempotency key is spent.
+   */
+  readonly sealPix?: () => PixSealer;
 }
 
 export type GatewayResult =
@@ -218,6 +224,10 @@ function rpcParameters(
         p_team_count: canonicalInput['team_count'],
         p_confirm_unequal_sizes: canonicalInput['confirm_unequal_sizes'],
       };
+    // The open key never reaches this function's output: runOperation replaces
+    // p_pix with the sealed form before calling the RPC.
+    case 'set_match_pix':
+      return { ...common, p_match_id: canonicalInput['match_id'], p_pix: null };
   }
 }
 
@@ -244,10 +254,23 @@ export async function runOperation(
       normalised.canonicalInput,
     );
 
-    const { data, error } = await dependencies.callRpc(
+    const parameters = rpcParameters(
       operation,
-      rpcParameters(operation, requestId, actor, normalised.canonicalInput, inputHmac),
+      requestId,
+      actor,
+      normalised.canonicalInput,
+      inputHmac,
     );
+    // 0036, plan section 4.3: normalise, HMAC over the open form, then seal.
+    if (operation === 'set_match_pix' && normalised.canonicalInput['pix'] !== null) {
+      if (dependencies.sealPix === undefined) throw new Error('Pix sealing unavailable');
+      parameters['p_pix'] = await dependencies.sealPix()(
+        normalised.canonicalInput['pix'] as OpenPix,
+        normalised.canonicalInput['match_id'] as string,
+      );
+    }
+
+    const { data, error } = await dependencies.callRpc(operation, parameters);
 
     if (error !== undefined && error !== null) {
       return errorResult(fromDatabaseError(error), requestId);

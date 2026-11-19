@@ -3738,6 +3738,50 @@ GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
 (vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
 o resultado é relatado conforme essa seção.
 
+### Relógio do host no teste de apagar grupo (08/11/2026)
+
+`e2e/apagar-grupo.spec.ts` chamava `mark_refunded` com `refunded_at` gerado pelo relógio
+do host. A `0034` recusa com `VALIDATION` um instante posterior a `clock_timestamp()` do
+Postgres ou anterior a `created_at` da devolução. Assim, bastava o relógio da VM do Docker
+atrasar em relação ao host para o teste falhar. Isso ocorreu em 08/11/2026, com 53 ms de
+atraso, nos dois projetos do Playwright, durante a validação dos PRs #99 e #100. O teste
+agora omite `refunded_at`, campo opcional no Edge (docs/13 §3.3.2), e o servidor grava
+`greatest(clock_timestamp(), created_at)`. O cenário só precisa da devolução registrada
+antes de apagar o grupo, então a data não é objeto da prova. A data omitida segue
+coberta por `e2e/racha-completo.spec.ts`, que confere o valor gravado pelo relógio do
+próprio Postgres. A data explícita válida segue coberta por `scripts/test-match-refunds.mjs`,
+que a lê do Postgres (`databaseNow()`). Nenhum outro spec ou harness envia `refunded_at`
+ou `corrected_at` válido gerado pelo relógio do host. O único caso é intencional:
+`e2e/racha-completo.spec.ts` digita uma data 90 s à frente do host para exigir a recusa.
+Uma deriva de milissegundos não muda o resultado esperado.
+
+**Validação**, sob a trava `noite/pilha.lock`, com a pilha iniciada desta branch:
+`db:reset` exit 0; `build:web:auth-e2e` exit 0; o spec isolado teve 4 passed (mobile e
+wide); `test:groups:web` teve 121 passed + 5 skipped. A deriva medida nesta rodada foi de
+cerca de 0 ms, então a versão anterior também passaria aqui; a prova da correção é que o
+servidor deixa de comparar qualquer instante vindo do host.
+
+**Validação completa da AGENTS §5**, pedida pela revisão do Codex (P2), em `214b30a`, sob a
+mesma trava, com a pilha iniciada desta branch: `db:reset` exit 0, recriando somente pelas
+migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599 testes. Todos os harnesses
+`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`, `export`, `invites`,
+`groups`, `membership`, `rename`, `group-deletion`, `photos`, `members`, `matches`,
+`match-players`, `ratings`, `teams`, `refunds` e `geocode` terminaram com exit 0.
+`build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped; privacidade 5 passed + 5 skipped;
+CORS 4 passed; grupos 121 passed + 5 skipped; QR 30 passed; build smoke exit 0 e smoke 6
+passed. `verify:app` exit 0, com 65 arquivos e 782 testes unitários; `scan:docs` e
+`scan:secrets` exit 0 (511 arquivos); `test:audit` 94/94; `test:staging` 102/102;
+`audit:high` exit 0, com uma exceção ativa; `git diff --check` limpo.
+
+`test:matches:web` falhou na primeira rodada, com 92 passed e 2 failed, em testes que este PR
+não toca. Em `racha-completo.spec.ts:1092` (wide), a limpeza do próprio teste deu
+`deadlock detected` ao apagar `public.profiles`. Os dois usuários que sobraram derrubaram o
+censo inicial de `rachas-v1.spec.ts:179`. Depois de `db:reset` e de refazer
+`build:web:auth-e2e`, a repetição no mesmo SHA teve 94 passed. Uma tentativa intermediária
+rodou por engano sobre a build de smoke e não conta. Censo final: zero usuários, perfis,
+grupos e rachas. Pilha local parada e trava removida ao fim. Nenhum projeto Supabase remoto
+ou serviço de produção foi acessado.
+
 ## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
 
 Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigatória antes do piloto com
@@ -4676,6 +4720,399 @@ Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body
 durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
+
+### Deadlock na limpeza de `racha-completo.spec.ts` (09/11/2026)
+
+Na validação do PR #101, em 08/11/2026, o teste `Foco da organização: cancel restaura o
+destino com foco inicial no body` (wide) falhou com `deadlock detected` na limpeza do próprio
+teste, ao apagar `public.profiles`. O rollback deixou dois usuários no banco, e eles
+derrubaram o censo inicial de `rachas-v1.spec.ts:179`.
+
+**Causa.** A tela do racha, para a organização, lê a contagem de notas
+(`get_group_ratings`, `0031`, linhas 635 e 642). A leitura trava o perfil do ator
+`for no key update` e depois o grupo `for no key update`, na ordem global do
+`docs/25` (perfis → grupos). A limpeza (`cleanActors`) apagava participantes, rachas,
+convites, memberships e grupos antes dos perfis. Quando essa leitura ainda estava em voo, ela
+segurava o perfil e esperava pelo grupo que a limpeza já tinha apagado, e a limpeza esperava
+por esse perfil para apagá-lo. O Postgres escolhia a limpeza como vítima. Fechar a página não
+basta: a requisição que já saiu do navegador segue até o banco. O fluxo `cancel` é o único
+dos três que termina sem esperar resposta de rede. Instrumentado em 10 rodadas de cada
+fluxo (5 por projeto), o último `get_group_ratings` respondeu de 20 a 47 ms antes do início
+da limpeza no `cancel`, contra 150 a 265 ms em `add` e 116 a 176 ms em `remove`, que esperam
+`add_player` ou `remove_player`. Basta a máquina estar mais lenta, como na suíte inteira, para a leitura
+cair dentro da limpeza.
+
+**Correção.** A limpeza trava todos os perfis e depois todos os grupos dos atores,
+`order by id for update nowait`. Só então apaga os registros de idempotência e o resto. Se
+alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes de apagar
+qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Depois disso, relança o
+`55P03`. Na fase de travas, portanto, a limpeza nunca espera segurando lock. Toda mutação
+começa pelo perfil do ator (a FK da idempotência) e toda leitura que trava linha trava esse
+perfil. Por isso, enquanto a limpeza segura todos os perfis, nenhuma gravação ligada a eles
+pode concluir e nenhum registro de idempotência novo pode surgir. Um replay
+(`on conflict do nothing`) ainda pode ler o próprio registro, mas sem trava de linha que
+bloqueie a limpeza. Os deletes seguintes ainda podem esperar, mas nenhuma transação que
+espere por esses perfis tem como fechar ciclo com a limpeza (conferência restrita,
+`noite/conf102-2.md`, P3). Só o `55P03` da fase de travas é esperado. `40P01` e qualquer outro erro continuam
+reprovando o teste: retry de deadlock só esconderia a causa.
+
+Houve duas versões antes desta, ambas apontadas pelo Codex. A primeira (`17c43c9`) travava
+perfis e grupos com `for update` comum, esperando. Isso fecha o ciclo da leitura, mas a
+revisão (`noite/rev102.md`, P2) mostrou outro ciclo, só com perfis, quando há uma mutação em
+voo. Isso acontece se uma asserção falha antes da resposta e o teste cai no `finally`.
+`add_player` (`0035`) segura o perfil do dono B e o grupo e, no insert do participante, pede
+`FOR KEY SHARE` no perfil do jogador A pela FK. Se A tem id menor que B, a limpeza trava A e
+espera B, e a mutação espera A: `40P01`. A revisão também apontou `get_group_members`
+(`0019`), que trava perfil → grupo como `get_group_ratings` e entra no mesmo caso da
+leitura. A segunda versão (`5c9c840`) trouxe o `nowait`, mas ainda apagava a idempotência
+antes das travas. A conferência (`noite/conf102.md`, P2) mostrou que uma mutação que commita
+entre esse delete e as travas deixa um registro cuja FK (`0004`:28, `on delete restrict`)
+recusa o delete do perfil: `23503`, rollback e usuários Auth deixados no banco.
+
+**Contraprova determinística** (spec temporário, não commitado, guardado em
+`noite/racha-limpeza-evidencias/zz-prova-limpeza.spec.ts`, três conexões e dois atores com
+grupo). As variantes da limpeza são cópias fiéis de cada versão. A outra transação toma o
+primeiro lock. A limpeza começa, e o observador espera que ela entre em espera de lock
+(`pg_stat_activity`) ou receba a primeira recusa `NOWAIT`. Então a outra transação pede o
+segundo lock. Os cenários são três:
+
+- **Leitura:** o dono trava o próprio perfil (`0031`:635) e depois o grupo (`0031`:642).
+- **Mutação:** o dono de id maior trava perfil e grupo e depois pede `FOR KEY SHARE` no
+  perfil de id menor.
+- **Idempotência:** um registro passa pelas transições reais (insert `executing_uncommitted`,
+  update para `completed`). Na versão `5c9c840`, ele commita entre o delete da idempotência e
+  as travas; na versão final, a limpeza recebe a recusa `NOWAIT` enquanto ele está em voo.
+
+Foram 5 rodadas por caso, todas iguais:
+
+| Em voo | Limpeza | Resultado |
+|---|---|---|
+| leitura | antiga (`origin/main`) | `40P01` na limpeza, parada em `delete from public.profiles`, como em 08/11 |
+| leitura | `for update` (`17c43c9`) | as duas commitam |
+| mutação | `for update` (`17c43c9`) | `40P01` na limpeza, parada na trava de perfis: o P2 da revisão |
+| leitura | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| mutação | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| idempotência | `nowait` (`5c9c840`) | `23503` no delete do perfil: o P2 da conferência |
+| leitura | final | recusa, nova tentativa, as duas commitam |
+| mutação | final | recusa, nova tentativa, as duas commitam |
+| idempotência | final | recusa, nova tentativa, as duas commitam |
+
+Em todos os casos, o censo terminou sem os perfis da prova. O prazo de 15 s não foi exercido
+pela prova.
+
+**Validação completa da AGENTS §5** em `706b7eb`, sob a trava `noite/pilha.lock`, com a
+pilha iniciada desta worktree (logs em `noite/racha-limpeza-evidencias/`): `db:reset` exit
+0, recriando somente pelas migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599
+testes. Todos os harnesses (`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`,
+`export`, `invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`,
+`members`, `matches`, `match-players`, `ratings`, `teams`, `refunds` e `geocode`)
+terminaram com exit 0. `build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped;
+privacidade 5 passed + 5 skipped; CORS 4 passed; grupos 121 passed + 5 skipped.
+`test:matches:web` rodou cinco vezes seguidas, sem `db:reset` entre elas, e teve 94 passed em
+todas: um usuário deixado pela limpeza derrubaria o censo inicial de `rachas-v1.spec.ts` na
+rodada seguinte. QR 30 passed; build smoke exit 0 e smoke 6 passed. `verify:app` exit 0,
+com 65 arquivos e 782 testes unitários; `scan:docs` e `scan:secrets` exit 0 (511 arquivos);
+`test:audit` 94/94; `test:staging` 102/102; `audit:high` exit 0, com uma exceção ativa;
+`git diff --check` limpo. Censo final: zero usuários, perfis, grupos, rachas e registros de
+idempotência. As rodadas anteriores, em `17c43c9`, `5c9c840` e `a652ba4`, ficaram nas pastas
+`noite/racha-limpeza-evidencias-<sha>`. A de `17c43c9` foi completa e verde, salvo um
+`db:test:cors` cuja repetição passou. As outras duas foram interrompidas pelas correções
+seguintes. Nenhum projeto Supabase remoto ou serviço de produção foi acessado.
+
+`rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
+transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.
+
+## Piloto — Pix manual, banco e Edge (`0036`, 07/11/2026)
+
+Implementação na worktree `pix-manual-a`, branch `feat/pix-manual-a`, base `f5756e6`
+(#97, 1.4), por pedido do César de 07/11 às 20:05 (fazer tudo, decidindo por delegação,
+para revisão no dia seguinte). Plano em `noite/plano-pix-manual.md` (versão 3, §13
+prevalece); conferências em `noite/rev-plano-pix.md`, `noite/conf-plano-pix.md` e
+`noite/conf2-plano-pix.md`; decisões por delegação em `noite/progresso-pix.md`. Sem
+deploy nem Supabase remoto. Risco alto (AGENTS §4.12): dado pessoal sensível e dinheiro.
+
+**Entrega.** Migration append-only `0036_match_pix.sql`: tabela
+`private.match_payment_secrets` sem RLS nem grant; `set_match_pix` e
+`get_payment_instructions` exclusivas de `service_role`; registros da `0033` só com INSERT
+(41 operações, 65 pares); quatro helpers privados, três gatilhos de expurgo e o job
+`purge_match_pix` no slot diário 03:53 UTC, com `worker_job_slot` e
+`worker_execute_database_job` redefinidos a partir dos corpos da `0031`. Edge: `pix.ts`
+(validação, normalização, AES-256-GCM com dado associado por versão, tipo e racha) e
+`pix-reads.ts` (leitura que decifra), HMAC sobre a forma aberta normalizada antes da cifra;
+quatro códigos de erro, `PIX_NOT_CONFIGURED` novo no catálogo do `13` §8 e
+`generate-error-codes` com 117 códigos. Chave de teste local pública
+(`PIX_KEY_ENC_KEY_V1` = bytes `0x20..0x3f`) em `start-local-supabase.mjs`, diferente das
+outras.
+
+**Provas.**
+
+| Prova | Resultado observado |
+|---|---|
+| `0036_match_pix.test.sql` | 194 asserções: privilégios (quatro papéis, inclusive um papel de prova), validação, autoridade com `NOT_FOUND` igual, ciclo incluir/trocar/remover/reincluir, trava por pago e por devolução pendente (inclusive e-mail com o mesmo last4), CN1 (a), 59 e 61 dias, matriz de leitura com `FORBIDDEN` igual com e sem Pix, sessão revogada pela RPC real recusada com `UNAUTHENTICATED`, worker, gatilhos por UPDATE direto e pelas seis RPCs reais de saída |
+| `db:test:pix` | 13 blocos `ok`: validação no Edge sem eco; mesma chave em duas grafias faz replay e outra chave dá `IDEMPOTENCY_CONFLICT`; a cifra e a idempotência não contêm a chave em texto, hex ou bytes; `pg_dump --data-only` do banco local inteiro sem a chave em texto, formatada, hex ou base64, e nome e cidade só no bloco de `match_payment_secrets`; jogador não pago lê a chave aberta com `cache-control: no-store`; trava por pagamento; sem `PIX_KEY_ENC_KEY_V1`, gravar dá `INTERNAL` antes da RPC, ler dá `INTERNAL` só a quem pode ler (o pago continua `FORBIDDEN`) e remover funciona; worker real; corridas `leave_group` × `set_match_pix` e `set_match_payment` × `set_match_pix` nas duas ordens com espera observada e COMMIT real (pagar antes trava a troca; trocar antes mantém o Pix novo); sessão revogada pelo HTTP real recusada com `UNAUTHENTICATED`; nenhum log de `edge_runtime`, `rest`, `db`, `kong` e `auth` contém a chave, o nome ou a cidade |
+| Testes do Edge | 18 testes novos em `pix.test.ts` (telefone só celular, fixo recusado); `gateway.test.ts` cobre a nova operação |
+
+**Correções da revisão independente (08/11, `noite/rev-pr99-pix.md`: 0 P1, 2 P2, 7 P3).**
+P2-1: as três provas da §6 do plano entraram (corrida com `set_match_payment`, sessão revogada
+na pgTAP e no HTTP, censo do `pg_dump`). P2-2: a frase do `13` §1.3.2 e a linha do `28` sobre
+o segredo ausente na leitura agora descrevem o código. P3-1: a leitura com `NOT_FOUND` para
+ex-membro e outro grupo está entre as decisões delegadas do `25` §8.1. P3-3: telefone só como
+celular. P3-4: `purge_match_pix_rows` trava as linhas em ordem de `match_id` antes do `UPDATE`,
+para o job e o pedido de exclusão esperarem em vez de entrar em deadlock. P3-5 e P3-6: nome e
+cidade no censo dos logs, `no-store` afirmado. P3-7: o `28` diz que girar para V2 exige
+migration e resolvedor por versão. P3-2 era só a data da pausa no corpo do PR (07/11).
+
+**Validação AGENTS §5 depois das correções (08/11).** Pilha reiniciada desta worktree, os
+mesmos 35 comandos em sequência: 33 com exit 0, inclusive `db:test` (34 arquivos, 2793
+asserções) e `db:test:pix` (13 blocos). `test:groups:web` caiu num deadlock fora do Pix: a
+limpeza de `m2-ui-b` (`delete from public.profiles`) cruzou com uma leitura
+`get_group_ratings` do outro worker do Playwright, na mesma base. Os 5 usuários que sobraram
+derrubaram mais dois testes do mesmo lote e os dois de `rachas-v1` em `test:matches:web`,
+que exigem a base sem usuários. Depois de `db:reset` e `build:web:auth-e2e`:
+`test:matches:web` 94/94; `test:groups:web` 120/121, com timeout em `textos-longos` num lote
+de 17 min (6 min na rodada anterior); esse spec isolado passou 2/2.
+
+**Validação AGENTS §5 no SHA final.** Pilha local iniciada desta worktree, 35 comandos em sequência, todos com exit 0:
+`db:reset`; `db:test` (34 arquivos, 2790 asserções); os 21 harnesses `db:test:*`
+(inclusive `db:test:pix`); `test:auth:web` + `test:privacy:web` (12), `test:cors:web` (5),
+`test:groups:web` (121), `test:matches:web` (94), `test:qr:web` (30), `test:smoke:web`
+(6); `verify:app` (vitest 801); `scan:docs`, `scan:secrets`, `test:audit`,
+`test:staging`, `audit:high` e `git diff --check`. Os quatro jobs de CI rodam no PR;
+`Database security` segue pausado (decisão de 07/11).
+
+## Piloto — Pix manual, tela (PR B, 08/11/2026)
+
+Worktree `pix-manual-b`, branch `feat/pix-manual-b`, empilhada sobre o PR A (#99, até
+`a18a419`). Só cliente: nenhuma migration, nenhuma mudança de Edge. Decisões por delegação 9
+a 11 em `noite/progresso-pix.md`.
+
+**Entrega.** Seção «Pix do racha» no detalhe do racha para dono e organizador (cadastrar,
+trocar, remover com confirmação, trava explicada); bloco do jogador confirmado e não pago no
+lugar de «pague ao organizador»: valor, nome a conferir no banco, **Copiar código Pix**
+primeiro, QR, chave legível, autor e, até 24 h depois de uma troca, «Pix alterado às HH:MM».
+BR Code estático montado no aparelho (`pix-brcode.ts`, CRC-16/CCITT-FALSE), sem guardar nem
+enviar nada. `setMatchPix` e `getPaymentInstructions` em `api.ts`; `PIX_NOT_CONFIGURED` vira
+«sem Pix» no cliente.
+
+**Provas.** `pix-brcode.test.ts` (vetor `123456789` → `29B1`; exemplo do manual do Banco
+Central → `1D3D`; campo 54; valor zero omitido; recusas) e `pix-changed.test.ts`;
+`e2e/pix-manual.spec.ts` nos dois projetos, na pilha real: chave inválida explicada,
+cadastro normalizado, código copiado conferido na área de transferência (campos e CRC
+recalculado no teste), nada da chave em `localStorage`, `sessionStorage` ou na URL dos dois
+contextos, QR, troca avisada, remoção com confirmação e volta do jogador a «pague ao
+organizador», novo cadastro, trava por pagamento recusada na tela ao trocar e ao remover,
+pago sem Pix; axe com o formulário aberto (erro de campo), com a confirmação de remoção e nas
+duas telas.
+
+**Validação AGENTS §5 no SHA final.** Pilha reiniciada desta worktree, 35 comandos em
+sequência: 34 com exit 0 — `db:reset`; `db:test` (34 arquivos, 2793 asserções); os 21
+harnesses `db:test:*`; `test:auth:web` (12) + `test:privacy:web` (5); `test:cors:web` (4);
+`test:matches:web` (96, com os 2 do Pix); `test:qr:web` (30); `test:smoke:web` (6);
+`verify:app` (vitest 808); `scan:docs`, `scan:secrets`, `test:audit`, `test:staging`,
+`audit:high` e `git diff --check`. `test:groups:web` (lote de 41 min, com outro projeto do
+Docker local a 100% de CPU) teve 5 falhas fora do Pix: 3 timeouts e 2 em `apagar-grupo`,
+onde `mark_refunded` recusou `VALIDATION` porque o relógio do Postgres estava 53 ms atrás do
+host. Reexecuções isoladas, depois de `db:reset`, com o relógio de volta a ~0 ms:
+`apagar-grupo` 4/4, `ajustes-teste` 4/4, `m2-ui-b` 35/36 em série (timeout do GoTrue na
+criação de usuário) e o teste restante isolado 2/2.
+
+Na primeira rodada (`73c734b`), o `node_modules` desta worktree era um link para o da A. As
+fontes saíram em `assets/_pix-manual-a/...`, e o smoke recusou o cache de URL com «pix»: o
+service worker só exclui `/pix`, e o teste procura «pix» na URL inteira. Não é defeito do
+produto. Com `npm ci` próprio, o smoke passou.
+
+**Correções da revisão independente (08/11, `noite/rev-pr100-pix.md`: 0 P1, 1 P2, 6 P3).**
+P2-1 e P3-6: as provas acima de remoção, axe nos estados novos, armazenamento, URL e CRC.
+P3-1: a dica de trava considera devolução pendente (lida de `get_match_refunds`). P3-2: sem
+Pix e com pagamento, a tela explica que só cadastra se o racha nunca teve Pix, e o
+`PIX_LOCKED` diz o mesmo. P3-3: nome e cidade limitados a 25 e 15 no campo, com a dica de que
+os acentos são removidos. P3-4: enquanto a leitura do Pix carrega, o jogador não vê a
+instrução genérica; em erro, vê o aviso de leitura com «Tentar de novo» junto dela. P3-5:
+falha ao montar o BR Code esconde cópia e QR e mantém a chave legível, sem derrubar o
+detalhe. A mudança é só de cliente; a validação desta correção está abaixo.
+
+Validação da correção (só cliente): `verify:app` (vitest 808), `test:privacy:web` (5),
+`test:qr:web` (30), `test:smoke:web` (6), `scan:docs`, `scan:secrets`, `test:audit` e
+`git diff --check` com exit 0; `test:matches:web` 95/96 num lote de 21 min, com timeout em
+`racha-completo` (remoção de jogador da 1.4, fora do Pix); esse spec isolado passou 54/54, e
+`pix-manual` passou 2/2 nos dois projetos. Banco e Edge não mudaram desde a rodada §5 acima.
+
+## Limpeza e2e sem deadlock — UI-B (18/11/2026)
+
+Fatia `fix/m2-ui-b-limpeza`, criada sobre `f5756e6` e atualizada pelo merge
+`e2db4fd` (preservado nesta correção do #105). Somente limpeza de fixtures,
+regressão e registro operacional; sem mudança no app, migrations, contratos ou
+asserções dos cenários existentes. Referência lida: `cleanActors` e comentário
+da branch `origin/fix/racha-limpeza-deadlock` (#102).
+
+**Inventário.** A busca por transações de limpeza em `e2e` encontrou 18 arquivos
+com `begin` seguido de exclusões sem aquisição prévia de todos os pais:
+`m2-ui-b`, `m2-ui-a`, `ajustes-teste`, `apagar-grupo`, `convite-link`,
+`editar-racha`, `fotos`, `icone-grupo`, `invite-page`, `invite-qr`, `notas`,
+`rachas-ux`, `rachas-v1`, `sorteio-times`, `textos-longos`, `ux-correcoes-2`,
+`visual-placar` e `racha-completo` (todos `e2e/*.spec.ts`). Os primeiros 17 foram
+corrigidos na primeira entrega. Após a incorporação dos PRs #100 e #102 pela
+`main`, a revisão do #105 encontrou mais dois ajustes: `pix-manual` ainda abria
+`begin` sem travas (P2), apesar da leitura de `get_group_ratings` pela tela;
+`racha-completo` repetia a lógica de travas à mão (P3). Os dois agora chamam
+`beginCleanup`, preservando a ordem dos deletes. Em `racha-completo`, o comentário
+continua explicando por que os registros idempotentes só saem depois das travas.
+São **19 specs usando o helper**. A nova busca `rg -n -i "\bbegin\b" e2e/`
+encontrou somente o `begin` do helper e o da conexão leitora da regressão UI-B
+(que não apaga fixtures), além do comentário do helper: **zero limpezas com
+`begin` seguido de deletes sem as travas prévias**. `m1-a-auth` e
+`m1-b-privacy` fazem exclusões autocommit, sem o padrão de transação desta
+fatia, e não foram alterados. `rachas-v1` e `sorteio-times`
+também tinham retry de `40P01`; esse retry foi removido.
+
+`e2e/support/cleanup.ts` inicia a transação e conquista **todos os perfis**,
+depois **todos os grupos próprios**, cada conjunto por `id`, com
+`FOR UPDATE NOWAIT`. Um conflito desfaz todas as travas antes de tentar
+novamente: somente `55P03`, intervalo de 50 ms e prazo de 15 s. Outros erros,
+inclusive `40P01`, continuam falhando. Os `idempotency_records` e os demais
+filhos só são apagados depois dessas travas, impedindo que uma mutação em voo
+commite um registro novo entre o delete e a aquisição do perfil. A sequência
+de exclusão de cada fixture e sua fronteira Auth/Storage foram preservadas.
+
+**Prova executável.** O caso `UI-B cleanup serializes with get_group_ratings`
+foi acrescentado ao próprio `m2-ui-b.spec.ts` (já incluído em
+`test:groups:web`). Cria ator/grupo pelo gateway real e usa três conexões com
+nomes/PIDs distintos. O leitor detém o perfil; na limpeza antiga, depois do
+delete do grupo, chama a RPC real `get_group_ratings` sob `service_role`.
+A barreira observa `wait_event_type = 'Lock'` e o PID da limpeza em
+`pg_blocking_pids` antes de liberar a exclusão do perfil: o ciclo reproduz
+`40P01`. No caminho corrigido, o primeiro `55P03` provoca rollback, o leitor
+conclui a RPC e commita, e a nova tentativa limpa a fixture. O teste exige
+contenção observada, sucesso dos dois participantes e ausência do perfil;
+nenhuma promessa concorrente fica sem tratador.
+
+Contraprova medida com o `cleanActors` original de `f5756e6`: **1 failed**, com
+`get_group_ratings SQLSTATE 40P01`, no projeto `mobile-chromium`.
+Controle com a correção: **2 passed**, um em cada projeto Chromium, sem retry
+de deadlock. Logs: `/tmp/m2-limpeza-before.log` e `/tmp/m2-limpeza-after.log`.
+
+Para repetir a contraprova na mesma worktree local, com Supabase já iniciado:
+
+```sh
+npm run build:web:auth-e2e
+python3 - <<'PY'
+from pathlib import Path
+import subprocess
+p = Path('e2e/m2-ui-b.spec.ts')
+current = p.read_text()
+old = subprocess.check_output(
+    ['git', 'show', 'f5756e6:e2e/m2-ui-b.spec.ts'], text=True)
+def cleanup(source):
+    return source[source.index('async function cleanActors('):
+                  source.index('async function login(')]
+try:
+    p.write_text(current.replace(cleanup(current), cleanup(old), 1))
+    result = subprocess.run([
+        'npx', 'playwright', 'test', str(p), '--grep', 'cleanup serializes',
+        '--project=mobile-chromium', '--workers=1'], capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    Path('/tmp/m2-limpeza-repro-before.log').write_text(output)
+    assert result.returncode != 0 and 'SQLSTATE 40P01' in output, output
+    print('Contraprova: 40P01 reproduzido; log em /tmp/m2-limpeza-repro-before.log')
+finally:
+    p.write_text(current)
+PY
+npx playwright test e2e/m2-ui-b.spec.ts --grep 'cleanup serializes' --workers=1
+```
+
+**Ambiente.** O acesso ao socket Docker exigiu execução fora da área isolada.
+O helper `docker-credential-desktop` ficou preso antes dos downloads públicos;
+a inicialização funcionou com `DOCKER_CONFIG=/tmp/m2-limpeza-docker` (arquivo
+`config.json` contendo apenas `{}`) e `DOCKER_HOST` apontado ao socket local existente. A
+configuração pessoal e os demais serviços Docker não foram alterados. A pilha
+foi iniciada por `npm run db:start` desta worktree, com os vetores sintéticos
+do script. Nenhum Supabase remoto, deploy ou serviço de produção foi acessado.
+A consulta `gh pr list` do protocolo inicial falhou por conectividade; a
+referência #102 foi lida do ref Git local. Sem push, PR ou mudança na `main`.
+
+**Validação integral do §5 após a revisão do #105.** Os 38 comandos abaixo
+(separando os comandos ligados por `&&` em AGENTS) passaram. Os números foram
+medidos após os ajustes P2/P3 e a incorporação da `main` em `e2db4fd`; a
+conferência integral no commit final usa a mesma árvore, sem reescrever commits.
+Logs por comando, códigos de saída e SHA em `/tmp/m2-review105-precommit/` e
+`/tmp/m2-review105-final/` (`results.json` e `sha.txt`). A execução é sequencial,
+sob `noite/pilha.lock`, sem retries de suíte ou tolerância a `40P01`.
+Nos harnesses Node, “blocos ok” conta linhas `ok -`, não asserções pgTAP.
+
+| Comando | Exit | Resultado medido |
+|---|---:|---|
+| `npm run db:reset` | 0 | migrations até `0036`, somente banco local |
+| `npm run db:test` | 0 | 34 arquivos / 2.793 asserções pgTAP |
+| `npm run db:test:idempotency` | 0 | 7 blocos ok; 25 conexões independentes |
+| `npm run db:test:gateway` | 0 | 9 blocos ok |
+| `npm run db:test:cors` | 0 | 6 blocos ok; 89 verificações HTTP |
+| `npm run db:test:worker` | 0 | 8 blocos ok |
+| `npm run db:test:deletion` | 0 | 10 blocos ok |
+| `npm run db:test:export` | 0 | 32 blocos ok |
+| `npm run db:test:invites` | 0 | 68 blocos ok |
+| `npm run db:test:groups` | 0 | 29 blocos ok |
+| `npm run db:test:membership` | 0 | 77 blocos ok |
+| `npm run db:test:rename` | 0 | 11 blocos ok |
+| `npm run db:test:group-deletion` | 0 | 13 blocos ok |
+| `npm run db:test:photos` | 0 | 21 blocos ok |
+| `npm run db:test:members` | 0 | 6 blocos ok |
+| `npm run db:test:matches` | 0 | 15 blocos ok |
+| `npm run db:test:match-players` | 0 | 35 blocos ok |
+| `npm run db:test:ratings` | 0 | 8 blocos ok |
+| `npm run db:test:teams` | 0 | 9 blocos ok |
+| `npm run db:test:refunds` | 0 | 8 blocos ok |
+| `npm run db:test:pix` | 0 | 13 blocos ok |
+| `npm run db:test:geocode` | 0 | 7 blocos ok |
+| `npm run build:web:auth-e2e` | 0 | 43 rotas |
+| `npm run test:auth:web` | 0 | 12 passed / 2 skipped |
+| `npm run test:privacy:web` | 0 | 5 passed / 5 skipped |
+| `npm run test:cors:web` | 0 | 4 passed |
+| `npm run test:groups:web` | 0 | 123 passed / 5 skipped |
+| `npm run test:matches:web` | 0 | 96 passed |
+| `npm run test:qr:web` | 0 | 30 passed |
+| `npm run build:web:smoke` | 0 | 43 rotas |
+| `npm run test:smoke:web` | 0 | 6 passed |
+| `npm run verify:app` | 0 | 68 arquivos / 808 unitários; lint, formato, tipos, build de 43 rotas, PWA, Auth e scans |
+| `npm run scan:docs` | 0 | 23 documentos; manifesto intacto |
+| `npm run scan:secrets` | 0 | 524 arquivos, zero achados |
+| `npm run test:audit` | 0 | 94 passed |
+| `npm run test:staging` | 0 | 102 passed |
+| `npm run audit:high` | 0 | nenhum high/critical fora da 1 exceção ativa |
+| `git diff --check` | 0 | zero erros |
+
+Os skips existentes são os casos exclusivos de mobile de Auth/privacidade e
+os cinco de `invite-page` no projeto wide. Nenhum skip foi acrescentado.
+A regressão UI-B com a RPC real `get_group_ratings` passou nos dois projetos;
+Pix manual passou 2/2 e Racha completo 54/54 dentro dos 96 testes de rachas.
+
+**Censo e limpeza da pilha.** Na rodada antes do commit, 28 das 29 tabelas
+consultadas ficaram vazias, incluindo usuários/sessões Auth, perfis, grupos,
+memberships, idempotência, rachas, participantes, notas, times, estornos
+e objetos Storage. Sobrou 1 `job_runs` de
+`process_external_effects`, `succeeded`, sem perfil nem racha: registro criado
+pelo `runWorker` de `fotos.spec.ts`, cuja limpeza não apaga esse log. Esse
+cleanup preexistente não foi ampliado nesta correção. Também restaram 3.626
+eventos GoTrue em `auth.audit_log_entries`, separados das fixtures de domínio.
+O censo bruto foi preservado; depois da validação, `db:reset` (exit 0)
+recriou o banco somente por migrations e o censo confirmou **zero linhas nas
+30 tabelas** (incluindo também `match_payment_secrets`), inclusive `job_runs`,
+e zero eventos Auth. A conferência no commit
+final repete o censo antes do reset e entrega a pilha vazia após esse reset;
+seus valores brutos ficam nos logs, sem apagar a evidência de resíduos.
+
+**Histórico da primeira rodada, anterior aos merges.** Os logs antigos em
+`/tmp/m2-limpeza-precommit/` registraram 92 passed / 2 failed em rachas:
+`40P01` na limpeza de `racha-completo` então reservada ao #102, seguido de falha
+no censo inicial de `rachas-v1` por 2 usuários residuais. Após reset, os dois
+casos isolados passaram e a suíte inteira teve 94 passed. Esse resultado
+histórico não é o da revisão atual: o #102 já entrou na base, e agora os dois
+specs adicionais usam o helper comum. A contraprova original de `40P01`,
+descrita acima, permanece registrada.
+
+Somente `e2e/pix-manual.spec.ts`, `e2e/racha-completo.spec.ts` e este documento
+mudaram na correção. Nenhuma decisão normativa foi necessária. O merge
+`e2db4fd` foi preservado; sem push, PR novo ou acesso a Supabase remoto,
+deploy ou serviço de produção.
 
 ## Foco do primeiro acesso ao perfil (10/11/2026)
 

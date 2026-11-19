@@ -163,6 +163,8 @@ jobs:
         run: npm run db:test:teams
       - name: Run the match refund HTTP, replay and permission harness
         run: npm run db:test:refunds
+      - name: Run the match Pix HTTP, sealing, idempotency, lock, worker and log census harness
+        run: npm run db:test:pix
       - name: Run the group deletion HTTP, replay, lock barrier and lock mutant harness
         run: npm run db:test:group-deletion
       - name: Run the photo HTTP, Storage, visibility, reclaim, export and deletion harness

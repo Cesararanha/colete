@@ -1,3 +1,4 @@
+import { beginCleanup } from './support/cleanup';
 import { expect, test, type APIRequestContext, type Browser, type Page } from './support/csp';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -166,7 +167,7 @@ async function cleanActors(authIds: string[], db: pg.Client, request: APIRequest
       });
     }
   }
-  await db.query('begin');
+  await beginCleanup(db, ids);
   try {
     await db.query(
       `delete from private.external_effects where resource_id in (

@@ -14,6 +14,12 @@ export function matchErrorMessage(
 ): string {
   if (error instanceof AppError) {
     switch (error.code) {
+      case 'PIX_LOCKED':
+        return pt.pix.errors.PIX_LOCKED;
+      case 'PIX_PURGED':
+        return pt.pix.errors.PIX_PURGED;
+      case 'PIX_INVALID':
+        return pt.pix.errors.PIX_INVALID;
       case 'PRICE_LOCKED':
         return pt.refunds.errors.PRICE_LOCKED;
       case 'MATCH_NOT_CANCELED':

@@ -4,7 +4,15 @@ import { StyleSheet, View } from 'react-native';
 import { pt } from '@/lib/i18n/pt';
 import { inviteQrMatrix, qrDarkRuns } from './invite-qr';
 
-export function InviteQrCode({ value }: { value: string }) {
+export function InviteQrCode({
+  value,
+  label = pt.groups.invites.qr,
+  testID = 'invite-qr-code',
+}: {
+  value: string;
+  label?: string;
+  testID?: string;
+}) {
   const matrix = useMemo(() => inviteQrMatrix(value), [value]);
   const [width, setWidth] = useState(0);
   const moduleSize = Math.floor(Math.min(width, 320) / (matrix.length + 8));
@@ -14,8 +22,8 @@ export function InviteQrCode({ value }: { value: string }) {
       {moduleSize > 0 ? (
         <View
           accessibilityRole="image"
-          accessibilityLabel={pt.groups.invites.qr}
-          testID="invite-qr-code"
+          accessibilityLabel={label}
+          testID={testID}
           style={[styles.paper, { width: size, height: size }]}
         >
           <View aria-hidden importantForAccessibility="no-hide-descendants">

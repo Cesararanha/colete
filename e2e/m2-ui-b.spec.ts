@@ -1,9 +1,11 @@
+import { beginCleanup } from './support/cleanup';
 import { expect, test, type APIRequestContext, type Page } from './support/csp';
 import path from 'node:path';
 import pg from 'pg';
 import { assertAccessible, createVerifiedUser, localEnvironment } from './support/local-stack';
 import { assertNoHorizontalOverflow } from './support/layout';
 import { handledObserver } from './support/observers';
+import { assertDistinctConnections, awaitLockWait, track } from '../scripts/lock-barrier.mjs';
 
 const { Client } = pg;
 const env = localEnvironment();
@@ -75,7 +77,7 @@ async function cleanActors(authIds: string[], db: pg.Client) {
       ...authIds.flatMap((id) => (knownProfiles.has(id) ? [knownProfiles.get(id)!] : [])),
     ]),
   ];
-  await db.query('begin');
+  await beginCleanup(db, ids);
   try {
     await db.query('delete from private.invite_rate_limits where profile_id = any($1::uuid[])', [
       ids,
@@ -278,6 +280,114 @@ async function clean(ids: string[], db: pg.Client) {
   expect((await db.query('select count(*)::integer as n from auth.users')).rows[0].n).toBe(0);
   await db.end();
 }
+
+// Keep the real cleanup and RPC under the same interleaving on both versions.
+// The reader owns the profile before cleanup starts. On the old path, let it
+// request the group only after cleanup deleted that group; on NOWAIT rollback,
+// let it finish before cleanup retries. The observer proves the old lock wait.
+test('UI-B cleanup serializes with get_group_ratings', async ({ request }) => {
+  const db = new Client({ connectionString: env.dbUrl, application_name: 'cleanup_writer' });
+  const reader = new Client({ connectionString: env.dbUrl, application_name: 'cleanup_reader' });
+  const observer = new Client({
+    connectionString: env.dbUrl,
+    application_name: 'cleanup_observer',
+  });
+  const authIds: string[] = [];
+  await Promise.all([db.connect(), reader.connect(), observer.connect()]);
+  let reading: ReturnType<typeof track> | undefined;
+  let released = false;
+  let busy = 0;
+  try {
+    const actor = await createActor(request, 'cleanup-ratings', authIds);
+    const created = await edge(request, actor, 'create_group', {
+      request_id: crypto.randomUUID(),
+      name: 'Cleanup ratings',
+    });
+    expect(created.status).toBe(200);
+    const groupId = (created.value.data!['outcome'] as { group_id: string }).group_id;
+    const sessionId = (
+      await db.query(
+        'select id from auth.sessions where user_id = $1 order by created_at desc limit 1',
+        [actor.authId],
+      )
+    ).rows[0].id;
+    const pids = await assertDistinctConnections({ db, reader, observer }, 'cleanup ratings');
+    await reader.query('begin');
+    await reader.query('select 1 from public.profiles where id = $1 for no key update', [
+      actor.profileId,
+    ]);
+    const releaseRead = () => {
+      released = true;
+      reading = track(
+        (async () => {
+          await reader.query('set local role service_role');
+          const result = await reader.query('select public.get_group_ratings($1, $2, $3) as data', [
+            actor.authId,
+            sessionId,
+            groupId,
+          ]);
+          expect(result.rows[0].data.group_id).toBe(groupId);
+          await reader.query('commit');
+        })(),
+      );
+    };
+    const instrumented = new Proxy(db, {
+      get(target, property) {
+        if (property !== 'query') return Reflect.get(target, property, target);
+        return async (sql: string, params?: unknown[]) => {
+          try {
+            const result = await target.query(sql, params);
+            if (!released && sql === 'rollback') {
+              releaseRead();
+              expect((await reading!.settled).status).toBe('fulfilled');
+            } else if (!released && sql.startsWith('delete from public.groups')) {
+              releaseRead();
+              await awaitLockWait(
+                observer,
+                reading!,
+                pids.reader,
+                pids.db,
+                'ratings waits for cleanup group',
+                'cleanup_',
+              );
+            }
+            return result;
+          } catch (error) {
+            if ((error as { code?: string }).code === '55P03') busy += 1;
+            throw error;
+          }
+        };
+      },
+    });
+    const cleaning = track(cleanActors(authIds, instrumented));
+    const result = await cleaning.settled;
+    if (result.status === 'rejected')
+      throw new Error(`cleanup SQLSTATE ${result.reason.code}`, { cause: result.reason });
+    expect(reading).toBeDefined();
+    const readResult = await reading!.settled;
+    if (readResult.status === 'rejected')
+      throw new Error(`get_group_ratings SQLSTATE ${readResult.reason.code}`, {
+        cause: readResult.reason,
+      });
+    expect(busy).toBeGreaterThan(0);
+    expect(
+      (
+        await db.query('select count(*)::int as n from public.profiles where id = $1', [
+          actor.profileId,
+        ])
+      ).rows[0].n,
+    ).toBe(0);
+  } finally {
+    try {
+      await reader.query('rollback');
+      if (reading) await reading.settled;
+      await db.query('rollback');
+      await cleanActors(authIds, db);
+    } finally {
+      await Promise.allSettled([db.end(), reader.end(), observer.end()]);
+    }
+  }
+});
 
 test('UI-B role matrix and direct routes do not disclose administration to players', async ({
   page,

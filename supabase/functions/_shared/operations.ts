@@ -11,6 +11,7 @@
 import { GatewayError, validation } from './errors.ts';
 import { normaliseGroupName } from './group-name.ts';
 import { normaliseMatchConfig } from './match-config.ts';
+import { normalisePix } from './pix.ts';
 
 export const IDENTITY_OPERATIONS = [
   'complete_profile',
@@ -33,6 +34,8 @@ export const IDENTITY_OPERATIONS = [
 // or an organizer gives each active member 1 to 5 stars. draw_teams is the
 // presentation cut of sections 4.2 and 4.3: the server draws 2, 3 or 4 teams
 // from the confirmed players (0032, human decision of 19/10/2026).
+// set_match_pix is the pilot's own Pix operation (0036): the organiser sets or
+// removes the match's Pix; create_match and update_match never carry it.
 export const GROUP_OPERATIONS = [
   'approve_member',
   'remove_member',
@@ -57,6 +60,7 @@ export const GROUP_OPERATIONS = [
   'delete_group',
   'set_rating',
   'draw_teams',
+  'set_match_pix',
 ] as const;
 
 export const OPERATIONS = [...IDENTITY_OPERATIONS, ...GROUP_OPERATIONS] as const;
@@ -360,6 +364,7 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
     delete_group: ['request_id', 'group_id'],
     set_rating: ['request_id', 'group_id', 'profile_id', 'stars'],
     draw_teams: ['request_id', 'match_id', 'team_count', 'confirm_unequal_sizes'],
+    set_match_pix: ['request_id', 'match_id', 'pix'],
   };
   rejectUnknownKeys(record, bodyKeys[operation], '');
 
@@ -593,6 +598,20 @@ export function normaliseRequest(operation: Operation, body: unknown): Normalise
           stars: requiredStars(record['stars']),
         },
       };
+    // The open normalised Pix is the canonical input, so the idempotency HMAC
+    // covers the key itself and a retry with the same body replays. The gateway
+    // seals the key after the HMAC and before the RPC (0036).
+    case 'set_match_pix': {
+      if (!Object.hasOwn(record, 'pix')) throw validation('pix', 'is required');
+      return {
+        operation,
+        requestId,
+        canonicalInput: {
+          match_id: requiredUuid(record['match_id'], 'match_id'),
+          pix: normalisePix(record['pix']),
+        },
+      };
+    }
     // The target is the confirmed player whose payment the organiser marks;
     // the actor still comes only from the verified claims.
     case 'set_match_payment':

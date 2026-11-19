@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 
+import { beginCleanup } from './support/cleanup';
 import { assertAccessible, createVerifiedUser, localEnvironment } from './support/local-stack';
 import { handledObserver } from './support/observers';
 
@@ -115,8 +116,10 @@ async function cleanActors(authIds: string[], db: pg.Client) {
   );
   const ids = profiles.rows.map((row: { id: string }) => row.id);
   const groups = 'select id from public.groups where owner_id = any($1::uuid[])';
-  await db.query('begin');
+  await beginCleanup(db, ids);
   try {
+    // beginCleanup locks every profile and owned group before deleting records:
+    // an in-flight mutation cannot commit a new idempotency FK in between (23503).
     await db.query('delete from private.idempotency_records where actor_id = any($1::uuid[])', [
       ids,
     ]);
