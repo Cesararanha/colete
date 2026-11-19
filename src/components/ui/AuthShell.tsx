@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react';
 import Head from 'expo-router/head';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppSafeArea } from '@/components/ui/AppSafeArea';
 
 import { pt } from '@/lib/i18n/pt';
 import { getLayoutMode } from '@/theme/layout';
@@ -32,7 +32,7 @@ export function AuthShell({ children, description, title }: AuthShellProps) {
       <Head>
         <title>{pt.app.pageTitle(title)}</title>
       </Head>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <AppSafeArea style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -60,7 +60,7 @@ export function AuthShell({ children, description, title }: AuthShellProps) {
             </View>
           </View>
         </ScrollView>
-      </SafeAreaView>
+      </AppSafeArea>
     </>
   );
 }

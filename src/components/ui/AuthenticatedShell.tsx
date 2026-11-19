@@ -1,8 +1,9 @@
 import Head from 'expo-router/head';
-import { usePathname, type Href } from 'expo-router';
+import { useIsFocused, usePathname, type Href } from 'expo-router';
 import { createContext, useContext, type PropsWithChildren, type ReactNode } from 'react';
 import {
   FlatList,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,7 +11,7 @@ import {
   useWindowDimensions,
   type ListRenderItem,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppSafeArea } from '@/components/ui/AppSafeArea';
 
 import { pt } from '@/lib/i18n/pt';
 import { backTo } from '@/lib/navigation';
@@ -176,6 +177,19 @@ function activeTab(pathname: string): MainTab | undefined {
   return undefined;
 }
 
+// SDK 57 marked inactive scenes aria-hidden. SDK 58 uses inert instead;
+// retain that accessibility boundary without changing scene layout or effects.
+function FocusedScreen({ children }: PropsWithChildren) {
+  const focused = useIsFocused();
+  return Platform.OS === 'web' ? (
+    <div aria-hidden={!focused} style={{ display: 'contents' }}>
+      {children}
+    </div>
+  ) : (
+    <>{children}</>
+  );
+}
+
 /** The frame of a screen: inside the tabs only the page title; outside, header and navigation too. */
 function ShellFrame({ children, title }: PropsWithChildren<{ title: string }>) {
   const { colors } = useTheme();
@@ -190,24 +204,24 @@ function ShellFrame({ children, title }: PropsWithChildren<{ title: string }>) {
   );
   if (insideTabs) {
     return (
-      <>
+      <FocusedScreen>
         {head}
         {children}
-      </>
+      </FocusedScreen>
     );
   }
   const navigation = <MainNavigation active={activeTab(pathname)} wide={wide} />;
   return (
-    <>
+    <FocusedScreen>
       {head}
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <AppSafeArea style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <View style={[styles.body, wide ? styles.bodyWide : undefined]}>
           {wide ? navigation : null}
           {children}
           {wide ? null : navigation}
         </View>
-      </SafeAreaView>
-    </>
+      </AppSafeArea>
+    </FocusedScreen>
   );
 }
 

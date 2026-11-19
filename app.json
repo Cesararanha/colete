@@ -16,7 +16,12 @@
       "output": "static"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": { "web": false }
+        }
+      ],
       "expo-document-picker",
       [
         "expo-camera",

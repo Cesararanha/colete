@@ -1,3 +1,4 @@
+import type { Metadata } from 'expo-router/server';
 import { useLocalSearchParams } from 'expo-router';
 
 import { AuthGateScreen } from '@/features/auth/AuthGateScreen';
@@ -12,4 +13,8 @@ export default function MatchDetailRoute() {
       renderAuthenticated={(profile) => <MatchDetailScreen matchId={matchId} profile={profile} />}
     />
   );
+}
+
+export function generateMetadata(): Metadata {
+  return { title: pt.app.pageTitle(pt.matches.detail.title) };
 }

@@ -256,6 +256,46 @@ async function refreshStoredSession(page: Page, apiUrl: string, publishableKey: 
 }
 
 test.describe('M1-A authentication', () => {
+  test('static routes include their titles and hydration scripts before JavaScript runs', async ({
+    request,
+  }) => {
+    const titles = [
+      ['/criar-conta', 'Criar conta · Colete'],
+      ['/entrar', 'Entrar · Colete'],
+      ['/verificar-codigo', 'Verificar código · Colete'],
+      ['/esqueci-senha', 'Esqueci minha senha · Colete'],
+      ['/grupos', 'Grupos · Colete'],
+      ['/grupos/criar', 'Criar grupo · Colete'],
+      ['/grupos/[groupId].html', 'Detalhe do grupo · Colete'],
+      ['/grupos/[groupId]/membros', 'Membros · Colete'],
+      ['/grupos/[groupId]/convites', 'Convites do grupo · Colete'],
+      ['/grupos/[groupId]/configuracoes', 'Configurações do grupo · Colete'],
+      ['/grupos/[groupId]/icone', 'Ícone do grupo · Colete'],
+      ['/grupos/[groupId]/notas', 'Notas dos jogadores · Colete'],
+      ['/rachas', 'Agenda · Colete'],
+      ['/rachas/[matchId]', 'Detalhe do racha · Colete'],
+      ['/criar-racha', 'Criar racha · Colete'],
+      ['/editar-racha', 'Editar racha · Colete'],
+      ['/perfil', 'Perfil · Colete'],
+      ['/perfil/senha', 'Trocar senha · Colete'],
+      ['/perfil/privacidade', 'Privacidade e conta · Colete'],
+      ['/join', 'Entrar em grupo · Colete'],
+      ['/design-system', 'Design system · Colete'],
+      ['/foundation', 'Colete'],
+      ['/', 'Colete'],
+      ['/smoke-auth-callback', 'Colete'],
+    ] as const;
+    for (const [route, title] of titles) {
+      const response = await request.get(route);
+      expect(response.ok(), route).toBe(true);
+      const html = await response.text();
+      expect(html, route).toMatch(new RegExp(`<title[^>]*>${title}</title>`));
+      expect(html, route).toMatch(/<script\b[^>]*src="[^"]+\.js"/u);
+      expect(html, route).toContain('lang="pt-BR"');
+      expect(html, route).toContain('data-theme="dark"');
+    }
+  });
+
   test('creates a real account, reads OTP from local e-mail and completes the profile', async ({
     browser,
     page,

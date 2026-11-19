@@ -1,3 +1,4 @@
+import type { Metadata } from 'expo-router/server';
 import { useLocalSearchParams } from 'expo-router';
 
 import { ShellChromeContext } from '@/components/ui/AuthenticatedShell';
@@ -19,4 +20,8 @@ export default function CreateMatchRoute() {
       />
     </ShellChromeContext.Provider>
   );
+}
+
+export function generateMetadata(): Metadata {
+  return { title: pt.app.pageTitle(pt.matches.create.title) };
 }

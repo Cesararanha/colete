@@ -1,4 +1,4 @@
-import { ScrollViewStyleReset } from 'expo-router/html';
+import { ScrollViewStyleReset, useServerDocumentContext } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
 
 import { pt } from '@/lib/i18n/pt';
@@ -67,6 +67,7 @@ const consumeInviteFragment = `
     window.dispatchEvent(new Event('colete:invite-fragment'));
   };
   capture();
+  window.addEventListener('popstate', capture);
   window.addEventListener('hashchange', capture);
 })();
 `;
@@ -84,6 +85,12 @@ const globalStyles = `
   html, body, #root { height: 100%; margin: 0; overscroll-behavior: none; }
   *, *::before, *::after { box-sizing: border-box; }
   body { font-synthesis: none; }
+  html [data-safe-area] {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
   ::selection { background-color: ${dark.text}; color: ${dark.background}; }
   :focus-visible { outline: 2px solid ${dark.focus}; outline-offset: 2px; }
   [data-band] :focus-visible { outline-color: ${dark.focusOnBand}; }
@@ -98,8 +105,9 @@ const globalStyles = `
 `;
 
 export default function RootHtml({ children }: PropsWithChildren) {
+  const { headNodes, bodyNodes, htmlAttributes, bodyAttributes } = useServerDocumentContext();
   return (
-    <html data-theme="dark" lang="pt-BR">
+    <html {...htmlAttributes} data-theme="dark" lang="pt-BR">
       <head>
         <meta charSet="utf-8" />
         <meta content="IE=edge" httpEquiv="X-UA-Compatible" />
@@ -119,8 +127,12 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <script dangerouslySetInnerHTML={{ __html: consumeInviteFragment }} />
         <script dangerouslySetInnerHTML={{ __html: serviceWorkerRegistration }} />
         <ScrollViewStyleReset />
+        {headNodes}
       </head>
-      <body>{children}</body>
+      <body {...bodyAttributes}>
+        {children}
+        {bodyNodes}
+      </body>
     </html>
   );
 }
