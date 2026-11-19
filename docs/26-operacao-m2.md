@@ -4676,3 +4676,61 @@ Na contraprova, as premissas anteriores ao foco final, inclusive o foco no `body
 durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-2
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
+
+## Piloto — Pix manual, banco e Edge (`0036`, 07/11/2026)
+
+Implementação na worktree `pix-manual-a`, branch `feat/pix-manual-a`, base `f5756e6`
+(#97, 1.4), por pedido do César de 07/11 às 20:05 (fazer tudo, decidindo por delegação,
+para revisão no dia seguinte). Plano em `noite/plano-pix-manual.md` (versão 3, §13
+prevalece); conferências em `noite/rev-plano-pix.md`, `noite/conf-plano-pix.md` e
+`noite/conf2-plano-pix.md`; decisões por delegação em `noite/progresso-pix.md`. Sem
+deploy nem Supabase remoto. Risco alto (AGENTS §4.12): dado pessoal sensível e dinheiro.
+
+**Entrega.** Migration append-only `0036_match_pix.sql`: tabela
+`private.match_payment_secrets` sem RLS nem grant; `set_match_pix` e
+`get_payment_instructions` exclusivas de `service_role`; registros da `0033` só com INSERT
+(41 operações, 65 pares); quatro helpers privados, três gatilhos de expurgo e o job
+`purge_match_pix` no slot diário 03:53 UTC, com `worker_job_slot` e
+`worker_execute_database_job` redefinidos a partir dos corpos da `0031`. Edge: `pix.ts`
+(validação, normalização, AES-256-GCM com dado associado por versão, tipo e racha) e
+`pix-reads.ts` (leitura que decifra), HMAC sobre a forma aberta normalizada antes da cifra;
+quatro códigos de erro, `PIX_NOT_CONFIGURED` novo no catálogo do `13` §8 e
+`generate-error-codes` com 117 códigos. Chave de teste local pública
+(`PIX_KEY_ENC_KEY_V1` = bytes `0x20..0x3f`) em `start-local-supabase.mjs`, diferente das
+outras.
+
+**Provas.**
+
+| Prova | Resultado observado |
+|---|---|
+| `0036_match_pix.test.sql` | 194 asserções: privilégios (quatro papéis, inclusive um papel de prova), validação, autoridade com `NOT_FOUND` igual, ciclo incluir/trocar/remover/reincluir, trava por pago e por devolução pendente (inclusive e-mail com o mesmo last4), CN1 (a), 59 e 61 dias, matriz de leitura com `FORBIDDEN` igual com e sem Pix, sessão revogada pela RPC real recusada com `UNAUTHENTICATED`, worker, gatilhos por UPDATE direto e pelas seis RPCs reais de saída |
+| `db:test:pix` | 13 blocos `ok`: validação no Edge sem eco; mesma chave em duas grafias faz replay e outra chave dá `IDEMPOTENCY_CONFLICT`; a cifra e a idempotência não contêm a chave em texto, hex ou bytes; `pg_dump --data-only` do banco local inteiro sem a chave em texto, formatada, hex ou base64, e nome e cidade só no bloco de `match_payment_secrets`; jogador não pago lê a chave aberta com `cache-control: no-store`; trava por pagamento; sem `PIX_KEY_ENC_KEY_V1`, gravar dá `INTERNAL` antes da RPC, ler dá `INTERNAL` só a quem pode ler (o pago continua `FORBIDDEN`) e remover funciona; worker real; corridas `leave_group` × `set_match_pix` e `set_match_payment` × `set_match_pix` nas duas ordens com espera observada e COMMIT real (pagar antes trava a troca; trocar antes mantém o Pix novo); sessão revogada pelo HTTP real recusada com `UNAUTHENTICATED`; nenhum log de `edge_runtime`, `rest`, `db`, `kong` e `auth` contém a chave, o nome ou a cidade |
+| Testes do Edge | 18 testes novos em `pix.test.ts` (telefone só celular, fixo recusado); `gateway.test.ts` cobre a nova operação |
+
+**Correções da revisão independente (08/11, `noite/rev-pr99-pix.md`: 0 P1, 2 P2, 7 P3).**
+P2-1: as três provas da §6 do plano entraram (corrida com `set_match_payment`, sessão revogada
+na pgTAP e no HTTP, censo do `pg_dump`). P2-2: a frase do `13` §1.3.2 e a linha do `28` sobre
+o segredo ausente na leitura agora descrevem o código. P3-1: a leitura com `NOT_FOUND` para
+ex-membro e outro grupo está entre as decisões delegadas do `25` §8.1. P3-3: telefone só como
+celular. P3-4: `purge_match_pix_rows` trava as linhas em ordem de `match_id` antes do `UPDATE`,
+para o job e o pedido de exclusão esperarem em vez de entrar em deadlock. P3-5 e P3-6: nome e
+cidade no censo dos logs, `no-store` afirmado. P3-7: o `28` diz que girar para V2 exige
+migration e resolvedor por versão. P3-2 era só a data da pausa no corpo do PR (07/11).
+
+**Validação AGENTS §5 depois das correções (08/11).** Pilha reiniciada desta worktree, os
+mesmos 35 comandos em sequência: 33 com exit 0, inclusive `db:test` (34 arquivos, 2793
+asserções) e `db:test:pix` (13 blocos). `test:groups:web` caiu num deadlock fora do Pix: a
+limpeza de `m2-ui-b` (`delete from public.profiles`) cruzou com uma leitura
+`get_group_ratings` do outro worker do Playwright, na mesma base. Os 5 usuários que sobraram
+derrubaram mais dois testes do mesmo lote e os dois de `rachas-v1` em `test:matches:web`,
+que exigem a base sem usuários. Depois de `db:reset` e `build:web:auth-e2e`:
+`test:matches:web` 94/94; `test:groups:web` 120/121, com timeout em `textos-longos` num lote
+de 17 min (6 min na rodada anterior); esse spec isolado passou 2/2.
+
+**Validação AGENTS §5 no SHA final.** Pilha local iniciada desta worktree, 35 comandos em sequência, todos com exit 0:
+`db:reset`; `db:test` (34 arquivos, 2790 asserções); os 21 harnesses `db:test:*`
+(inclusive `db:test:pix`); `test:auth:web` + `test:privacy:web` (12), `test:cors:web` (5),
+`test:groups:web` (121), `test:matches:web` (94), `test:qr:web` (30), `test:smoke:web`
+(6); `verify:app` (vitest 801); `scan:docs`, `scan:secrets`, `test:audit`,
+`test:staging`, `audit:high` e `git diff --check`. Os quatro jobs de CI rodam no PR;
+`Database security` segue pausado (decisão de 07/11).

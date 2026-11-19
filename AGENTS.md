@@ -168,6 +168,7 @@ npm run db:test:match-players
 npm run db:test:ratings
 npm run db:test:teams
 npm run db:test:refunds
+npm run db:test:pix
 npm run db:test:geocode
 npm run build:web:auth-e2e && npm run test:auth:web && npm run test:privacy:web
 npm run test:cors:web
