@@ -4721,6 +4721,107 @@ durante o clique, passaram em `8a2f818`. As regressões P2-C1, P2-C2, P2-1 e P2-
 estão dentro dos 94 casos de `test:matches:web`. Os itens **PENDENTE-PLAYWRIGHT**
 desta subseção ficam resolvidos por esta tabela.
 
+### Deadlock na limpeza de `racha-completo.spec.ts` (09/11/2026)
+
+Na validação do PR #101, em 08/11/2026, o teste `Foco da organização: cancel restaura o
+destino com foco inicial no body` (wide) falhou com `deadlock detected` na limpeza do próprio
+teste, ao apagar `public.profiles`. O rollback deixou dois usuários no banco, e eles
+derrubaram o censo inicial de `rachas-v1.spec.ts:179`.
+
+**Causa.** A tela do racha, para a organização, lê a contagem de notas
+(`get_group_ratings`, `0031`, linhas 635 e 642). A leitura trava o perfil do ator
+`for no key update` e depois o grupo `for no key update`, na ordem global do
+`docs/25` (perfis → grupos). A limpeza (`cleanActors`) apagava participantes, rachas,
+convites, memberships e grupos antes dos perfis. Quando essa leitura ainda estava em voo, ela
+segurava o perfil e esperava pelo grupo que a limpeza já tinha apagado, e a limpeza esperava
+por esse perfil para apagá-lo. O Postgres escolhia a limpeza como vítima. Fechar a página não
+basta: a requisição que já saiu do navegador segue até o banco. O fluxo `cancel` é o único
+dos três que termina sem esperar resposta de rede. Instrumentado em 10 rodadas de cada
+fluxo (5 por projeto), o último `get_group_ratings` respondeu de 20 a 47 ms antes do início
+da limpeza no `cancel`, contra 150 a 265 ms em `add` e 116 a 176 ms em `remove`, que esperam
+`add_player` ou `remove_player`. Basta a máquina estar mais lenta, como na suíte inteira, para a leitura
+cair dentro da limpeza.
+
+**Correção.** A limpeza trava todos os perfis e depois todos os grupos dos atores,
+`order by id for update nowait`. Só então apaga os registros de idempotência e o resto. Se
+alguma dessas linhas estiver ocupada (`55P03`), ela desfaz a transação antes de apagar
+qualquer coisa, espera 50 ms e tenta de novo, por até 15 s. Depois disso, relança o
+`55P03`. Na fase de travas, portanto, a limpeza nunca espera segurando lock. Toda mutação
+começa pelo perfil do ator (a FK da idempotência) e toda leitura que trava linha trava esse
+perfil. Por isso, enquanto a limpeza segura todos os perfis, nenhuma gravação ligada a eles
+pode concluir e nenhum registro de idempotência novo pode surgir. Um replay
+(`on conflict do nothing`) ainda pode ler o próprio registro, mas sem trava de linha que
+bloqueie a limpeza. Os deletes seguintes ainda podem esperar, mas nenhuma transação que
+espere por esses perfis tem como fechar ciclo com a limpeza (conferência restrita,
+`noite/conf102-2.md`, P3). Só o `55P03` da fase de travas é esperado. `40P01` e qualquer outro erro continuam
+reprovando o teste: retry de deadlock só esconderia a causa.
+
+Houve duas versões antes desta, ambas apontadas pelo Codex. A primeira (`17c43c9`) travava
+perfis e grupos com `for update` comum, esperando. Isso fecha o ciclo da leitura, mas a
+revisão (`noite/rev102.md`, P2) mostrou outro ciclo, só com perfis, quando há uma mutação em
+voo. Isso acontece se uma asserção falha antes da resposta e o teste cai no `finally`.
+`add_player` (`0035`) segura o perfil do dono B e o grupo e, no insert do participante, pede
+`FOR KEY SHARE` no perfil do jogador A pela FK. Se A tem id menor que B, a limpeza trava A e
+espera B, e a mutação espera A: `40P01`. A revisão também apontou `get_group_members`
+(`0019`), que trava perfil → grupo como `get_group_ratings` e entra no mesmo caso da
+leitura. A segunda versão (`5c9c840`) trouxe o `nowait`, mas ainda apagava a idempotência
+antes das travas. A conferência (`noite/conf102.md`, P2) mostrou que uma mutação que commita
+entre esse delete e as travas deixa um registro cuja FK (`0004`:28, `on delete restrict`)
+recusa o delete do perfil: `23503`, rollback e usuários Auth deixados no banco.
+
+**Contraprova determinística** (spec temporário, não commitado, guardado em
+`noite/racha-limpeza-evidencias/zz-prova-limpeza.spec.ts`, três conexões e dois atores com
+grupo). As variantes da limpeza são cópias fiéis de cada versão. A outra transação toma o
+primeiro lock. A limpeza começa, e o observador espera que ela entre em espera de lock
+(`pg_stat_activity`) ou receba a primeira recusa `NOWAIT`. Então a outra transação pede o
+segundo lock. Os cenários são três:
+
+- **Leitura:** o dono trava o próprio perfil (`0031`:635) e depois o grupo (`0031`:642).
+- **Mutação:** o dono de id maior trava perfil e grupo e depois pede `FOR KEY SHARE` no
+  perfil de id menor.
+- **Idempotência:** um registro passa pelas transições reais (insert `executing_uncommitted`,
+  update para `completed`). Na versão `5c9c840`, ele commita entre o delete da idempotência e
+  as travas; na versão final, a limpeza recebe a recusa `NOWAIT` enquanto ele está em voo.
+
+Foram 5 rodadas por caso, todas iguais:
+
+| Em voo | Limpeza | Resultado |
+|---|---|---|
+| leitura | antiga (`origin/main`) | `40P01` na limpeza, parada em `delete from public.profiles`, como em 08/11 |
+| leitura | `for update` (`17c43c9`) | as duas commitam |
+| mutação | `for update` (`17c43c9`) | `40P01` na limpeza, parada na trava de perfis: o P2 da revisão |
+| leitura | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| mutação | `nowait` (`5c9c840`) | recusa, nova tentativa, as duas commitam |
+| idempotência | `nowait` (`5c9c840`) | `23503` no delete do perfil: o P2 da conferência |
+| leitura | final | recusa, nova tentativa, as duas commitam |
+| mutação | final | recusa, nova tentativa, as duas commitam |
+| idempotência | final | recusa, nova tentativa, as duas commitam |
+
+Em todos os casos, o censo terminou sem os perfis da prova. O prazo de 15 s não foi exercido
+pela prova.
+
+**Validação completa da AGENTS §5** em `706b7eb`, sob a trava `noite/pilha.lock`, com a
+pilha iniciada desta worktree (logs em `noite/racha-limpeza-evidencias/`): `db:reset` exit
+0, recriando somente pelas migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599
+testes. Todos os harnesses (`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`,
+`export`, `invites`, `groups`, `membership`, `rename`, `group-deletion`, `photos`,
+`members`, `matches`, `match-players`, `ratings`, `teams`, `refunds` e `geocode`)
+terminaram com exit 0. `build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped;
+privacidade 5 passed + 5 skipped; CORS 4 passed; grupos 121 passed + 5 skipped.
+`test:matches:web` rodou cinco vezes seguidas, sem `db:reset` entre elas, e teve 94 passed em
+todas: um usuário deixado pela limpeza derrubaria o censo inicial de `rachas-v1.spec.ts` na
+rodada seguinte. QR 30 passed; build smoke exit 0 e smoke 6 passed. `verify:app` exit 0,
+com 65 arquivos e 782 testes unitários; `scan:docs` e `scan:secrets` exit 0 (511 arquivos);
+`test:audit` 94/94; `test:staging` 102/102; `audit:high` exit 0, com uma exceção ativa;
+`git diff --check` limpo. Censo final: zero usuários, perfis, grupos, rachas e registros de
+idempotência. As rodadas anteriores, em `17c43c9`, `5c9c840` e `a652ba4`, ficaram nas pastas
+`noite/racha-limpeza-evidencias-<sha>`. A de `17c43c9` foi completa e verde, salvo um
+`db:test:cors` cuja repetição passou. As outras duas foram interrompidas pelas correções
+seguintes. Nenhum projeto Supabase remoto ou serviço de produção foi acessado.
+
+`rachas-v1.spec.ts` e `sorteio-times.spec.ts` têm a mesma ordem de limpeza e hoje repetem a
+transação em `40P01`. Ficam fora deste PR e foram registradas como continuação.
+
 ## Piloto — Pix manual, banco e Edge (`0036`, 07/11/2026)
 
 Implementação na worktree `pix-manual-a`, branch `feat/pix-manual-a`, base `f5756e6`
