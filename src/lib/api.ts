@@ -71,6 +71,7 @@ export type GroupOperation =
   | 'add_player'
   | 'remove_player'
   | 'set_match_payment'
+  | 'set_match_pix'
   | 'update_match'
   | 'cancel_match'
   | 'record_canceled_match_payment'
@@ -211,6 +212,32 @@ export type MatchPlayerOutcome = {
       | 'player_removed'
       | 'player_remove_unchanged';
   };
+};
+/** The Pix of a match (docs/13 section 1.3.2); the Edge validates and normalises it. */
+export type PixKeyType = 'cpf' | 'cnpj' | 'email' | 'phone' | 'random';
+export type MatchPixInput = {
+  type: PixKeyType;
+  key: string;
+  receiver_name: string;
+  receiver_city: string;
+};
+export type MatchPixOutcome = {
+  outcome: {
+    group_id: string;
+    match_id: string;
+    logical_result: 'pix_set' | 'pix_removed' | 'pix_remove_unchanged';
+  };
+};
+/** Opened by the gateway for the organisation and for an unpaid confirmed player. */
+export type PaymentInstructions = {
+  type: PixKeyType;
+  key: string;
+  receiver_name: string;
+  receiver_city: string;
+  amount: string;
+  set_by_name: string | null;
+  set_at: string;
+  replaced: boolean;
 };
 export type MatchRefundOutcome = {
   outcome: { group_id: string; match_id: string; refund_id: string; logical_result: string };
@@ -504,6 +531,7 @@ const groupOperations = new Set<string>([
   'add_player',
   'remove_player',
   'set_match_payment',
+  'set_match_pix',
   'update_match',
   'cancel_match',
   'record_canceled_match_payment',
@@ -901,6 +929,12 @@ export function createApiClient(dependencies: ApiDependencies = {}) {
         profile_id: targetId,
         paid,
       }),
+    /** null removes the Pix; a payment or a pending refund locks it (PIX_LOCKED). */
+    setMatchPix: (matchId: string, pix: MatchPixInput | null) =>
+      mutation<MatchPixOutcome>('set_match_pix', { match_id: matchId, pix }),
+    /** PIX_NOT_CONFIGURED (404) means the match has no Pix for this reader. */
+    getPaymentInstructions: (matchId: string, signal?: AbortSignal) =>
+      groupRead<PaymentInstructions>('get_payment_instructions', { match_id: matchId }, signal),
     addPlayer: (matchId: string, profileId: string) =>
       mutation<MatchPlayerOutcome>('add_player', { match_id: matchId, profile_id: profileId }),
     removePlayer: (matchId: string, profileId: string) =>

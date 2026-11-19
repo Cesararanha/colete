@@ -45,6 +45,7 @@ import { matchDateTitle, matchPrice, matchTimeRange } from './match-format';
 import { openMatchMap } from './match-map';
 import { deviceDiffers, zoneLabel } from './match-zone';
 import { matchTeamsQueryKey, MatchTeamsSection } from './MatchTeams';
+import { MatchPixManager, MatchPixPayment, useMatchPix } from './MatchPix';
 import { MatchRefunds } from './MatchRefunds';
 import {
   AddMatchPlayer,
@@ -440,14 +441,18 @@ const COLLAPSED = 5;
  */
 function PaymentNoticeBlock({
   groupId,
+  matchId,
   price,
   profileId,
   roster,
+  timezone,
 }: {
   groupId: string;
+  matchId: string;
   price: number;
   profileId: string;
   roster: MatchRoster;
+  timezone: string;
 }) {
   const { colors } = useTheme();
   const asked =
@@ -458,6 +463,9 @@ function PaymentNoticeBlock({
       canceled: roster.canceled,
       collectors: '',
     })?.kind === 'pay';
+  // Pix manual (0036): the gateway decides again who reads; a match without
+  // Pix keeps the instruction of slice 1.1.
+  const pix = useMatchPix(profileId, matchId, asked);
   const members = useQuery({
     enabled: asked,
     queryKey: [PRIVATE_QUERY_ROOT, 'group-members', profileId, groupId],
@@ -489,9 +497,21 @@ function PaymentNoticeBlock({
       </View>
     ) : null;
   if (notice === null) return ownRefundNotice;
+  // While the Pix is read, show neither block: the generic instruction would
+  // be replaced a moment later.
+  if (notice.kind === 'pay' && pix.isLoading) return ownRefundNotice;
+  if (notice.kind === 'pay' && pix.data) {
+    return (
+      <>
+        {ownRefundNotice}
+        <MatchPixPayment pix={pix.data} timezone={timezone} />
+      </>
+    );
+  }
   return (
     <>
       {ownRefundNotice}
+      {notice.kind === 'pay' ? <ReadNotice query={pix} /> : null}
       <View
         style={[styles.payNotice, { backgroundColor: colors.surface }]}
         testID="match-pay-notice"
@@ -532,6 +552,7 @@ function Rosters({
   price,
   profileId,
   roster,
+  timezone,
 }: {
   hasTeams: boolean;
   /** The match is over (passed to the teams, which may no longer be drawn). */
@@ -542,6 +563,7 @@ function Rosters({
   price: number;
   profileId: string;
   roster: MatchRoster;
+  timezone: string;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId);
@@ -635,7 +657,14 @@ function Rosters({
             </View>
           ) : null}
         </View>
-        <PaymentNoticeBlock groupId={groupId} price={price} profileId={profileId} roster={roster} />
+        <PaymentNoticeBlock
+          groupId={groupId}
+          matchId={matchId}
+          price={price}
+          profileId={profileId}
+          roster={roster}
+          timezone={timezone}
+        />
         {unrated > 0 ? (
           <View style={styles.unrated}>
             <AppButton
@@ -909,6 +938,11 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
     queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
   });
   const roster = rosterQuery.data;
+  const pixQuery = useMatchPix(
+    profile.id,
+    matchId,
+    roster?.viewer.can_manage === true && !roster.canceled,
+  );
   const refundsQuery = useQuery({
     enabled: roster?.viewer.can_manage === true,
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId, 'refunds'],
@@ -1054,7 +1088,24 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                 price={Number(match.field_price)}
                 profileId={profile.id}
                 roster={roster}
+                timezone={match.timezone}
               />
+              {roster.viewer.can_manage && !roster.canceled ? (
+                <>
+                  <ReadNotice query={pixQuery} />
+                  {pixQuery.isSuccess ? (
+                    <MatchPixManager
+                      matchId={matchId}
+                      pendingRefund={
+                        refundsQuery.data?.some((refund) => refund.status === 'refund_due') ?? false
+                      }
+                      pix={pixQuery.data}
+                      profileId={profile.id}
+                      roster={roster}
+                    />
+                  ) : null}
+                </>
+              ) : null}
               {roster.viewer.can_manage ? (
                 <>
                   <ReadNotice query={refundsQuery} />

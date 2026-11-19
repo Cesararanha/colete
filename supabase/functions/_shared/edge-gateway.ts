@@ -36,6 +36,8 @@ import { DEFAULT_USER_AGENT, dispatchGeocode, isGeocodeOperation } from './geoco
 import { dispatchPhoto, isPhotoOperation } from './photo-gateway.ts';
 import { createPhotoStorage } from './photo-storage.ts';
 import { dispatchRatingRead, isRatingReadOperation } from './rating-reads.ts';
+import { dispatchPixRead, isPixReadOperation } from './pix-reads.ts';
+import { pixKeyFromEnvironment, pixOpener, pixSealer } from './pix.ts';
 
 declare const Deno: {
   env: { get(name: string): string | undefined };
@@ -230,6 +232,17 @@ export function serveGateway(served: readonly string[]): void {
           return jsonResponse(read.status, read.body);
         }
 
+        // The Pix key is read from the environment per request, so a missing
+        // or malformed secret fails only the Pix calls, never the others.
+        if (isPixReadOperation(operation)) {
+          const read = await dispatchPixRead(
+            { actor, callRpc, openPix: () => pixOpener(pixKeyFromEnvironment(readEnv)) },
+            operation,
+            body,
+          );
+          return jsonResponse(read.status, read.body);
+        }
+
         if (isMatchReadOperation(operation)) {
           const read = await dispatchMatchRead({ actor, callRpc }, operation, body);
           return jsonResponse(read.status, read.body);
@@ -262,7 +275,11 @@ export function serveGateway(served: readonly string[]): void {
               body,
             )
           : await runOperation(
-              { resolveKey, callRpc },
+              {
+                resolveKey,
+                callRpc,
+                sealPix: () => pixSealer(pixKeyFromEnvironment(readEnv)),
+              },
               operation as Operation,
               body,
               actor,

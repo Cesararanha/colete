@@ -9,6 +9,7 @@ import { MATCH_READ_OPERATIONS } from '../_shared/match-reads.ts';
 import { GEOCODE_OPERATIONS } from '../_shared/geocode.ts';
 import { PHOTO_OPERATIONS } from '../_shared/photo-gateway.ts';
 import { RATING_READ_OPERATIONS } from '../_shared/rating-reads.ts';
+import { PIX_READ_OPERATIONS } from '../_shared/pix-reads.ts';
 
 serveGateway([
   ...GROUP_OPERATIONS,
@@ -17,4 +18,5 @@ serveGateway([
   ...GEOCODE_OPERATIONS,
   ...PHOTO_OPERATIONS,
   ...RATING_READ_OPERATIONS,
+  ...PIX_READ_OPERATIONS,
 ]);
