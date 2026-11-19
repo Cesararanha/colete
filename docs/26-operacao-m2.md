@@ -4939,7 +4939,8 @@ Validação da correção (só cliente): `verify:app` (vitest 808), `test:privac
 
 ## Limpeza e2e sem deadlock — UI-B (18/11/2026)
 
-Fatia `fix/m2-ui-b-limpeza`, sobre `f5756e6`. Somente limpeza de fixtures,
+Fatia `fix/m2-ui-b-limpeza`, criada sobre `f5756e6` e atualizada pelo merge
+`e2db4fd` (preservado nesta correção do #105). Somente limpeza de fixtures,
 regressão e registro operacional; sem mudança no app, migrations, contratos ou
 asserções dos cenários existentes. Referência lida: `cleanActors` e comentário
 da branch `origin/fix/racha-limpeza-deadlock` (#102).
@@ -4950,8 +4951,16 @@ com `begin` seguido de exclusões sem aquisição prévia de todos os pais:
 `editar-racha`, `fotos`, `icone-grupo`, `invite-page`, `invite-qr`, `notas`,
 `rachas-ux`, `rachas-v1`, `sorteio-times`, `textos-longos`, `ux-correcoes-2`,
 `visual-placar` e `racha-completo` (todos `e2e/*.spec.ts`). Os primeiros 17 foram
-corrigidos. `racha-completo.spec.ts` permanece byte a byte na base: pertence ao
-#102, ainda separado. `m1-a-auth` e
+corrigidos na primeira entrega. Após a incorporação dos PRs #100 e #102 pela
+`main`, a revisão do #105 encontrou mais dois ajustes: `pix-manual` ainda abria
+`begin` sem travas (P2), apesar da leitura de `get_group_ratings` pela tela;
+`racha-completo` repetia a lógica de travas à mão (P3). Os dois agora chamam
+`beginCleanup`, preservando a ordem dos deletes. Em `racha-completo`, o comentário
+continua explicando por que os registros idempotentes só saem depois das travas.
+São **19 specs usando o helper**. A nova busca `rg -n -i "\bbegin\b" e2e/`
+encontrou somente o `begin` do helper e o da conexão leitora da regressão UI-B
+(que não apaga fixtures), além do comentário do helper: **zero limpezas com
+`begin` seguido de deletes sem as travas prévias**. `m1-a-auth` e
 `m1-b-privacy` fazem exclusões autocommit, sem o padrão de transação desta
 fatia, e não foram alterados. `rachas-v1` e `sorteio-times`
 também tinham retry de `40P01`; esse retry foi removido.
@@ -5021,15 +5030,19 @@ do script. Nenhum Supabase remoto, deploy ou serviço de produção foi acessado
 A consulta `gh pr list` do protocolo inicial falhou por conectividade; a
 referência #102 foi lida do ref Git local. Sem push, PR ou mudança na `main`.
 
-**Validação integral do §5.** Contagens medidas nesta sessão. Nos harnesses
-Node abaixo, “blocos ok” conta as linhas `ok -` emitidas pelo comando; não
-representa asserções pgTAP nem testes Playwright. Os logs individuais e os
-códigos de saída estão em `/tmp/m2-limpeza-precommit/` (`results.json`).
+**Validação integral do §5 após a revisão do #105.** Os 38 comandos abaixo
+(separando os comandos ligados por `&&` em AGENTS) passaram. Os números foram
+medidos após os ajustes P2/P3 e a incorporação da `main` em `e2db4fd`; a
+conferência integral no commit final usa a mesma árvore, sem reescrever commits.
+Logs por comando, códigos de saída e SHA em `/tmp/m2-review105-precommit/` e
+`/tmp/m2-review105-final/` (`results.json` e `sha.txt`). A execução é sequencial,
+sob `noite/pilha.lock`, sem retries de suíte ou tolerância a `40P01`.
+Nos harnesses Node, “blocos ok” conta linhas `ok -`, não asserções pgTAP.
 
 | Comando | Exit | Resultado medido |
 |---|---:|---|
-| `npm run db:reset` | 0 | migrations até `0035`, somente banco local |
-| `npm run db:test` | 0 | 33 arquivos / 2.599 asserções pgTAP |
+| `npm run db:reset` | 0 | migrations até `0036`, somente banco local |
+| `npm run db:test` | 0 | 34 arquivos / 2.793 asserções pgTAP |
 | `npm run db:test:idempotency` | 0 | 7 blocos ok; 25 conexões independentes |
 | `npm run db:test:gateway` | 0 | 9 blocos ok |
 | `npm run db:test:cors` | 0 | 6 blocos ok; 89 verificações HTTP |
@@ -5048,19 +5061,20 @@ códigos de saída estão em `/tmp/m2-limpeza-precommit/` (`results.json`).
 | `npm run db:test:ratings` | 0 | 8 blocos ok |
 | `npm run db:test:teams` | 0 | 9 blocos ok |
 | `npm run db:test:refunds` | 0 | 8 blocos ok |
+| `npm run db:test:pix` | 0 | 13 blocos ok |
 | `npm run db:test:geocode` | 0 | 7 blocos ok |
 | `npm run build:web:auth-e2e` | 0 | 43 rotas |
 | `npm run test:auth:web` | 0 | 12 passed / 2 skipped |
 | `npm run test:privacy:web` | 0 | 5 passed / 5 skipped |
 | `npm run test:cors:web` | 0 | 4 passed |
-| `npm run test:groups:web` | 0 | 123 passed / 5 skipped; sem repetição |
-| `npm run test:matches:web` | 1 | 92 passed / 2 failed; causa externa descrita abaixo |
-| `npm run test:qr:web` | 0 | 30 passed, Chromium e WebKit |
+| `npm run test:groups:web` | 0 | 123 passed / 5 skipped |
+| `npm run test:matches:web` | 0 | 96 passed |
+| `npm run test:qr:web` | 0 | 30 passed |
 | `npm run build:web:smoke` | 0 | 43 rotas |
 | `npm run test:smoke:web` | 0 | 6 passed |
-| `npm run verify:app` | 0 | 65 arquivos / 782 unitários; lint, formato, tipos, build de 43 rotas, PWA, Auth e scans |
+| `npm run verify:app` | 0 | 68 arquivos / 808 unitários; lint, formato, tipos, build de 43 rotas, PWA, Auth e scans |
 | `npm run scan:docs` | 0 | 23 documentos; manifesto intacto |
-| `npm run scan:secrets` | 0 | 512 arquivos, zero achados |
+| `npm run scan:secrets` | 0 | 524 arquivos, zero achados |
 | `npm run test:audit` | 0 | 94 passed |
 | `npm run test:staging` | 0 | 102 passed |
 | `npm run audit:high` | 0 | nenhum high/critical fora da 1 exceção ativa |
@@ -5068,42 +5082,34 @@ códigos de saída estão em `/tmp/m2-limpeza-precommit/` (`results.json`).
 
 Os skips existentes são os casos exclusivos de mobile de Auth/privacidade e
 os cinco de `invite-page` no projeto wide. Nenhum skip foi acrescentado.
+A regressão UI-B com a RPC real `get_group_ratings` passou nos dois projetos;
+Pix manual passou 2/2 e Racha completo 54/54 dentro dos 96 testes de rachas.
 
-**Falha fora da fatia.** Em `test:matches:web`, o cenário wide
-“Foco da organização: cancel restaura o destino com foco inicial no body”
-completou seu fluxo, mas `cleanActors` de **`racha-completo.spec.ts:132`** sofreu
-`deadlock detected` ao apagar os perfis. É a limpeza antiga reservada ao #102,
-que não foi alterada. Mais tarde, o caso wide “Rachas: tabs, modal creation
-with confirmed GPS, list and detail with real numbers” falhou na premissa
-`auth.users = 0`, recebendo **2**. Depois de QR, um censo isolado confirmou
-2 usuários, 2 perfis, 1 grupo, 2 memberships, 4 registros idempotentes e 1
-racha; zero participantes e objetos Storage. Logs:
-`/tmp/m2-limpeza-precommit/25.log` e
-`/tmp/m2-limpeza-residue-before-reset.json`. Não houve alteração do arquivo do
-#102 nem tolerância a `40P01` nas limpezas corrigidas.
+**Censo e limpeza da pilha.** Na rodada antes do commit, 28 das 29 tabelas
+consultadas ficaram vazias, incluindo usuários/sessões Auth, perfis, grupos,
+memberships, idempotência, rachas, participantes, notas, times, estornos
+e objetos Storage. Sobrou 1 `job_runs` de
+`process_external_effects`, `succeeded`, sem perfil nem racha: registro criado
+pelo `runWorker` de `fotos.spec.ts`, cuja limpeza não apaga esse log. Esse
+cleanup preexistente não foi ampliado nesta correção. Também restaram 3.626
+eventos GoTrue em `auth.audit_log_entries`, separados das fixtures de domínio.
+O censo bruto foi preservado; depois da validação, `db:reset` (exit 0)
+recriou o banco somente por migrations e o censo confirmou **zero linhas nas
+30 tabelas** (incluindo também `match_payment_secrets`), inclusive `job_runs`,
+e zero eventos Auth. A conferência no commit
+final repete o censo antes do reset e entrega a pilha vazia após esse reset;
+seus valores brutos ficam nos logs, sem apagar a evidência de resíduos.
 
-O banco foi recriado novamente por migrations (`db:reset`, exit 0) para a
-reexecução isolada; o bundle Auth foi reconstruído. As tentativas preparatórias
-anteriores à validação completa também ficaram nos logs: reset/build enquanto
-a pilha ainda não estava pronta, seleção inicial do projeto inexistente
-`chromium` (corrigida para `mobile-chromium`) e servidor iniciado antes de o
-build gravar `.expo/staging-local.json`. A reprodução válida e a tabela acima
-foram executadas depois de resolver essas condições de preparação.
+**Histórico da primeira rodada, anterior aos merges.** Os logs antigos em
+`/tmp/m2-limpeza-precommit/` registraram 92 passed / 2 failed em rachas:
+`40P01` na limpeza de `racha-completo` então reservada ao #102, seguido de falha
+no censo inicial de `rachas-v1` por 2 usuários residuais. Após reset, os dois
+casos isolados passaram e a suíte inteira teve 94 passed. Esse resultado
+histórico não é o da revisão atual: o #102 já entrou na base, e agora os dois
+specs adicionais usam o helper comum. A contraprova original de `40P01`,
+descrita acima, permanece registrada.
 
-**Reexecuções isoladas, sem alteração de código.** Depois do reset, os dois
-casos wide afetados passaram: **2 passed**, exit 0
-(`/tmp/m2-limpeza-isolated-cases.log`). A suíte `npm run test:matches:web`
-inteira foi então repetida isoladamente: **94 passed**, exit 0
-(`/tmp/m2-limpeza-matches-isolated.log`). A falha original continua registrada;
-essa repetição não resolve a limpeza antiga do #102.
-
-**Censo final.** Após essa repetição, 29 tabelas de fixtures/operacionais foram
-consultadas: **zero linhas em todas**, incluindo Auth (usuários, identidades,
-sessões, refresh tokens e flow state), perfis, grupos, memberships, convites,
-idempotência, rachas, participantes, notas, times, estornos, efeitos, pedidos,
-exports, uploads, jobs, retenções e objetos Storage. Restam **857 eventos de
-`auth.audit_log_entries`**, o resíduo GoTrue aceito pelos harnesses existentes;
-não são fixtures de domínio. Log: `/tmp/m2-limpeza-census-final.json`.
-A `main` e `origin/main` continuam em `f5756e6`; somente esta worktree contém
-mudanças. Nenhuma decisão normativa foi necessária. A correção do arquivo
-reservado ao #102 permanece fora desta entrega.
+Somente `e2e/pix-manual.spec.ts`, `e2e/racha-completo.spec.ts` e este documento
+mudaram na correção. Nenhuma decisão normativa foi necessária. O merge
+`e2db4fd` foi preservado; sem push, PR novo ou acesso a Supabase remoto,
+deploy ou serviço de produção.
