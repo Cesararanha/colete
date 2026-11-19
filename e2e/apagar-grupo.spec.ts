@@ -349,10 +349,11 @@ test('the owner deletes the group; members lose it; the organizer has no way to 
         [matchId],
       )
     ).rows[0].id as string;
+    // No refunded_at: the server stamps greatest(now, created_at). A host-clock
+    // instant fails VALIDATION whenever the Docker clock lags behind the host.
     await gateway(request, owner, 'mark_refunded', {
       match_id: matchId,
       refund_id: refundId,
-      refunded_at: new Date().toISOString(),
     });
     await confirm.click();
     expect((await deleted).status()).toBe(200);

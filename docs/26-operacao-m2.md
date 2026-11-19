@@ -3738,6 +3738,50 @@ GHSA-hqq3-7jhf-c5jx, GHSA-5x38-2vff-x55p (node-forge) e GHSA-587h-7wmj-h5pm
 (vite). A fatia não altera arquivos abrangidos pelo gate de dependências da AGENTS §5;
 o resultado é relatado conforme essa seção.
 
+### Relógio do host no teste de apagar grupo (08/11/2026)
+
+`e2e/apagar-grupo.spec.ts` chamava `mark_refunded` com `refunded_at` gerado pelo relógio
+do host. A `0034` recusa com `VALIDATION` um instante posterior a `clock_timestamp()` do
+Postgres ou anterior a `created_at` da devolução. Assim, bastava o relógio da VM do Docker
+atrasar em relação ao host para o teste falhar. Isso ocorreu em 08/11/2026, com 53 ms de
+atraso, nos dois projetos do Playwright, durante a validação dos PRs #99 e #100. O teste
+agora omite `refunded_at`, campo opcional no Edge (docs/13 §3.3.2), e o servidor grava
+`greatest(clock_timestamp(), created_at)`. O cenário só precisa da devolução registrada
+antes de apagar o grupo, então a data não é objeto da prova. A data omitida segue
+coberta por `e2e/racha-completo.spec.ts`, que confere o valor gravado pelo relógio do
+próprio Postgres. A data explícita válida segue coberta por `scripts/test-match-refunds.mjs`,
+que a lê do Postgres (`databaseNow()`). Nenhum outro spec ou harness envia `refunded_at`
+ou `corrected_at` válido gerado pelo relógio do host. O único caso é intencional:
+`e2e/racha-completo.spec.ts` digita uma data 90 s à frente do host para exigir a recusa.
+Uma deriva de milissegundos não muda o resultado esperado.
+
+**Validação**, sob a trava `noite/pilha.lock`, com a pilha iniciada desta branch:
+`db:reset` exit 0; `build:web:auth-e2e` exit 0; o spec isolado teve 4 passed (mobile e
+wide); `test:groups:web` teve 121 passed + 5 skipped. A deriva medida nesta rodada foi de
+cerca de 0 ms, então a versão anterior também passaria aqui; a prova da correção é que o
+servidor deixa de comparar qualquer instante vindo do host.
+
+**Validação completa da AGENTS §5**, pedida pela revisão do Codex (P2), em `214b30a`, sob a
+mesma trava, com a pilha iniciada desta branch: `db:reset` exit 0, recriando somente pelas
+migrations até a `0035`; `db:test` PASS, 33 arquivos e 2.599 testes. Todos os harnesses
+`db:test:idempotency`, `gateway`, `cors`, `worker`, `deletion`, `export`, `invites`,
+`groups`, `membership`, `rename`, `group-deletion`, `photos`, `members`, `matches`,
+`match-players`, `ratings`, `teams`, `refunds` e `geocode` terminaram com exit 0.
+`build:web:auth-e2e` exit 0; auth 12 passed + 2 skipped; privacidade 5 passed + 5 skipped;
+CORS 4 passed; grupos 121 passed + 5 skipped; QR 30 passed; build smoke exit 0 e smoke 6
+passed. `verify:app` exit 0, com 65 arquivos e 782 testes unitários; `scan:docs` e
+`scan:secrets` exit 0 (511 arquivos); `test:audit` 94/94; `test:staging` 102/102;
+`audit:high` exit 0, com uma exceção ativa; `git diff --check` limpo.
+
+`test:matches:web` falhou na primeira rodada, com 92 passed e 2 failed, em testes que este PR
+não toca. Em `racha-completo.spec.ts:1092` (wide), a limpeza do próprio teste deu
+`deadlock detected` ao apagar `public.profiles`. Os dois usuários que sobraram derrubaram o
+censo inicial de `rachas-v1.spec.ts:179`. Depois de `db:reset` e de refazer
+`build:web:auth-e2e`, a repetição no mesmo SHA teve 94 passed. Uma tentativa intermediária
+rodou por engano sobre a build de smoke e não conta. Censo final: zero usuários, perfis,
+grupos e rachas. Pilha local parada e trava removida ao fim. Nenhum projeto Supabase remoto
+ou serviço de produção foi acessado.
+
 ## Registro de operações de idempotência — D63.5, `0033_idempotency_operations.sql` (28/10/2026)
 
 Fatia D63.5 (`09` D63.5; `16` §8 "Pré-M3 — registro de operações"; obrigatória antes do piloto com
