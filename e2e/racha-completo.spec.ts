@@ -453,18 +453,21 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     // own line, and none of the three reads who collects (rev91 P2-1 and P3-2).
     for (const actor of [caio, owner, organizer]) {
       const context = await browser.newContext({ timezoneId: ZONE, colorScheme: 'dark' });
-      contexts.push(context);
-      const page = await context.newPage();
-      let memberReads = 0;
-      page.on('request', (item) => {
-        if (new URL(item.url()).pathname.endsWith('/groups/get_group_members')) memberReads += 1;
-      });
-      await login(page, actor);
-      await page.goto(`/rachas/${matchId}`);
-      await expect(page.getByTestId('match-presence')).toBeVisible();
-      await expect(page.getByTestId('match-confirmed')).toBeVisible();
-      await expect(page.getByTestId('match-pay-notice')).toHaveCount(0);
-      expect(memberReads, `${actor.name} read who collects`).toBe(0);
+      try {
+        const page = await context.newPage();
+        let memberReads = 0;
+        page.on('request', (item) => {
+          if (new URL(item.url()).pathname.endsWith('/groups/get_group_members')) memberReads += 1;
+        });
+        await login(page, actor);
+        await page.goto(`/rachas/${matchId}`);
+        await expect(page.getByTestId('match-presence')).toBeVisible();
+        await expect(page.getByTestId('match-confirmed')).toBeVisible();
+        await expect(page.getByTestId('match-pay-notice')).toHaveCount(0);
+        expect(memberReads, `${actor.name} read who collects`).toBe(0);
+      } finally {
+        await context.close();
+      }
     }
     // The owner, who plays, sees the organisation's summary instead.
     const ownerView = await open(browser, owner, matchId);
@@ -501,9 +504,48 @@ test('Pagamento: the instruction goes only to who is confirmed and not paid', as
     const biaView = await open(browser, bia, matchId);
     contexts.push(biaView.context);
     await expect(biaView.page.getByTestId('match-pay-notice-title')).toHaveText(onlyOwner);
-    await gateway(request, owner, 'cancel_match', { match_id: matchId });
-    await biaView.page.reload();
+    // Read the real roster before cancellation and the real detail after it.
+    // This also proves the roster request does not wait for the detail response.
+    const detailRoute = '**/groups/get_match';
+    const rosterRoute = '**/groups/get_match_roster';
+    const releaseDetail = Promise.withResolvers<void>();
+    const releaseRoster = Promise.withResolvers<void>();
+    let rosterRequests = 0;
+    await biaView.page.route(detailRoute, async (route) => {
+      if (route.request().method() === 'POST') await releaseDetail.promise;
+      await route.continue();
+    });
+    await biaView.page.route(rosterRoute, async (route) => {
+      if (route.request().method() === 'POST' && ++rosterRequests > 1) await releaseRoster.promise;
+      await route.continue();
+    });
+    const rosterRead = handledObserver(
+      biaView.page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          response.url().endsWith('/groups/get_match_roster'),
+        { timeout: 5_000 },
+      ),
+    );
+    try {
+      await biaView.page.reload();
+      const beforeCancel = await rosterRead;
+      expect(beforeCancel.status()).toBe(200);
+      const rosterSnapshot = (await beforeCancel.json()) as { data: { canceled: boolean } };
+      expect(rosterSnapshot.data.canceled).toBe(false);
+      await gateway(request, owner, 'cancel_match', { match_id: matchId });
+      releaseDetail.resolve();
+      await expect(biaView.page.getByTestId('match-fact-when')).toBeVisible();
+      await expect.poll(() => rosterRequests).toBeGreaterThan(1);
+      await expect(biaView.page.getByTestId('match-confirmed')).toHaveCount(0);
+      await expect(biaView.page.getByTestId('match-pay-notice')).toHaveCount(0);
+    } finally {
+      releaseDetail.resolve();
+      releaseRoster.resolve();
+      await biaView.page.unrouteAll({ behavior: 'wait' });
+    }
     await expect(biaView.page.getByTestId('match-confirmed')).toBeVisible();
+    await expect(biaView.page.getByTestId('match-viewer-chip')).toHaveText('Cancelado');
     await expect(biaView.page.getByTestId('match-pay-notice')).toHaveCount(0);
     await anaView.page.reload();
     await expect(anaView.page.getByTestId(/^match-own-refund-/)).toContainText('A devolver');

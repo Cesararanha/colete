@@ -5194,3 +5194,81 @@ falha estão em `precommit-v2/27-test-matches-web-first.log` e
 `precommit-v2/results.jsonl`. A rodada anterior, antes do ajuste de lint, está
 separada em `precommit/` e parou nessa verificação. A validação no SHA publicado
 é registrada no corpo do PR. Sem acesso a ambiente remoto, segredo real ou deploy.
+
+## Carregamento do detalhe do racha na Prova III
+
+A recarga após cancelar o racha disparava `get_match_roster` apenas após a
+resposta de `get_match`. No trace original, o detalhe respondeu em 73 ms e a
+lista começou 4 ms depois da resposta. A lista e a consulta de fotos começaram
+com 2 ms de diferença e levaram 5.218 ms e 5.217 ms, respectivamente. O Kong
+mediu 5.215 ms e 5.213 ms no serviço de destino. A espera de 5.098 ms entre a
+recarga e o fim da asserção terminou com a lista ainda carregando.
+
+O detalhe e a lista agora são solicitados em paralelo usando o ID da rota.
+Cada leitura mantém sua autorização no servidor. Se o detalhe já informa o
+cancelamento e a lista ainda traz dados anteriores, a tela oculta essa lista
+e relê suas informações antes de exibir pagamentos ou devoluções. A confirmação
+do cancelamento e os avisos de gestão continuam montados durante essa releitura.
+Se uma remoção recusa a operação porque o racha já foi cancelado, o foco volta
+para Atualizar. Os controles de edição e cancelamento exigem que as duas
+leituras indiquem um racha ativo.
+
+O cenário fecha os três contextos usados apenas para conferir a ausência da
+instrução logo depois das asserções. A prova recarrega a página com o pedido
+real de detalhe retido, recebe a lista antes do cancelamento, cancela o racha
+e libera o detalhe. Enquanto a segunda solicitação da lista está retida,
+confere que a lista antiga e a instrução ficam ocultas. Em seguida exige a
+lista visível com o estado Cancelado.
+
+### Medição
+
+Cinco execuções por versão, com Node 24.20.0, Chromium desktop e o cenário
+original de cancelamento antes da recarga. O Playwright gravou traces com os
+limites padrão.
+
+| Mediana | Base `a438d0d` | Com a mudança no cliente |
+| --- | ---: | ---: |
+| Da recarga ao disparo do detalhe | 68 ms | 68 ms |
+| Entre os disparos do detalhe e da lista | 34 ms | 0 ms |
+| Requisição da lista | 31 ms | 30 ms |
+| Da recarga à aprovação da asserção de lista visível | 148 ms | 147 ms |
+| Cenário completo | 10.162 ms | 8.185 ms |
+
+Os dois lotes passaram 5/5. Com instrumentação temporária na pilha descartável,
+o trecho da Edge que autentica e despacha a lista teve mediana de 26 ms e
+máximo de 727 ms em 200 chamadas. O transporte da Edge até a RPC e de volta
+teve mediana de 2 ms e máximo de 11 ms. A amostra em `pg_stat_statements`
+registrou máximo de 0,16 ms para a execução da consulta da RPC da lista. O pico
+de 5,2 s do trace original não voltou nessas rodadas, portanto a origem exata
+da espera dentro da pilha local continua em aberto.
+
+Durante a bateria de grupos, a sondagem paralela de `/auth/v1/health` e
+`select 1` registrou 2.284 ms no Auth e 2.255 ms no Postgres na mesma amostra.
+Em outra amostra, o Auth excedeu 15 s e a conexão ao Postgres excedeu 5 s.
+Isso confirmou lentidão em outras partes da pilha local. Os testes de sorteio,
+CORS e grupos também registraram respostas 504 do Auth ao preparar contas
+fictícias.
+
+### Revalidação local
+
+Na versão final, o cenário de pagamento desktop passou em três repetições com
+os limites padrão. A contraprova com o cliente serial falhou após 5 s, enquanto
+o teste aguardava o POST da lista com o pedido de detalhe retido. Os seis
+cenários de recusa de gestão por cancelamento passaram nos dois projetos
+Chromium com o foco restaurado.
+
+A suíte de rachas teve 94 casos aprovados na execução completa. Os dois casos
+restantes, criação com GPS e sorteio no Chromium desktop, passaram na
+reexecução com os limites padrão. O censo final registrou zero usuários,
+perfis, grupos, rachas e registros de idempotência.
+
+O banco foi recriado pelas migrations. Passaram 2.793 verificações pgTAP em
+34 arquivos e os 20 harnesses de integração. Convites passaram em 25 s. Sorteio,
+em 29 s após recriar o banco que tinha quatro contas deixadas por um timeout
+na conexão de limpeza. Geocodificação passou em 36 s na reexecução. No
+navegador, os resultados finais foram 14 aprovados e 2 omissões em autenticação,
+5 e 5 em privacidade, 4 aprovados em CORS, 125 e 5 em grupos, 30 aprovados em QR
+e 10 no smoke do PWA. Os 11 casos de grupos que falharam na primeira rodada
+passaram na reexecução. `verify:app` passou com 808 testes unitários. Também
+passaram os 102 testes de staging local e os 94 testes das regras de auditoria.
+A auditoria do npm registrou zero alertas altos ou críticos.

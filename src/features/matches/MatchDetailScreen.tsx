@@ -562,17 +562,17 @@ function Rosters({
   /** The price per player, for the payment instruction. */
   price: number;
   profileId: string;
-  roster: MatchRoster;
+  roster: MatchRoster | undefined;
   timezone: string;
 }) {
   const { colors } = useTheme();
   const actions = useMatchActions(profileId);
   // The organization sees how many confirmed still have no rating (0031): the
   // draw will not run without them. Players never get this read.
-  const ratings = useGroupRatings(profileId, groupId, roster.viewer.can_manage && !roster.canceled);
-  const unrated = unratedAmong(
-    ratings.data?.members,
-    roster.confirmed.map((entry) => entry.profile_id),
+  const ratings = useGroupRatings(
+    profileId,
+    groupId,
+    roster?.viewer.can_manage === true && !roster.canceled,
   );
   const [message, setMessage] = useState('');
   const {
@@ -583,8 +583,9 @@ function Rosters({
   } = usePlayerManagementFeedback();
   // The lists retain the refusal when its action/row disappears. Cancellation
   // supersedes an earlier start refusal; new intents and dismissal clear it.
+  const canceled = roster?.canceled ?? true;
   const playerErrorMessage =
-    playerError instanceof AppError && playerError.code === 'MATCH_STARTED' && roster.canceled
+    playerError instanceof AppError && playerError.code === 'MATCH_STARTED' && canceled
       ? ''
       : playerError instanceof AppError && playerError.code === 'NOT_FOUND'
         ? pt.matchPlayers.unavailable
@@ -594,11 +595,34 @@ function Rosters({
             ? matchErrorMessage(playerError)
             : '';
   const [expanded, setExpanded] = useState(false);
-  const manage = roster.viewer.can_manage;
-  const summary = roster.payment_summary;
   // One mark at a time (the hook runs one action): the row being saved says
   // so, and the others wait with the reason instead of ignoring the press (HX-002).
   const [saving, setSaving] = useState<{ id: string; name: string } | null>(null);
+  const feedback = (
+    <>
+      <AppAlert message={playerErrorMessage} testID="match-player-error" />
+      {playerErrorMessage ? (
+        <AppButton
+          label={pt.matchPlayers.dismiss}
+          testID="match-player-error-dismiss"
+          variant="tertiary"
+          onPress={() => {
+            setPlayerError(null);
+            focusGroupControl('match-refresh-button');
+          }}
+        />
+      ) : null}
+    </>
+  );
+  // Keep the management feedback and its pending focus restoration while the
+  // screen waits for a roster that includes the cancellation.
+  if (!roster) return <>{feedback}</>;
+  const manage = roster.viewer.can_manage;
+  const summary = roster.payment_summary;
+  const unrated = unratedAmong(
+    ratings.data?.members,
+    roster.confirmed.map((entry) => entry.profile_id),
+  );
   const mark = (entry: MatchRosterEntry, paid: boolean) => {
     if (entry.profile_id === null || saving !== null || actions.pending) return;
     const target = entry.profile_id;
@@ -617,18 +641,7 @@ function Rosters({
   const shown = collapsible && !expanded ? roster.confirmed.slice(0, COLLAPSED) : roster.confirmed;
   return (
     <>
-      <AppAlert message={playerErrorMessage} testID="match-player-error" />
-      {playerErrorMessage ? (
-        <AppButton
-          label={pt.matchPlayers.dismiss}
-          testID="match-player-error-dismiss"
-          variant="tertiary"
-          onPress={() => {
-            setPlayerError(null);
-            focusGroupControl('match-refresh-button');
-          }}
-        />
-      ) : null}
+      {feedback}
       <AddMatchPlayer
         groupId={groupId}
         matchId={matchId}
@@ -925,11 +938,19 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
   });
   const match = detail.data ?? undefined;
   const rosterQuery = useQuery({
-    enabled: match !== undefined,
+    // Both reads use the route ID and check membership on the server.
+    enabled: detail.isPending || match !== undefined,
     queryKey: [PRIVATE_QUERY_ROOT, 'matches', profile.id, matchId, 'roster'],
     queryFn: ({ signal }) => api.getMatchRoster(matchId, signal),
     refetchInterval,
   });
+  const { data: rosterData, refetch: refetchRoster } = rosterQuery;
+  const needsCanceledRoster = match?.canceled === true && rosterData?.canceled === false;
+  const roster = match === undefined || needsCanceledRoster ? undefined : rosterData;
+  useEffect(() => {
+    // The roster can arrive from before a cancellation already seen by the detail.
+    if (needsCanceledRoster) void refetchRoster();
+  }, [matchId, needsCanceledRoster, refetchRoster]);
   // The teams' state, for "Atualizado às": MatchTeams reads them on its own
   // interval; this observer never reads, it only follows (rev89 P3-3).
   const teamsQuery = useQuery({
@@ -937,7 +958,6 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
     queryKey: matchTeamsQueryKey(profile.id, matchId),
     queryFn: ({ signal }) => api.getMatchTeams(matchId, signal),
   });
-  const roster = rosterQuery.data;
   const pixQuery = useMatchPix(
     profile.id,
     matchId,
@@ -961,6 +981,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
     roster !== undefined &&
     roster.viewer.can_manage &&
     !match.canceled &&
+    !roster.canceled &&
     !ended;
   const back = {
     label: pt.navigation.matches,
@@ -1058,7 +1079,7 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
             testID="match-refresh"
           />
           <Place match={match} />
-          {rosterQuery.isPending ? (
+          {rosterQuery.isPending || (needsCanceledRoster && !rosterQuery.isError) ? (
             <AsyncNotice kind="loading" message={pt.common.loading} />
           ) : null}
           {/* Over a list already shown, a failed read is said in LiveRefresh (rev89 P3-2). */}
@@ -1076,20 +1097,22 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
               />
             </>
           ) : null}
+          {roster ? <Presence matchId={matchId} profileId={profile.id} roster={roster} /> : null}
+          {rosterData ? (
+            <Rosters
+              key={matchId}
+              hasTeams={teamsQuery.data?.team_count != null}
+              ended={ended}
+              groupId={match.group_id}
+              matchId={matchId}
+              price={Number(match.field_price)}
+              profileId={profile.id}
+              roster={roster}
+              timezone={match.timezone}
+            />
+          ) : null}
           {roster ? (
             <>
-              <Presence matchId={matchId} profileId={profile.id} roster={roster} />
-              <Rosters
-                key={matchId}
-                hasTeams={teamsQuery.data?.team_count != null}
-                ended={ended}
-                groupId={match.group_id}
-                matchId={matchId}
-                price={Number(match.field_price)}
-                profileId={profile.id}
-                roster={roster}
-                timezone={match.timezone}
-              />
               {roster.viewer.can_manage && !roster.canceled ? (
                 <>
                   <ReadNotice query={pixQuery} />
@@ -1122,17 +1145,18 @@ export function MatchDetailScreen({ matchId, profile }: { matchId: string; profi
                   ) : null}
                 </>
               ) : null}
-              {roster.viewer.can_manage ? (
-                <CancelMatch
-                  roster={roster}
-                  price={Number(match.field_price)}
-                  date={matchDateTitle(match.starts_at, match.timezone)}
-                  manageable={manageable}
-                  matchId={matchId}
-                  profileId={profile.id}
-                />
-              ) : null}
             </>
+          ) : null}
+          {/* Keep the cancellation result mounted while the roster catches up. */}
+          {rosterData?.viewer.can_manage ? (
+            <CancelMatch
+              roster={rosterData}
+              price={Number(match.field_price)}
+              date={matchDateTitle(match.starts_at, match.timezone)}
+              manageable={manageable}
+              matchId={matchId}
+              profileId={profile.id}
+            />
           ) : null}
         </>
       ) : null}
